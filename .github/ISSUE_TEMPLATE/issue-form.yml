@@ -1,0 +1,49 @@
+name: 📋 이슈 템플릿
+description: 새로운 이슈를 등록합니다.
+title: "[TYPE] "
+labels: []
+assignees: []
+
+body:
+  - type: checkboxes
+    id: issue-type
+    attributes:
+      label: 📌 이슈 종류
+      description: 해당하는 항목에 체크해주세요.
+      options:
+        - label: ✨ 기능 추가 (Feature)
+        - label: 🐛 버그 수정 (Bug)
+        - label: ♻️ 리팩토링 (Refactor)
+        - label: 📝 문서 작업 (Docs)
+        - label: 🔧 기타 (Chore)
+    validations:
+      required: true
+
+  - type: textarea
+    id: description
+    attributes:
+      label: 📝 작업 내용
+      description: 작업할 내용을 작성해주세요.
+      placeholder: 작업 내용을 입력하세요...
+    validations:
+      required: true
+
+  - type: textarea
+    id: checklist
+    attributes:
+      label: ✅ 체크리스트
+      description: 진행할 세부 작업을 작성해주세요.
+      value: |
+        - [ ] Task 1
+        - [ ] Task 2
+        - [ ] Task 3
+    validations:
+      required: false
+
+  - type: textarea
+    id: references
+    attributes:
+      label: 💬 참고 사항
+      description:
+    validations:
+      required: false
