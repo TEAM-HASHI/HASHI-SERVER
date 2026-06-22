@@ -1,10 +1,10 @@
-package org.sopt.siksa;
+package org.sopt.hashi;
 
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.test.context.SpringBootTest;
 
 @SpringBootTest
-class SiKsaApplicationTests {
+class HashiApplicationTests {
 
     @Test
     void contextLoads() {

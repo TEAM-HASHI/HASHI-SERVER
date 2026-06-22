@@ -1,13 +1,13 @@
-package org.sopt.siksa;
+package org.sopt.hashi;
 
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
 
 @SpringBootApplication
-public class SiKsaApplication {
+public class HashiApplication {
 
     public static void main(String[] args) {
-        SpringApplication.run(SiKsaApplication.class, args);
+        SpringApplication.run(HashiApplication.class, args);
     }
 
 }

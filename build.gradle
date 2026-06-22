@@ -6,7 +6,7 @@ plugins {
 
 group = 'org.sopt'
 version = '0.0.1-SNAPSHOT'
-description = 'SiKSA'
+description = 'HASHI'
 
 java {
     toolchain {
