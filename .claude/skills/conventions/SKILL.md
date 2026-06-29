@@ -30,7 +30,6 @@ Read: docs/conventions/00-index.md
 | 테스트 작성(모듈 단위·구조 검증) | `testing.md` |
 
 인덱스 하단의 "빠른 참조" 섹션도 활용한다.
-(아직 작성되지 않은 문서는 인덱스에서 "(예정)"으로 표시되어 있으며, 그 경우 `architecture.md`의 관련 규칙을 따른다.)
 
 ## Step 3 — 컨벤션 적용 및 자가 검증
 
@@ -42,5 +41,5 @@ Read: docs/conventions/00-index.md
 - [ ] 모듈 간 순환 의존·FK·조인이 없는가, 의존 방향이 단방향(도메인→shared)인가 (`architecture.md` §5·부록)
 - [ ] 공통 코드를 `shared`에 둘 때 도메인 지식이 없는 틀·계약·VO만 넣었는가 (`architecture.md` §4)
 - [ ] 도메인 에러·성공 코드를 각 모듈 `code/`에서 shared 인터페이스로 구현했는가 (`error-handling.md`)
-- [ ] 인증이 필요한 API에서 `auth`를 import하지 않고 `CurrentUserProvider`로 현재 사용자를 조회했는가 (`auth.md`)
+- [ ] 인증이 필요한 API에서 `auth.internal`을 import하지 않고 shared로 공개된 `CurrentUserProvider`로 현재 사용자를 조회했는가 (`auth.md`)
 - [ ] 모듈 단위 테스트(`@ApplicationModuleTest`)와 구조 검증(`verify()`/ArchUnit)을 작성·통과했는가 (`testing.md`)
