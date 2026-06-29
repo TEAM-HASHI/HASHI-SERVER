@@ -9,7 +9,7 @@
 
 | 요소 | 위치 | 비고 |
 | --- | --- | --- |
-| 응답 봉투 `BaseResponse`/`SuccessResponse`/`ErrorResponse` | `shared/response` | 모든 API 공통 틀 |
+| 응답 봉투 `BaseResponse`/`SuccessResponse`/`ErrorResponse`/`FieldError` | `shared/response` | 모든 API 공통 틀 |
 | 코드 계약 `BaseCode`/`ErrorCode`/`SuccessCode` | `shared/error` | 인터페이스(계약)만 |
 | 공통 에러 `CommonErrorCode` | `shared/error` | 도메인 무관(400/401/403/404/500 등) |
 | `BusinessException` | `shared/error` | 비즈니스 예외 |
@@ -24,11 +24,11 @@
 ## 2. 코드 계약 (shared/error)
 
 ```java
-// 모든 코드의 공통 계약
+// 모든 코드의 공통 계약 (구현 enum은 Lombok @Getter로 getter 노출)
 public interface BaseCode {
-    String code();        // 예: "RESERVATION-001"
-    String message();
-    HttpStatus status();
+    String getCode();         // 예: "RESERVATION-001"
+    String getMessage();
+    HttpStatus getStatus();
 }
 public interface ErrorCode extends BaseCode {}
 public interface SuccessCode extends BaseCode {}
@@ -36,13 +36,18 @@ public interface SuccessCode extends BaseCode {}
 
 ```java
 // 도메인 무관 공통 에러
+@Getter
 public enum CommonErrorCode implements ErrorCode {
     INVALID_INPUT(HttpStatus.BAD_REQUEST,           "COMMON-400", "잘못된 요청입니다"),
     UNAUTHORIZED (HttpStatus.UNAUTHORIZED,          "COMMON-401", "인증이 필요합니다"),
     FORBIDDEN    (HttpStatus.FORBIDDEN,             "COMMON-403", "권한이 없습니다"),
     NOT_FOUND    (HttpStatus.NOT_FOUND,             "COMMON-404", "리소스를 찾을 수 없습니다"),
     INTERNAL     (HttpStatus.INTERNAL_SERVER_ERROR, "COMMON-500", "서버 오류입니다");
-    // status·code·message 필드 + 생성자
+
+    private final HttpStatus status;   // @Getter → getStatus()
+    private final String code;         // @Getter → getCode()
+    private final String message;      // @Getter → getMessage()
+    // 생성자
 }
 ```
 
@@ -56,6 +61,7 @@ public enum CommonErrorCode implements ErrorCode {
 
 ```java
 // reservation/code/ReservationErrorCode.java
+@Getter
 public enum ReservationErrorCode implements ErrorCode {
     NOT_FOUND        (HttpStatus.NOT_FOUND, "RESERVATION-001", "예약을 찾을 수 없습니다"),
     ALREADY_CANCELED (HttpStatus.CONFLICT,  "RESERVATION-002", "이미 취소된 예약입니다"),
@@ -88,8 +94,8 @@ public enum ReservationErrorCode implements ErrorCode {
 // shared/error/BusinessException.java
 public class BusinessException extends RuntimeException {
     private final ErrorCode errorCode;
-    public BusinessException(ErrorCode c) { super(c.message()); this.errorCode = c; }
-    public ErrorCode errorCode() { return errorCode; }
+    public BusinessException(ErrorCode c) { super(c.getMessage()); this.errorCode = c; }
+    public ErrorCode getErrorCode() { return errorCode; }
 }
 
 // 던지는 쪽 (도메인 service)
@@ -102,17 +108,22 @@ if (reservation.isCanceled())
 @RestControllerAdvice
 class GlobalExceptionHandler {
     @ExceptionHandler(BusinessException.class)
-    ResponseEntity<ErrorResponse> handle(BusinessException e) {
-        ErrorCode c = e.errorCode();
-        return ResponseEntity.status(c.status()).body(ErrorResponse.of(c));
+    ResponseEntity<ErrorResponse> handle(BusinessException e, HttpServletRequest req) {
+        ErrorCode c = e.getErrorCode();
+        return ResponseEntity.status(c.getStatus()).body(ErrorResponse.of(c, req.getRequestURI()));
     }
     @ExceptionHandler(MethodArgumentNotValidException.class)
-    ResponseEntity<ErrorResponse> handle(MethodArgumentNotValidException e) {
-        return ResponseEntity.badRequest().body(ErrorResponse.of(CommonErrorCode.INVALID_INPUT));
+    ResponseEntity<ErrorResponse> handle(MethodArgumentNotValidException e, HttpServletRequest req) {
+        List<ErrorResponse.FieldError> errors = e.getBindingResult().getFieldErrors().stream()
+                .map(fe -> new ErrorResponse.FieldError(fe.getField(), fe.getRejectedValue(), fe.getDefaultMessage()))
+                .toList();
+        return ResponseEntity.status(CommonErrorCode.INVALID_INPUT.getStatus())
+                .body(ErrorResponse.of(CommonErrorCode.INVALID_INPUT, req.getRequestURI(), errors));
     }
     @ExceptionHandler(Exception.class)
-    ResponseEntity<ErrorResponse> handle(Exception e) {
-        return ResponseEntity.status(500).body(ErrorResponse.of(CommonErrorCode.INTERNAL));
+    ResponseEntity<ErrorResponse> handle(Exception e, HttpServletRequest req) {
+        return ResponseEntity.status(CommonErrorCode.INTERNAL.getStatus())
+                .body(ErrorResponse.of(CommonErrorCode.INTERNAL, req.getRequestURI()));
     }
 }
 ```
@@ -121,8 +132,13 @@ class GlobalExceptionHandler {
 
 ## 5. 응답 봉투
 
-- **MUST**: 모든 API 응답은 `SuccessResponse`/`ErrorResponse`로 감싼다.
+- **MUST**: 모든 API 응답은 `SuccessResponse`/`ErrorResponse`로 감싼다. 둘 다 `sealed interface BaseResponse`(=`success`/`code`/`message`)를 구현한다.
+- **MUST**: 응답 바디에 `HttpStatus`를 넣지 않는다. 상태 코드는 `ResponseEntity`가 전달하므로 바디에 중복하지 않는다.
 - **MUST**: 성공 응답의 알맹이(도메인 DTO)는 각 모듈 `dto/`의 `<Context>Response`다.
+- **MUST**: 성공·실패 응답 모두 `data` 필드를 **항상 노출**한다(없으면 `null`). 실패 응답의 `data`는 **항상 `null`**이다(성공/실패 형태 일관성).
+- **MUST**: 실패 응답에는 `timestamp`(ISO-8601)·`path`(요청 경로)를 포함하고, **검증 실패 시** `errors`(필드 단위 `FieldError` 목록)를 채운다. 검증 외 일반 에러는 `errors`를 내려보내지 않는다.
+- **MUST**: `data`를 제외한 `null` 필드는 직렬화에서 제외한다 — `ErrorResponse`에 **클래스 단위 `@JsonInclude(NON_NULL)`**, `data` 필드에만 **`@JsonInclude(ALWAYS)`**를 붙인다(`data`는 `null`이어도 항상 노출, `errors`는 `null`이면 자동 생략).
+- **MUST NOT**: `SuccessResponse`에는 클래스 단위 `NON_NULL`을 적용하지 않는다(성공 응답 `data`도 `null`이어도 항상 노출).
 
 ```java
 // 컨트롤러
@@ -133,15 +149,43 @@ SuccessResponse<RestaurantResponse> get(@PathVariable Long id) {
 ```
 
 ```java
-// shared/response (sealed로 봉인)
-public sealed interface BaseResponse permits SuccessResponse, ErrorResponse {}
+// shared/response — 응답 객체 최상위 인터페이스(레코드 아님). SuccessResponse·ErrorResponse만 구현(sealed).
+// HttpStatus는 ResponseEntity가 전달하므로 응답 바디에 두지 않는다(중복 방지).
+public sealed interface BaseResponse permits SuccessResponse, ErrorResponse {
+    boolean success();
+    String code();
+    String message();
+}
+
+// 성공: data는 null이어도 항상 노출 (클래스 단위 NON_NULL 미적용)
 public record SuccessResponse<T>(boolean success, String code, String message, T data)
         implements BaseResponse {
-    public static <T> SuccessResponse<T> of(T data) { return new SuccessResponse<>(true, "COMMON-200", "성공", data); }
-    public static <T> SuccessResponse<T> of(SuccessCode c, T data) { return new SuccessResponse<>(true, c.code(), c.message(), data); }
+    public static <T> SuccessResponse<T> of(T data) { return new SuccessResponse<>(true, "COMMON-200", "요청에 성공했습니다.", data); }
+    public static <T> SuccessResponse<T> of(SuccessCode c, T data) { return new SuccessResponse<>(true, c.getCode(), c.getMessage(), data); }
 }
-public record ErrorResponse(boolean success, String code, String message) implements BaseResponse {
-    public static ErrorResponse of(ErrorCode c) { return new ErrorResponse(false, c.code(), c.message()); }
+
+// 실패: data 제외 null 필드는 생략(클래스 NON_NULL), data만 ALWAYS로 항상 노출
+@JsonInclude(JsonInclude.Include.NON_NULL)
+public record ErrorResponse(
+        boolean success,
+        String code,
+        String message,
+        @JsonInclude(JsonInclude.Include.ALWAYS)
+        Object data,                                   // 항상 null이지만 ALWAYS로 노출
+        LocalDateTime timestamp,
+        String path,
+        List<FieldError> errors                        // 검증 실패 시에만 채움, null이면 클래스 규칙으로 생략
+) implements BaseResponse {
+
+    // 필드 단위 검증 에러 (도메인 무관 — shared에 둠)
+    public record FieldError(String field, Object rejectedValue, String reason) {}
+
+    public static ErrorResponse of(ErrorCode c, String path) {
+        return new ErrorResponse(false, c.getCode(), c.getMessage(), null, LocalDateTime.now(), path, null);
+    }
+    public static ErrorResponse of(ErrorCode c, String path, List<FieldError> errors) {
+        return new ErrorResponse(false, c.getCode(), c.getMessage(), null, LocalDateTime.now(), path, errors);
+    }
 }
 ```
 
@@ -154,3 +198,5 @@ public record ErrorResponse(boolean success, String code, String message) implem
 - [ ] 비즈니스 위반을 `BusinessException(ErrorCode)`로 던지는가
 - [ ] 컨트롤러/서비스에서 에러 응답을 직접 만들지 않고 `GlobalExceptionHandler`에 위임하는가
 - [ ] 응답을 `SuccessResponse`/`ErrorResponse`로 감쌌는가
+- [ ] 실패 응답에 `data`(항상 null)·`timestamp`·`path`가 있고, 검증 실패 시 `errors`(FieldError)를 채우는가
+- [ ] `ErrorResponse`에 클래스 단위 `@JsonInclude(NON_NULL)`을 걸고 `data` 필드에만 `@JsonInclude(ALWAYS)`를 붙여, `data`는 항상 노출되고 그 외 `null`(예: `errors`)은 생략되는가
