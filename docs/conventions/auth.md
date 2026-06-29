@@ -11,7 +11,7 @@
 - **MUST**: 인증 **강제**(요청 차단)는 Spring Security **필터 체인**이 담당한다. 도메인 모듈은 인증 로직을 갖지 않는다.
 - **MUST NOT**: 도메인 모듈이 `auth`의 `internal`(JWT·OAuth·필터 등)을 import하지 않는다.
 - **MUST**: 도메인에서 "현재 로그인 사용자"가 필요하면 **`CurrentUserProvider`** 로 읽는다.
-- 의존 방향: `auth → user` (단방향). 그 외 도메인은 auth에 의존하지 않는다.
+- 의존 방향: `auth → user` (단방향). 도메인 모듈은 `auth.internal`에 의존하지 않으며, 현재 사용자 조회가 필요하면 shared로 공개된 `CurrentUserProvider`만 사용한다(이것이 도메인이 auth에 의존하는 유일한 지점).
 
 ---
 
@@ -52,7 +52,7 @@ auth/
    ├─ KakaoOAuthClient · UserAuthService          # 유저 카카오 OAuth → JWT
    ├─ SmsVerificationService · SmsClient           # 가입 시 SMS 전화번호 인증
    ├─ Admin · AdminAuthService                     # 어드민 ID/PW 로그인
-   ├─ JwtProvider · JwtAuthenticationFilter · RefreshTokenStore(Redis)
+   ├─ JwtProvider · JwtAuthenticationFilter · SecurityConfig · RefreshTokenStore(Redis)
    └─ AuthController · SignUpController · AdminAuthController
 ```
 
