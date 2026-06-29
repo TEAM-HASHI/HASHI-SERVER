@@ -113,7 +113,7 @@ chore/#{이슈번호}/{주제}       예: chore/#7/gitignore-update
 
 ### 규칙
 
-- `feat → main` 머지 **금지** (`feat → develop`)
+- 작업 브랜치(`feat`·`docs`·`init`·`chore`)는 `main` 직접 머지 **금지** (→ `develop`). `release`·`hotfix`만 `main`에 머지(+`develop` 역머지)
 - 작업 전 항상 `git pull`
 - 한 브랜치 = 하나의 기능
 - 머지된 브랜치는 즉시 삭제
