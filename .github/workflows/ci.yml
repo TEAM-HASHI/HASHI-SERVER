@@ -7,11 +7,58 @@ on:
 
 permissions:
   contents: read
+  pull-requests: read
 
 jobs:
+  validate-convention:
+    name: Validate PR Convention
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Validate branch name
+        run: |
+          BRANCH_NAME="${{ github.head_ref }}"
+          BRANCH_REGEX='^(feat|fix|chore|docs|refactor|test|init|hotfix)/#[0-9]+/[a-z0-9-]+$|^release/[0-9]+\.[0-9]+\.[0-9]+$'
+
+          echo "Branch name: ${BRANCH_NAME}"
+
+          if [[ ! "${BRANCH_NAME}" =~ ${BRANCH_REGEX} ]]; then
+            echo "❌ 브랜치명이 팀 컨벤션에 맞지 않습니다."
+            echo "허용 예시:"
+            echo "- feat/#12/kakao-login"
+            echo "- fix/#13/login-error"
+            echo "- chore/#4/cicd-dev-deploy"
+            echo "- docs/#8/api-docs"
+            echo "- release/1.0.0"
+            exit 1
+          fi
+
+          echo "✅ 브랜치명 컨벤션 통과"
+
+      - name: Validate PR title
+        run: |
+          PR_TITLE="${{ github.event.pull_request.title }}"
+          TITLE_REGEX='^(feat|fix|docs|refactor|perf|test|build|ci|chore|revert)(\([a-z0-9-]+\))?: .+ \(#[0-9]+\)$'
+
+          echo "PR title: ${PR_TITLE}"
+
+          if [[ ! "${PR_TITLE}" =~ ${TITLE_REGEX} ]]; then
+            echo "❌ PR 제목이 팀 컨벤션에 맞지 않습니다."
+            echo "형식:"
+            echo "- type(scope): 작업 내용 (#이슈번호)"
+            echo "예시:"
+            echo "- ci(github): PR 빌드 검증 워크플로우 추가 (#4)"
+            echo "- feat(auth): 카카오 로그인 추가 (#12)"
+            echo "- fix(reservation): 예약 상태 변경 오류 수정 (#15)"
+            exit 1
+          fi
+
+          echo "✅ PR 제목 컨벤션 통과"
+
   build:
     name: Build and Test
     runs-on: ubuntu-latest
+    needs: validate-convention
 
     steps:
       - name: Checkout source code
