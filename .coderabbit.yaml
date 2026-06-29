@@ -1,0 +1,299 @@
+# yaml-language-server: $schema=https://coderabbit.ai/integrations/schema.v2.json
+# 참고: https://docs.coderabbit.ai/getting-started/yaml-configuration
+#
+# HASHI — Java 21 · Spring Boot 3.5 · Spring Modulith 모듈러 모놀리스
+# base 패키지: org.sopt.hashi / 컨벤션 원문: docs/conventions/
+
+language: "ko-KR"
+
+reviews:
+  profile: "assertive"
+  request_changes_workflow: false
+  high_level_summary: true
+  high_level_summary_instructions: |
+    변경 사항을 한국어로 간결하게 요약한다.
+    어떤 도메인 모듈(restaurant/review/reservation/point/magazine/user/support, 또는 auth/admin/shared)이
+    영향을 받는지, 모듈 경계(<Context>Port·발행 이벤트)나 shared 공유 커널이 변경됐는지를 중심으로 서술한다.
+  poem: false
+  review_status: true
+  collapse_walkthrough: true
+  changed_files_summary: true
+  sequence_diagrams: true
+  auto_review:
+    enabled: true
+    drafts: false
+    auto_incremental_review: true
+    base_branches:
+      - "develop"
+      - "main"
+    ignore_title_keywords:
+      - "WIP"
+      - "Chore"
+      - "Docs"
+
+  # ──────────────────────────────────────────────
+  # 전역 리뷰 지침
+  # ──────────────────────────────────────────────
+  instructions: |
+    이 프로젝트(HASHI)는 Java 21 + Spring Boot + Spring Modulith 기반의 모듈러 모놀리스다.
+    단일 Gradle 모듈이며, "모듈"은 base 패키지 org.sopt.hashi 하위의 패키지 경계를 의미한다.
+    모든 리뷰 코멘트는 한국어로 작성한다.
+
+    ## 모듈 구조 (애그리거트 경계)
+    - 도메인 컨텍스트(7): restaurant · review · reservation · point · magazine · user · support
+    - 횡단: auth / 진입점: admin / 공유 커널: shared(@ApplicationModule(type = OPEN))
+    - 모듈 경계는 기술 계층(controller/service/repository)이 아니라 애그리거트(비즈니스 능력+트랜잭션 일관성)로 나눈다.
+    - common / core / util / global 같은 잡동사니 공통 패키지를 만들면 반드시 지적한다.
+    - 자식 엔티티(메뉴·사진·카드 등)는 별도 모듈이 아니라 애그리거트 루트가 소유한다.
+
+    ## 모듈 내부 레이아웃 (각 도메인 모듈 고정)
+    - <Context>Port      : 모듈 간 공개 포트(통합 1개)
+    - <Context>Info      : 모듈 간 전달 DTO
+    - code/              : 도메인 ErrorCode/SuccessCode (shared 인터페이스 구현)
+    - domain/            : 엔티티·Repository(애그리거트)
+    - service/           : 비즈니스 로직
+    - dto/               : Request/Response DTO(record)
+    - web/               : Controller
+    - event/             : 구독 리스너(발행 이벤트는 모듈 루트에 공개)
+    - 외부 공개 지점은 <Context>Port / <Context>Info / 발행 이벤트뿐이다. domain·service·dto·web은 모듈 내부 구현이다.
+    - 복합 컨텍스트는 하위 도메인 패키지(support/inquiry, support/notice, user/bookmark)를 둘 수 있으나, 모듈 공개 지점은 여전히 <Context>Port로 단일화한다.
+
+    ## 모듈 간 통신
+    - 모듈 간 동기 호출은 상대 모듈의 <Context>Port(포트 인터페이스)로만 한다.
+    - 다른 모듈의 domain·service·Repository·엔티티를 직접 import/호출하면 지적한다.
+    - 모듈 간 DB 조인 / 외래키(FK)로 묶지 않는다. JPA에서는 타 모듈 엔티티를 @ManyToOne/@OneToMany/@JoinColumn으로 직접 참조하지 말고, 타 도메인 식별자는 Long id 값으로만 보관한다.
+    - 모듈 간 순환 의존(직접·간접)을 만들지 않는다. 역방향이 필요하면 이벤트로 해결한다.
+    - 타 도메인 목록 보유 시: 매핑 테이블은 소유 모듈 애그리거트의 자식으로 두고, 타 도메인 키는 Long id로만, 상세는 상대 <Context>Port로 enrich한다(예: 매거진→식당 관련 식당, user→restaurant/magazine 찜).
+    - 이벤트 구독은 @ApplicationModuleListener로 처리하고, 핸들러는 멱등(idempotent)하게 작성한다.
+
+    ## shared (공유 커널)
+    - shared에는 도메인 지식이 없는 틀·계약·VO만 둔다(BaseResponse/ErrorCode 계약/BusinessException/GlobalExceptionHandler/Money 등).
+    - 특정 도메인을 아는 타입(RestaurantDto, User, ReservationStatus 등)이나 도메인 코드 enum을 shared에 두면 지적한다.
+    - 의존 방향은 도메인 → shared 단방향. shared가 도메인 모듈을 import하면 반드시 지적한다.
+
+    ## 예외 / 응답
+    - 코드 계약(BaseCode/ErrorCode/SuccessCode), CommonErrorCode, BusinessException, GlobalExceptionHandler는 shared에 둔다.
+    - 코드 계약·BusinessException은 @Getter 스타일(getCode/getMessage/getStatus, getErrorCode).
+    - 도메인 코드(<Context>ErrorCode/<Context>SuccessCode)는 각 모듈 code/에서 shared 인터페이스를 구현하고,
+      코드 문자열에 도메인 prefix(<CONTEXT>-NNN, 예: RESERVATION-001)를 붙인다.
+    - 비즈니스 위반은 BusinessException(ErrorCode)으로 던진다. 컨트롤러/서비스에서 ResponseEntity로 에러를 직접 만들지 않는다.
+    - 모든 API 응답은 SuccessResponse/ErrorResponse로 감싼다. 엔티티를 직접 노출하지 않고 <Context>Response(record)로 변환한다.
+    - 응답 봉투: BaseResponse는 sealed interface(success/code/message), SuccessResponse·ErrorResponse가 record로 구현.
+    - 성공·실패 모두 data 필드를 항상 노출(없으면 null), 실패 응답의 data는 항상 null. HttpStatus는 응답 바디에 넣지 않는다(ResponseEntity가 전달).
+    - 실패 응답에는 timestamp·path를 포함하고, 검증 실패 시에만 errors(FieldError: field/rejectedValue/reason)를 채운다.
+    - ErrorResponse는 클래스 단위 @JsonInclude(NON_NULL) + data 필드에만 @JsonInclude(ALWAYS). SuccessResponse엔 클래스 NON_NULL을 걸지 않는다.
+
+    ## 인증 / 인가
+    - 도메인 모듈은 auth.internal(JWT/OAuth/필터 등)을 import하지 않는다.
+    - 현재 로그인 사용자는 CurrentUserProvider로 읽는다. 요청 파라미터로 받은 userId를 신뢰하지 않는다.
+    - 도메인이 SecurityContextHolder를 직접 뒤지지 않는다.
+    - 어드민 전용 API는 ROLE_ADMIN을 요구하고, 본인 리소스 접근은 currentUserId()와 소유자를 비교해 검증한다.
+
+    ## 코드 스타일
+    - 생성자 주입을 기본으로 하고 주입 필드는 private final로 둔다(필드 주입 금지).
+    - 요청/응답 DTO는 record로 작성하고, 입력 검증은 Jakarta Validation을 요청 DTO에 선언한 뒤 컨트롤러에서 @Valid로 트리거한다.
+    - Controller는 입력 검증·DTO 변환·service 호출만 한다(비즈니스 로직 금지).
+    - URL은 소문자·복수형 명사·케밥 케이스이며 동사를 쓰지 않는다(GET /api/reservations).
+    - 검증·규칙·연산이 붙는 값은 VO(JPA @Embeddable)로 만든다(예: Money).
+    - import 와일드카드 금지, 들여쓰기 스페이스 4칸, 중괄호 K&R.
+
+    ## 트랜잭션
+    - 원칙은 1 트랜잭션 = 1 애그리거트.
+    - 즉시 일관성이 필요한 교차 작업(포인트 적립/차감 등)은 같은 트랜잭션(동기 포트 호출)으로 처리한다.
+    - 팬아웃 후속처리(탈퇴 정리 등)는 이벤트로, 발행 트랜잭션 커밋 후 별도 트랜잭션에서 처리한다.
+
+    ## 테스트
+    - 모듈 통합 테스트는 @ApplicationModuleTest로 해당 모듈만 부트스트랩하고, 타 모듈은 포트를 모킹한다.
+    - 이벤트 핸들러 테스트는 멱등성을 검증한다. 도메인 규칙·VO는 순수 단위 테스트로 고정한다.
+    - 모듈 경계는 ApplicationModules.verify() 테스트로 강제한다.
+
+    ## Git 컨벤션 (PR 제목·커밋 메시지)
+    - PR 제목은 [TYPE] 내용 (#이슈번호) 형식이다(예: [Feat] 카카오 로그인 (#12)).
+    - 커밋 메시지 type은 feat/fix/docs/refactor/perf/test/build/ci/chore/revert 중 하나이고, scope는 모듈명이다.
+    - 커밋 subject는 50자 이내·마침표 없음·명령문이며, 한 커밋은 한 모듈(scope) 안에서 끝난다.
+
+  # ──────────────────────────────────────────────
+  # 파일/경로별 추가 지침 (org.sopt.hashi 패키지 기준)
+  # ──────────────────────────────────────────────
+  path_instructions:
+    - path: "**/web/**/*.java"
+      instructions: |
+        - Controller: 엔티티를 직접 응답으로 노출하지 않고 <Context>Response(record)로 변환하는지 확인한다.
+        - Controller: 응답을 SuccessResponse로 감싸는지 확인한다.
+        - Controller: @RequestBody DTO에 @Valid가 붙어 있는지 확인한다.
+        - Controller: 인증이 필요한 API에서 요청 파라미터 userId를 신뢰하지 않고 CurrentUserProvider로 현재 사용자를 얻는지 확인한다.
+        - Controller: 비즈니스 로직이 없는지(검증·DTO 변환·service 호출만 하는지) 확인한다.
+        - URL이 동사 없이 소문자·복수형 명사·케밥 케이스인지 확인한다.
+
+    - path: "**/service/**/*.java"
+      instructions: |
+        - Service: 다른 모듈이 필요하면 그 모듈의 <Context>Port만 호출하는지 확인한다(타 모듈 domain/service/Repository/엔티티 직접 참조 금지).
+        - Service: 비즈니스 규칙 위반을 BusinessException(ErrorCode)으로 던지는지 확인한다(ResponseEntity 직접 생성 금지).
+        - Service: 현재 사용자는 CurrentUserProvider.currentUserId()로 얻고, 본인 리소스 접근은 소유자 검증을 하는지 확인한다.
+        - Service: @Transactional 범위가 적절한지(1 트랜잭션 = 1 애그리거트) 검토한다.
+        - 예외를 catch 후 무시하고 정상 응답으로 처리하지 않는지 확인한다.
+
+    - path: "**/domain/**/*.java"
+      instructions: |
+        - 엔티티/Repository는 자기 모듈 애그리거트만 다루는지 확인한다.
+        - 타 모듈 엔티티를 @ManyToOne/@OneToMany/@JoinColumn 등 JPA 연관관계로 직접 참조하지 않는지 확인한다(타 도메인은 Long id로만 보관).
+        - 검증·규칙·연산이 붙는 값을 VO(@Embeddable)로 분리했는지 확인한다.
+        - Repository는 자기 모듈 엔티티만 다루는지 확인한다.
+
+    - path: "**/code/**/*.java"
+      instructions: |
+        - 도메인 ErrorCode/SuccessCode가 shared의 ErrorCode/SuccessCode 인터페이스를 구현하는지 확인한다.
+        - 코드 문자열에 도메인 prefix(<CONTEXT>-NNN)와 적절한 HttpStatus·한글 메시지가 있는지 확인한다.
+
+    - path: "**/event/**/*.java"
+      instructions: |
+        - 이벤트 구독 리스너가 @ApplicationModuleListener를 사용하고 멱등하게 작성됐는지 확인한다.
+        - 발행 모듈은 이벤트를 @NamedInterface로 노출하고, 구독 모듈은 그 이벤트 타입에만 의존하는지 확인한다.
+
+    - path: "**/dto/**/*.java"
+      instructions: |
+        - 요청/응답 DTO가 record(불변)인지 확인한다.
+        - 요청 DTO 필드에 Jakarta Validation 어노테이션이 선언돼 있고 메시지가 한글인지 확인한다.
+        - 응답 DTO를 ~View가 아니라 <Context>Response로 명명했는지 확인한다.
+
+    - path: "**/shared/**/*.java"
+      instructions: |
+        - shared가 어떤 도메인 모듈도 import하지 않는지(도메인 → shared 단방향) 확인한다.
+        - 특정 도메인을 아는 타입이나 도메인 코드 enum이 shared에 들어오지 않았는지 확인한다.
+        - shared에는 도메인 지식 없는 틀·계약·VO만 있는지 확인한다.
+
+    - path: "**/config/**/*.java"
+      instructions: |
+        - config는 프레임워크 배선(설정 빈)만 담당한다. 비즈니스 로직이 섞이지 않았는지 확인한다.
+        - 도메인 모듈의 internal·엔티티·Repository를 직접 import하지 않는지 확인한다(필요 시 <Context>Port 경유).
+        - config/가 base 패키지(org.sopt.hashi) 직속인지, root/ 같은 래퍼 하위로 감싸지 않았는지 확인한다(하위 패키지는 모듈로 오인됨).
+
+    - path: "**/auth/**/*.java"
+      instructions: |
+        - 인증 강제는 Spring Security 필터 체인(SecurityConfig·JwtAuthenticationFilter)이 담당하는지 확인한다.
+        - SecurityConfig에 permitAll 경로를 추가할 때 의도가 맞는지, 어드민 전용 경로에 ROLE_ADMIN을 요구하는지 검토한다.
+        - JWT 등 인증 설정값은 @ConfigurationProperties로 바인딩하는지 확인한다.
+        - auth가 도메인에 공개하는 지점은 CurrentUserProvider 하나이고, JWT/OAuth/필터는 internal에 감춰져 있는지 확인한다.
+
+    - path: "**/*Test*.java"
+      instructions: |
+        - 모듈 통합 테스트가 @ApplicationModuleTest로 해당 모듈만 부트스트랩하고, 타 모듈은 포트를 모킹하는지 확인한다.
+        - 이벤트 핸들러 테스트가 멱등성(같은 이벤트 2회 수신 시 결과 동일)을 검증하는지 확인한다.
+        - 도메인 규칙·VO(Money)를 스프링 컨텍스트 없는 순수 단위 테스트로 고정했는지 확인한다.
+        - 모듈 경계 검증(ApplicationModules.verify()) 테스트가 있는지, 깨질 변경이 없는지 환기한다.
+        - 테스트 메서드명이 한국어 행위 서술인지 확인한다.
+
+    - path: "**/build.gradle"
+      instructions: |
+        - Spring Modulith / JPA / Validation / Security 등 컨벤션이 전제하는 의존성이 선언돼 있는지 확인한다.
+        - 모듈 경계를 강제하는 ApplicationModules.verify() 테스트가 깨질 변경이 없는지 환기한다.
+
+  # ──────────────────────────────────────────────
+  # 리뷰 제외 파일
+  # ──────────────────────────────────────────────
+  path_filters:
+    - "!**/build/**"
+    - "!**/.gradle/**"
+    - "!**/generated/**"
+    - "!**/*.lock"
+    - "!**/gradlew"
+    - "!**/gradlew.bat"
+    - "!**/.idea/**"
+    - "!**/*.iml"
+
+  # ──────────────────────────────────────────────
+  # 머지 전 검사
+  # ──────────────────────────────────────────────
+  pre_merge_checks:
+    title:
+      mode: "warning"
+      requirements: |
+        PR 제목은 [TYPE] 내용 (#이슈번호) 형식이어야 한다.
+        Type 종류: Feat, Fix, Docs, Refactor, Perf, Test, Build, Ci, Chore, Revert
+        예: [Feat] 카카오 로그인 (#12)
+    description:
+      mode: "warning"
+    custom_checks:
+      - name: "모듈 경계 위반 확인"
+        mode: "warning"
+        instructions: |
+          한 모듈의 클래스가 다른 모듈의 domain/service/Repository/엔티티를 직접 import하면 경고를 남긴다.
+          모듈 간 호출은 상대 모듈의 <Context>Port 인터페이스로만 해야 한다.
+          모듈 간 DB 조인·외래키(FK, JPA 연관관계 포함)로 묶거나 순환 의존이 생기면 경고한다.
+      - name: "shared 공유 커널 오염 확인"
+        mode: "warning"
+        instructions: |
+          shared 패키지가 도메인 모듈을 import하거나, 특정 도메인을 아는 타입·도메인 코드 enum이 shared에 추가되면 경고를 남긴다.
+          common/core/util/global 같은 잡동사니 공통 패키지가 새로 생기면 경고한다.
+      - name: "엔티티 노출·응답 봉투 확인"
+        mode: "warning"
+        instructions: |
+          Controller가 엔티티를 직접 응답으로 반환하거나, 응답을 SuccessResponse/ErrorResponse로 감싸지 않으면 경고를 남긴다.
+
+  # ──────────────────────────────────────────────
+  # Finishing Touches
+  # ──────────────────────────────────────────────
+  finishing_touches:
+    docstrings:
+      enabled: false
+    unit_tests:
+      enabled: true
+
+  # ──────────────────────────────────────────────
+  # Static Analysis 도구 설정
+  # ──────────────────────────────────────────────
+  tools:
+    pmd:
+      enabled: true        # Java 정적 분석
+    gitleaks:
+      enabled: true
+    trufflehog:
+      enabled: true
+    yamllint:
+      enabled: true
+    actionlint:
+      enabled: true
+    # Java/HASHI와 무관한 도구는 비활성화
+    detekt:
+      enabled: false       # Kotlin 전용
+    ruff:
+      enabled: false
+    phpstan:
+      enabled: false
+    phpmd:
+      enabled: false
+    phpcs:
+      enabled: false
+    golangci-lint:
+      enabled: false
+    rubocop:
+      enabled: false
+    clippy:
+      enabled: false
+    swiftlint:
+      enabled: false
+
+# ──────────────────────────────────────────────
+# 채팅 설정
+# ──────────────────────────────────────────────
+chat:
+  auto_reply: true
+
+# ──────────────────────────────────────────────
+# 지식베이스 설정
+# ──────────────────────────────────────────────
+knowledge_base:
+  web_search:
+    enabled: true
+  learnings:
+    scope: "local"
+  code_guidelines:
+    enabled: true
+    filePatterns:
+      - "docs/conventions/00-index.md"
+      - "docs/conventions/architecture.md"
+      - "docs/conventions/coding-style.md"
+      - "docs/conventions/error-handling.md"
+      - "docs/conventions/auth.md"
+      - "docs/conventions/testing.md"
+      - "docs/conventions/git-convention.md"
