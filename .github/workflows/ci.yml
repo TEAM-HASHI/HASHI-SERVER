@@ -18,7 +18,7 @@ jobs:
       - name: Validate branch name
         run: |
           BRANCH_NAME="${{ github.head_ref }}"
-          BRANCH_REGEX='^(feat|fix|chore|docs|refactor|test|init|hotfix)/#[0-9]+/[a-z0-9-]+$|^release/[0-9]+\.[0-9]+\.[0-9]+$'
+          BRANCH_REGEX='^(feat|fix|docs|refactor|perf|test|build|ci|cd|chore|init|hotfix)/#[0-9]+/[a-z0-9-]+$|^release/[0-9]+\.[0-9]+\.[0-9]+$'
 
           echo "Branch name: ${BRANCH_NAME}"
 
@@ -27,6 +27,9 @@ jobs:
             echo "허용 예시:"
             echo "- feat/#12/kakao-login"
             echo "- fix/#13/login-error"
+            echo "- build/#4/docker-dev-env"
+            echo "- ci/#4/pr-check-workflow"
+            echo "- cd/#4/dev-deploy-pipeline"
             echo "- chore/#4/cicd-dev-deploy"
             echo "- docs/#8/api-docs"
             echo "- release/1.0.0"
