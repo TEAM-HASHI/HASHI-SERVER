@@ -38,18 +38,19 @@ jobs:
       - name: Validate PR title
         run: |
           PR_TITLE="${{ github.event.pull_request.title }}"
-          TITLE_REGEX='^(feat|fix|docs|refactor|perf|test|build|ci|chore|revert)(\([a-z0-9-]+\))?: .+ \(#[0-9]+\)$'
+          TITLE_REGEX='^\[(Feat|Fix|Docs|Refactor|Perf|Test|Build|CI|CD|Chore|Init|Release|Hotfix|Revert)\] .+ \(#[0-9]+\)$'
 
           echo "PR title: ${PR_TITLE}"
 
           if [[ ! "${PR_TITLE}" =~ ${TITLE_REGEX} ]]; then
             echo "❌ PR 제목이 팀 컨벤션에 맞지 않습니다."
             echo "형식:"
-            echo "- type(scope): 작업 내용 (#이슈번호)"
+            echo "- [Type] 작업 내용 (#이슈번호)"
             echo "예시:"
-            echo "- ci(github): PR 빌드 검증 워크플로우 추가 (#4)"
-            echo "- feat(auth): 카카오 로그인 추가 (#12)"
-            echo "- fix(reservation): 예약 상태 변경 오류 수정 (#15)"
+            echo "- [CI] PR 빌드 검증 워크플로우 추가 (#4)"
+            echo "- [CD] 개발 서버 자동 배포 파이프라인 추가 (#4)"
+            echo "- [Feat] 카카오 로그인 추가 (#12)"
+            echo "- [Fix] 예약 상태 변경 오류 수정 (#15)"
             exit 1
           fi
 
