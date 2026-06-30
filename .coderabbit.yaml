@@ -28,8 +28,6 @@ reviews:
       - "main"
     ignore_title_keywords:
       - "WIP"
-      - "Chore"
-      - "Docs"
 
   # ──────────────────────────────────────────────
   # 전역 리뷰 지침
