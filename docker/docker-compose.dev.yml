@@ -3,7 +3,7 @@ services:
     image: ${DOCKER_USERNAME}/hashi-server:dev
     container_name: hashi-dev-app
     env_file:
-      - .env.dev
+      - ../.env.dev
     restart: unless-stopped
     ports:
       - "127.0.0.1:8080:8080"
