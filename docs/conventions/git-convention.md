@@ -128,7 +128,7 @@ chore/#{이슈번호}/{주제}       예: chore/#7/gitignore-update
 
 ### PR 규칙
 
-- [ ] PR 제목은 커밋 컨벤션 형식 `[Feat] 구현 내용 (#이슈번호)`
+- [ ] PR 제목은 이슈 제목과 같은 `[Type] 구현 내용 (#이슈번호)` 형식 (커밋 메시지의 Angular 형식 `type(scope): subject`와 다름)
 - [ ] PR 템플릿 모든 항목 작성
 - [ ] 최소 1명 이상 Approve
 - [ ] CI 체크(빌드·`verify()`·테스트) 모두 통과 후 머지
