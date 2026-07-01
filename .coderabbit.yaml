@@ -82,6 +82,7 @@ reviews:
     - ErrorResponse는 클래스 단위 @JsonInclude(NON_NULL) + data 필드에만 @JsonInclude(ALWAYS). SuccessResponse엔 클래스 NON_NULL을 걸지 않는다.
 
     ## 인증 / 인가
+    - auth는 횡단 관심사 모듈로, 애플리케이션 클래스에 @Modulithic(sharedModules = "org.sopt.hashi.auth")로 등록한다.
     - 도메인 모듈은 auth.internal(JWT/OAuth/필터 등)을 import하지 않는다.
     - 현재 로그인 사용자는 CurrentUserProvider로 읽는다. 요청 파라미터로 받은 userId를 신뢰하지 않는다.
     - 도메인이 SecurityContextHolder를 직접 뒤지지 않는다.
