@@ -173,6 +173,12 @@ reviews:
         - JWT 등 인증 설정값은 @ConfigurationProperties로 바인딩하는지 확인한다.
         - auth가 도메인에 공개하는 지점은 CurrentUserProvider 하나이고, JWT/OAuth/필터는 internal에 감춰져 있는지 확인한다.
 
+    - path: "**/admin/**/*.java"
+      instructions: |
+        - admin은 진입점 모듈이다. 도메인 로직을 두지 않고 각 컨텍스트의 <Context>Port로 위임만 하는지 확인한다.
+        - admin이 타 모듈의 internal·domain·service·Repository·엔티티에 직접 접근하지 않고 <Context>Port만 경유하는지 확인한다.
+        - 어드민 전용 API는 ROLE_ADMIN을 요구하는지 확인한다.
+
     - path: "**/*Test*.java"
       instructions: |
         - 모듈 통합 테스트가 @ApplicationModuleTest로 해당 모듈만 부트스트랩하고, 타 모듈은 포트를 모킹하는지 확인한다.
