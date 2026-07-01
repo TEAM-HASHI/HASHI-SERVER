@@ -216,7 +216,8 @@ reviews:
         mode: "warning"
         instructions: |
           한 모듈의 클래스가 다른 모듈의 domain/service/Repository/엔티티를 직접 import하면 경고를 남긴다.
-          모듈 간 호출은 상대 모듈의 <Context>Port 인터페이스로만 해야 한다.
+          모듈 간 동기 호출은 상대 모듈의 <Context>Port 인터페이스로만 해야 한다.
+          단, 비동기 이벤트 통신(발행 모듈이 @NamedInterface로 노출한 이벤트 타입을 구독 모듈이 @ApplicationModuleListener로 구독·처리)은 허용된 통신 방식이므로 경계 위반으로 지적하지 않는다.
           모듈 간 DB 조인·외래키(FK, JPA 연관관계 포함)로 묶거나 순환 의존이 생기면 경고한다.
       - name: "shared 공유 커널 오염 확인"
         mode: "warning"
