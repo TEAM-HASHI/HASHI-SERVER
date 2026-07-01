@@ -7,9 +7,10 @@
 # BlueJ files
 *.ctxt
 
-# Spring Boot config
-src/main/resources/application.yml
-src/main/resources/application-*.yml
+# Spring Boot config — 구조는 커밋, 시크릿만 제외
+src/main/resources/application-local.yml
+src/main/resources/application-secret.yml
+src/main/resources/application-*-secret.yml
 
 # Mobile Tools for Java (J2ME)
 .mtj.tmp/
