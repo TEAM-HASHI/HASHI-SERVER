@@ -113,7 +113,7 @@ Stripe·PayPal 등에서 쓰는 **action 서브리소스**(`/동사`)를 예외�
 - **MUST**: HTTP 메서드는 `POST`로 고정한다(멱등하지 않은 상태 전이 액션이므로).
 - **MUST**: 일반 CRUD로 표현 가능한 경우(단순 필드 갱신 등)에는 action 서브리소스를 쓰지 않고 `PATCH`를 사용한다.
 
-```
+```http
 POST /api/v1/reservations/{reservationId}/cancel
 POST /api/v1/admin/reservations/{reservationId}/approve
 ```

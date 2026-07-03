@@ -38,7 +38,7 @@
 ### 2-2. 도메인 모듈 내부 (고정 레이아웃)
 각 도메인 모듈은 아래 패키지 구성을 **MUST** 따른다.
 
-```
+```text
 <context>/
 ├─ <Context>Port          # 모듈 간 공개 포트 (통합 1개)
 ├─ <Context>Info          # 모듈 간 전달 DTO (포트로 노출, 필요 시)
@@ -177,7 +177,7 @@
 
 ## 부록 — 의존 방향 (비순환)
 
-```
+```text
 auth → user
 review → restaurant, reservation, point, user   (작성자 닉네임·프사 enrich; 탈퇴 시 UserPort 빈 값 → "탈퇴한 회원" fallback)
 reservation → restaurant, user, point
