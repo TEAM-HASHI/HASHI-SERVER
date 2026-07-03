@@ -39,7 +39,7 @@ reviews:
 
     ## 모듈 구조 (애그리거트 경계)
     - 도메인 컨텍스트(7): restaurant · review · reservation · point · magazine · user · support
-    - 횡단: auth / 진입점: admin / 공유 커널: shared(@ApplicationModule(type = OPEN))
+    - 횡단: auth / 진입점: admin / 지원: upload(파일 업로드 자격 발급, 상태 없는 모듈: domain/·Port 없음, shared/storage FileStorage에만 의존) / 공유 커널: shared(@ApplicationModule(type = OPEN))
     - 모듈 경계는 기술 계층(controller/service/repository)이 아니라 애그리거트(비즈니스 능력+트랜잭션 일관성)로 나눈다.
     - common / core / util / global 같은 잡동사니 공통 패키지를 만들면 반드시 지적한다.
     - 자식 엔티티(메뉴·사진·카드 등)는 별도 모듈이 아니라 애그리거트 루트가 소유한다.
@@ -62,6 +62,7 @@ reviews:
     - 모듈 간 DB 조인 / 외래키(FK)로 묶지 않는다. JPA에서는 타 모듈 엔티티를 @ManyToOne/@OneToMany/@JoinColumn으로 직접 참조하지 말고, 타 도메인 식별자는 Long id 값으로만 보관한다.
     - 모듈 간 순환 의존(직접·간접)을 만들지 않는다. 역방향이 필요하면 이벤트로 해결한다.
     - 타 도메인 목록 보유 시: 매핑 테이블은 소유 모듈 애그리거트의 자식으로 두고, 타 도메인 키는 Long id로만, 상세는 상대 <Context>Port로 enrich한다(예: 매거진→식당 관련 식당, user→restaurant/magazine 찜).
+    - 여러 도메인 데이터를 함께 내리는 교차 조회는 시작점 애그리거트가 담당하되, 시작점→대상이 순환이면 담당을 조회 가능한 쪽으로 반전한다(예: '식당의 리뷰 목록'은 review가 담당해 RestaurantPort로 식당 enrich; URL이 /restaurants로 시작해도 컨트롤러는 review). 순환을 피하려 상대 internal/Repository를 직접 부르면 지적한다.
     - 이벤트 구독은 @ApplicationModuleListener로 처리하고, 핸들러는 멱등(idempotent)하게 작성한다.
 
     ## shared (공유 커널)
@@ -87,12 +88,21 @@ reviews:
     - 현재 로그인 사용자는 CurrentUserProvider로 읽는다. 요청 파라미터로 받은 userId를 신뢰하지 않는다.
     - 도메인이 SecurityContextHolder를 직접 뒤지지 않는다.
     - 어드민 전용 API는 ROLE_ADMIN을 요구하고, 본인 리소스 접근은 currentUserId()와 소유자를 비교해 검증한다.
+    - CurrentUserProvider는 auth가 공개한다(shared 패키지가 아니라 auth). 이것이 도메인이 auth에 의존하는 유일한 지점이다.
+    - 토큰 전달: 액세스=Authorization Bearer 헤더, 리프레시=HttpOnly 쿠키. 재발급 시 리프레시 회전, 폐기 토큰 재사용 감지 시 세션 무효화. 리프레시·온보딩 임시 토큰은 Redis에 TTL로 보관.
+    - 온보딩: 카카오 인증 후 미가입자는 auth가 온보딩 임시 토큰(Redis TTL·1회용)을 발급한다. 온보딩 저장은 user 소유이나, user가 JWT 발급이나 인증 상태 확인을 위해 auth를 포트로 호출하면 user→auth 순환이므로 지적한다. 정식 JWT 발급은 auth 인터셉터가 응답에 실어준다(user는 저장만, 가입=즉시 로그인).
+    - 사용자 로그아웃 API는 MVP 제외(어드민 로그아웃은 존재). 사용자 토큰 무효화는 회원 탈퇴(DELETE /users/me, user 소유)로 발행된 UserWithdrawnEvent를 auth가 구독해 리프레시 삭제 + 액세스 블랙리스트(Redis)로 처리한다.
+    - SMS 전화번호 인증은 MVP 제외.
 
     ## 코드 스타일
     - 생성자 주입을 기본으로 하고 주입 필드는 private final로 둔다(필드 주입 금지).
     - 요청/응답 DTO는 record로 작성하고, 입력 검증은 Jakarta Validation을 요청 DTO에 선언한 뒤 컨트롤러에서 @Valid로 트리거한다.
     - Controller는 입력 검증·DTO 변환·service 호출만 한다(비즈니스 로직 금지).
-    - URL은 소문자·복수형 명사·케밥 케이스이며 동사를 쓰지 않는다(GET /api/reservations).
+    - 모든 endpoint는 /api/v1로 시작한다. URL은 소문자·복수형 명사·케밥 케이스이며 동사를 쓰지 않는다(GET /api/v1/reservations).
+      단, 표준 CRUD로 표현 못 하는 상태 전이 액션(취소·승인 등)은 POST /resources/{id}/action 형태의 action 서브리소스를 예외로 허용한다(URL 동사 위반으로 지적하지 않는다).
+    - 목록 페이지네이션은 사용자향 피드=커서(cursor), 어드민 목록=offset(page/size+총건수)로 한다.
+    - 이미지 URL은 DB에 S3 object key만 저장하고 응답 생성 시 presigned GET URL로 변환한다(저장 값에 presigned 전체 URL 금지).
+    - 시각은 DB에 DATETIME으로 저장하고 응답은 ISO-8601 문자열로 내린다(표시 포맷은 클라 담당).
     - 검증·규칙·연산이 붙는 값은 VO(JPA @Embeddable)로 만든다(예: Money).
     - import 와일드카드 금지, 들여쓰기 스페이스 4칸, 중괄호 K&R.
     - 클래스 멤버는 static 상수 → static 필드 → 인스턴스 필드 → 생성자 → public → protected/package-private → private 순으로 배치한다.
@@ -112,6 +122,7 @@ reviews:
     - PR 제목은 [TYPE] 내용 (#이슈번호) 형식이다(예: [Feat] 카카오 로그인 (#12)).
     - 커밋 메시지 type은 feat/fix/docs/refactor/perf/test/build/ci/chore/revert 중 하나이고, scope는 모듈명이다.
     - 커밋 subject는 50자 이내·마침표 없음·명령문이며, 한 커밋은 한 모듈(scope) 안에서 끝난다.
+    - 커밋 메시지에 Co-Authored-By 트레일러가 있으면 지적한다.
 
   # ──────────────────────────────────────────────
   # 파일/경로별 추가 지침 (org.sopt.hashi 패키지 기준)
@@ -124,7 +135,8 @@ reviews:
         - Controller: @RequestBody DTO에 @Valid가 붙어 있는지 확인한다.
         - Controller: 인증이 필요한 API에서 요청 파라미터 userId를 신뢰하지 않고 CurrentUserProvider로 현재 사용자를 얻는지 확인한다.
         - Controller: 비즈니스 로직이 없는지(검증·DTO 변환·service 호출만 하는지) 확인한다.
-        - URL이 동사 없이 소문자·복수형 명사·케밥 케이스인지 확인한다.
+        - URL이 /api/v1로 시작하고 동사 없이 소문자·복수형 명사·케밥 케이스인지 확인한다(단, 상태 전이 액션의 POST /{id}/action 서브리소스는 예외로 지적하지 않는다).
+        - 목록 응답이 사용자=커서 / 어드민=offset 페이지네이션 규칙을 따르는지, 이미지 URL을 presigned로 변환해 내리는지 확인한다.
 
     - path: "**/service/**/*.java"
       instructions: |
@@ -140,6 +152,7 @@ reviews:
         - 타 모듈 엔티티를 @ManyToOne/@OneToMany/@JoinColumn 등 JPA 연관관계로 직접 참조하지 않는지 확인한다(타 도메인은 Long id로만 보관).
         - 검증·규칙·연산이 붙는 값을 VO(@Embeddable)로 분리했는지 확인한다.
         - Repository는 자기 모듈 엔티티만 다루는지 확인한다.
+        - 이미지 컬럼에 S3 object key만 저장하는지(presigned 전체 URL 저장 금지), 시각 컬럼이 DATETIME인지 확인한다.
 
     - path: "**/code/**/*.java"
       instructions: |
@@ -176,6 +189,8 @@ reviews:
         - SecurityConfig에 permitAll 경로를 추가할 때 의도가 맞는지, 어드민 전용 경로에 ROLE_ADMIN을 요구하는지 검토한다.
         - JWT 등 인증 설정값은 @ConfigurationProperties로 바인딩하는지 확인한다.
         - auth가 도메인에 공개하는 지점은 CurrentUserProvider 하나이고, JWT/OAuth/필터는 internal에 감춰져 있는지 확인한다.
+        - 액세스=헤더/리프레시=HttpOnly 쿠키·회전·재사용 감지, 리프레시·임시 토큰의 Redis TTL 보관을 지키는지 확인한다.
+        - 온보딩 완료 시 정식 JWT를 auth 인터셉터가 발급하는지(user가 auth를 호출하지 않는지), 탈퇴 시 UserWithdrawnEvent 구독으로 리프레시 삭제+액세스 블랙리스트 처리하는지 확인한다.
 
     - path: "**/admin/**/*.java"
       instructions: |
