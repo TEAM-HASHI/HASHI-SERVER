@@ -58,10 +58,12 @@ class ReviewModuleTest {
     @MockitoBean ReservationPort reservationPort;   // 타 모듈은 포트로 모킹
     @MockitoBean RestaurantPort restaurantPort;
     @MockitoBean PointPort pointPort;
+    @MockitoBean UserPort userPort;                 // 작성자 닉네임·프사 enrich
 
     @Test
-    void 방문완료자만_리뷰를_작성한다(Scenario scenario) {
-        given(reservationPort.hasCompletedVisit(anyLong(), anyLong())).willReturn(true);
+    void 본인의_방문완료_예약만_리뷰를_작성한다(Scenario scenario) {
+        given(reservationPort.findById(anyLong()))
+                .willReturn(new ReservationInfo(/* ownerId=본인, status=VISITED, restaurantId */));
         // when/then ...
     }
 }
@@ -78,9 +80,9 @@ class ReviewModuleTest {
 @ApplicationModuleTest
 class UserWithdrawTest {
     @Test
-    void 탈퇴_시_리뷰가_정리된다(Scenario scenario) {
+    void 탈퇴_시_포인트_계정이_소멸된다(Scenario scenario) {
         scenario.publish(new UserWithdrawnEvent(1L))
-                .andWaitForStateChange(() -> reviewRepository.existsByUserId(1L), exists -> !exists)
+                .andWaitForStateChange(() -> pointAccountRepository.existsByUserId(1L), exists -> !exists)
                 .andVerify(exists -> assertThat(exists).isFalse());
     }
 }
