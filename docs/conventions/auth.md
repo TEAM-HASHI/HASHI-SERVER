@@ -44,7 +44,7 @@ public ReviewResponse write(CreateReviewRequest req) {
 
 > 상세 구현은 auth 모듈 소관. 도메인 작업자는 알 필요 없음(§2만 알면 됨).
 
-```
+```text
 auth/
 ├─ CurrentUserProvider          # 유일한 공개 지점
 ├─ code/  AuthErrorCode

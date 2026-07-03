@@ -41,7 +41,7 @@ git commit -m "<type>(<scope>): <subject> (#issue)"
 
 ### 좋은 예 / 나쁜 예
 
-```
+```text
 ✅ feat(reservation): 포인트 사용 연동 (#55)
 ✅ fix(auth): JWT 만료 시 무한 리프레시 문제 해결 (#87)
 ✅ refactor(user): 인증 로직을 auth 모듈로 분리
@@ -77,7 +77,7 @@ git commit -m "<type>(<scope>): <subject> (#issue)"
 4. 모듈에 걸치면 **의존 방향대로** — 포트(피호출) 먼저, 호출 측 나중
 5. **shared 변경은 독립 커밋** — 영향 넓으니 다른 기능에 안 섞음
 
-```
+```text
 feat(point): 포인트 차감/복원 포트 추가
 feat(reservation): 포인트 사용 연동 (#55)
 feat(user): 회원 탈퇴 시 UserWithdrawnEvent 발행
@@ -101,7 +101,7 @@ feat(point): UserWithdrawnEvent 구독해 포인트 계정 정리
 
 ### 네이밍
 
-```
+```text
 feat/#{이슈번호}/{기능명}      예: feat/#12/kakao-login
 release/{버전}                 예: release/1.0.0
 hotfix/#{이슈번호}/{버그명}     예: hotfix/#45/payment-error
