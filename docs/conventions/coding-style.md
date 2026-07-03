@@ -95,14 +95,39 @@ public class ReservationService {
 
 ### 4-2. API 설계
 
-- URL: 소문자·복수형 명사·케밥 케이스 (`/api/reservations`, `/api/reservation-items`)
-- HTTP 메서드로 행위 표현(URL에 동사 금지): `GET /reservations`, `POST /reservations`
+- **MUST**: 모든 endpoint는 `/api/v1`로 시작한다(버전 프리픽스).
+- URL: 소문자·복수형 명사·케밥 케이스 (`/api/v1/reservations`, `/api/v1/reservation-items`)
+- HTTP 메서드로 행위 표현(URL에 동사 금지): `GET /api/v1/reservations`, `POST /api/v1/reservations`
 - **MUST**: 응답은 DTO(`<Context>Response`)로 반환하고 **엔티티를 직접 노출하지 않는다.**
 - **MUST**: 응답은 `SuccessResponse`로 감싼다(상세 `error-handling.md`).
+- **MUST**: 목록 페이지네이션은 **사용자향 피드=커서(cursor)**, **어드민 목록=offset(`page`/`size` + 총건수)**로 한다.
+- **MUST**: 이미지 URL은 DB에 **S3 object key만 저장**하고, 응답 생성 시 **presigned GET URL로 변환**해 내린다(만료 있음, `shared/storage`의 `FileStorage`). 저장 값에 presigned 전체 URL을 넣지 않는다.
+- **MUST**: 시각은 DB에 `DATETIME`으로 저장하고 응답은 **ISO-8601 문자열**로 내린다. 표시 포맷(`6월 22일` 등)은 클라이언트가 담당한다.
+
+#### 4-2-1. Action 서브리소스 예외 (동사 명사화가 어색한 경우)
+
+CRUD로 표현이 안 되는 상태 전이 액션(취소, 승인 등)은 `cancellation`처럼 억지로 명사화하지 않고,
+Stripe·PayPal 등에서 쓰는 **action 서브리소스**(`/동사`)를 예외로 허용한다.
+
+- **MUST**: 리소스 경로 뒤에 슬래시(`/`)와 동사를 붙인다(`/{reservationId}/cancel` 형태).
+- **MUST**: HTTP 메서드는 `POST`로 고정한다(멱등하지 않은 상태 전이 액션이므로).
+- **MUST**: 일반 CRUD로 표현 가능한 경우(단순 필드 갱신 등)에는 action 서브리소스를 쓰지 않고 `PATCH`를 사용한다.
+
+```
+POST /api/v1/reservations/{reservationId}/cancel
+POST /api/v1/admin/reservations/{reservationId}/approve
+```
+
+```java
+@PostMapping("/{reservationId}/cancel")
+public SuccessResponse<ReservationResponse> cancel(@PathVariable Long reservationId) {
+    return SuccessResponse.of(reservationService.cancel(reservationId));
+}
+```
 
 ```java
 @RestController
-@RequestMapping("/api/reservations")
+@RequestMapping("/api/v1/reservations")
 public class ReservationController {
 
     private final ReservationService reservationService;
@@ -140,7 +165,7 @@ public class ReservationController {
 
 ```java
 public record CreateReviewRequest(
-        @NotNull Long restaurantId,
+        @NotNull Long reservationId,
         @NotBlank @Size(max = 1000) String content) {}
 ```
 
@@ -190,7 +215,9 @@ if (isDiscountTarget) applyDiscount();
 - [ ] 컨트롤러가 엔티티가 아니라 `<Context>Response`를 반환하는가
 - [ ] 요청/응답 DTO가 `record`이고 검증을 `@Valid`로 트리거하는가
 - [ ] Controller에 비즈니스 로직이 없는가
-- [ ] URL이 동사 없이 명사·복수·케밥인가
+- [ ] URL이 `/api/v1`로 시작하고, 동사 없이 명사·복수·케밥인가 (단, 상태 전이 액션은 `/동사` action 서브리소스 예외 사용, POST 고정)
+- [ ] 목록이 사용자=커서 / 어드민=offset 페이지네이션 규칙을 따르는가
+- [ ] 이미지 URL을 응답 시 presigned로 변환하고(저장은 key), 시각을 ISO-8601로 내리는가
 - [ ] 복합 조건을 설명 변수/메서드로 추출했는가
 
 ---
