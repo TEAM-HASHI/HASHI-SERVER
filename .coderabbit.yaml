@@ -82,6 +82,7 @@ reviews:
     - ErrorResponse는 클래스 단위 @JsonInclude(NON_NULL) + data 필드에만 @JsonInclude(ALWAYS). SuccessResponse엔 클래스 NON_NULL을 걸지 않는다.
 
     ## 인증 / 인가
+    - auth는 횡단 관심사 모듈로, 애플리케이션 클래스에 @Modulithic(sharedModules = "org.sopt.hashi.auth")로 등록한다.
     - 도메인 모듈은 auth.internal(JWT/OAuth/필터 등)을 import하지 않는다.
     - 현재 로그인 사용자는 CurrentUserProvider로 읽는다. 요청 파라미터로 받은 userId를 신뢰하지 않는다.
     - 도메인이 SecurityContextHolder를 직접 뒤지지 않는다.
@@ -94,6 +95,8 @@ reviews:
     - URL은 소문자·복수형 명사·케밥 케이스이며 동사를 쓰지 않는다(GET /api/reservations).
     - 검증·규칙·연산이 붙는 값은 VO(JPA @Embeddable)로 만든다(예: Money).
     - import 와일드카드 금지, 들여쓰기 스페이스 4칸, 중괄호 K&R.
+    - 클래스 멤버는 static 상수 → static 필드 → 인스턴스 필드 → 생성자 → public → protected/package-private → private 순으로 배치한다.
+    - 복합 조건(2개 이상)은 설명 변수로 추출하고(Extract Variable), 같은 조건이 클래스 전반에서 반복되면 메서드로 추출한다(Extract Method).
 
     ## 트랜잭션
     - 원칙은 1 트랜잭션 = 1 애그리거트.
@@ -152,6 +155,7 @@ reviews:
       instructions: |
         - 요청/응답 DTO가 record(불변)인지 확인한다.
         - 요청 DTO 필드에 Jakarta Validation 어노테이션이 선언돼 있고 메시지가 한글인지 확인한다.
+        - 요청 DTO를 <동작><Context>Request(예: CreateReviewRequest)로 명명했는지 확인한다.
         - 응답 DTO를 ~View가 아니라 <Context>Response로 명명했는지 확인한다.
 
     - path: "**/shared/**/*.java"
@@ -172,6 +176,12 @@ reviews:
         - SecurityConfig에 permitAll 경로를 추가할 때 의도가 맞는지, 어드민 전용 경로에 ROLE_ADMIN을 요구하는지 검토한다.
         - JWT 등 인증 설정값은 @ConfigurationProperties로 바인딩하는지 확인한다.
         - auth가 도메인에 공개하는 지점은 CurrentUserProvider 하나이고, JWT/OAuth/필터는 internal에 감춰져 있는지 확인한다.
+
+    - path: "**/admin/**/*.java"
+      instructions: |
+        - admin은 진입점 모듈이다. 도메인 로직을 두지 않고 각 컨텍스트의 <Context>Port로 위임만 하는지 확인한다.
+        - admin이 타 모듈의 internal·domain·service·Repository·엔티티에 직접 접근하지 않고 <Context>Port만 경유하는지 확인한다.
+        - 어드민 전용 API는 ROLE_ADMIN을 요구하는지 확인한다.
 
     - path: "**/*Test*.java"
       instructions: |
@@ -216,7 +226,8 @@ reviews:
         mode: "warning"
         instructions: |
           한 모듈의 클래스가 다른 모듈의 domain/service/Repository/엔티티를 직접 import하면 경고를 남긴다.
-          모듈 간 호출은 상대 모듈의 <Context>Port 인터페이스로만 해야 한다.
+          모듈 간 동기 호출은 상대 모듈의 <Context>Port 인터페이스로만 해야 한다.
+          단, 비동기 이벤트 통신(발행 모듈이 @NamedInterface로 노출한 이벤트 타입을 구독 모듈이 @ApplicationModuleListener로 구독·처리)은 허용된 통신 방식이므로 경계 위반으로 지적하지 않는다.
           모듈 간 DB 조인·외래키(FK, JPA 연관관계 포함)로 묶거나 순환 의존이 생기면 경고한다.
       - name: "shared 공유 커널 오염 확인"
         mode: "warning"
