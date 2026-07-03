@@ -37,6 +37,7 @@ git commit -m "<type>(<scope>): <subject> (#issue)"
 - **Subject**: 50자 이내 · 마침표 금지 · 명령문("추가함" → "추가") · 한/영 통일
 - **Body**: 무엇을·왜(어떻게 X)
 - **Footer**: 이슈 참조 `Closes #123` / `Fixes #456`
+- **MUST NOT**: 커밋 메시지에 `Co-Authored-By` 트레일러를 넣지 않는다.
 
 ### 좋은 예 / 나쁜 예
 
@@ -64,6 +65,7 @@ git commit -m "<type>(<scope>): <subject> (#issue)"
 | `support` | 문의·공지·약관 |
 | `auth` | 인증/인가·가입 |
 | `admin` | 어드민(위임) |
+| `upload` | 파일 업로드(presigned 발급) |
 | `shared` | 공유 커널(틀·VO) |
 | `config` | 설정(root 직속) |
 
@@ -79,7 +81,7 @@ git commit -m "<type>(<scope>): <subject> (#issue)"
 feat(point): 포인트 차감/복원 포트 추가
 feat(reservation): 포인트 사용 연동 (#55)
 feat(user): 회원 탈퇴 시 UserWithdrawnEvent 발행
-feat(review): UserWithdrawnEvent 구독해 리뷰 정리
+feat(point): UserWithdrawnEvent 구독해 포인트 계정 정리
 ```
 
 ---
