@@ -41,5 +41,6 @@ Read: docs/conventions/00-index.md
 - [ ] 모듈 간 순환 의존·FK·조인이 없는가, 의존 방향이 단방향(도메인→shared)인가 (`architecture.md` §5·부록)
 - [ ] 공통 코드를 `shared`에 둘 때 도메인 지식이 없는 틀·계약·VO만 넣었는가 (`architecture.md` §4)
 - [ ] 도메인 에러·성공 코드를 각 모듈 `code/`에서 shared 인터페이스로 구현했는가 (`error-handling.md`)
-- [ ] 인증이 필요한 API에서 `auth.internal`을 import하지 않고 shared로 공개된 `CurrentUserProvider`로 현재 사용자를 조회했는가 (`auth.md`)
+- [ ] 인증이 필요한 API에서 `auth.internal`을 import하지 않고 `auth`가 공개한 `CurrentUserProvider`로 현재 사용자를 조회했는가 (`auth.md`)
+- [ ] 여러 도메인 데이터를 함께 내리는 조회의 담당 모듈을 §5-3 규칙(시작점, 순환 시 반전)으로 정했는가 (`architecture.md`)
 - [ ] 모듈 단위 테스트(`@ApplicationModuleTest`)와 구조 검증(`verify()`/ArchUnit)을 작성·통과했는가 (`testing.md`)

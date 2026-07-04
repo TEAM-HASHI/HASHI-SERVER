@@ -80,6 +80,7 @@ public enum ReservationErrorCode implements ErrorCode {
 | `USER-` | user |
 | `SUPPORT-` | support |
 | `AUTH-` | auth |
+| `UPLOAD-` | upload |
 | `COMMON-` | shared(공통) |
 
 ---

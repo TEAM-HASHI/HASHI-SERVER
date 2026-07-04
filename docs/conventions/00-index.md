@@ -17,6 +17,7 @@ HASHI(Spring Modulith 모듈러 모놀리스 · Java 21) 프로젝트의 컨벤�
 - "새 도메인(애그리거트) 모듈 추가하고 싶어" → `architecture.md` (모듈 경계·패키지 레이아웃·포트) → `coding-style.md` (클래스 작성)
 - "모듈 간 통신 어떻게 하지" → `architecture.md` §5 (포트 vs 이벤트 선택 기준)
 - "한 모듈이 타 도메인 목록을 가질 때(매거진-식당 등)" → `architecture.md` §5-2 (매핑 테이블 + 포트 enrich)
+- "식당의 리뷰처럼 다른 도메인 데이터를 같이 내려줄 때 누가 담당?" → `architecture.md` §5-3 (교차 조회 담당·순환 시 반전)
 - "에러 코드 하나 추가해야 해" → `error-handling.md` (없으면 `architecture.md` §7)
 - "로그인한 유저 정보로 API 만들어줘" → `auth.md` (현재 사용자 = `CurrentUserProvider`)
 - "공통으로 쓸 것 같은데 어디 두지" → `architecture.md` §3·§4 (`common` 금지, `shared`는 도메인 무관 틀만)
@@ -27,7 +28,7 @@ HASHI(Spring Modulith 모듈러 모놀리스 · Java 21) 프로젝트의 컨벤�
 
 - `common`/`core`/`util` 같은 잡동사니 공통 모듈을 만들지 않는다.
 - 모듈 경계는 **애그리거트**(비즈니스 능력 + 트랜잭션 일관성) 기준.
-- 모듈 간 호출은 상대의 `internal`/Repository가 아니라 **`<Context>Port`** 로만.
+- 모듈 간 **동기** 호출은 상대의 `internal`/Repository가 아니라 **`<Context>Port`** 로만. 역방향·팬아웃은 **이벤트**(`@ApplicationModuleListener`, 멱등)로.
 - 모듈 간 **순환 의존·FK·조인 금지**. 타 도메인은 ID로만 참조. 의존 방향은 단방향(도메인 → `shared`).
 - `shared`에는 **도메인 지식 없는 틀·계약·VO만** 둔다.
 
