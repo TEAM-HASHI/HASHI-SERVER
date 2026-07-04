@@ -26,6 +26,10 @@ import org.springframework.data.redis.serializer.StringRedisSerializer;
 @Configuration
 public class RedisConfig {
 
+    // 템플릿·캐시가 공유하는 단일 값 직렬화기(내부 ObjectMapper도 1개만 생성).
+    private final GenericJackson2JsonRedisSerializer valueSerializer =
+            new GenericJackson2JsonRedisSerializer(buildObjectMapper());
+
     /** 직접 Redis 접근용 템플릿. 키/해시키는 문자열, 값/해시값은 타입 정보를 담은 JSON으로 직렬화한다. */
     @Bean
     public RedisTemplate<String, Object> redisTemplate(RedisConnectionFactory connectionFactory) {
@@ -33,9 +37,6 @@ public class RedisConfig {
         redisTemplate.setConnectionFactory(connectionFactory);
 
         StringRedisSerializer stringSerializer = new StringRedisSerializer();
-        GenericJackson2JsonRedisSerializer valueSerializer =
-                new GenericJackson2JsonRedisSerializer(objectMapper());
-
         redisTemplate.setKeySerializer(stringSerializer);
         redisTemplate.setHashKeySerializer(stringSerializer);
         redisTemplate.setValueSerializer(valueSerializer);
@@ -47,8 +48,6 @@ public class RedisConfig {
     /** @Cacheable 등 Spring Cache 추상화용 매니저. TTL은 전역 기본값 없이 캐시별로 지정한다. null 값은 캐싱하지 않는다. */
     @Bean
     public CacheManager cacheManager(RedisConnectionFactory connectionFactory) {
-        GenericJackson2JsonRedisSerializer valueSerializer =
-                new GenericJackson2JsonRedisSerializer(objectMapper());
         RedisCacheConfiguration cacheConfiguration = RedisCacheConfiguration.defaultCacheConfig()
                 .serializeKeysWith(RedisSerializationContext.SerializationPair
                         .fromSerializer(new StringRedisSerializer()))
@@ -60,11 +59,13 @@ public class RedisConfig {
                 .build();
     }
 
-    /** Redis 값 직렬화용 ObjectMapper. LocalDateTime(JavaTimeModule)을 ISO-8601로 직렬화한다. */
-    private ObjectMapper objectMapper() {
-        // 내부 캐시 용도 — 역직렬화 시 구체 타입 복원을 위해 타입 정보를 함께 저장한다.
+    /** Redis 값 직렬화용 ObjectMapper. LocalDateTime을 ISO-8601로 직렬화하고, 역직렬화 시 구체 타입을 복원한다. */
+    private static ObjectMapper buildObjectMapper() {
+        // 역직렬화 가젯 체인 방지 — 우리 패키지와 안전한 JDK 타입(컬렉션·시각)만 폴리모픽 역직렬화를 허용한다.
         PolymorphicTypeValidator typeValidator = BasicPolymorphicTypeValidator.builder()
-                .allowIfSubType(Object.class)
+                .allowIfSubType("org.sopt.hashi.")
+                .allowIfSubType("java.util.")
+                .allowIfSubType("java.time.")
                 .build();
         return new ObjectMapper()
                 .registerModule(new JavaTimeModule())

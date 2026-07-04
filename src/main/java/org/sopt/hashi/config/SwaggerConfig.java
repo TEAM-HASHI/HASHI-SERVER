@@ -3,7 +3,6 @@ package org.sopt.hashi.config;
 import io.swagger.v3.oas.models.Components;
 import io.swagger.v3.oas.models.OpenAPI;
 import io.swagger.v3.oas.models.info.Info;
-import io.swagger.v3.oas.models.security.SecurityRequirement;
 import io.swagger.v3.oas.models.security.SecurityScheme;
 import org.springdoc.core.customizers.OperationCustomizer;
 import org.springdoc.core.models.GroupedOpenApi;
@@ -20,7 +19,11 @@ public class SwaggerConfig {
     private static final String API_BASE_PATH = "/api/v1/**";
     private static final String ADMIN_BASE_PATH = "/api/v1/admin/**";
 
-    /** API 메타 정보와 JWT Bearer 인증 스킴(Authorize 버튼)을 정의한다. */
+    /**
+     * API 메타 정보와 JWT Bearer 인증 스킴(Authorize 버튼)을 정의한다.
+     * 전역 인증 요구는 걸지 않는다 — 인증이 필요한 엔드포인트에만
+     * {@code @SecurityRequirement(name = "bearerAuth")}로 개별 적용한다(공개 API는 자물쇠 미표시).
+     */
     @Bean
     public OpenAPI openAPI() {
         SecurityScheme bearerScheme = new SecurityScheme()
@@ -35,8 +38,7 @@ public class SwaggerConfig {
                         .title("HASHI API")
                         .description("HASHI API 문서")
                         .version("v1"))
-                .components(new Components().addSecuritySchemes(BEARER_SCHEME_NAME, bearerScheme))
-                .addSecurityItem(new SecurityRequirement().addList(BEARER_SCHEME_NAME));
+                .components(new Components().addSecuritySchemes(BEARER_SCHEME_NAME, bearerScheme));
     }
 
     /** @ApiExceptions 기반 에러 응답 예시 자동 문서화를 springdoc에 등록한다. */
