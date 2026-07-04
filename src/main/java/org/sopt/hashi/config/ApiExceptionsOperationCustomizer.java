@@ -15,14 +15,15 @@ import java.util.stream.Stream;
 import org.sopt.hashi.shared.error.ErrorCode;
 import org.sopt.hashi.shared.response.ErrorResponse;
 import org.sopt.hashi.shared.swagger.ApiException;
-import org.springdoc.core.customizers.OperationCustomizer;
+import org.springdoc.core.customizers.GlobalOperationCustomizer;
 import org.springframework.web.method.HandlerMethod;
 
 /**
  * {@link ApiException}가 붙은 핸들러에, 지정한 ErrorCode들을
  * 상태코드별로 묶어 {@link ErrorResponse} 예시로 Swagger 응답에 첨부한다.
+ * GroupedOpenApi 그룹 문서(user/admin)에도 적용되도록 {@link GlobalOperationCustomizer}를 구현한다.
  */
-public class ApiExceptionsOperationCustomizer implements OperationCustomizer {
+public class ApiExceptionsOperationCustomizer implements GlobalOperationCustomizer {
 
     private static final String JSON_MEDIA_TYPE = "application/json";
     // Swagger 예시는 실제 요청이 아니므로 요청 경로가 없다. ErrorResponse.path 자리표시자로 빈 문자열을 쓴다.
@@ -81,16 +82,25 @@ public class ApiExceptionsOperationCustomizer implements OperationCustomizer {
         return new ExampleHolder(errorCode.getStatus().value(), errorCode.getCode(), example);
     }
 
-    /** 상태코드별로 묶인 예시들을 각 상태코드의 JSON 응답에 등록한다. */
+    /** 상태코드별로 묶인 예시들을 각 상태코드의 JSON 응답에 등록한다. 기존 등록된 응답은 유지하고 예시만 병합한다. */
     private void addExamples(ApiResponses responses, Map<Integer, List<ExampleHolder>> holdersByStatus) {
         holdersByStatus.forEach((status, holders) -> {
-            MediaType mediaType = new MediaType();
-            holders.forEach(holder -> mediaType.addExamples(holder.name(), holder.example()));
+            String statusCode = String.valueOf(status);
 
-            ApiResponse apiResponse = new ApiResponse()
-                    .description("에러 응답")
-                    .content(new Content().addMediaType(JSON_MEDIA_TYPE, mediaType));
-            responses.addApiResponse(String.valueOf(status), apiResponse);
+            ApiResponse apiResponse = responses.get(statusCode);
+            if (apiResponse == null) {
+                apiResponse = new ApiResponse().description("에러 응답");
+                responses.addApiResponse(statusCode, apiResponse);
+            }
+
+            Content content = apiResponse.getContent();
+            if (content == null) {
+                content = new Content();
+                apiResponse.setContent(content);
+            }
+
+            MediaType mediaType = content.computeIfAbsent(JSON_MEDIA_TYPE, key -> new MediaType());
+            holders.forEach(holder -> mediaType.addExamples(holder.name(), holder.example()));
         });
     }
 
