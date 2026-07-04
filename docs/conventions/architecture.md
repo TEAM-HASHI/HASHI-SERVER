@@ -72,7 +72,7 @@
     - 허용: 응답 래퍼(`BaseResponse`/`SuccessResponse`/`ErrorResponse`), 코드 계약 인터페이스(`BaseCode`/`ErrorCode`/`SuccessCode`), 공통 예외(`BusinessException`), 전역 핸들러(`GlobalExceptionHandler`), 도메인 무관 VO(`Money`/`Address`), 스토리지 포트(`FileStorage`).
 - **MUST NOT**: 특정 도메인을 아는 타입(예: `RestaurantDto`, `User`, `ReservationStatus`)을 `shared`에 두지 않는다.
 - **MUST**: 의존 방향은 **도메인 → shared 단방향**. `shared`는 어떤 도메인 모듈도 import하지 않는다.
-- 하위 패키지: `response` · `error` · `exception` · `storage` · `vo`
+- 하위 패키지: `response` · `error` · `exception` · `storage` · `swagger` · `vo`
 
 원칙: **"틀은 공유, 내용은 도메인."**
 
