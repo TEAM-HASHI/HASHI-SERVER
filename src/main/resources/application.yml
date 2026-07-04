@@ -3,3 +3,8 @@ spring:
     name: hashi
   profiles:
     active: local
+
+jwt:
+  secret: ${JWT_SECRET}
+  access-token-ttl: 30m
+  refresh-token-ttl: 14d
