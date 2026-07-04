@@ -4,7 +4,7 @@ import io.swagger.v3.oas.models.Components;
 import io.swagger.v3.oas.models.OpenAPI;
 import io.swagger.v3.oas.models.info.Info;
 import io.swagger.v3.oas.models.security.SecurityScheme;
-import org.springdoc.core.customizers.OperationCustomizer;
+import org.springdoc.core.customizers.GlobalOperationCustomizer;
 import org.springdoc.core.models.GroupedOpenApi;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -41,9 +41,9 @@ public class SwaggerConfig {
                 .components(new Components().addSecuritySchemes(BEARER_SCHEME_NAME, bearerScheme));
     }
 
-    /** @ApiExceptions 기반 에러 응답 예시 자동 문서화를 springdoc에 등록한다. */
+    /** @ApiException 기반 에러 응답 예시 자동 문서화. 그룹 문서에도 적용되도록 Global 타입으로 등록한다. */
     @Bean
-    public OperationCustomizer apiExceptionsOperationCustomizer() {
+    public GlobalOperationCustomizer apiExceptionsOperationCustomizer() {
         return new ApiExceptionsOperationCustomizer();
     }
 
