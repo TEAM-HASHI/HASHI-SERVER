@@ -25,7 +25,7 @@
 - **MUST**: 자식 엔티티(메뉴·사진·카드 등)는 별도 모듈이 아니라 애그리거트 루트가 소유하는 자식으로 둔다.
 
 도메인 컨텍스트(7): `restaurant` · `review` · `reservation` · `point` · `magazine` · `user` · `support`
-횡단: `auth` / 진입점: `admin` / 공유 커널: `shared`
+횡단: `auth` / 진입점: `admin` / 지원: `upload`(파일 업로드 자격 발급) / 공유 커널: `shared`
 
 ---
 
@@ -38,7 +38,7 @@
 ### 2-2. 도메인 모듈 내부 (고정 레이아웃)
 각 도메인 모듈은 아래 패키지 구성을 **MUST** 따른다.
 
-```
+```text
 <context>/
 ├─ <Context>Port          # 모듈 간 공개 포트 (통합 1개)
 ├─ <Context>Info          # 모듈 간 전달 DTO (포트로 노출, 필요 시)
@@ -110,6 +110,20 @@
 - **MUST**: "누가 소유하나"는 **함께 바뀌는 쪽**으로 정한다(매거진 편집 시 목록이 바뀌면 magazine 소유).
 - **SHOULD**: 타 도메인 데이터 삭제로 ID가 떠도 무방하도록, 포트는 **존재하는 것만 반환**한다. 정합성이 중요하면 삭제 이벤트(§6)를 구독해 매핑을 정리한다.
 
+### 5-3. 교차 조회 엔드포인트 담당 (누가 소유하나)
+
+한 조회가 **여러 도메인 데이터를 함께** 내려줘야 할 때(예: "식당의 리뷰 목록", "예약별 리뷰 작성 여부"), 그 엔드포인트의 **담당(컨트롤러·서비스가 사는 모듈)**을 정하는 규칙이다.
+
+- **MUST**: 교차 조회는 **시작점(=조회를 주도하는) 애그리거트가 담당**한다. 단, **시작점 → 대상 의존이 부록의 비순환 방향과 일치할 때만**.
+    - 예: "예약의 예약자 조회"는 `reservation → user`(합법)이므로 **reservation 담당**. 시작점이 `UserPort`로 enrich.
+- **MUST**: 대상이 **이미 시작점을 의존 중**이면(그 방향으로 가면 순환), 담당을 **조회 가능한 쪽으로 반전**한다.
+    - 예: "식당의 리뷰 목록"은 `restaurant → review`가 순환(`review → restaurant` 존재)이므로 **review 담당**. review가 `RestaurantPort`로 식당을 enrich한다.
+    - 예: "예약별 리뷰 작성 여부"는 `reservation → review`가 순환이므로 **review 담당**(`review → reservation`으로 예약 조회). URL이 `/reservations/...`로 시작해도 **담당·컨트롤러는 review**다(경로 ≠ 모듈).
+- **MUST NOT**: 순환을 피하려고 상대 모듈의 `internal`/Repository를 직접 부르지 않는다. 담당을 반전하거나(위), 동기로 불가능하면 §6 이벤트로 푼다.
+- **SHOULD**: "담당 반전"조차 부자연스러우면(양쪽 데이터가 대등하게 필요) **API를 분리**해 클라이언트가 각 모듈에서 받아 병합하거나, 진입점(`admin`)에서 각 `Port`로 조합한다.
+
+> 요약: **"URL이 어디서 시작하나"가 아니라 "어느 모듈이 상대를 합법적으로 조회할 수 있나"가 담당을 정한다.** 리뷰처럼 남이 이미 자기를 의존하는 모듈의 데이터가 끼면, 그 조회는 리뷰가 담당한다.
+
 ---
 
 ## 6. 이벤트
@@ -141,13 +155,15 @@
 
 ---
 
-## 9. auth / admin
+## 9. auth / admin / upload (비도메인 모듈)
 
 - **MUST**: `auth`는 `@Modulithic(sharedModules = "org.sopt.hashi.auth")`로 등록한다(횡단 관심사).
-- **MUST**: 인증 **강제**는 Spring Security 필터 체인이 담당한다. 도메인 모듈은 `auth.internal`을 import하지 않고, shared로 공개된 `CurrentUserProvider`로 현재 사용자를 읽는다(`SecurityContextHolder` 직접 접근 금지).
+- **MUST**: 인증 **강제**는 Spring Security 필터 체인이 담당한다. 도메인 모듈은 `auth.internal`을 import하지 않고, `auth`가 공개한 `CurrentUserProvider`로 현재 사용자를 읽는다(`SecurityContextHolder` 직접 접근 금지).
 - **MUST NOT**: 도메인 모듈이 인증 로직을 직접 구현하지 않는다.
 - **MUST**: `admin`은 진입점 모듈로, **도메인 로직을 두지 않는다.** 각 컨텍스트의 `Port`로 위임만 한다.
 - **MUST NOT**: `admin`이 타 모듈의 `internal`/Repository/엔티티에 직접 접근하지 않는다.
+- **MUST**: `upload`은 파일 업로드 자격(presigned URL) 발급만 하는 **상태 없는 지원 모듈**이다. `domain/`·`Port` 없이 `web`·`service`·`dto`·`code`만 두고, `shared/storage`의 `FileStorage`에만 의존한다(어떤 도메인 모듈도 알지 않는다).
+- **MUST**: `upload` 컨트롤러는 클라이언트가 직접 호출한다(`POST /api/v1/uploads/presigned-urls`). 도메인 모듈은 `upload`를 호출하지 않는다(업로드는 클라→S3 직행, 저장은 각 도메인이 받은 object key로).
 
 ---
 
@@ -161,13 +177,14 @@
 
 ## 부록 — 의존 방향 (비순환)
 
-```
+```text
 auth → user
-review → restaurant, reservation, point
+review → restaurant, reservation, point, user   (작성자 닉네임·프사 enrich; 탈퇴 시 UserPort 빈 값 → "탈퇴한 회원" fallback)
 reservation → restaurant, user, point
 magazine → restaurant                (관련 식당 큐레이션, 매핑 테이블 + RestaurantPort)
 user → restaurant, magazine          (찜/bookmark, 매핑 테이블 + 각 Port)
-admin → restaurant, magazine, reservation, support, user
+admin → restaurant, magazine, reservation, user
+upload → shared (FileStorage)         (지원 모듈; 도메인 모듈 의존 없음)
 모든 도메인 → shared (OPEN)
-user ⇢ review, reservation, point   (UserWithdrawnEvent, 이벤트)
+user ⇢ reservation, point, auth      (UserWithdrawnEvent 구독; auth=토큰 무효화·블랙리스트)
 ```
