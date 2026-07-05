@@ -2,18 +2,22 @@ package org.sopt.hashi.shared.exception;
 
 import jakarta.servlet.http.HttpServletRequest;
 import java.util.List;
+import java.util.Set;
 import lombok.extern.slf4j.Slf4j;
 import org.sopt.hashi.shared.error.BusinessException;
 import org.sopt.hashi.shared.error.CommonErrorCode;
 import org.sopt.hashi.shared.error.ErrorCode;
 import org.sopt.hashi.shared.response.ErrorResponse;
+import org.springframework.http.HttpMethod;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.HttpMessageNotReadableException;
+import org.springframework.web.HttpMediaTypeNotSupportedException;
 import org.springframework.web.HttpRequestMethodNotSupportedException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.MissingServletRequestParameterException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.method.annotation.HandlerMethodValidationException;
 import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 import org.springframework.web.servlet.resource.NoResourceFoundException;
 
@@ -61,13 +65,17 @@ public class GlobalExceptionHandler {
         return ResponseEntity.status(CommonErrorCode.INVALID_INPUT.getStatus())
                 .body(ErrorResponse.of(CommonErrorCode.INVALID_INPUT, request.getRequestURI()));
     }
-    // 지원하지 않는 HTTP 메서드 (405)
+    // 지원하지 않는 HTTP 메서드 (405) — RFC 7231에 따라 허용 메서드를 Allow 헤더로 알린다
     @ExceptionHandler(HttpRequestMethodNotSupportedException.class)
     public ResponseEntity<ErrorResponse> handleMethodNotSupported(
             HttpRequestMethodNotSupportedException e,
             HttpServletRequest request) {
-        return ResponseEntity.status(CommonErrorCode.METHOD_NOT_ALLOWED.getStatus())
-                .body(ErrorResponse.of(CommonErrorCode.METHOD_NOT_ALLOWED, request.getRequestURI()));
+        ResponseEntity.BodyBuilder builder = ResponseEntity.status(CommonErrorCode.METHOD_NOT_ALLOWED.getStatus());
+        Set<HttpMethod> supportedMethods = e.getSupportedHttpMethods();
+        if (supportedMethods != null && !supportedMethods.isEmpty()) {
+            builder.allow(supportedMethods.toArray(HttpMethod[]::new));
+        }
+        return builder.body(ErrorResponse.of(CommonErrorCode.METHOD_NOT_ALLOWED, request.getRequestURI()));
     }
     // 경로/쿼리 파라미터 타입 불일치 — 예: /restaurants/abc (400)
     @ExceptionHandler(MethodArgumentTypeMismatchException.class)
@@ -81,6 +89,22 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(MissingServletRequestParameterException.class)
     public ResponseEntity<ErrorResponse> handleMissingParameter(
             MissingServletRequestParameterException e,
+            HttpServletRequest request) {
+        return ResponseEntity.status(CommonErrorCode.INVALID_INPUT.getStatus())
+                .body(ErrorResponse.of(CommonErrorCode.INVALID_INPUT, request.getRequestURI()));
+    }
+    // 지원하지 않는 Content-Type (415) — 예: JSON 엔드포인트에 text/plain 전송
+    @ExceptionHandler(HttpMediaTypeNotSupportedException.class)
+    public ResponseEntity<ErrorResponse> handleMediaTypeNotSupported(
+            HttpMediaTypeNotSupportedException e,
+            HttpServletRequest request) {
+        return ResponseEntity.status(CommonErrorCode.UNSUPPORTED_MEDIA_TYPE.getStatus())
+                .body(ErrorResponse.of(CommonErrorCode.UNSUPPORTED_MEDIA_TYPE, request.getRequestURI()));
+    }
+    // @RequestParam/@PathVariable에 직접 선언한 제약 위반 (400) — DTO @Valid와 별개 경로(Spring 6.1+)
+    @ExceptionHandler(HandlerMethodValidationException.class)
+    public ResponseEntity<ErrorResponse> handleHandlerMethodValidation(
+            HandlerMethodValidationException e,
             HttpServletRequest request) {
         return ResponseEntity.status(CommonErrorCode.INVALID_INPUT.getStatus())
                 .body(ErrorResponse.of(CommonErrorCode.INVALID_INPUT, request.getRequestURI()));
