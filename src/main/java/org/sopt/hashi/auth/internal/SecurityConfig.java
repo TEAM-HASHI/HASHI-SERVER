@@ -1,6 +1,7 @@
 package org.sopt.hashi.auth.internal;
 
 import java.util.List;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -25,7 +26,6 @@ import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
 @EnableConfigurationProperties(JwtProperties.class)
 public class SecurityConfig {
 
-    private static final String FRONT_DOMAIN = "https://front-domain";
     private static final String[] PUBLIC_PATHS = {
             "/swagger-ui/**",
             "/swagger-ui.html",
@@ -56,16 +56,17 @@ public class SecurityConfig {
                 .build();
     }
 
-    /** 리프레시 쿠키(HttpOnly) 전송을 위해 allowCredentials를 켠다 — 오리진은 와일드카드 불가, 정확한 도메인만 나열한다. */
+    /**
+     * 리프레시 쿠키(HttpOnly) 전송을 위해 allowCredentials를 켠다 — 오리진은 와일드카드 불가, 정확한 도메인만 나열한다.
+     * 허용 오리진은 환경별로 다르므로 설정(hashi.cors.allowed-origins, env CORS_ALLOWED_ORIGINS)으로 주입한다.
+     */
     @Bean
-    public CorsConfigurationSource corsConfigurationSource() {
+    public CorsConfigurationSource corsConfigurationSource(
+            @Value("${hashi.cors.allowed-origins}") List<String> allowedOrigins) {
         CorsConfiguration configuration = new CorsConfiguration();
 
         // 프론트엔드 도메인 허용
-        configuration.setAllowedOrigins(List.of(
-                "http://localhost:5173",
-                FRONT_DOMAIN
-        ));
+        configuration.setAllowedOrigins(allowedOrigins);
         configuration.setAllowedMethods(List.of("GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"));
         configuration.setAllowedHeaders(List.of("*"));
         // 교차 출처에서 프론트가 응답의 액세스 토큰(Authorization 헤더)을 읽을 수 있게 노출한다.
