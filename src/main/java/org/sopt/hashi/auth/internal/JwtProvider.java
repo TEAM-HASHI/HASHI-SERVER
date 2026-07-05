@@ -59,9 +59,9 @@ public class JwtProvider {
             }
             return new JwtClaims(Long.parseLong(claims.getSubject()), role, type);
         } catch (ExpiredJwtException e) {
-            throw new BusinessException(AuthErrorCode.EXPIRED_TOKEN);
+            throw new BusinessException(AuthErrorCode.EXPIRED_TOKEN, e);
         } catch (JwtException | IllegalArgumentException e) {
-            throw new BusinessException(AuthErrorCode.INVALID_TOKEN);
+            throw new BusinessException(AuthErrorCode.INVALID_TOKEN, e);
         }
     }
 
