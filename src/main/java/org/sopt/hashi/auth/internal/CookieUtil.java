@@ -26,22 +26,14 @@ public class CookieUtil {
 
     /** 리프레시 토큰 쿠키 생성. SameSite=None(교차 출처 프론트) — CORS allowCredentials와 짝을 이룬다. */
     public ResponseCookie createRefreshTokenCookie(String refreshToken) {
-        return ResponseCookie.from(REFRESH_TOKEN_COOKIE, refreshToken)
-                .httpOnly(true)
-                .secure(true)
-                .sameSite("None")
-                .path(REFRESH_COOKIE_PATH)
+        return baseCookieBuilder(refreshToken)
                 .maxAge(properties.refreshTokenTtl())
                 .build();
     }
 
     /** 리프레시 토큰 쿠키 만료(무효화 시 클라 쿠키 제거). */
     public ResponseCookie expireRefreshTokenCookie() {
-        return ResponseCookie.from(REFRESH_TOKEN_COOKIE, "")
-                .httpOnly(true)
-                .secure(true)
-                .sameSite("None")
-                .path(REFRESH_COOKIE_PATH)
+        return baseCookieBuilder("")
                 .maxAge(0)
                 .build();
     }
@@ -55,5 +47,13 @@ public class CookieUtil {
                 .filter(cookie -> REFRESH_TOKEN_COOKIE.equals(cookie.getName()))
                 .map(Cookie::getValue)
                 .findFirst();
+    }
+
+    private ResponseCookie.ResponseCookieBuilder baseCookieBuilder(String value) {
+        return ResponseCookie.from(REFRESH_TOKEN_COOKIE, value)
+                .httpOnly(true)
+                .secure(true)
+                .sameSite("None")
+                .path(REFRESH_COOKIE_PATH);
     }
 }
