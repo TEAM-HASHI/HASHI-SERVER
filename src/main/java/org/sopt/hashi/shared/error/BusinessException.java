@@ -14,4 +14,10 @@ public class BusinessException extends RuntimeException {
         super(errorCode.getMessage());
         this.errorCode = errorCode;
     }
+
+    /** 원인 예외를 보존해 스택 트레이스 추적을 가능하게 한다(래핑 시 사용). */
+    public BusinessException(ErrorCode errorCode, Throwable cause) {
+        super(errorCode.getMessage(), cause);
+        this.errorCode = errorCode;
+    }
 }

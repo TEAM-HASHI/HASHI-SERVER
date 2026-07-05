@@ -3,3 +3,13 @@ spring:
     name: hashi
   profiles:
     active: local
+
+jwt:
+  secret: ${JWT_SECRET}
+  access-token-ttl: 30m
+  refresh-token-ttl: 14d
+
+hashi:
+  cors:
+    # 콤마 구분 목록. 운영은 env CORS_ALLOWED_ORIGINS로 프론트 도메인을 주입한다.
+    allowed-origins: ${CORS_ALLOWED_ORIGINS:http://localhost:5173}
