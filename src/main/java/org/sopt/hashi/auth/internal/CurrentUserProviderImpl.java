@@ -24,9 +24,12 @@ class CurrentUserProviderImpl implements CurrentUserProvider {
     @Override
     public boolean isAuthenticated() {
         Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
-        // 익명 인증(principal="anonymousUser")을 걸러내기 위해 principal 타입까지 확인한다.
+        // 익명 인증(principal="anonymousUser")을 걸러내기 위해 principal 타입까지 확인하고,
+        // 온보딩 임시 인증(principal=kakaoId)은 "로그인 사용자"가 아니므로 제외한다.
         return authentication != null
                 && authentication.isAuthenticated()
-                && authentication.getPrincipal() instanceof Long;
+                && authentication.getPrincipal() instanceof Long
+                && authentication.getAuthorities().stream()
+                        .noneMatch(authority -> AuthRoles.ONBOARDING.equals(authority.getAuthority()));
     }
 }
