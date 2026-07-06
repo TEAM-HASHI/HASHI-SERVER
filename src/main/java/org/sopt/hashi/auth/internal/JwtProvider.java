@@ -8,6 +8,7 @@ import io.jsonwebtoken.security.Keys;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.Date;
+import java.util.UUID;
 import javax.crypto.SecretKey;
 import org.sopt.hashi.auth.code.AuthErrorCode;
 import org.sopt.hashi.shared.error.BusinessException;
@@ -22,6 +23,7 @@ public class JwtProvider {
 
     static final String TYPE_ACCESS = "access";
     static final String TYPE_REFRESH = "refresh";
+    static final String TYPE_ONBOARDING = "onboarding";
 
     private static final String CLAIM_ROLE = "role";
     private static final String CLAIM_TYPE = "type";
@@ -41,6 +43,14 @@ public class JwtProvider {
     /** 리프레시도 JWT로 발급(userId 식별용). 유효성은 RefreshTokenStore의 현재 토큰 대조로 판정한다. */
     public String createRefreshToken(Long userId, String role) {
         return createToken(userId, role, TYPE_REFRESH, properties.refreshTokenTtl());
+    }
+
+    /**
+     * 온보딩 임시 토큰. 아직 userId가 없으므로 subject는 kakaoId다.
+     * 유효성은 OnboardingTokenStore의 현재 토큰 대조로 판정하고, 온보딩 API에만 접근 가능하다(ROLE_ONBOARDING).
+     */
+    public String createOnboardingToken(Long kakaoId) {
+        return createToken(kakaoId, AuthRoles.ONBOARDING, TYPE_ONBOARDING, properties.onboardingTokenTtl());
     }
 
     /** 서명·만료 검증 후 클레임을 파싱한다. 만료는 EXPIRED_TOKEN, 그 외 위변조·형식 오류는 INVALID_TOKEN. */
@@ -68,6 +78,9 @@ public class JwtProvider {
     private String createToken(Long userId, String role, String type, Duration ttl) {
         Date now = new Date();
         return Jwts.builder()
+                // 만료(exp)가 초 단위라 같은 초에 발급된 토큰이 동일 문자열이 될 수 있다 —
+                // 회전·재사용 감지가 무력화되지 않도록 jti로 토큰별 유일성을 보장한다
+                .id(UUID.randomUUID().toString())
                 .subject(String.valueOf(userId))
                 .claim(CLAIM_ROLE, role)
                 .claim(CLAIM_TYPE, type)
@@ -77,6 +90,7 @@ public class JwtProvider {
                 .compact();
     }
 
+    /** subject 파싱 값. access/refresh는 userId, onboarding 토큰은 kakaoId다. */
     public record JwtClaims(Long userId, String role, String type) {
 
         public boolean isAccessToken() {
@@ -85,6 +99,10 @@ public class JwtProvider {
 
         public boolean isRefreshToken() {
             return TYPE_REFRESH.equals(type);
+        }
+
+        public boolean isOnboardingToken() {
+            return TYPE_ONBOARDING.equals(type);
         }
     }
 }
