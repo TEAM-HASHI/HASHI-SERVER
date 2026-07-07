@@ -1,7 +1,7 @@
 # 개발 서버 배포 문서
 
 > 이 문서는 개발 서버 배포 구조와 운영 기준을 정리한다.
-> 비밀번호, 토큰, access key, private key, 공개 IP, AWS 계정 ID, DB 계정, DB 비밀번호, 실제 서비스 endpoint 값은 문서에 작성하지 않는다.
+> 비밀번호, 토큰, access key, private key, 공개 IP, AWS 계정 ID, DB 계정, DB 비밀번호, 내부 AWS 리소스 endpoint 값은 문서에 작성하지 않는다.
 
 ---
 
@@ -34,6 +34,8 @@
 - EC2에서 ElastiCache Redis에 접속할 수 있다.
 - EC2 IAM Role로 S3 object upload/download/delete가 가능하다.
 - Nginx가 애플리케이션 컨테이너의 `127.0.0.1:8080`으로 proxy한다.
+- 개발 API 도메인이 EC2로 연결되어 있다.
+- 개발 API 도메인에 HTTPS 인증서가 적용되어 있다.
 
 ---
 
@@ -148,7 +150,40 @@ ports:
 
 ---
 
-## 7. Nginx
+## 7. 도메인 및 HTTPS
+
+개발 API 서버는 별도 API 서브도메인을 사용한다.
+
+```text
+https://dev-api.hashi.kr
+```
+
+도메인 관리는 다음 원칙을 따른다.
+
+- `hashi.kr`, `www.hashi.kr` 등 프론트 메인 도메인은 백엔드 배포 문서에서 관리하지 않는다.
+- 전체 도메인의 네임서버를 Route 53으로 이전하지 않는다.
+- API 서버에 필요한 서브도메인만 도메인 구매처의 DNS에서 관리한다.
+- 개발 API 서브도메인은 개발 EC2의 Elastic IP를 바라보는 A 레코드로 연결한다.
+- 운영 API 서브도메인은 운영 서버가 준비된 뒤 별도로 연결한다.
+
+HTTPS는 EC2의 Nginx와 Certbot/Let's Encrypt를 사용해 적용한다.
+
+- HTTP 요청은 HTTPS로 리다이렉트한다.
+- 인증서는 Certbot의 systemd timer로 자동 갱신한다.
+- 인증서 파일 경로와 private key는 문서나 repository에 기록하지 않는다.
+
+HTTPS 적용 후 외부 확인은 다음 경로를 기준으로 한다.
+
+```bash
+curl -I https://dev-api.hashi.kr/actuator/health
+```
+
+애플리케이션 컨테이너가 아직 실행 중이 아니면 HTTPS 연결은 성공하더라도 Nginx에서 `502 Bad Gateway`가 응답될 수 있다.
+이 경우 TLS/DNS 문제가 아니라 애플리케이션 upstream 문제로 보고 컨테이너 상태를 확인한다.
+
+---
+
+## 8. Nginx
 
 Nginx는 외부 HTTP 요청을 받고 애플리케이션 컨테이너로 proxy한다.
 
@@ -175,12 +210,12 @@ sudo systemctl reload nginx
 
 ---
 
-## 8. 보안 그룹
+## 9. 보안 그룹
 
 개발 환경 보안 그룹은 다음 원칙을 따른다.
 
-- HTTP는 외부 애플리케이션 접근을 위해 허용한다.
-- HTTPS는 도메인과 TLS 인증서를 적용한 경우에만 허용한다.
+- HTTP는 HTTPS 리다이렉트와 인증서 갱신 검증을 위해 허용한다.
+- HTTPS는 외부 애플리케이션 접근을 위해 허용한다.
 - SSH는 현재 GitHub Actions 배포를 위해 사용한다.
 - RDS MySQL은 애플리케이션 서버 보안 그룹에서만 접근 가능해야 한다.
 - ElastiCache Redis는 애플리케이션 서버 보안 그룹에서만 접근 가능해야 한다.
@@ -196,7 +231,7 @@ SSH를 전체 IPv4 범위에 여는 설정은 개발 배포를 위한 임시 설
 
 ---
 
-## 9. S3 및 CloudFront
+## 10. S3 및 CloudFront
 
 S3 bucket은 private 상태를 유지한다.
 
@@ -216,7 +251,7 @@ CloudFront는 Origin Access Control(OAC) 등 private origin access 방식을 사
 
 ---
 
-## 10. 배포 확인
+## 11. 배포 확인
 
 배포 후 애플리케이션 health endpoint를 확인한다.
 
@@ -238,13 +273,18 @@ docker logs --tail=200 hashi-dev-app
 
 외부에서는 Nginx를 통해 HTTP 요청이 전달되는지 확인한다.
 
+```bash
+curl -I https://dev-api.hashi.kr/actuator/health
+```
+
 ---
 
-## 11. 운영 메모
+## 12. 운영 메모
 
 - `.env.dev`는 커밋하지 않는다.
 - AWS access key는 커밋하지 않는다.
 - 애플리케이션 런타임을 위해 장기 AWS access key를 EC2에 저장하지 않는다.
 - 현재 개발 환경에서는 런타임 secret을 EC2 내부 `.env.dev`에서 관리한다.
+- 프론트 메인 도메인과 API 서브도메인 관리는 책임 범위를 분리한다.
 - 운영 환경에서는 AWS Systems Manager Parameter Store 또는 AWS Secrets Manager 사용을 우선 고려한다.
 - SSM 또는 Secrets Manager 기반으로 배포 전략이 바뀌면 이 문서와 `docker-compose.dev.yml`을 함께 수정한다.
