@@ -21,7 +21,22 @@
 
 ---
 
-## 2. AWS 리소스
+## 2. 배포 전 확인 사항
+
+개발 서버 배포 전 다음 항목을 확인한다.
+
+- EC2에 Docker, Docker Compose, Nginx가 설치되어 있다.
+- EC2에 `/home/ubuntu/hashi-dev/.env.dev`가 존재한다.
+- GitHub Secrets에 배포에 필요한 값이 등록되어 있다.
+- Docker Hub에 애플리케이션 이미지를 push할 수 있다.
+- EC2에서 RDS MySQL에 접속할 수 있다.
+- EC2에서 ElastiCache Redis에 접속할 수 있다.
+- EC2 IAM Role로 S3 object upload/download/delete가 가능하다.
+- Nginx가 애플리케이션 컨테이너의 `127.0.0.1:8080`으로 proxy한다.
+
+---
+
+## 3. AWS 리소스
 
 개발 환경은 다음 AWS 리소스를 사용한다.
 
@@ -38,7 +53,7 @@
 
 ---
 
-## 3. GitHub Secrets
+## 4. GitHub Secrets
 
 GitHub Actions에는 배포에 필요한 값만 저장한다.
 
@@ -54,7 +69,7 @@ GitHub Actions에는 배포에 필요한 값만 저장한다.
 
 ---
 
-## 4. EC2 런타임 환경변수
+## 5. EC2 런타임 환경변수
 
 애플리케이션은 다음 파일에서 런타임 환경변수를 읽는다.
 
@@ -106,7 +121,7 @@ AWS_SECRET_KEY
 
 ---
 
-## 5. Docker Compose
+## 6. Docker Compose
 
 개발 서버는 다음 compose 파일을 사용한다.
 
@@ -132,7 +147,7 @@ ports:
 
 ---
 
-## 6. Nginx
+## 7. Nginx
 
 Nginx는 외부 HTTP 요청을 받고 애플리케이션 컨테이너로 proxy한다.
 
@@ -158,11 +173,12 @@ sudo systemctl reload nginx
 
 ---
 
-## 7. 보안 그룹
+## 8. 보안 그룹
 
 개발 환경 보안 그룹은 다음 원칙을 따른다.
 
-- HTTP/HTTPS는 외부 애플리케이션 접근을 위해 허용한다.
+- HTTP는 외부 애플리케이션 접근을 위해 허용한다.
+- HTTPS는 도메인과 TLS 인증서를 적용한 경우에만 허용한다.
 - SSH는 현재 GitHub Actions 배포를 위해 사용한다.
 - RDS MySQL은 애플리케이션 서버 보안 그룹에서만 접근 가능해야 한다.
 - ElastiCache Redis는 애플리케이션 서버 보안 그룹에서만 접근 가능해야 한다.
@@ -178,7 +194,7 @@ SSH를 전체 IPv4 범위에 여는 설정은 개발 배포를 위한 임시 설
 
 ---
 
-## 8. S3 및 CloudFront
+## 9. S3 및 CloudFront
 
 S3 bucket은 private 상태를 유지한다.
 
@@ -190,13 +206,15 @@ S3 bucket은 private 상태를 유지한다.
 Client -> CloudFront -> private S3 bucket
 ```
 
+CloudFront는 Origin Access Control(OAC) 등 private origin access 방식을 사용해 S3에 접근한다.
+
 업로드는 애플리케이션이 presigned URL을 발급하고, 클라이언트가 S3에 직접 업로드한다.
 
 애플리케이션은 전체 presigned URL이 아니라 S3 object key만 저장한다.
 
 ---
 
-## 9. 배포 확인
+## 10. 배포 확인
 
 배포 후 애플리케이션 health endpoint를 확인한다.
 
@@ -220,7 +238,7 @@ docker logs --tail=200 hashi-dev-app
 
 ---
 
-## 10. 운영 메모
+## 11. 운영 메모
 
 - `.env.dev`는 커밋하지 않는다.
 - AWS access key는 커밋하지 않는다.
