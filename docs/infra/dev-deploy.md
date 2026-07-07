@@ -169,6 +169,7 @@ Nginx systemd unit file을 변경한 경우에만 systemd 설정을 다시 읽�
 
 ```bash
 sudo systemctl daemon-reload
+sudo nginx -t
 sudo systemctl reload nginx
 ```
 
