@@ -11,7 +11,7 @@ permissions:
 
 concurrency:
   group: cd-dev
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 env:
   IMAGE_NAME: hashi-server
@@ -27,6 +27,8 @@ jobs:
     steps:
       - name: Checkout source code
         uses: actions/checkout@v4
+        with:
+          persist-credentials: false
 
       - name: Set up JDK 21
         uses: actions/setup-java@v4
@@ -91,10 +93,10 @@ jobs:
         run: |
           EC2_USER="${DEV_EC2_USER:-ubuntu}"
           echo "${DOCKER_TOKEN}" | ssh -i ~/.ssh/hashi-dev.pem "${EC2_USER}@${DEV_EC2_HOST}" "docker login -u '${DOCKER_USERNAME}' --password-stdin"
-          ssh -i ~/.ssh/hashi-dev.pem "${EC2_USER}@${DEV_EC2_HOST}" <<'EOF'
+          ssh -i ~/.ssh/hashi-dev.pem "${EC2_USER}@${DEV_EC2_HOST}" "DEPLOY_DIR='${DEPLOY_DIR}' bash -s" <<'EOF'
           set -euo pipefail
 
-          cd /home/ubuntu/hashi-dev/docker
+          cd "${DEPLOY_DIR}/docker"
           test -f ../.env.dev
 
           docker compose --env-file ../.env.dev -f docker-compose.dev.yml pull app

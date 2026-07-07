@@ -26,6 +26,7 @@
 개발 서버 배포 전 다음 항목을 확인한다.
 
 - EC2에 Docker, Docker Compose, Nginx가 설치되어 있다.
+- 배포 계정(`DEV_EC2_USER`, 기본값 `ubuntu`)이 sudo 없이 Docker와 Docker Compose를 실행할 수 있다.
 - EC2에 `/home/ubuntu/hashi-dev/.env.dev`가 존재한다.
 - GitHub Secrets에 배포에 필요한 값이 등록되어 있다.
 - Docker Hub에 애플리케이션 이미지를 push할 수 있다.
@@ -157,14 +158,14 @@ proxy 대상은 다음과 같다.
 http://127.0.0.1:8080
 ```
 
-Nginx 설정을 변경한 뒤에는 문법 검사 후 reload한다.
+Nginx 설정을 변경한 뒤에는 문법 검사 후 Nginx만 reload한다.
 
 ```bash
 sudo nginx -t
 sudo systemctl reload nginx
 ```
 
-systemd가 unit file 변경을 감지했다면 다음 명령을 실행한다.
+Nginx systemd unit file을 변경한 경우에만 systemd 설정을 다시 읽고 Nginx를 reload한다.
 
 ```bash
 sudo systemctl daemon-reload
