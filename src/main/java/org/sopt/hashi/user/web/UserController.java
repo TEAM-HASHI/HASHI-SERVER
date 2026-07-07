@@ -4,6 +4,7 @@ import jakarta.validation.Valid;
 import org.sopt.hashi.shared.error.CommonErrorCode;
 import org.sopt.hashi.shared.response.SuccessResponse;
 import org.sopt.hashi.shared.swagger.ApiException;
+import org.sopt.hashi.user.code.UserErrorCode;
 import org.sopt.hashi.user.code.UserSuccessCode;
 import org.sopt.hashi.user.dto.CompleteOnboardingRequest;
 import org.sopt.hashi.user.dto.OnboardingResponse;
@@ -33,6 +34,8 @@ public class UserController {
      * (ROLE_ONBOARDING). 회원 저장과 동시에 auth가 소셜 계정을 연결하고, 성공 시 정식 JWT를 응답에 실어준다.
      */
     @ApiException(value = CommonErrorCode.class, codes = {"INVALID_INPUT", "UNAUTHORIZED", "FORBIDDEN"})
+    @ApiException(value = UserErrorCode.class,
+            codes = {"DUPLICATE_NICKNAME", "DUPLICATE_EMAIL", "DUPLICATE_PHONE", "DUPLICATE_USER_INFO"})
     @ResponseStatus(HttpStatus.CREATED)
     @PostMapping("/onboarding")
     public SuccessResponse<OnboardingResponse> completeOnboarding(
