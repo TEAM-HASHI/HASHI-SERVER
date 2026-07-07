@@ -11,7 +11,7 @@
 | --- | --- | --- |
 | 응답 봉투 `BaseResponse`/`SuccessResponse`/`ErrorResponse`/`FieldError` | `shared/response` | 모든 API 공통 틀 |
 | 코드 계약 `BaseCode`/`ErrorCode`/`SuccessCode` | `shared/error` | 인터페이스(계약)만 |
-| 공통 에러 `CommonErrorCode` | `shared/error` | 도메인 무관(400/401/403/404/500 등) |
+| 공통 에러 `CommonErrorCode` | `shared/error` | 도메인 무관(400/401/403/404/405/415/500) |
 | `BusinessException` | `shared/error` | 비즈니스 예외 |
 | `GlobalExceptionHandler` | `shared/exception` | 전역 변환 |
 | **도메인 코드** `<Context>ErrorCode`/`<Context>SuccessCode` | **각 모듈 `code/`** | shared 인터페이스 구현 |
@@ -42,6 +42,8 @@ public enum CommonErrorCode implements ErrorCode {
     UNAUTHORIZED (HttpStatus.UNAUTHORIZED,          "COMMON-401", "인증이 필요합니다"),
     FORBIDDEN    (HttpStatus.FORBIDDEN,             "COMMON-403", "권한이 없습니다"),
     NOT_FOUND    (HttpStatus.NOT_FOUND,             "COMMON-404", "리소스를 찾을 수 없습니다"),
+    METHOD_NOT_ALLOWED    (HttpStatus.METHOD_NOT_ALLOWED,      "COMMON-405", "허용되지 않은 요청 메서드입니다"),
+    UNSUPPORTED_MEDIA_TYPE(HttpStatus.UNSUPPORTED_MEDIA_TYPE, "COMMON-415", "지원하지 않는 요청 형식입니다"),
     INTERNAL     (HttpStatus.INTERNAL_SERVER_ERROR, "COMMON-500", "서버 오류입니다");
 
     private final HttpStatus status;   // @Getter → getStatus()
@@ -60,7 +62,7 @@ public enum CommonErrorCode implements ErrorCode {
 - **MUST**: **번호는 순번식**으로 매긴다(HTTP 상태와 무관한 안정적 식별자). 상태정렬식(`USER-409`)은 금지 — 같은 상태의 서로 다른 에러가 여럿이면 충돌하고, 상태가 바뀌면 코드가 거짓이 되어 클라 계약이 깨진다.
   - 도메인 **에러**: `<CTX>-0NN` (001부터 순번)
   - 도메인 **성공**: `<CTX>-2NN` (2xx 밴드, 200부터 순번)
-  - 예외 — **`CommonErrorCode`만 상태정렬** `COMMON-<httpstatus>`(400·401·403·404·500). 상태별 **범용** 코드라 상태당 1개뿐이라 충돌이 없다.
+  - 예외 — **`CommonErrorCode`만 상태정렬** `COMMON-<httpstatus>`(400·401·403·404·405·415·500). 상태별 **범용** 코드라 상태당 1개뿐이라 충돌이 없다.
 - **SHOULD**: 메시지는 사용자에게 보여줄 수 있는 한국어로 간결하게.
 
 ```java
