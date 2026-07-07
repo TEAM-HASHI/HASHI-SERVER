@@ -18,15 +18,15 @@ class CurrentUserProviderImpl implements CurrentUserProvider {
         if (!isAuthenticated()) {
             throw new BusinessException(CommonErrorCode.UNAUTHORIZED);
         }
-        return (Long) SecurityContextHolder.getContext().getAuthentication().getPrincipal();
+        return ((MemberPrincipal) SecurityContextHolder.getContext().getAuthentication().getPrincipal()).userId();
     }
 
     @Override
     public boolean isAuthenticated() {
         Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
-        // 익명 인증(principal="anonymousUser")을 걸러내기 위해 principal 타입까지 확인한다.
+        // 정식 로그인 사용자만 인정한다 — 익명(anonymousUser)·온보딩(OnboardingPrincipal)은 principal 타입으로 걸러진다.
         return authentication != null
                 && authentication.isAuthenticated()
-                && authentication.getPrincipal() instanceof Long;
+                && authentication.getPrincipal() instanceof MemberPrincipal;
     }
 }
