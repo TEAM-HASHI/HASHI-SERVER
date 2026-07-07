@@ -42,9 +42,9 @@ public class UserAuthService {
         if (!claims.isRefreshToken()) {
             throw new BusinessException(AuthErrorCode.INVALID_TOKEN);
         }
-        String newRefreshToken = jwtProvider.createRefreshToken(claims.userId(), claims.role());
-        refreshTokenStore.rotate(claims.userId(), presentedRefreshToken, newRefreshToken);
-        String newAccessToken = jwtProvider.createAccessToken(claims.userId(), claims.role());
+        String newRefreshToken = jwtProvider.createRefreshToken(claims.subjectId(), claims.role());
+        refreshTokenStore.rotate(claims.subjectId(), presentedRefreshToken, newRefreshToken);
+        String newAccessToken = jwtProvider.createAccessToken(claims.subjectId(), claims.role());
         return new TokenPair(newAccessToken, newRefreshToken);
     }
 
