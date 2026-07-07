@@ -1,6 +1,9 @@
 package org.sopt.hashi.auth.internal;
 
 import java.util.Optional;
+import org.sopt.hashi.auth.code.AuthErrorCode;
+import org.sopt.hashi.shared.error.BusinessException;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -24,10 +27,15 @@ class AuthAccountService {
 
     /**
      * 소셜 계정을 회원에 연결한다. 호출자(온보딩)의 트랜잭션에 참여해 회원 생성과 원자적으로 커밋된다.
-     * 중복은 (provider, provider_user_id) 유니크 제약이 최종 방어한다.
+     * 동시 가입 경합은 (provider, provider_user_id) 유니크 제약이 최종 방어하며,
+     * 위반은 500이 아니라 이미 가입됨(409) 도메인 에러로 변환한다.
      */
     @Transactional
     void link(AuthProvider provider, String providerUserId, Long userId) {
-        authAccountRepository.save(AuthAccount.link(userId, provider, providerUserId));
+        try {
+            authAccountRepository.save(AuthAccount.link(userId, provider, providerUserId));
+        } catch (DataIntegrityViolationException e) {
+            throw new BusinessException(AuthErrorCode.ALREADY_LINKED_ACCOUNT, e);
+        }
     }
 }
