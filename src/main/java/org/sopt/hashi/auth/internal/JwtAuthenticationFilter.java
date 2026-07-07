@@ -79,10 +79,10 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
             Object principal;
             if (claims.isOnboardingToken()) {
                 // 온보딩 임시 토큰 — Redis의 현재 토큰과 대조(1회용·교체 감지). principal은 kakaoId.
-                onboardingTokenStore.validate(claims.userId(), token);
-                principal = new OnboardingPrincipal(claims.userId());
+                onboardingTokenStore.validate(claims.subjectId(), token);
+                principal = new OnboardingPrincipal(claims.subjectId());
             } else if (claims.isAccessToken()) {
-                principal = new MemberPrincipal(claims.userId());
+                principal = new MemberPrincipal(claims.subjectId());
             } else {
                 throw new BusinessException(AuthErrorCode.INVALID_TOKEN);
             }
