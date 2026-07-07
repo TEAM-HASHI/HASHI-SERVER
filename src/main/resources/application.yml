@@ -8,6 +8,12 @@ jwt:
   secret: ${JWT_SECRET}
   access-token-ttl: 30m
   refresh-token-ttl: 14d
+  onboarding-token-ttl: 30m
+
+kakao:
+  client-id: ${KAKAO_CLIENT_ID}
+  redirect-uri: ${KAKAO_REDIRECT_URI}
+  client-secret: ${KAKAO_CLIENT_SECRET:}   # 카카오 콘솔에서 활성화한 경우만
 
 hashi:
   cors:
