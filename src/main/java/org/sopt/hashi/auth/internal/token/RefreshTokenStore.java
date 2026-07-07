@@ -1,4 +1,5 @@
-package org.sopt.hashi.auth.internal;
+package org.sopt.hashi.auth.internal.token;
+import org.sopt.hashi.auth.internal.jwt.JwtProperties;
 
 import java.util.List;
 import lombok.extern.slf4j.Slf4j;

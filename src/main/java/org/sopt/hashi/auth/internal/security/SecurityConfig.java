@@ -1,4 +1,6 @@
-package org.sopt.hashi.auth.internal;
+package org.sopt.hashi.auth.internal.security;
+import org.sopt.hashi.auth.internal.kakao.KakaoProperties;
+import org.sopt.hashi.auth.internal.jwt.JwtProperties;
 
 import java.util.List;
 import org.springframework.beans.factory.annotation.Value;
@@ -23,17 +25,17 @@ import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
  */
 @Configuration
 @EnableWebSecurity
-@EnableConfigurationProperties(JwtProperties.class)
+@EnableConfigurationProperties({JwtProperties.class, KakaoProperties.class})
 public class SecurityConfig {
 
+    private static final String ONBOARDING_PATH = "/api/v1/users/onboarding";
     private static final String[] PUBLIC_PATHS = {
             "/swagger-ui/**",
             "/swagger-ui.html",
             "/v3/api-docs/**",
             "/actuator/health",
             "/actuator/health/**",
-            "/api/v1/auth/**"          // 로그인·재발급(후속) — 토큰 없이 접근
-            // TODO(후속): 온보딩 경로는 임시 권한(ROLE_ONBOARDING)으로 별도 규칙 추가
+            "/api/v1/auth/**"          // 카카오 로그인·재발급 — 토큰 없이 접근
     };
 
     @Bean
@@ -49,8 +51,10 @@ public class SecurityConfig {
                 .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .authorizeHttpRequests(auth -> auth
                         .requestMatchers(PUBLIC_PATHS).permitAll()
+                        .requestMatchers(ONBOARDING_PATH).hasRole("ONBOARDING")
                         .requestMatchers("/api/v1/admin/**").hasRole("ADMIN")
-                        .anyRequest().authenticated())
+                        // 온보딩 임시 권한이 일반 API에 접근하지 못하도록 authenticated 대신 역할을 명시한다(auth.md §4)
+                        .anyRequest().hasAnyRole("USER", "ADMIN"))
                 .exceptionHandling(handling -> handling
                         .authenticationEntryPoint(authenticationEntryPoint)
                         .accessDeniedHandler(accessDeniedHandler))

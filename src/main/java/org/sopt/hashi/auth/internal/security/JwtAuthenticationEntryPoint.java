@@ -1,4 +1,4 @@
-package org.sopt.hashi.auth.internal;
+package org.sopt.hashi.auth.internal.security;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.servlet.http.HttpServletRequest;
