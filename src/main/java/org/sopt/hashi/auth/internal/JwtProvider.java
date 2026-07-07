@@ -91,7 +91,8 @@ public class JwtProvider {
     }
 
     /** subject 파싱 값. access/refresh는 userId, onboarding 토큰은 kakaoId다. */
-    public record JwtClaims(Long userId, String role, String type) {
+    // 기존 userId -> subjectId로 변경 (kakaoId인 경우 userId로의 혼동 우려로 중립적인 네이밍으로 수정)
+    public record JwtClaims(Long subjectId, String role, String type) {
 
         public boolean isAccessToken() {
             return TYPE_ACCESS.equals(type);
