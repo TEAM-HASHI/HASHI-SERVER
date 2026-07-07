@@ -7,7 +7,7 @@
 
 ## 1. 원칙
 
-- **MUST**: `auth`는 `@Modulithic(sharedModules = "org.sopt.hashi.auth")`로 등록한 **횡단 관심사** 모듈이다.
+- **MUST**: `auth`는 `@Modulithic(sharedModules = "auth")`로 등록한 **횡단 관심사** 모듈이다.
 - **MUST**: 인증 **강제**(요청 차단)는 Spring Security **필터 체인**이 담당한다. 도메인 모듈은 인증 로직을 갖지 않는다.
 - **MUST NOT**: 도메인 모듈이 `auth`의 `internal`(JWT·OAuth·필터 등)을 import하지 않는다.
 - **MUST**: 도메인에서 "현재 로그인 사용자"가 필요하면 **`CurrentUserProvider`** 로 읽는다.
