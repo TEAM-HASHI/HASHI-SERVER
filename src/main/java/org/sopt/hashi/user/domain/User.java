@@ -6,6 +6,7 @@ import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
+import jakarta.persistence.UniqueConstraint;
 import java.time.LocalDate;
 import lombok.AccessLevel;
 import lombok.Getter;
@@ -18,7 +19,12 @@ import org.sopt.hashi.BaseTimeEntity;
  */
 @Getter
 @Entity
-@Table(name = "users")   // user는 예약어 충돌 여지가 있어 복수형 사용
+@Table(name = "users",   // user는 예약어 충돌 여지가 있어 복수형 사용
+        uniqueConstraints = {
+                @UniqueConstraint(name = "uk_users_nickname", columnNames = "nickname"),
+                @UniqueConstraint(name = "uk_users_email", columnNames = "email"),
+                @UniqueConstraint(name = "uk_users_phone", columnNames = "phone")
+        })
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
 public class User extends BaseTimeEntity {
 
