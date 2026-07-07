@@ -35,7 +35,8 @@ public class SecurityConfig {
             "/v3/api-docs/**",
             "/actuator/health",
             "/actuator/health/**",
-            "/api/v1/auth/**"          // 카카오 로그인·재발급 — 토큰 없이 접근
+            "/api/v1/auth/**"          // 로그인·재발급(후속) — 토큰 없이 접근
+            // TODO(후속): 온보딩 경로는 임시 권한(ROLE_ONBOARDING)으로 별도 규칙 추가
     };
 
     @Bean
