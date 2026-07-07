@@ -81,14 +81,12 @@ public class OnboardingJwtIssuer implements ResponseBodyAdvice<Object> {
                 && ONBOARDING_PATH.equals(request.getURI().getPath());
     }
 
-    /** 온보딩 임시 인증(ROLE_ONBOARDING)의 principal(kakaoId)을 읽는다. 그 외 인증이면 null. */
+    /** 온보딩 임시 인증(OnboardingPrincipal)의 kakaoId를 읽는다. 그 외 인증이면 null. */
     private Long currentOnboardingKakaoId() {
         Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
-        if (authentication == null || !(authentication.getPrincipal() instanceof Long principal)) {
+        if (authentication == null || !(authentication.getPrincipal() instanceof OnboardingPrincipal(Long kakaoId))) {
             return null;
         }
-        boolean onboarding = authentication.getAuthorities().stream()
-                .anyMatch(authority -> AuthRoles.ONBOARDING.equals(authority.getAuthority()));
-        return onboarding ? principal : null;
+        return kakaoId;
     }
 }

@@ -23,19 +23,15 @@ class AuthAccountPortImpl implements AuthAccountPort {
     @Override
     public void linkOnboardingAccount(Long userId) {
         // 현재 provider는 카카오뿐이다. 제공자가 늘어나면 온보딩 토큰에 provider를 실어 이 값을 결정한다.
-        authAccountService.link(AuthProvider.KAKAO, String.valueOf(currentOnboardingPrincipal()), userId);
+        authAccountService.link(AuthProvider.KAKAO, String.valueOf(currentOnboardingKakaoId()), userId);
     }
 
-    /** 온보딩 임시 인증(ROLE_ONBOARDING)의 principal(kakaoId)을 읽는다. 그 외 컨텍스트면 거부한다. */
-    private Long currentOnboardingPrincipal() {
+    /** 온보딩 임시 인증(OnboardingPrincipal)의 kakaoId를 읽는다. 그 외 컨텍스트면 거부한다. */
+    private Long currentOnboardingKakaoId() {
         Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
-        boolean onboarding = authentication != null
-                && authentication.getPrincipal() instanceof Long
-                && authentication.getAuthorities().stream()
-                        .anyMatch(authority -> AuthRoles.ONBOARDING.equals(authority.getAuthority()));
-        if (!onboarding) {
+        if (authentication == null || !(authentication.getPrincipal() instanceof OnboardingPrincipal(Long kakaoId))) {
             throw new BusinessException(CommonErrorCode.UNAUTHORIZED);
         }
-        return (Long) authentication.getPrincipal();
+        return kakaoId;
     }
 }
