@@ -57,6 +57,10 @@ public enum CommonErrorCode implements ErrorCode {
 
 - **MUST**: 도메인 코드는 각 모듈 `code/`에서 shared의 `ErrorCode`/`SuccessCode`를 **구현**한다.
 - **MUST**: 코드 문자열에 **도메인 prefix**를 둔다(`<CONTEXT>-NNN`).
+- **MUST**: **번호는 순번식**으로 매긴다(HTTP 상태와 무관한 안정적 식별자). 상태정렬식(`USER-409`)은 금지 — 같은 상태의 서로 다른 에러가 여럿이면 충돌하고, 상태가 바뀌면 코드가 거짓이 되어 클라 계약이 깨진다.
+  - 도메인 **에러**: `<CTX>-0NN` (001부터 순번)
+  - 도메인 **성공**: `<CTX>-2NN` (2xx 밴드, 200부터 순번)
+  - 예외 — **`CommonErrorCode`만 상태정렬** `COMMON-<httpstatus>`(400·401·403·404·500). 상태별 **범용** 코드라 상태당 1개뿐이라 충돌이 없다.
 - **SHOULD**: 메시지는 사용자에게 보여줄 수 있는 한국어로 간결하게.
 
 ```java
