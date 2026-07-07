@@ -76,15 +76,19 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
     private void authenticate(HttpServletRequest request, String token) {
         try {
             JwtProvider.JwtClaims claims = jwtProvider.parse(token);
+            Object principal;
             if (claims.isOnboardingToken()) {
                 // 온보딩 임시 토큰 — Redis의 현재 토큰과 대조(1회용·교체 감지). principal은 kakaoId.
                 onboardingTokenStore.validate(claims.userId(), token);
-            } else if (!claims.isAccessToken()) {
+                principal = new OnboardingPrincipal(claims.userId());
+            } else if (claims.isAccessToken()) {
+                principal = new MemberPrincipal(claims.userId());
+            } else {
                 throw new BusinessException(AuthErrorCode.INVALID_TOKEN);
             }
             // TODO(후속): TokenBlacklist(Redis) 대조 — 탈퇴 사용자의 잔여 액세스 토큰 차단
             UsernamePasswordAuthenticationToken authentication = new UsernamePasswordAuthenticationToken(
-                    claims.userId(), null, List.of(new SimpleGrantedAuthority(claims.role())));
+                    principal, null, List.of(new SimpleGrantedAuthority(claims.role())));
             SecurityContextHolder.getContext().setAuthentication(authentication);
         } catch (BusinessException e) {
             SecurityContextHolder.clearContext();
