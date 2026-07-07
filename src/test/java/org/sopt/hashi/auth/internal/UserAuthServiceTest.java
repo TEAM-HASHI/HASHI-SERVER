@@ -1,4 +1,11 @@
 package org.sopt.hashi.auth.internal;
+import org.sopt.hashi.auth.internal.token.RefreshTokenStore;
+import org.sopt.hashi.auth.internal.token.OnboardingTokenStore;
+import org.sopt.hashi.auth.internal.kakao.KakaoOAuthClient;
+import org.sopt.hashi.auth.internal.jwt.JwtProvider;
+import org.sopt.hashi.auth.internal.jwt.AuthRoles;
+import org.sopt.hashi.auth.internal.account.AuthProvider;
+import org.sopt.hashi.auth.internal.account.AuthAccountService;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -11,7 +18,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
 import org.sopt.hashi.auth.code.AuthErrorCode;
-import org.sopt.hashi.auth.internal.JwtProvider.JwtClaims;
+import org.sopt.hashi.auth.internal.jwt.JwtProvider.JwtClaims;
 import org.sopt.hashi.auth.internal.UserAuthService.TokenPair;
 import org.sopt.hashi.shared.error.BusinessException;
 

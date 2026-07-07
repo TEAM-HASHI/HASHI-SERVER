@@ -157,7 +157,7 @@
 
 ## 9. auth / admin / upload (비도메인 모듈)
 
-- **MUST**: `auth`는 `@Modulithic(sharedModules = "org.sopt.hashi.auth")`로 등록한다(횡단 관심사).
+- **MUST**: `auth`는 `@Modulithic(sharedModules = "auth")`로 등록한다(횡단 관심사).
 - **MUST**: 인증 **강제**는 Spring Security 필터 체인이 담당한다. 도메인 모듈은 `auth.internal`을 import하지 않고, `auth`가 공개한 `CurrentUserProvider`로 현재 사용자를 읽는다(`SecurityContextHolder` 직접 접근 금지).
 - **MUST**: 의존 방향은 **도메인 → auth**(공개 지점 `CurrentUserProvider`·`AuthAccountPort`만)이며, **`auth`는 어떤 도메인 모듈도 되참조하지 않는다**(순환 방지). auth가 도메인을 관찰해야 하면 **이벤트**로 붙인다. 상세는 `auth.md` §1 참조.
 - **MUST NOT**: 도메인 모듈이 인증 로직을 직접 구현하지 않는다.
