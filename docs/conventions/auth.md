@@ -7,7 +7,7 @@
 
 ## 1. 원칙
 
-- **MUST**: `auth`는 `@Modulithic(sharedModules = "org.sopt.hashi.auth")`로 등록한 **횡단 관심사** 모듈이다.
+- **MUST**: `auth`는 `@Modulithic(sharedModules = "auth")`로 등록한 **횡단 관심사** 모듈이다.
 - **MUST**: 인증 **강제**(요청 차단)는 Spring Security **필터 체인**이 담당한다. 도메인 모듈은 인증 로직을 갖지 않는다.
 - **MUST NOT**: 도메인 모듈이 `auth`의 `internal`(JWT·OAuth·필터 등)을 import하지 않는다.
 - **MUST**: 도메인에서 "현재 로그인 사용자"가 필요하면 **`CurrentUserProvider`** 로 읽는다.
@@ -51,13 +51,18 @@ auth/
 ├─ AuthAccountPort              # 공개 지점 (온보딩 소셜 계정 연결 — user가 원자적 커밋 위해 호출)
 ├─ code/  AuthErrorCode · AuthSuccessCode
 ├─ event/ UserWithdrawnListener  # 탈퇴 이벤트 구독 → 토큰 무효화·블랙리스트
-└─ internal/
-   ├─ KakaoOAuthClient · UserAuthService          # 유저 카카오 OAuth → JWT
-   ├─ SmsVerificationService · SmsClient           # 가입 시 SMS 인증 (⚠️ MVP 제외)
-   ├─ Admin · AdminAuthService                     # 어드민 ID/PW 로그인
-   ├─ JwtProvider · JwtAuthenticationFilter · OnboardingJwtIssuer(인터셉터) · SecurityConfig · RefreshTokenStore(Redis) · OnboardingTokenStore(Redis) · TokenBlacklist(Redis)
-   └─ AuthController · AdminAuthController
+└─ internal/                     # 관심사별 하위 패키지 (경계 넘는 협력자는 public, 모듈 밖엔 여전히 비공개)
+   ├─ account/    AuthAccount · AuthAccountRepository · AuthAccountService · AuthProvider · AuthAccountPortImpl
+   ├─ jwt/        JwtProvider · JwtProperties · MemberPrincipal · OnboardingPrincipal · AuthRoles
+   ├─ token/      RefreshTokenStore(Redis) · OnboardingTokenStore(Redis)   # TokenBlacklist(Redis) 예정
+   ├─ kakao/      KakaoOAuthClient · KakaoProperties · KakaoLoginRequest/Response
+   ├─ security/   SecurityConfig · JwtAuthenticationFilter · JwtAuthenticationEntryPoint · JwtAccessDeniedHandler · CookieUtil · OriginValidator · CurrentUserProviderImpl
+   ├─ onboarding/ OnboardingJwtIssuer(응답 후처리로 정식 JWT 부착)
+   ├─ web/        AuthController
+   └─ UserAuthService                              # 로그인·재발급 오케스트레이터
 ```
+
+> ⚠️ 예정: 어드민 인증(`Admin`·`AdminAuthService`·`AdminAuthController`)·가입 SMS 인증(MVP 제외)은 도입 시 각 관심사 하위 패키지(예: `admin/`·`sms/`)에 둔다.
 
 - 유저 인증 = 카카오 OAuth, 어드민 인증 = ID/PW. 둘 다 JWT 발급, 권한은 `ROLE_USER` / `ROLE_ADMIN`로 구분.
 - **토큰 전달**: 액세스 토큰은 `Authorization: Bearer` **헤더**로, 리프레시 토큰은 **HttpOnly 쿠키**로 내린다.
