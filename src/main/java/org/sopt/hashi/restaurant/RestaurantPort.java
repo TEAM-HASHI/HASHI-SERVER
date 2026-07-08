@@ -13,4 +13,7 @@ public interface RestaurantPort {
 
     /** 식당 요약 정보를 조회한다 — 식당명 등 표시·enrich용. 없으면 empty. */
     Optional<RestaurantInfo> findSummaryById(Long restaurantId);
+
+    /** 식당 상세 정보를 조회한다 — 예약 상세 등 이름·일본어명·주소·대표이미지가 필요한 조회용. 없으면 empty. */
+    Optional<RestaurantDetailInfo> findDetailById(Long restaurantId);
 }
