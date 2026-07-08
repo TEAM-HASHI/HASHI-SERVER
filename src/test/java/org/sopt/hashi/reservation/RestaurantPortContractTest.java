@@ -28,7 +28,8 @@ class RestaurantPortContractTest {
     @Test
     void 의존_모듈은_RestaurantInfo로_식당_요약을_enrich할_수_있다() {
         RestaurantPort restaurantPort = mock(RestaurantPort.class);
-        given(restaurantPort.findSummaryById(1L)).willReturn(Optional.of(new RestaurantInfo(1L, "하시식당")));
+        given(restaurantPort.findSummaryById(1L))
+                .willReturn(Optional.of(new RestaurantInfo(1L, "하시식당", "https://presigned.example/main.jpg")));
 
         Optional<RestaurantInfo> summary = restaurantPort.findSummaryById(1L);
 

@@ -1,5 +1,7 @@
 package org.sopt.hashi.restaurant;
 
+import java.util.Collection;
+import java.util.List;
 import java.util.Optional;
 
 /**
@@ -13,6 +15,9 @@ public interface RestaurantPort {
 
     /** 식당 요약 정보를 조회한다 — 식당명 등 표시·enrich용. 없으면 empty. */
     Optional<RestaurantInfo> findSummaryById(Long restaurantId);
+
+    /** 여러 식당의 요약 정보를 한 번에 조회한다 — 목록 enrich용(§5-2). 존재하는 식당만 반환한다. */
+    List<RestaurantInfo> findSummaries(Collection<Long> restaurantIds);
 
     /** 식당 상세 정보를 조회한다 — 예약 상세 등 이름·일본어명·주소·대표이미지가 필요한 조회용. 없으면 empty. */
     Optional<RestaurantDetailInfo> findDetailById(Long restaurantId);
