@@ -68,8 +68,13 @@ public class PointService {
             throw new BusinessException(PointErrorCode.ALREADY_RESTORED);
         }
         account.restore(useTransaction.getAmount());
-        pointTransactionRepository.save(PointTransaction.restore(
-                account.getId(), useTransaction.getAmount(), sourceType, sourceId));
+        try {
+            pointTransactionRepository.saveAndFlush(PointTransaction.restore(
+                    account.getId(), useTransaction.getAmount(), sourceType, sourceId));
+        } catch (DataIntegrityViolationException e) {
+            // exists 체크와 save 사이에 동시 복원이 먼저 커밋된 경우 — uk_point_tx_type_source가 막아준 것이므로 중복 복원으로 응답한다
+            throw new BusinessException(PointErrorCode.ALREADY_RESTORED, e);
+        }
     }
 
     /** 잔액 조회 — 계정이 없으면 0(아직 포인트 발생 이력이 없는 사용자). */
