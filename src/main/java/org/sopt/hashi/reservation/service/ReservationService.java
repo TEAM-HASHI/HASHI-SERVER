@@ -1,7 +1,10 @@
 package org.sopt.hashi.reservation.service;
 
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
+import java.util.stream.Collectors;
 import org.sopt.hashi.auth.CurrentUserProvider;
 import org.sopt.hashi.reservation.code.ReservationErrorCode;
 import org.sopt.hashi.reservation.domain.Reservation;
@@ -17,7 +20,6 @@ import org.sopt.hashi.restaurant.RestaurantDetailInfo;
 import org.sopt.hashi.restaurant.RestaurantInfo;
 import org.sopt.hashi.restaurant.RestaurantPort;
 import org.sopt.hashi.shared.error.BusinessException;
-import org.sopt.hashi.shared.error.CommonErrorCode;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
@@ -87,8 +89,38 @@ public class ReservationService {
         List<Reservation> page = hasNext ? rows.subList(0, pageSize) : rows;
         Long nextCursor = hasNext ? page.getLast().getId() : null;
 
-        List<ReservationResponse> reservations = page.stream().map(this::toResponse).toList();
-        return new ReservationListResponse(reservations, nextCursor, hasNext);
+        return new ReservationListResponse(toResponses(page), nextCursor, hasNext);
+    }
+
+    /** 페이지 단위 응답 변환 — STANDARD 식당 요약(이름·대표이미지)은 포트 다건 조회(findSummaries)로 한 번에 enrich한다(N+1 방지, §5-2). */
+    private List<ReservationResponse> toResponses(List<Reservation> reservations) {
+        Map<Long, RestaurantInfo> summaries = fetchRestaurantSummaries(reservations);
+        return reservations.stream()
+                .map(reservation -> toResponse(reservation, summaries.get(reservation.getRestaurantId())))
+                .toList();
+    }
+
+    private Map<Long, RestaurantInfo> fetchRestaurantSummaries(List<Reservation> reservations) {
+        Set<Long> restaurantIds = reservations.stream()
+                .filter(r -> r.getReservationType() == ReservationType.STANDARD && r.getRestaurantId() != null)
+                .map(Reservation::getRestaurantId)
+                .collect(Collectors.toSet());
+        if (restaurantIds.isEmpty()) {
+            return Map.of();
+        }
+        return restaurantPort.findSummaries(restaurantIds).stream()
+                .collect(Collectors.toMap(RestaurantInfo::id, summary -> summary, (a, b) -> a));
+    }
+
+    // 한번에 받아온 일반 예약과 어디든 예약 — 유형별로 식당명·대표이미지를 해석해 응답으로 변환
+    private ReservationResponse toResponse(Reservation reservation, RestaurantInfo summary) {
+        if (reservation.getReservationType() == ReservationType.ANYWHERE) {
+            return ReservationResponse.of(reservation, reservation.getRestaurantName(), null);
+        }
+        if (summary == null) {
+            return ReservationResponse.of(reservation, UNKNOWN_RESTAURANT_NAME, null);
+        }
+        return ReservationResponse.of(reservation, summary.name(), summary.imageUrl());
     }
 
     private List<Reservation> fetchPage(Long userId, ReservationStatusFilter filter, Long cursor, Pageable pageable) {
@@ -104,15 +136,16 @@ public class ReservationService {
                         userId, filter.statuses(), cursor, pageable);
     }
 
-    /** 현재 사용자의 예약 단건 상세를 조회한다. 본인 소유가 아니면 접근을 거부한다(auth.md §5). */
+    /**
+     * 현재 사용자의 예약 단건 상세를 조회한다. 본인 소유가 아니면 예약 존재 자체를 숨기기 위해
+     * FORBIDDEN이 아닌 NOT_FOUND로 응답한다(열거 방지 — auth.md §5).
+     */
     @Transactional(readOnly = true)
     public ReservationDetailResponse getMyReservation(Long reservationId) {
         Long userId = currentUserProvider.currentUserId();
         Reservation reservation = reservationRepository.findById(reservationId)
+                .filter(found -> found.ownedBy(userId))
                 .orElseThrow(() -> new BusinessException(ReservationErrorCode.NOT_FOUND));
-        if (!reservation.ownedBy(userId)) {
-            throw new BusinessException(CommonErrorCode.FORBIDDEN);
-        }
         return toDetailResponse(reservation);
     }
 
@@ -142,18 +175,13 @@ public class ReservationService {
     }
 
     /**
-     * 유형별로 식당명을 해석해 응답을 만든다. ANYWHERE는 저장된 식당명을, STANDARD는 RestaurantPort로 enrich한
-     * 식당명을 쓴다(목록에서는 건별 호출 — 배치 최적화는 필요 시 별도).
+     * 단건 응답 변환(생성 직후 응답용). STANDARD는 RestaurantPort 단건 조회(findSummaryById)로 요약을 얻어
+     * {@link #toResponse(Reservation, RestaurantInfo)}에 위임한다. 목록은 {@link #toResponses(List)}가 다건 조회로 처리한다.
      */
     private ReservationResponse toResponse(Reservation reservation) {
-        String restaurantName;
-        if (reservation.getReservationType() == ReservationType.ANYWHERE) {
-            restaurantName = reservation.getRestaurantName();
-        } else {
-            restaurantName = restaurantPort.findSummaryById(reservation.getRestaurantId())
-                    .map(RestaurantInfo::name)
-                    .orElse(UNKNOWN_RESTAURANT_NAME);
-        }
-        return ReservationResponse.of(reservation, restaurantName);
+        RestaurantInfo summary = (reservation.getReservationType() == ReservationType.STANDARD)
+                ? restaurantPort.findSummaryById(reservation.getRestaurantId()).orElse(null)
+                : null;
+        return toResponse(reservation, summary);
     }
 }

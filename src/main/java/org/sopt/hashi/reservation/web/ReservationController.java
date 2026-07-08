@@ -70,8 +70,8 @@ public class ReservationController {
                 reservationService.getMyReservations(cursor, size, status));
     }
 
-    /** 내 예약 상세(본인 소유만). */
-    @ApiException(value = CommonErrorCode.class, codes = {"UNAUTHORIZED", "FORBIDDEN"})
+    /** 내 예약 상세(본인 소유만). 미존재·타인 소유 모두 NOT_FOUND — 존재 노출 방지(auth.md §5). */
+    @ApiException(value = CommonErrorCode.class, codes = {"UNAUTHORIZED"})
     @ApiException(value = ReservationErrorCode.class, codes = {"NOT_FOUND"})
     @GetMapping("/{reservationId}")
     public SuccessResponse<ReservationDetailResponse> getMyReservation(
