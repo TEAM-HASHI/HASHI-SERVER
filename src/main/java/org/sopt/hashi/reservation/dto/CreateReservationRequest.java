@@ -7,6 +7,7 @@ import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
+import jakarta.validation.constraints.Positive;
 import jakarta.validation.constraints.Size;
 import java.time.LocalDateTime;
 
@@ -16,7 +17,8 @@ import java.time.LocalDateTime;
  */
 public record CreateReservationRequest(
         @NotBlank(message = "예약자 이름은 필수입니다") @Size(max = 50) String reserverName,
-        @NotNull(message = "식당 ID는 필수입니다") Long restaurantId,
+        @NotNull(message = "식당 ID는 필수입니다")
+        @Positive(message = "식당 ID는 양수여야 합니다") Long restaurantId,
         @NotNull(message = "예약 일시는 필수입니다")
         @Future(message = "예약 일시는 미래여야 합니다") LocalDateTime reservedAt,
         @NotNull(message = "성인 인원은 필수입니다")
