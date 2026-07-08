@@ -8,6 +8,7 @@ import org.sopt.hashi.shared.error.BusinessException;
 import org.sopt.hashi.shared.error.CommonErrorCode;
 import org.sopt.hashi.shared.error.ErrorCode;
 import org.sopt.hashi.shared.response.ErrorResponse;
+import org.springframework.dao.OptimisticLockingFailureException;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.HttpMessageNotReadableException;
@@ -108,6 +109,14 @@ public class GlobalExceptionHandler {
             HttpServletRequest request) {
         return ResponseEntity.status(CommonErrorCode.INVALID_INPUT.getStatus())
                 .body(ErrorResponse.of(CommonErrorCode.INVALID_INPUT, request.getRequestURI()));
+    }
+    // 낙관적 락 충돌 (409) — 같은 데이터(포인트 잔액 등)를 동시에 갱신해 한쪽이 밀린 경우. 재시도하면 해소된다
+    @ExceptionHandler(OptimisticLockingFailureException.class)
+    public ResponseEntity<ErrorResponse> handleOptimisticLockConflict(
+            OptimisticLockingFailureException e,
+            HttpServletRequest request) {
+        return ResponseEntity.status(CommonErrorCode.CONFLICT.getStatus())
+                .body(ErrorResponse.of(CommonErrorCode.CONFLICT, request.getRequestURI()));
     }
     // 예상치 못한 서버 내부 에러
     @ExceptionHandler(Exception.class)
