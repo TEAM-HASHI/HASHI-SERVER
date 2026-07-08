@@ -50,7 +50,7 @@ public class UserAuthService {
             throw new BusinessException(AuthErrorCode.INVALID_TOKEN);
         }
         String newRefreshToken = jwtProvider.createRefreshToken(claims.subjectId(), claims.role());
-        refreshTokenStore.rotate(claims.subjectId(), presentedRefreshToken, newRefreshToken);
+        refreshTokenStore.rotate(claims.role(), claims.subjectId(), presentedRefreshToken, newRefreshToken);
         String newAccessToken = jwtProvider.createAccessToken(claims.subjectId(), claims.role());
         return new TokenPair(newAccessToken, newRefreshToken);
     }
@@ -58,7 +58,7 @@ public class UserAuthService {
     private KakaoLoginResult issueMemberTokens(Long userId) {
         String accessToken = jwtProvider.createAccessToken(userId, AuthRoles.USER);
         String refreshToken = jwtProvider.createRefreshToken(userId, AuthRoles.USER);
-        refreshTokenStore.save(userId, refreshToken);
+        refreshTokenStore.save(AuthRoles.USER, userId, refreshToken);
         return KakaoLoginResult.member(new TokenPair(accessToken, refreshToken));
     }
 
