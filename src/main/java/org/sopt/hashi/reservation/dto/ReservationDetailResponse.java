@@ -10,7 +10,8 @@ import org.sopt.hashi.reservation.domain.ReservationType;
  * 식당 정보는 STANDARD면 RestaurantPort로 enrich한 값, ANYWHERE면 예약에 저장된 값이다
  * (ANYWHERE는 미등록 식당이라 일본어명·이미지는 없어 null).
  *
- * <p>{@code receivedAt}(접수 일자)는 생성 시각, {@code confirmExpectedAt}(확정 예정 일자)는 접수 + {@value #CONFIRM_LEAD_DAYS}일 고정이다.
+ * <p>{@code receivedAt}(접수 일자)는 생성 시각, {@code confirmExpectedAt}(확정 예정 일자)는 도메인 규칙
+ * ({@link Reservation#confirmExpectedAt()})으로 계산된 값을 그대로 매핑한다.
  */
 public record ReservationDetailResponse(
         Long reservationId,
@@ -30,15 +31,10 @@ public record ReservationDetailResponse(
         LocalDateTime receivedAt,
         LocalDateTime confirmExpectedAt) {
 
-    /** 예약 접수 후 확정 예정까지의 고정 리드타임(일). */
-    private static final long CONFIRM_LEAD_DAYS = 2;
-
     /** 엔티티 + 유형별로 해석된 식당 표시 정보(name·nameJa·address·imageUrl)로 상세 응답을 만든다. */
     public static ReservationDetailResponse of(Reservation reservation, String restaurantName,
                                                String restaurantNameJa, String restaurantAddress,
                                                String restaurantImageUrl) {
-        LocalDateTime receivedAt = reservation.getCreatedAt();
-        LocalDateTime confirmExpectedAt = (receivedAt == null) ? null : receivedAt.plusDays(CONFIRM_LEAD_DAYS);
         return new ReservationDetailResponse(
                 reservation.getId(),
                 reservation.getReservationType(),
@@ -54,7 +50,7 @@ public record ReservationDetailResponse(
                 reservation.getTeenCount(),
                 reservation.getChildCount(),
                 reservation.getRequestNote(),
-                receivedAt,
-                confirmExpectedAt);
+                reservation.getCreatedAt(),
+                reservation.confirmExpectedAt());
     }
 }
