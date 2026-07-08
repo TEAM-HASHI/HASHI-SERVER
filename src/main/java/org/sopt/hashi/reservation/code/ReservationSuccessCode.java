@@ -10,7 +10,8 @@ import org.springframework.http.HttpStatus;
 @Getter
 public enum ReservationSuccessCode implements SuccessCode {
 
-    RESERVATION_CREATED(HttpStatus.CREATED, "RESERVATION-201", "예약이 완료되었습니다");
+    RESERVATION_CREATED(HttpStatus.CREATED, "RESERVATION-201", "예약이 완료되었습니다"),
+    RESERVATION_CANCELED(HttpStatus.OK, "RESERVATION-202", "예약이 취소되었습니다");
 
     private final HttpStatus status;
     private final String code;
