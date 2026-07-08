@@ -10,6 +10,7 @@ import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Positive;
 import jakarta.validation.constraints.Size;
 import java.time.LocalDateTime;
+import org.sopt.hashi.reservation.domain.Reservation;
 
 /**
  * 예약 생성 요청. 예약자(userId)는 요청 값을 신뢰하지 않고 CurrentUserProvider에서 얻으므로 여기 없다(auth.md §2).
@@ -30,7 +31,12 @@ public record CreateReservationRequest(
         @NotNull(message = "아동 인원은 필수입니다")
         @Min(value = 0, message = "인원은 0명 이상입니다")
         @Max(value = 100, message = "인원은 최대 100명입니다") Integer childCount,
-        @Size(max = 500, message = "요청사항은 500자 이내입니다") String requestNote) {
+        @Size(max = 500, message = "요청사항은 500자 이내입니다") String requestNote,
+        @Min(value = 0, message = "사용 포인트는 0 이상이어야 합니다")
+        @Max(value = Reservation.BASE_FEE, message = "사용 포인트는 결제 수수료를 초과할 수 없습니다") Long usedPoint,
+        @NotNull(message = "최종 결제 금액은 필수입니다")
+        @Min(value = 0, message = "결제 금액은 0 이상이어야 합니다")
+        @Max(value = Reservation.BASE_FEE, message = "결제 금액은 기본 수수료를 초과할 수 없습니다") Long amount) {
 
     /** 인원 합계(성인+청소년+아동)는 최소 1명이어야 한다. 개별 null은 각 필드의 @NotNull이 처리한다. */
     @JsonIgnore

@@ -29,13 +29,15 @@ class RestaurantPortContractTest {
     void 의존_모듈은_RestaurantInfo로_식당_요약을_enrich할_수_있다() {
         RestaurantPort restaurantPort = mock(RestaurantPort.class);
         given(restaurantPort.findSummaryById(1L))
-                .willReturn(Optional.of(new RestaurantInfo(1L, "하시식당", "https://presigned.example/main.jpg")));
+                .willReturn(Optional.of(new RestaurantInfo(
+                        1L, "하시식당", "도쿄 신주쿠 1-1", "https://presigned.example/main.jpg")));
 
         Optional<RestaurantInfo> summary = restaurantPort.findSummaryById(1L);
 
         assertThat(summary).hasValueSatisfying(info -> {
             assertThat(info.id()).isEqualTo(1L);
             assertThat(info.name()).isEqualTo("하시식당");
+            assertThat(info.address()).isEqualTo("도쿄 신주쿠 1-1");
         });
     }
 }
