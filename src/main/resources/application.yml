@@ -19,6 +19,12 @@ hashi:
   cors:
     # 콤마 구분 목록. 운영은 env CORS_ALLOWED_ORIGINS로 프론트 도메인을 주입한다.
     allowed-origins: ${CORS_ALLOWED_ORIGINS:http://localhost:5173}
+  storage:
+    region: ${AWS_REGION:ap-northeast-2}
+    bucket: ${AWS_S3_BUCKET:hashi-local-uploads}
+    cloudfront-domain: ${CLOUDFRONT_DOMAIN:}
+    presigned-url-expiration: 300s
+    max-file-size: 5MB
 
 management:
   endpoints:
