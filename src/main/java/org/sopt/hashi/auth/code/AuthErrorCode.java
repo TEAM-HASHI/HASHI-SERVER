@@ -17,7 +17,9 @@ public enum AuthErrorCode implements ErrorCode {
     KAKAO_AUTH_FAILED(HttpStatus.UNAUTHORIZED, "AUTH-005", "카카오 인증에 실패했습니다"),
     INVALID_ONBOARDING_TOKEN(HttpStatus.UNAUTHORIZED, "AUTH-006", "유효하지 않은 온보딩 토큰입니다"),
     KAKAO_SERVER_ERROR(HttpStatus.BAD_GATEWAY, "AUTH-007", "카카오 서버와 통신할 수 없습니다"),
-    ALREADY_LINKED_ACCOUNT(HttpStatus.CONFLICT, "AUTH-008", "이미 가입된 소셜 계정입니다");
+    ALREADY_LINKED_ACCOUNT(HttpStatus.CONFLICT, "AUTH-008", "이미 가입된 소셜 계정입니다"),
+    // ID 존재 여부가 노출되지 않도록 아이디 오류·비밀번호 오류를 단일 메시지로 응답한다
+    INVALID_CREDENTIALS(HttpStatus.UNAUTHORIZED, "AUTH-009", "아이디 또는 비밀번호가 올바르지 않습니다");
 
     private final HttpStatus status;
     private final String code;
