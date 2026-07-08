@@ -1,6 +1,7 @@
 package org.sopt.hashi.restaurant.service;
 
 import java.util.Optional;
+import org.sopt.hashi.restaurant.RestaurantDetailInfo;
 import org.sopt.hashi.restaurant.RestaurantInfo;
 import org.sopt.hashi.restaurant.RestaurantPort;
 import org.springframework.stereotype.Component;
@@ -20,6 +21,11 @@ class RestaurantPortImpl implements RestaurantPort {
 
     @Override
     public Optional<RestaurantInfo> findSummaryById(Long restaurantId) {
+        return Optional.empty();
+    }
+
+    @Override
+    public Optional<RestaurantDetailInfo> findDetailById(Long restaurantId) {
         return Optional.empty();
     }
 }
