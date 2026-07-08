@@ -96,8 +96,14 @@ public class ReservationService {
     private List<ReservationResponse> toResponses(List<Reservation> reservations) {
         Map<Long, RestaurantInfo> summaries = fetchRestaurantSummaries(reservations);
         return reservations.stream()
-                .map(reservation -> toResponse(reservation, summaries.get(reservation.getRestaurantId())))
+                .map(reservation -> toResponse(reservation, findSummary(summaries, reservation)))
                 .toList();
+    }
+
+    /** ANYWHERE는 restaurantId가 null이라 맵을 조회하지 않는다(불변 빈 맵은 null 키 조회 시 NPE). */
+    private RestaurantInfo findSummary(Map<Long, RestaurantInfo> summaries, Reservation reservation) {
+        Long restaurantId = reservation.getRestaurantId();
+        return (restaurantId == null) ? null : summaries.get(restaurantId);
     }
 
     private Map<Long, RestaurantInfo> fetchRestaurantSummaries(List<Reservation> reservations) {
