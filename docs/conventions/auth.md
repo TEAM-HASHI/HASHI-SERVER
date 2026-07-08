@@ -89,10 +89,13 @@ auth/
 - **SHOULD**: 메서드/URL 단위 권한은 Spring Security 설정(`SecurityConfig`, `@PreAuthorize` 등)으로 처리한다.
 - **MUST**: 어드민 전용 API는 `ROLE_ADMIN`을 요구한다.
 - **MUST**: "본인 리소스만 접근"(내 리뷰·내 예약 등)은 도메인 service에서 `currentUserId()`와 리소스 소유자를 비교해 검증한다.
+- **MUST**: **소유자 전용 리소스**의 소유자 검증 실패는 `FORBIDDEN`(403)이 아니라 **도메인 `NOT_FOUND`(404)로 응답**한다 — 403을 주면 그 id의 리소스가 실제로 존재한다는 사실이 노출된다(id 열거 방지). 타인이 접근할 정상 시나리오가 없는 리소스이므로 클라이언트 UX 손실도 없다. **역할 기반 접근 제어**(어드민 전용 API 등 존재가 비밀이 아닌 경우)는 403을 유지한다.
 
 ```java
-if (!review.ownedBy(currentUserProvider.currentUserId()))
-    throw new BusinessException(CommonErrorCode.FORBIDDEN);
+// 소유자 전용 리소스 — 미존재와 타인 소유를 구분하지 않고 존재를 숨긴다(404)
+Review review = reviewRepository.findById(reviewId)
+        .filter(found -> found.ownedBy(currentUserProvider.currentUserId()))
+        .orElseThrow(() -> new BusinessException(ReviewErrorCode.NOT_FOUND));
 ```
 
 ---
@@ -102,7 +105,7 @@ if (!review.ownedBy(currentUserProvider.currentUserId()))
 - [ ] 도메인이 `auth.internal`을 import하지 않는가
 - [ ] 현재 사용자를 `CurrentUserProvider`로 얻는가 (요청 파라미터 userId 신뢰 금지)
 - [ ] 어드민 API에 `ROLE_ADMIN`을 요구하는가
-- [ ] 본인 리소스 접근을 소유자 검증으로 막는가
+- [ ] 본인 리소스 접근을 소유자 검증으로 막는가 (검증 실패는 403이 아니라 404로 존재를 숨기는가)
 - [ ] (가입) 온보딩이 임시 토큰으로 인증되고, 소셜 계정 연결만 `AuthAccountPort`로(원자적 커밋) 하며 그 외 auth 내부는 참조하지 않는가 (SMS 인증은 ⚠️ MVP 제외)
 - [ ] `auth`가 어떤 도메인 모듈도 되참조하지 않는가(도메인 관찰이 필요하면 이벤트)
 - [ ] 액세스 토큰은 헤더, 리프레시 토큰은 HttpOnly 쿠키로 내리고, 재발급 시 회전하는가
