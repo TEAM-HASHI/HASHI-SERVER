@@ -29,6 +29,9 @@ import org.sopt.hashi.reservation.ReservationStatus;
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
 public class Reservation extends BaseTimeEntity {
 
+    /** 예약 접수 후 확정 예정까지의 고정 리드타임(일) — 도메인 규칙. */
+    private static final long CONFIRM_LEAD_DAYS = 2;
+
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
@@ -116,5 +119,11 @@ public class Reservation extends BaseTimeEntity {
     /** 주어진 사용자가 이 예약의 소유자인지 확인한다(본인 리소스 접근 검증용). */
     public boolean ownedBy(Long userId) {
         return this.userId.equals(userId);
+    }
+
+    /** 예약 확정 예정 일시 — 접수(생성) 시각 + {@value #CONFIRM_LEAD_DAYS}일 고정. 미영속 상태면 null. */
+    public LocalDateTime confirmExpectedAt() {
+        LocalDateTime receivedAt = getCreatedAt();
+        return (receivedAt == null) ? null : receivedAt.plusDays(CONFIRM_LEAD_DAYS);
     }
 }
