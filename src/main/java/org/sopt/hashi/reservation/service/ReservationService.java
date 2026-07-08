@@ -1,6 +1,7 @@
 package org.sopt.hashi.reservation.service;
 
 import java.util.List;
+import java.util.Optional;
 import org.sopt.hashi.auth.CurrentUserProvider;
 import org.sopt.hashi.reservation.code.ReservationErrorCode;
 import org.sopt.hashi.reservation.domain.Reservation;
@@ -8,9 +9,11 @@ import org.sopt.hashi.reservation.domain.ReservationRepository;
 import org.sopt.hashi.reservation.domain.ReservationType;
 import org.sopt.hashi.reservation.dto.CreateAnywhereReservationRequest;
 import org.sopt.hashi.reservation.dto.CreateReservationRequest;
+import org.sopt.hashi.reservation.dto.ReservationDetailResponse;
 import org.sopt.hashi.reservation.dto.ReservationListResponse;
 import org.sopt.hashi.reservation.dto.ReservationResponse;
 import org.sopt.hashi.reservation.dto.ReservationStatusFilter;
+import org.sopt.hashi.restaurant.RestaurantDetailInfo;
 import org.sopt.hashi.restaurant.RestaurantInfo;
 import org.sopt.hashi.restaurant.RestaurantPort;
 import org.sopt.hashi.shared.error.BusinessException;
@@ -101,16 +104,33 @@ public class ReservationService {
                         userId, filter.statuses(), cursor, pageable);
     }
 
-    /** 현재 사용자의 예약 단건을 조회한다. 본인 소유가 아니면 접근을 거부한다(auth.md §5). */
+    /** 현재 사용자의 예약 단건 상세를 조회한다. 본인 소유가 아니면 접근을 거부한다(auth.md §5). */
     @Transactional(readOnly = true)
-    public ReservationResponse getMyReservation(Long reservationId) {
+    public ReservationDetailResponse getMyReservation(Long reservationId) {
         Long userId = currentUserProvider.currentUserId();
         Reservation reservation = reservationRepository.findById(reservationId)
                 .orElseThrow(() -> new BusinessException(ReservationErrorCode.NOT_FOUND));
         if (!reservation.ownedBy(userId)) {
             throw new BusinessException(CommonErrorCode.FORBIDDEN);
         }
-        return toResponse(reservation);
+        return toDetailResponse(reservation);
+    }
+
+    /**
+     * 유형별로 식당 표시 정보를 해석해 상세 응답을 만든다. ANYWHERE는 저장된 식당명·주소를 쓰고 일본어명·이미지는 없다.
+     * STANDARD는 RestaurantPort.findDetailById로 enrich하며, 식당이 없으면 이름만 fallback한다.
+     */
+    private ReservationDetailResponse toDetailResponse(Reservation reservation) {
+        if (reservation.getReservationType() == ReservationType.ANYWHERE) {
+            return ReservationDetailResponse.of(reservation,
+                    reservation.getRestaurantName(), null, reservation.getRestaurantAddress(), null);
+        }
+        Optional<RestaurantDetailInfo> detail = restaurantPort.findDetailById(reservation.getRestaurantId());
+        return ReservationDetailResponse.of(reservation,
+                detail.map(RestaurantDetailInfo::name).orElse(UNKNOWN_RESTAURANT_NAME),
+                detail.map(RestaurantDetailInfo::nameJa).orElse(null),
+                detail.map(RestaurantDetailInfo::address).orElse(null),
+                detail.map(RestaurantDetailInfo::imageUrl).orElse(null));
     }
 
     // 쿼리스트링으로 받은 size값이 정상적인 사이즈 값인지 검증. 정상적이지 않으면 size = 20으로 반환

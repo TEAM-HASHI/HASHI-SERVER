@@ -5,6 +5,7 @@ import org.sopt.hashi.reservation.code.ReservationErrorCode;
 import org.sopt.hashi.reservation.code.ReservationSuccessCode;
 import org.sopt.hashi.reservation.dto.CreateAnywhereReservationRequest;
 import org.sopt.hashi.reservation.dto.CreateReservationRequest;
+import org.sopt.hashi.reservation.dto.ReservationDetailResponse;
 import org.sopt.hashi.reservation.dto.ReservationListResponse;
 import org.sopt.hashi.reservation.dto.ReservationResponse;
 import org.sopt.hashi.reservation.dto.ReservationStatusFilter;
@@ -73,7 +74,7 @@ public class ReservationController {
     @ApiException(value = CommonErrorCode.class, codes = {"UNAUTHORIZED", "FORBIDDEN"})
     @ApiException(value = ReservationErrorCode.class, codes = {"NOT_FOUND"})
     @GetMapping("/{reservationId}")
-    public SuccessResponse<ReservationResponse> getMyReservation(
+    public SuccessResponse<ReservationDetailResponse> getMyReservation(
             @PathVariable Long reservationId) {
         return SuccessResponse.of(CommonSuccessCode.OK, reservationService.getMyReservation(reservationId));
     }
