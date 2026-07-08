@@ -37,6 +37,7 @@ class RestaurantPortContractTest {
         assertThat(summary).hasValueSatisfying(info -> {
             assertThat(info.id()).isEqualTo(1L);
             assertThat(info.name()).isEqualTo("하시식당");
+            assertThat(info.address()).isEqualTo("도쿄 신주쿠 1-1");
         });
     }
 }
