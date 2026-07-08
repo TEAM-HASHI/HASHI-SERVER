@@ -23,4 +23,9 @@ public enum ReservationStatus {
     ReservationStatus(String description) {
         this.description = description;
     }
+
+    /** 진행중(확정 전) 상태인지 — 확정 D-day 노출·"진행중" 탭의 기준. */
+    public boolean isInProgress() {
+        return this == REQUESTED || this == CONTACTING;
+    }
 }
