@@ -57,9 +57,24 @@ CREATE TABLE IF NOT EXISTS restaurant_curation_type (
         FOREIGN KEY (restaurant_id) REFERENCES restaurant (id)
 );
 
+CREATE TABLE IF NOT EXISTS restaurant_business_hour (
+    id BIGINT NOT NULL AUTO_INCREMENT,
+    restaurant_id BIGINT NOT NULL,
+    day_of_week VARCHAR(10) NOT NULL,
+    open_time TIME NULL,
+    close_time TIME NULL,
+    last_order_time TIME NULL,
+    closed BOOLEAN NOT NULL,
+    PRIMARY KEY (id),
+    CONSTRAINT uk_restaurant_business_hour_day UNIQUE (restaurant_id, day_of_week),
+    CONSTRAINT fk_restaurant_business_hour_restaurant
+        FOREIGN KEY (restaurant_id) REFERENCES restaurant (id)
+);
+
 DELETE FROM restaurant_curation_type WHERE restaurant_id BETWEEN 1001 AND 1005;
 DELETE FROM restaurant_tag WHERE restaurant_id BETWEEN 1001 AND 1005;
 DELETE FROM restaurant_menu WHERE restaurant_id BETWEEN 1001 AND 1005;
+DELETE FROM restaurant_business_hour WHERE restaurant_id BETWEEN 1001 AND 1005;
 DELETE FROM restaurant WHERE id BETWEEN 1001 AND 1005;
 
 INSERT INTO restaurant (
@@ -83,6 +98,24 @@ INSERT INTO restaurant_menu (
     (1003, NOW(6), NOW(6), 'Pork Cutlet Set', 'Tonkatsu with rice and soup.', 'uploads/restaurant-menus/sample/tonkatsu-set.jpg', 'JPY', 1800.00, TRUE),
     (1004, NOW(6), NOW(6), 'Beef Nabe', 'Hot pot with beef and vegetables.', 'uploads/restaurant-menus/sample/beef-nabe.jpg', 'JPY', 3200.00, TRUE),
     (1005, NOW(6), NOW(6), 'Mixed Teppan Grill', 'Assorted grilled meat and vegetables.', 'uploads/restaurant-menus/sample/teppan.jpg', 'JPY', 2800.00, TRUE);
+
+INSERT INTO restaurant_business_hour (
+    restaurant_id, day_of_week, open_time, close_time, last_order_time, closed
+) VALUES
+    (1001, 'MONDAY', '10:00:00', '22:00:00', '21:30:00', FALSE),
+    (1001, 'TUESDAY', '10:00:00', '22:00:00', '21:30:00', FALSE),
+    (1001, 'WEDNESDAY', '10:00:00', '22:00:00', '21:30:00', FALSE),
+    (1001, 'THURSDAY', '10:00:00', '22:00:00', '21:30:00', FALSE),
+    (1001, 'FRIDAY', '10:00:00', '22:00:00', '21:30:00', FALSE),
+    (1001, 'SATURDAY', '11:00:00', '22:00:00', '21:30:00', FALSE),
+    (1001, 'SUNDAY', NULL, NULL, NULL, TRUE),
+    (1002, 'MONDAY', '11:00:00', '21:30:00', '21:00:00', FALSE),
+    (1002, 'TUESDAY', '11:00:00', '21:30:00', '21:00:00', FALSE),
+    (1002, 'WEDNESDAY', '11:00:00', '21:30:00', '21:00:00', FALSE),
+    (1002, 'THURSDAY', '11:00:00', '21:30:00', '21:00:00', FALSE),
+    (1002, 'FRIDAY', '11:00:00', '21:30:00', '21:00:00', FALSE),
+    (1002, 'SATURDAY', '11:00:00', '21:30:00', '21:00:00', FALSE),
+    (1002, 'SUNDAY', NULL, NULL, NULL, TRUE);
 
 INSERT INTO restaurant_tag (restaurant_id, tag) VALUES
     (1001, 'omakase'),
