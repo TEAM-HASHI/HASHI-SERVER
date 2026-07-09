@@ -57,7 +57,7 @@ public class SecurityConfig {
                 .authorizeHttpRequests(auth -> auth
                         // permitAll(/api/v1/auth/**)보다 먼저 매칭해야 무인증 통과를 막는다.
                         // 클라 진입 라우팅용 상태 조회라 온보딩 임시 토큰도 허용한다(auth.md §4의 명시적 예외) —
-                        // 응답은 역할만 내리고 온보딩 subject(kakaoId)는 노출하지 않는다.
+                        // 응답은 subjectId·role이며, 온보딩만 subject(kakaoId)를 노출하지 않아 subjectId가 null이다.
                         .requestMatchers(AUTH_ME_PATH).hasAnyRole("USER", "ADMIN", "ONBOARDING")
                         .requestMatchers(PUBLIC_PATHS).permitAll()
                         .requestMatchers(ONBOARDING_PATH).hasRole("ONBOARDING")
