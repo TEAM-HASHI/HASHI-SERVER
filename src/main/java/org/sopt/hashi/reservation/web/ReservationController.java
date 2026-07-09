@@ -38,9 +38,10 @@ public class ReservationController {
         this.reservationService = reservationService;
     }
 
-    /** 일반 예약 — 등록된 식당(restaurantId)에 대한 예약. */
+    /** 일반 예약 — 등록된 식당(restaurantId)에 대한 예약. 최종 수수료(amount)는 클라 계산 값을 검증 후 저장. */
     @ApiException(value = CommonErrorCode.class, codes = {"INVALID_INPUT", "UNAUTHORIZED"})
-    @ApiException(value = ReservationErrorCode.class, codes = {"RESTAURANT_NOT_FOUND"})
+    @ApiException(value = ReservationErrorCode.class,
+            codes = {"RESTAURANT_NOT_FOUND", "USED_POINT_EXCEEDS_FEE", "AMOUNT_MISMATCH"})
     @ResponseStatus(HttpStatus.CREATED)
     @PostMapping
     public SuccessResponse<ReservationResponse> create(
@@ -49,14 +50,24 @@ public class ReservationController {
                 reservationService.create(request));
     }
 
-    /** 어디든 예약 — 미등록 식당의 식당명·주소를 직접 받는 예약. */
+    /** 어디든 예약 — 미등록 식당의 식당명·주소를 직접 받는 예약. 최종 수수료(amount)는 클라 계산 값을 검증 후 저장. */
     @ApiException(value = CommonErrorCode.class, codes = {"INVALID_INPUT", "UNAUTHORIZED"})
+    @ApiException(value = ReservationErrorCode.class, codes = {"USED_POINT_EXCEEDS_FEE", "AMOUNT_MISMATCH"})
     @ResponseStatus(HttpStatus.CREATED)
     @PostMapping("/anywhere")
     public SuccessResponse<ReservationResponse> createAnywhere(
             @Valid @RequestBody CreateAnywhereReservationRequest request) {
         return SuccessResponse.of(ReservationSuccessCode.RESERVATION_CREATED,
                 reservationService.createAnywhere(request));
+    }
+
+    /** 내 예약 취소 — 진행중·확정 상태에서만 가능(action 서브리소스). 사용 포인트는 진행중 취소만 복원되고, 확정 후 취소는 환불되지 않는다. */
+    @ApiException(value = CommonErrorCode.class, codes = {"UNAUTHORIZED", "CONFLICT"})
+    @ApiException(value = ReservationErrorCode.class, codes = {"NOT_FOUND", "ALREADY_CANCELED", "CANNOT_CANCEL"})
+    @PostMapping("/{reservationId}/cancel")
+    public SuccessResponse<ReservationResponse> cancel(@PathVariable Long reservationId) {
+        return SuccessResponse.of(ReservationSuccessCode.RESERVATION_CANCELED,
+                reservationService.cancel(reservationId));
     }
 
     /** 내 예약 목록(커서 페이지네이션). status 탭(진행중/방문예정/취소)으로 거를 수 있고, 없으면 전체. */
