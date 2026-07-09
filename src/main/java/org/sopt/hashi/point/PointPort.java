@@ -20,6 +20,12 @@ public interface PointPort {
      */
     void restore(Long userId, PointSourceType sourceType, Long sourceId);
 
+    /**
+     * 해당 출처의 차감이 이미 복원되었는지 확인한다 — 취소로 복원받은 예약을 어드민이 되살린 뒤
+     * 다시 취소하는 흐름에서 중복 복원 시도(ALREADY_RESTORED)를 사전에 거르는 용도.
+     */
+    boolean isRestored(PointSourceType sourceType, Long sourceId);
+
     /** 현재 잔액을 조회한다. 계정이 없으면 0. */
     long getBalance(Long userId);
 }

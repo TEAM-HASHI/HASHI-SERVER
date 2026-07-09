@@ -3,7 +3,7 @@ package org.sopt.hashi.reservation.dto;
 import java.time.LocalDateTime;
 import org.sopt.hashi.reservation.ReservationStatus;
 import org.sopt.hashi.reservation.domain.Reservation;
-import org.sopt.hashi.reservation.domain.ReservationType;
+import org.sopt.hashi.reservation.ReservationType;
 
 /**
  * 예약 단건 응답(목록·생성·취소). 식당명·주소·대표이미지는 유형에 따라 다르게 채운다 — STANDARD는 RestaurantPort로

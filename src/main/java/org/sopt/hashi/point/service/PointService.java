@@ -77,6 +77,13 @@ public class PointService {
         }
     }
 
+    /** 해당 출처의 차감이 이미 복원되었는지 — 재취소(취소→되살림→재취소) 시 중복 복원 방지용. */
+    @Transactional(readOnly = true)
+    public boolean isRestored(PointSourceType sourceType, Long sourceId) {
+        return pointTransactionRepository.existsByTypeAndSourceTypeAndSourceId(
+                PointTransactionType.RESTORE, sourceType, sourceId);
+    }
+
     /** 잔액 조회 — 계정이 없으면 0(아직 포인트 발생 이력이 없는 사용자). */
     @Transactional(readOnly = true)
     public long getBalance(Long userId) {
