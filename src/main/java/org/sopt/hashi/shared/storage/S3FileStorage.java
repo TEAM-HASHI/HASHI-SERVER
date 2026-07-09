@@ -49,6 +49,14 @@ public class S3FileStorage implements FileStorage {
             return null;
         }
 
-        return storageProperties.cloudfrontDomain() + "/" + fileKey;
+        return storageProperties.cloudfrontDomain() + "/" + removeLeadingSlashes(fileKey.strip());
+    }
+
+    private String removeLeadingSlashes(String fileKey) {
+        int startIndex = 0;
+        while (startIndex < fileKey.length() && fileKey.charAt(startIndex) == '/') {
+            startIndex++;
+        }
+        return fileKey.substring(startIndex);
     }
 }
