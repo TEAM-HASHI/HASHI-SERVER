@@ -101,7 +101,7 @@ public class ReservationService {
 - **MUST**: 응답은 DTO(`<Context>Response`)로 반환하고 **엔티티를 직접 노출하지 않는다.**
 - **MUST**: 응답은 `SuccessResponse`로 감싼다(상세 `error-handling.md`).
 - **MUST**: 목록 페이지네이션은 **사용자향 피드=커서(cursor)**, **어드민 목록=offset(`page`/`size` + 총건수)**로 한다.
-- **MUST**: 이미지 URL은 DB에 **S3 object key만 저장**하고, 응답 생성 시 **presigned GET URL로 변환**해 내린다(만료 있음, `shared/storage`의 `FileStorage`). 저장 값에 presigned 전체 URL을 넣지 않는다.
+- **MUST**: 이미지 파일은 DB에 **S3 object key만 저장**하고, 응답 생성 시 `shared/storage`의 `FileStorage` 정책에 따라 조회 가능한 URL로 변환해 내린다. 현재 조회 URL은 **CloudFront HTTPS URL**을 사용한다. 저장 값에 presigned URL이나 CloudFront URL 전체를 넣지 않는다.
 - **MUST**: 시각은 DB에 `DATETIME`으로 저장하고 응답은 **ISO-8601 문자열**로 내린다. 표시 포맷(`6월 22일` 등)은 클라이언트가 담당한다.
 
 #### 4-2-1. Action 서브리소스 예외 (동사 명사화가 어색한 경우)
@@ -217,7 +217,7 @@ if (isDiscountTarget) applyDiscount();
 - [ ] Controller에 비즈니스 로직이 없는가
 - [ ] URL이 `/api/v1`로 시작하고, 동사 없이 명사·복수·케밥인가 (단, 상태 전이 액션은 `/동사` action 서브리소스 예외 사용, POST 고정)
 - [ ] 목록이 사용자=커서 / 어드민=offset 페이지네이션 규칙을 따르는가
-- [ ] 이미지 URL을 응답 시 presigned로 변환하고(저장은 key), 시각을 ISO-8601로 내리는가
+- [ ] 이미지 파일은 key만 저장하고 응답 시 조회 URL로 변환하며, 시각을 ISO-8601로 내리는가
 - [ ] 복합 조건을 설명 변수/메서드로 추출했는가
 
 ---
