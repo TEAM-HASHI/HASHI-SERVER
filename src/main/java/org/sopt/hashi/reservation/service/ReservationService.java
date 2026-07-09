@@ -6,6 +6,8 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
 import org.sopt.hashi.auth.CurrentUserProvider;
+import org.sopt.hashi.point.PointPort;
+import org.sopt.hashi.point.PointSourceType;
 import org.sopt.hashi.reservation.code.ReservationErrorCode;
 import org.sopt.hashi.reservation.domain.Reservation;
 import org.sopt.hashi.reservation.domain.ReservationRepository;
@@ -37,40 +39,84 @@ public class ReservationService {
     /** 등록 식당이 삭제돼 이름을 얻지 못할 때의 표시 대체값(§5-2 존재하는 것만 반환 → 호출 측 fallback). */
     private static final String UNKNOWN_RESTAURANT_NAME = "알 수 없는 식당";
 
+    /** 포인트 차감 원장의 사유 표기. */
+    private static final String POINT_USE_REASON = "예약 결제 수수료";
+
     private final ReservationRepository reservationRepository;
     private final RestaurantPort restaurantPort;
+    private final PointPort pointPort;
     private final CurrentUserProvider currentUserProvider;
 
     public ReservationService(ReservationRepository reservationRepository,
                               RestaurantPort restaurantPort,
+                              PointPort pointPort,
                               CurrentUserProvider currentUserProvider) {
         this.reservationRepository = reservationRepository;
         this.restaurantPort = restaurantPort;
+        this.pointPort = pointPort;
         this.currentUserProvider = currentUserProvider;
     }
 
-    /** 등록 식당 예약을 생성한다. 식당이 존재하지 않으면 생성을 거부한다. */
+    /** 등록 식당 예약을 생성한다. 식당이 존재하지 않으면 거부하고, 사용 포인트는 같은 트랜잭션에서 차감한다(§8). */
     @Transactional
     public ReservationResponse create(CreateReservationRequest request) {
         Long userId = currentUserProvider.currentUserId();
         if (!restaurantPort.existsById(request.restaurantId())) {
             throw new BusinessException(ReservationErrorCode.RESTAURANT_NOT_FOUND);
         }
+        long usedPoint = defaultUsedPoint(request.usedPoint());
         Reservation reservation = reservationRepository.save(Reservation.standard(
                 userId, request.reserverName(), request.restaurantId(), request.reservedAt(),
-                request.adultCount(), request.teenCount(), request.childCount(), request.requestNote()));
+                request.adultCount(), request.teenCount(), request.childCount(), request.requestNote(),
+                usedPoint, request.amount()));
+        usePointIfAny(userId, reservation);
         return toResponse(reservation);
     }
 
-    /** 미등록 식당(어디든) 예약을 생성한다. 식당 존재 검증 없이 입력받은 식당명·주소를 저장한다. */
+    /** 미등록 식당(어디든) 예약을 생성한다. 식당 존재 검증 없이 저장하며, 사용 포인트는 같은 트랜잭션에서 차감한다. */
     @Transactional
     public ReservationResponse createAnywhere(CreateAnywhereReservationRequest request) {
         Long userId = currentUserProvider.currentUserId();
+        long usedPoint = defaultUsedPoint(request.usedPoint());
         Reservation reservation = reservationRepository.save(Reservation.anywhere(
                 userId, request.reserverName(), request.restaurantName(), request.restaurantAddress(),
                 request.reservedAt(),
-                request.adultCount(), request.teenCount(), request.childCount(), request.requestNote()));
+                request.adultCount(), request.teenCount(), request.childCount(), request.requestNote(),
+                usedPoint, request.amount()));
+        usePointIfAny(userId, reservation);
         return toResponse(reservation);
+    }
+
+    /**
+     * 예약을 취소한다 — 본인 소유만(미존재·타인 소유 모두 404, auth.md §5). 상태 전이(도메인 규칙)와
+     * 사용 포인트 복원을 한 트랜잭션에서 수행한다. 단, 확정(CONFIRMED) 후 취소는 포인트를 환불하지 않는다.
+     * 중복 취소는 상태 규칙이 선차단하고 POINT-004가 백스톱.
+     */
+    @Transactional
+    public ReservationResponse cancel(Long reservationId) {
+        Long userId = currentUserProvider.currentUserId();
+        Reservation reservation = reservationRepository.findById(reservationId)
+                .filter(found -> found.ownedBy(userId))
+                .orElseThrow(() -> new BusinessException(ReservationErrorCode.NOT_FOUND));
+        boolean refundable = reservation.refundableOnCancel();   // 전이 전에 판정
+        reservation.cancel();
+        if (refundable && reservation.usedPointExists()) {
+            pointPort.restore(userId, PointSourceType.RESERVATION, reservation.getId());
+        }
+        return toResponse(reservation);
+    }
+
+    /** usedPoint는 선택 필드 — 미전송(null)이면 0(포인트 미사용). */
+    private long defaultUsedPoint(Long usedPoint) {
+        return (usedPoint == null) ? 0L : usedPoint;
+    }
+
+    /** 예약이 포인트를 사용했으면 예약 저장과 같은 트랜잭션에서 차감한다(실패 시 예약 저장도 함께 롤백). */
+    private void usePointIfAny(Long userId, Reservation reservation) {
+        if (reservation.usedPointExists()) {
+            pointPort.use(userId, reservation.getUsedPoint(), POINT_USE_REASON,
+                    PointSourceType.RESERVATION, reservation.getId());
+        }
     }
 
     /**
@@ -118,15 +164,17 @@ public class ReservationService {
                 .collect(Collectors.toMap(RestaurantInfo::id, summary -> summary, (a, b) -> a));
     }
 
-    // 한번에 받아온 일반 예약과 어디든 예약 — 유형별로 식당명·대표이미지를 해석해 응답으로 변환
+    // 한번에 받아온 일반 예약과 어디든 예약 — 유형별로 식당명·대표이미지·주소를 해석해 응답으로 변환
+    // (STANDARD 주소는 저장하지 않고 포트로 live enrich — 식당 주소 변경 시 항상 최신)
     private ReservationResponse toResponse(Reservation reservation, RestaurantInfo summary) {
         if (reservation.getReservationType() == ReservationType.ANYWHERE) {
-            return ReservationResponse.of(reservation, reservation.getRestaurantName(), null);
+            return ReservationResponse.of(reservation,
+                    reservation.getRestaurantName(), null, reservation.getRestaurantAddress());
         }
         if (summary == null) {
-            return ReservationResponse.of(reservation, UNKNOWN_RESTAURANT_NAME, null);
+            return ReservationResponse.of(reservation, UNKNOWN_RESTAURANT_NAME, null, null);
         }
-        return ReservationResponse.of(reservation, summary.name(), summary.imageUrl());
+        return ReservationResponse.of(reservation, summary.name(), summary.imageUrl(), summary.address());
     }
 
     private List<Reservation> fetchPage(Long userId, ReservationStatusFilter filter, Long cursor, Pageable pageable) {
