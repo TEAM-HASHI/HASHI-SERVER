@@ -12,6 +12,7 @@ import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
 import java.util.stream.LongStream;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
@@ -48,9 +49,15 @@ class ReviewServiceTest {
     @Mock
     private FileStorage fileStorage;
 
+    private ReviewService reviewService;
+
+    @BeforeEach
+    void setUp() {
+        reviewService = new ReviewService(reviewRepository, restaurantPort, userPort, fileStorage);
+    }
+
     @Test
     void 식당_리뷰_목록을_조회하면_리뷰와_다음_커서를_반환한다() {
-        ReviewService reviewService = new ReviewService(reviewRepository, restaurantPort, userPort, fileStorage);
         List<Review> reviews = LongStream.rangeClosed(1, 6)
                 .mapToObj(id -> createReview(id, id, 5, LocalDateTime.of(2026, 7, (int) id, 12, 0)))
                 .toList();
@@ -100,7 +107,6 @@ class ReviewServiceTest {
 
     @Test
     void 높은_평점순으로_조회하면_커서_평점과_ID로_다음_페이지를_조회한다() {
-        ReviewService reviewService = new ReviewService(reviewRepository, restaurantPort, userPort, fileStorage);
         Review cursorReview = createReview(10L, 1L, 4, LocalDateTime.of(2026, 7, 1, 12, 0));
 
         given(restaurantPort.existsById(RESTAURANT_ID)).willReturn(true);
@@ -128,7 +134,6 @@ class ReviewServiceTest {
 
     @Test
     void 존재하지_않는_식당의_리뷰를_조회하면_예외가_발생한다() {
-        ReviewService reviewService = new ReviewService(reviewRepository, restaurantPort, userPort, fileStorage);
         given(restaurantPort.existsById(RESTAURANT_ID)).willReturn(false);
 
         assertThatThrownBy(() -> reviewService.getRestaurantReviews(RESTAURANT_ID, null, null, null))
@@ -140,7 +145,6 @@ class ReviewServiceTest {
 
     @Test
     void 지원하지_않는_정렬값으로_조회하면_예외가_발생한다() {
-        ReviewService reviewService = new ReviewService(reviewRepository, restaurantPort, userPort, fileStorage);
         given(restaurantPort.existsById(RESTAURANT_ID)).willReturn(true);
 
         assertThatThrownBy(() -> reviewService.getRestaurantReviews(RESTAURANT_ID, "invalid", null, null))
@@ -152,7 +156,6 @@ class ReviewServiceTest {
 
     @Test
     void 유효하지_않은_커서로_조회하면_예외가_발생한다() {
-        ReviewService reviewService = new ReviewService(reviewRepository, restaurantPort, userPort, fileStorage);
         given(restaurantPort.existsById(RESTAURANT_ID)).willReturn(true);
         given(reviewRepository.findByIdAndRestaurantIdAndActiveTrue(99L, RESTAURANT_ID))
                 .willReturn(Optional.empty());
