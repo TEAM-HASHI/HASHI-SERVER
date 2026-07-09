@@ -51,7 +51,9 @@ CREATE TABLE reservation (
     used_point BIGINT NOT NULL,
     created_at DATETIME(6),
     updated_at DATETIME(6),
-    PRIMARY KEY (id)
+    PRIMARY KEY (id),
+    INDEX idx_reservation_user_id_id (user_id, id),
+    INDEX idx_reservation_user_status_id (user_id, reservation_status, id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE point_account (
