@@ -10,6 +10,7 @@ HASHI(Spring Modulith 모듈러 모놀리스 · Java 21) 프로젝트의 컨벤�
 | [`error-handling.md`](./error-handling.md) | `ErrorCode`/`SuccessCode` 계약, `BusinessException`, `GlobalExceptionHandler`, 도메인 코드 배치(각 모듈 `code/`) | 새 에러·성공 코드 추가, 예외 처리 로직 작업 |
 | [`auth.md`](./auth.md) | `auth`(횡단·shared) 규칙, `CurrentUserProvider`로 현재 사용자 조회, 인증 흐름 | 인증이 필요한 API 작업 |
 | [`testing.md`](./testing.md) | `@ApplicationModuleTest`(모듈 단위), `ApplicationModules.verify()`(구조 검증), ArchUnit 규칙 | 테스트 작성, 모듈 경계·의존 검증 |
+| [`database.md`](./database.md) | Flyway migration 작성 규칙, DB 제약·seed 데이터 분리, baseline 정책 | DB schema 변경, migration 추가 |
 | [`git-convention.md`](./git-convention.md) | 커밋(Angular)·브랜치(Git Flow)·이슈/PR 규칙, scope=모듈명, 커밋 단위 | 커밋·브랜치 생성·PR 작성 |
 
 ## 빠른 참조
@@ -20,6 +21,7 @@ HASHI(Spring Modulith 모듈러 모놀리스 · Java 21) 프로젝트의 컨벤�
 - "식당의 리뷰처럼 다른 도메인 데이터를 같이 내려줄 때 누가 담당?" → `architecture.md` §5-3 (교차 조회 담당·순환 시 반전)
 - "에러 코드 하나 추가해야 해" → `error-handling.md` (없으면 `architecture.md` §7)
 - "로그인한 유저 정보로 API 만들어줘" → `auth.md` (현재 사용자 = `CurrentUserProvider`)
+- "DB 테이블/컬럼을 바꿔야 해" → `database.md` (Flyway migration 규칙)
 - "공통으로 쓸 것 같은데 어디 두지" → `architecture.md` §3·§4 (`common` 금지, `shared`는 도메인 무관 틀만)
 - "모듈 테스트/구조 검증 짜야 해" → `testing.md`
 - "커밋 메시지/브랜치/PR 어떻게 쓰지" → `git-convention.md`
