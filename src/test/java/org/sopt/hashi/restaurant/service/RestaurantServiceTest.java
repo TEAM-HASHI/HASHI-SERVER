@@ -24,6 +24,8 @@ import org.sopt.hashi.restaurant.domain.RestaurantGenre;
 import org.sopt.hashi.restaurant.domain.RestaurantRepository;
 import org.sopt.hashi.restaurant.domain.RestaurantSort;
 import org.sopt.hashi.restaurant.dto.RestaurantListResponse;
+import org.sopt.hashi.restaurant.dto.RestaurantSearchKeywordRecommendationResponse;
+import org.sopt.hashi.restaurant.dto.RestaurantSearchSuggestionResponse;
 import org.sopt.hashi.shared.error.BusinessException;
 import org.sopt.hashi.shared.error.CommonErrorCode;
 import org.sopt.hashi.shared.storage.FileStorage;
@@ -128,6 +130,51 @@ class RestaurantServiceTest {
         assertThat(pageable.getPageSize()).isEqualTo(51);
         assertSortOrder(pageable, "rating");
         assertSortOrder(pageable, "id");
+    }
+
+    @Test
+    void 추천_검색어를_조회한다() {
+        RestaurantService restaurantService = new RestaurantService(restaurantRepository, fileStorage);
+        given(restaurantRepository.findRecommendedMenuKeywords(any(Pageable.class)))
+                .willReturn(List.of("스시", "라멘", "스시"));
+        given(restaurantRepository.findRecommendedRestaurantKeywords(any(Pageable.class)))
+                .willReturn(List.of("히마와리 스시", "라멘"));
+
+        RestaurantSearchKeywordRecommendationResponse response =
+                restaurantService.getSearchKeywordRecommendations(3);
+
+        assertThat(response.keywords())
+                .containsExactly("스시", "라멘", "히마와리 스시");
+
+        ArgumentCaptor<Pageable> pageableCaptor = ArgumentCaptor.forClass(Pageable.class);
+        verify(restaurantRepository).findRecommendedMenuKeywords(pageableCaptor.capture());
+        verify(restaurantRepository).findRecommendedRestaurantKeywords(pageableCaptor.capture());
+        assertThat(pageableCaptor.getAllValues())
+                .extracting(Pageable::getPageSize)
+                .containsOnly(3);
+    }
+
+    @Test
+    void 식당명과_메뉴명으로_검색어_자동완성을_조회한다() {
+        RestaurantService restaurantService = new RestaurantService(restaurantRepository, fileStorage);
+        given(restaurantRepository.findRestaurantSuggestionKeywords(
+                ArgumentMatchers.eq("스시"),
+                any(Pageable.class)
+        )).willReturn(List.of("히마와리 스시", "스시로"));
+        given(restaurantRepository.findMenuSuggestionKeywords(
+                ArgumentMatchers.eq("스시"),
+                any(Pageable.class)
+        )).willReturn(List.of("스시", "스시"));
+
+        RestaurantSearchSuggestionResponse response = restaurantService.getSearchSuggestions(" 스시 ", 3);
+
+        assertThat(response.suggestions()).hasSize(3);
+        assertThat(response.suggestions().get(0).keyword()).isEqualTo("히마와리 스시");
+        assertThat(response.suggestions().get(0).type()).isEqualTo("restaurant");
+        assertThat(response.suggestions().get(1).keyword()).isEqualTo("스시로");
+        assertThat(response.suggestions().get(1).type()).isEqualTo("restaurant");
+        assertThat(response.suggestions().get(2).keyword()).isEqualTo("스시");
+        assertThat(response.suggestions().get(2).type()).isEqualTo("menu");
     }
 
     @Test
