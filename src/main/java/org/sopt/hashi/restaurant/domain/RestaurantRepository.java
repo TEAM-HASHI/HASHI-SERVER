@@ -31,4 +31,23 @@ public interface RestaurantRepository extends JpaRepository<Restaurant, Long>, J
             @Param("cursor") Long cursor,
             Pageable pageable
     );
+
+    @Query("""
+            select distinct r.name
+            from Restaurant r
+            where r.active = true
+                and lower(r.name) like lower(concat('%', :keyword, '%'))
+            order by r.name asc
+            """)
+    List<String> findRestaurantSuggestionKeywords(@Param("keyword") String keyword, Pageable pageable);
+
+    @Query("""
+            select distinct m.name
+            from Restaurant r
+            join r.menus m
+            where r.active = true
+                and lower(m.name) like lower(concat('%', :keyword, '%'))
+            order by m.name asc
+            """)
+    List<String> findMenuSuggestionKeywords(@Param("keyword") String keyword, Pageable pageable);
 }
