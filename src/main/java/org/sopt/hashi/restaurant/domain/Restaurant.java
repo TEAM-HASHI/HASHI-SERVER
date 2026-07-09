@@ -13,6 +13,7 @@ import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
 import jakarta.persistence.JoinColumn;
 import jakarta.persistence.OneToMany;
+import jakarta.persistence.OrderBy;
 import jakarta.persistence.Table;
 import java.math.BigDecimal;
 import java.time.LocalDate;
@@ -45,6 +46,9 @@ public class Restaurant extends BaseTimeEntity {
 
     @Column(name = "description", length = 500)
     private String description;
+
+    @Column(name = "store_description", columnDefinition = "TEXT")
+    private String storeDescription;
 
     @Column(name = "address", length = 255, nullable = false)
     private String address;
@@ -113,15 +117,22 @@ public class Restaurant extends BaseTimeEntity {
     private List<RestaurantMenu> menus = new ArrayList<>();
 
     @BatchSize(size = 100)
+    @OrderBy("displayOrder ASC")
+    @OneToMany(mappedBy = "restaurant", cascade = CascadeType.ALL, orphanRemoval = true)
+    private List<RestaurantImage> images = new ArrayList<>();
+
+    @BatchSize(size = 100)
     @OneToMany(mappedBy = "restaurant", cascade = CascadeType.ALL, orphanRemoval = true)
     private List<RestaurantBusinessHour> businessHours = new ArrayList<>();
 
-    private Restaurant(String name, String localName, String description, String address, String area,
+    private Restaurant(String name, String localName, String description, String storeDescription, String address,
+                       String area,
                        RestaurantGenre genre, String thumbnailFileKey, long reservationFee, String currency,
                        BigDecimal minPrice, BigDecimal maxPrice) {
         this.name = name;
         this.localName = localName;
         this.description = description;
+        this.storeDescription = storeDescription;
         this.address = address;
         this.area = area;
         this.genre = genre;
@@ -140,7 +151,15 @@ public class Restaurant extends BaseTimeEntity {
     public static Restaurant create(String name, String localName, String description, String address, String area,
                                     RestaurantGenre genre, String thumbnailFileKey, long reservationFee,
                                     String currency, BigDecimal minPrice, BigDecimal maxPrice) {
-        return new Restaurant(name, localName, description, address, area, genre, thumbnailFileKey,
+        return create(name, localName, description, null, address, area, genre, thumbnailFileKey,
+                reservationFee, currency, minPrice, maxPrice);
+    }
+
+    public static Restaurant create(String name, String localName, String description, String storeDescription,
+                                    String address, String area, RestaurantGenre genre, String thumbnailFileKey,
+                                    long reservationFee, String currency, BigDecimal minPrice,
+                                    BigDecimal maxPrice) {
+        return new Restaurant(name, localName, description, storeDescription, address, area, genre, thumbnailFileKey,
                 reservationFee, currency, minPrice, maxPrice);
     }
 
@@ -168,6 +187,18 @@ public class Restaurant extends BaseTimeEntity {
     public void addMenu(RestaurantMenu menu) {
         menu.assignRestaurant(this);
         this.menus.add(menu);
+    }
+
+    public void replaceImages(List<RestaurantImage> images) {
+        this.images.clear();
+        if (images != null) {
+            images.forEach(this::addImage);
+        }
+    }
+
+    public void addImage(RestaurantImage image) {
+        image.assignRestaurant(this);
+        this.images.add(image);
     }
 
     public void replaceBusinessHours(List<RestaurantBusinessHour> businessHours) {
