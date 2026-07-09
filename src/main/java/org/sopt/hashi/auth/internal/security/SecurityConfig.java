@@ -56,8 +56,10 @@ public class SecurityConfig {
                         .requestMatchers(PUBLIC_PATHS).permitAll()
                         .requestMatchers(ONBOARDING_PATH).hasRole("ONBOARDING")
                         .requestMatchers("/api/v1/admin/**").hasRole("ADMIN")
-                        // 온보딩 임시 권한이 일반 API에 접근하지 못하도록 authenticated 대신 역할을 명시한다(auth.md §4)
-                        .anyRequest().hasAnyRole("USER", "ADMIN"))
+                        // 역할을 명시해 온보딩 임시 권한(ROLE_ONBOARDING)의 일반 API 접근을 차단하고(auth.md §4),
+                        // 어드민 토큰도 일반 사용자 API를 호출하지 못하게 한다(adminId가 userId로 오인되는 것 방지 —
+                        // 어드민은 /api/v1/admin/** 진입점으로만 행동한다, architecture.md §9)
+                        .anyRequest().hasRole("USER"))
                 .exceptionHandling(handling -> handling
                         .authenticationEntryPoint(authenticationEntryPoint)
                         .accessDeniedHandler(accessDeniedHandler))
