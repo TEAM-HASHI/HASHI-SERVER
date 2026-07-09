@@ -13,6 +13,8 @@ import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
 import org.springframework.security.config.annotation.web.configurers.AbstractHttpConfigurer;
 import org.springframework.security.config.http.SessionCreationPolicy;
+import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
+import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
 import org.springframework.web.cors.CorsConfiguration;
@@ -54,13 +56,21 @@ public class SecurityConfig {
                         .requestMatchers(PUBLIC_PATHS).permitAll()
                         .requestMatchers(ONBOARDING_PATH).hasRole("ONBOARDING")
                         .requestMatchers("/api/v1/admin/**").hasRole("ADMIN")
-                        // 온보딩 임시 권한이 일반 API에 접근하지 못하도록 authenticated 대신 역할을 명시한다(auth.md §4)
-                        .anyRequest().hasAnyRole("USER", "ADMIN"))
+                        // 역할을 명시해 온보딩 임시 권한(ROLE_ONBOARDING)의 일반 API 접근을 차단하고(auth.md §4),
+                        // 어드민 토큰도 일반 사용자 API를 호출하지 못하게 한다(adminId가 userId로 오인되는 것 방지 —
+                        // 어드민은 /api/v1/admin/** 진입점으로만 행동한다, architecture.md §9)
+                        .anyRequest().hasRole("USER"))
                 .exceptionHandling(handling -> handling
                         .authenticationEntryPoint(authenticationEntryPoint)
                         .accessDeniedHandler(accessDeniedHandler))
                 .addFilterBefore(jwtAuthenticationFilter, UsernamePasswordAuthenticationFilter.class)
                 .build();
+    }
+
+    /** 어드민 ID/PW 검증용 단방향 해시. BCrypt는 솔트 내장·연산 비용 조절로 무차별 대입을 어렵게 한다. */
+    @Bean
+    public PasswordEncoder passwordEncoder() {
+        return new BCryptPasswordEncoder();
     }
 
     /**

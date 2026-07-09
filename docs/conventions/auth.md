@@ -58,11 +58,12 @@ auth/
    ├─ kakao/      KakaoOAuthClient · KakaoProperties · KakaoLoginRequest/Response
    ├─ security/   SecurityConfig · JwtAuthenticationFilter · JwtAuthenticationEntryPoint · JwtAccessDeniedHandler · CookieUtil · OriginValidator · CurrentUserProviderImpl
    ├─ onboarding/ OnboardingJwtIssuer(응답 후처리로 정식 JWT 부착)
+   ├─ admin/      Admin · AdminRepository · AdminAuthService · AdminAuthController   # 어드민 ID/PW 로그인·로그아웃
    ├─ web/        AuthController
    └─ UserAuthService                              # 로그인·재발급 오케스트레이터
 ```
 
-> ⚠️ 예정: 어드민 인증(`Admin`·`AdminAuthService`·`AdminAuthController`)·가입 SMS 인증(MVP 제외)은 도입 시 각 관심사 하위 패키지(예: `admin/`·`sms/`)에 둔다.
+> ⚠️ 예정: 가입 SMS 인증(MVP 제외)은 도입 시 관심사 하위 패키지(`sms/`)에 둔다.
 
 - 유저 인증 = 카카오 OAuth, 어드민 인증 = ID/PW. 둘 다 JWT 발급, 권한은 `ROLE_USER` / `ROLE_ADMIN`로 구분.
 - **토큰 전달**: 액세스 토큰은 `Authorization: Bearer` **헤더**로, 리프레시 토큰은 **HttpOnly 쿠키**로 내린다.

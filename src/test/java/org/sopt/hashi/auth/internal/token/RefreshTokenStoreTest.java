@@ -37,7 +37,7 @@ class RefreshTokenStoreTest {
     void 재사용_감지() {
         givenRotateScriptReturns(-1L);
 
-        assertThatThrownBy(() -> store.rotate(7L, "used", "new"))
+        assertThatThrownBy(() -> store.rotate("ROLE_USER", 7L, "used", "new"))
                 .isInstanceOf(BusinessException.class)
                 .hasFieldOrPropertyWithValue("errorCode", AuthErrorCode.TOKEN_REUSE_DETECTED);
     }
@@ -47,7 +47,7 @@ class RefreshTokenStoreTest {
     void 세션_부재() {
         givenRotateScriptReturns(0L);
 
-        assertThatThrownBy(() -> store.rotate(7L, "old", "new"))
+        assertThatThrownBy(() -> store.rotate("ROLE_USER", 7L, "old", "new"))
                 .isInstanceOf(BusinessException.class)
                 .hasFieldOrPropertyWithValue("errorCode", AuthErrorCode.REFRESH_TOKEN_NOT_FOUND);
     }
