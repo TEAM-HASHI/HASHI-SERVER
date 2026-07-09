@@ -1,7 +1,10 @@
 package org.sopt.hashi.restaurant.service;
 
 import java.util.ArrayList;
+import java.util.HashSet;
+import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Set;
 import org.sopt.hashi.restaurant.code.RestaurantErrorCode;
 import org.sopt.hashi.restaurant.domain.Restaurant;
 import org.sopt.hashi.restaurant.domain.RestaurantCursor;
@@ -12,6 +15,9 @@ import org.sopt.hashi.restaurant.domain.RestaurantSort;
 import org.sopt.hashi.restaurant.domain.RestaurantSpecifications;
 import org.sopt.hashi.restaurant.dto.RestaurantListResponse;
 import org.sopt.hashi.restaurant.dto.RestaurantListResponse.RestaurantSummaryResponse;
+import org.sopt.hashi.restaurant.dto.RestaurantSearchKeywordRecommendationResponse;
+import org.sopt.hashi.restaurant.dto.RestaurantSearchSuggestionResponse;
+import org.sopt.hashi.restaurant.dto.RestaurantSearchSuggestionResponse.SearchSuggestionResponse;
 import org.sopt.hashi.shared.error.BusinessException;
 import org.sopt.hashi.shared.storage.FileStorage;
 import org.springframework.data.domain.PageRequest;
@@ -26,6 +32,8 @@ public class RestaurantService {
 
     private static final int DEFAULT_PAGE_SIZE = 10;
     private static final int MAX_PAGE_SIZE = 50;
+    private static final String RESTAURANT_SUGGESTION_TYPE = "restaurant";
+    private static final String MENU_SUGGESTION_TYPE = "menu";
 
     private final RestaurantRepository restaurantRepository;
     private final FileStorage fileStorage;
@@ -73,6 +81,43 @@ public class RestaurantService {
                 nextCursor,
                 hasNext
         );
+    }
+
+    public RestaurantSearchKeywordRecommendationResponse getSearchKeywordRecommendations(Integer size) {
+        int resultSize = normalizeSize(size);
+        PageRequest pageRequest = PageRequest.of(0, resultSize);
+        List<String> keywords = mergeKeywords(
+                resultSize,
+                restaurantRepository.findRecommendedMenuKeywords(pageRequest),
+                restaurantRepository.findRecommendedRestaurantKeywords(pageRequest)
+        );
+
+        return new RestaurantSearchKeywordRecommendationResponse(keywords);
+    }
+
+    public RestaurantSearchSuggestionResponse getSearchSuggestions(String keyword, Integer size) {
+        int resultSize = normalizeSize(size);
+        String normalizedKeyword = keyword.strip();
+        PageRequest pageRequest = PageRequest.of(0, resultSize);
+
+        List<SearchSuggestionResponse> suggestions = new ArrayList<>();
+        Set<String> addedSuggestionKeys = new HashSet<>();
+        addSuggestions(
+                suggestions,
+                addedSuggestionKeys,
+                restaurantRepository.findRestaurantSuggestionKeywords(normalizedKeyword, pageRequest),
+                RESTAURANT_SUGGESTION_TYPE,
+                resultSize
+        );
+        addSuggestions(
+                suggestions,
+                addedSuggestionKeys,
+                restaurantRepository.findMenuSuggestionKeywords(normalizedKeyword, pageRequest),
+                MENU_SUGGESTION_TYPE,
+                resultSize
+        );
+
+        return new RestaurantSearchSuggestionResponse(List.copyOf(suggestions));
     }
 
     private RestaurantGenre parseGenre(String value) {
@@ -128,5 +173,46 @@ public class RestaurantService {
                 restaurant.getAvailableStartTime(),
                 restaurant.getAvailableEndTime()
         );
+    }
+
+    private List<String> mergeKeywords(int resultSize, List<String> primaryKeywords, List<String> secondaryKeywords) {
+        Set<String> keywords = new LinkedHashSet<>();
+        addKeywords(keywords, primaryKeywords, resultSize);
+        addKeywords(keywords, secondaryKeywords, resultSize);
+        return List.copyOf(keywords);
+    }
+
+    private void addKeywords(Set<String> result, List<String> keywords, int maxSize) {
+        for (String keyword : keywords) {
+            if (result.size() >= maxSize) {
+                return;
+            }
+            if (keyword == null || keyword.isBlank()) {
+                continue;
+            }
+            result.add(keyword.strip());
+        }
+    }
+
+    private void addSuggestions(
+            List<SearchSuggestionResponse> result,
+            Set<String> addedSuggestionKeys,
+            List<String> keywords,
+            String type,
+            int maxSize
+    ) {
+        for (String keyword : keywords) {
+            if (result.size() >= maxSize) {
+                return;
+            }
+            if (keyword == null || keyword.isBlank()) {
+                continue;
+            }
+            String normalizedKeyword = keyword.strip();
+            String suggestionKey = "%s:%s".formatted(type, normalizedKeyword);
+            if (addedSuggestionKeys.add(suggestionKey)) {
+                result.add(new SearchSuggestionResponse(normalizedKeyword, type));
+            }
+        }
     }
 }
