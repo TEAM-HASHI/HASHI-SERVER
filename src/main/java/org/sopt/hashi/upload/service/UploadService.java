@@ -9,7 +9,7 @@ import org.sopt.hashi.shared.storage.FileStorage;
 import org.sopt.hashi.shared.storage.PresignedUploadInfo;
 import org.sopt.hashi.shared.storage.StorageProperties;
 import org.sopt.hashi.upload.code.UploadErrorCode;
-import org.sopt.hashi.upload.dto.PresignedUrlRequest;
+import org.sopt.hashi.upload.dto.IssuePresignedUrlRequest;
 import org.sopt.hashi.upload.dto.PresignedUrlResponse;
 import org.springframework.stereotype.Service;
 
@@ -31,7 +31,7 @@ public class UploadService {
         this.storageProperties = storageProperties;
     }
 
-    public PresignedUrlResponse issuePresignedUrl(PresignedUrlRequest request) {
+    public PresignedUrlResponse issuePresignedUrl(IssuePresignedUrlRequest request) {
         UploadUsage usage = UploadUsage.from(request.usage())
                 .orElseThrow(() -> new BusinessException(UploadErrorCode.UNSUPPORTED_USAGE));
         String extension = resolveExtension(request.contentType());
