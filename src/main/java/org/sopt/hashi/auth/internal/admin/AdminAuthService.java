@@ -1,5 +1,6 @@
 package org.sopt.hashi.auth.internal.admin;
 
+import java.util.Optional;
 import org.sopt.hashi.auth.code.AuthErrorCode;
 import org.sopt.hashi.auth.internal.UserAuthService.TokenPair;
 import org.sopt.hashi.auth.internal.jwt.AuthRoles;
@@ -20,6 +21,8 @@ public class AdminAuthService {
     private final PasswordEncoder passwordEncoder;
     private final JwtProvider jwtProvider;
     private final RefreshTokenStore refreshTokenStore;
+    /** ID 미존재 시에도 같은 비용의 해시 비교를 수행하기 위한 더미 해시 — 인코더로 생성해 포맷·강도가 실제 해시와 일치한다. */
+    private final String dummyPasswordHash;
 
     AdminAuthService(AdminRepository adminRepository,
                      PasswordEncoder passwordEncoder,
@@ -29,18 +32,24 @@ public class AdminAuthService {
         this.passwordEncoder = passwordEncoder;
         this.jwtProvider = jwtProvider;
         this.refreshTokenStore = refreshTokenStore;
+        this.dummyPasswordHash = passwordEncoder.encode("hashi-admin-timing-dummy");
     }
 
-    /** ID/PW를 검증하고 ROLE_ADMIN 토큰 쌍을 발급한다. ID 미존재·PW 불일치를 구분하지 않는다(계정 열거 방지). */
+    /**
+     * ID/PW를 검증하고 ROLE_ADMIN 토큰 쌍을 발급한다. 계정 열거 방지를 위해 ID 미존재·PW 불일치를
+     * 단일 메시지로 응답하고, ID가 없어도 더미 해시와 비교해 **응답 시간 차이(타이밍 사이드채널)도 남기지 않는다**.
+     */
     public TokenPair login(String loginId, String rawPassword) {
-        Admin admin = adminRepository.findByLoginId(loginId)
-                .orElseThrow(() -> new BusinessException(AuthErrorCode.INVALID_CREDENTIALS));
-        if (!passwordEncoder.matches(rawPassword, admin.getPassword())) {
+        Optional<Admin> admin = adminRepository.findByLoginId(loginId);
+        String hashToCompare = admin.map(Admin::getPassword).orElse(dummyPasswordHash);
+        boolean matches = passwordEncoder.matches(rawPassword, hashToCompare);
+        if (admin.isEmpty() || !matches) {
             throw new BusinessException(AuthErrorCode.INVALID_CREDENTIALS);
         }
-        String accessToken = jwtProvider.createAccessToken(admin.getId(), AuthRoles.ADMIN);
-        String refreshToken = jwtProvider.createRefreshToken(admin.getId(), AuthRoles.ADMIN);
-        refreshTokenStore.save(AuthRoles.ADMIN, admin.getId(), refreshToken);
+        Long adminId = admin.get().getId();
+        String accessToken = jwtProvider.createAccessToken(adminId, AuthRoles.ADMIN);
+        String refreshToken = jwtProvider.createRefreshToken(adminId, AuthRoles.ADMIN);
+        refreshTokenStore.save(AuthRoles.ADMIN, adminId, refreshToken);
         return new TokenPair(accessToken, refreshToken);
     }
 
