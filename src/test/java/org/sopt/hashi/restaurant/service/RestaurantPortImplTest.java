@@ -38,12 +38,12 @@ class RestaurantPortImplTest {
     }
 
     @Test
-    void existsById_returns_false_when_restaurant_id_is_null() {
+    void 식당_id가_null이면_존재하지_않는다고_반환한다() {
         assertThat(restaurantPort.existsById(null)).isFalse();
     }
 
     @Test
-    void existsById_delegates_to_repository() {
+    void 식당_존재_여부를_repository에_위임한다() {
         given(restaurantRepository.existsById(1L)).willReturn(true);
 
         assertThat(restaurantPort.existsById(1L)).isTrue();
@@ -52,7 +52,7 @@ class RestaurantPortImplTest {
     }
 
     @Test
-    void findSummaryById_returns_restaurant_summary() {
+    void 식당_id로_식당_요약을_조회한다() {
         Restaurant restaurant = createRestaurant(1L);
         given(restaurantRepository.findById(1L)).willReturn(Optional.of(restaurant));
         given(fileStorage.resolveFileUrl("restaurants/1/thumbnail.jpg"))
@@ -69,7 +69,7 @@ class RestaurantPortImplTest {
     }
 
     @Test
-    void findSummaries_keeps_requested_order_and_skips_missing_restaurants() {
+    void 식당_요약_목록은_요청_순서를_유지하고_없는_식당은_제외한다() {
         Restaurant first = createRestaurant(1L);
         Restaurant second = createRestaurant(2L);
         given(restaurantRepository.findAllById(List.of(2L, 1L)))
@@ -87,7 +87,7 @@ class RestaurantPortImplTest {
     }
 
     @Test
-    void findDetailById_returns_restaurant_detail() {
+    void 식당_id로_식당_상세를_조회한다() {
         Restaurant restaurant = createRestaurant(1L);
         given(restaurantRepository.findById(1L)).willReturn(Optional.of(restaurant));
         given(fileStorage.resolveFileUrl("restaurants/1/thumbnail.jpg"))

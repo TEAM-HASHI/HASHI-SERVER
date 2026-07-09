@@ -43,7 +43,7 @@ class RestaurantServiceTest {
     private FileStorage fileStorage;
 
     @Test
-    void getRestaurants_uses_default_size_and_basic_sort_and_returns_next_cursor() {
+    void 기본값으로_식당_목록을_조회하고_다음_커서를_반환한다() {
         RestaurantService restaurantService = new RestaurantService(restaurantRepository, fileStorage);
         List<Restaurant> restaurants = LongStream.rangeClosed(1, 11)
                 .mapToObj(id -> createRestaurant(id, 4.0, id * 10))
@@ -77,7 +77,7 @@ class RestaurantServiceTest {
     }
 
     @Test
-    void getRestaurants_uses_popular_sort_and_cursor() {
+    void 인기순_커서로_식당_목록을_조회한다() {
         RestaurantService restaurantService = new RestaurantService(restaurantRepository, fileStorage);
         Restaurant cursorBase = createRestaurant(20L, 4.8, 100L);
         String cursor = RestaurantCursorCodec.encode(cursorBase, RestaurantSort.POPULAR);
@@ -105,7 +105,7 @@ class RestaurantServiceTest {
     }
 
     @Test
-    void getRestaurants_uses_rating_sort_and_caps_page_size() {
+    void 별점순_조회에서_페이지_크기를_최대값으로_제한한다() {
         RestaurantService restaurantService = new RestaurantService(restaurantRepository, fileStorage);
         Restaurant cursorBase = createRestaurant(20L, 4.8, 100L);
         String cursor = RestaurantCursorCodec.encode(cursorBase, RestaurantSort.RATING);
@@ -131,7 +131,7 @@ class RestaurantServiceTest {
     }
 
     @Test
-    void getRestaurants_throws_business_exception_when_query_value_is_invalid() {
+    void 지원하지_않는_조회_조건이면_예외가_발생한다() {
         RestaurantService restaurantService = new RestaurantService(restaurantRepository, fileStorage);
 
         assertThatThrownBy(() -> restaurantService.getRestaurants(
