@@ -56,6 +56,9 @@ public class AuthController {
         // 검증된 카카오 신원을 담은 온보딩 임시 토큰은 HttpOnly 쿠키로 이어간다(바디 노출·XSS 회피).
         response.addHeader(HttpHeaders.SET_COOKIE,
                 cookieUtil.createSignupTokenCookie(result.onboardingToken()).toString());
+        // 경로 확장 이전 구경로 쿠키가 남아 있으면 낡은 토큰이 먼저 선택될 수 있어 함께 만료시킨다(전환기 처리).
+        response.addHeader(HttpHeaders.SET_COOKIE,
+                cookieUtil.expireLegacySignupTokenCookie().toString());
         return SuccessResponse.of(AuthSuccessCode.ONBOARDING_REQUIRED, KakaoLoginResponse.onboardingRequired());
     }
 
