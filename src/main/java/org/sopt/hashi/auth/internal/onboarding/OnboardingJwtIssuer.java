@@ -76,9 +76,11 @@ public class OnboardingJwtIssuer implements ResponseBodyAdvice<Object> {
             response.getHeaders().set(HttpHeaders.AUTHORIZATION, BEARER_PREFIX + accessToken);
             response.getHeaders().add(HttpHeaders.SET_COOKIE,
                     cookieUtil.createRefreshTokenCookie(refreshToken).toString());
-            // 소비된 온보딩 토큰의 클라 쿠키도 제거한다.
+            // 소비된 온보딩 토큰의 클라 쿠키도 제거한다(경로 확장 이전 구경로 쿠키 포함).
             response.getHeaders().add(HttpHeaders.SET_COOKIE,
                     cookieUtil.expireSignupTokenCookie().toString());
+            response.getHeaders().add(HttpHeaders.SET_COOKIE,
+                    cookieUtil.expireLegacySignupTokenCookie().toString());
             onboardingTokenStore.consume(kakaoId);   // 1회용 임시 토큰 폐기(Redis)
         });
         return body;
