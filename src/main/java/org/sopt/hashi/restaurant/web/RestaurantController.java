@@ -27,7 +27,7 @@ public class RestaurantController {
         this.restaurantService = restaurantService;
     }
 
-    @ApiException(value = CommonErrorCode.class, codes = {"INVALID_INPUT"})
+    @ApiException(value = CommonErrorCode.class, codes = {"INVALID_INPUT", "UNAUTHORIZED"})
     @ApiException(value = RestaurantErrorCode.class,
             codes = {"UNSUPPORTED_GENRE", "UNSUPPORTED_SORT", "UNSUPPORTED_LIST_TYPE"})
     @GetMapping
