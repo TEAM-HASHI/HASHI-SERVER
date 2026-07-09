@@ -4,6 +4,7 @@ import jakarta.persistence.CascadeType;
 import jakarta.persistence.CollectionTable;
 import jakarta.persistence.Column;
 import jakarta.persistence.ElementCollection;
+import jakarta.persistence.Embedded;
 import jakarta.persistence.Entity;
 import jakarta.persistence.FetchType;
 import jakarta.persistence.GeneratedValue;
@@ -38,8 +39,8 @@ public class Review extends BaseTimeEntity {
     @Column(name = "writer_id", nullable = false)
     private Long writerId;
 
-    @Column(name = "rating", nullable = false)
-    private int rating;
+    @Embedded
+    private ReviewRating rating;
 
     @Column(name = "content", length = 1000, nullable = false)
     private String content;
@@ -60,10 +61,9 @@ public class Review extends BaseTimeEntity {
     private List<ReviewImage> images = new ArrayList<>();
 
     private Review(Long restaurantId, Long writerId, int rating, String content) {
-        validateRating(rating);
         this.restaurantId = restaurantId;
         this.writerId = writerId;
-        this.rating = rating;
+        this.rating = ReviewRating.from(rating);
         this.content = content;
         this.active = true;
     }
@@ -86,14 +86,12 @@ public class Review extends BaseTimeEntity {
         }
     }
 
+    public int getRating() {
+        return rating.value();
+    }
+
     private void addImage(ReviewImage image) {
         image.assignReview(this);
         this.images.add(image);
-    }
-
-    private static void validateRating(int rating) {
-        if (rating < 1 || rating > 5) {
-            throw new IllegalArgumentException("rating must be between 1 and 5.");
-        }
     }
 }

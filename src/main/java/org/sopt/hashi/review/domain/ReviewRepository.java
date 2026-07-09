@@ -15,7 +15,7 @@ public interface ReviewRepository extends JpaRepository<Review, Long> {
     long countByRestaurantIdAndActiveTrue(Long restaurantId);
 
     @Query("""
-            select avg(r.rating)
+            select avg(r.rating.value)
             from Review r
             where r.restaurantId = :restaurantId
               and r.active = true
@@ -23,11 +23,11 @@ public interface ReviewRepository extends JpaRepository<Review, Long> {
     Double averageRatingByRestaurantId(@Param("restaurantId") Long restaurantId);
 
     @Query("""
-            select r.rating as rating, count(r) as count
+            select r.rating.value as rating, count(r) as count
             from Review r
             where r.restaurantId = :restaurantId
               and r.active = true
-            group by r.rating
+            group by r.rating.value
             """)
     List<RatingCount> countByRating(@Param("restaurantId") Long restaurantId);
 
@@ -54,9 +54,9 @@ public interface ReviewRepository extends JpaRepository<Review, Long> {
             where r.restaurantId = :restaurantId
               and r.active = true
               and (:cursorRating is null
-                   or r.rating < :cursorRating
-                   or (r.rating = :cursorRating and r.id < :cursorId))
-            order by r.rating desc, r.id desc
+                   or r.rating.value < :cursorRating
+                   or (r.rating.value = :cursorRating and r.id < :cursorId))
+            order by r.rating.value desc, r.id desc
             """)
     List<Review> findRatingHighPage(
             @Param("restaurantId") Long restaurantId,
@@ -71,9 +71,9 @@ public interface ReviewRepository extends JpaRepository<Review, Long> {
             where r.restaurantId = :restaurantId
               and r.active = true
               and (:cursorRating is null
-                   or r.rating > :cursorRating
-                   or (r.rating = :cursorRating and r.id < :cursorId))
-            order by r.rating asc, r.id desc
+                   or r.rating.value > :cursorRating
+                   or (r.rating.value = :cursorRating and r.id < :cursorId))
+            order by r.rating.value asc, r.id desc
             """)
     List<Review> findRatingLowPage(
             @Param("restaurantId") Long restaurantId,
