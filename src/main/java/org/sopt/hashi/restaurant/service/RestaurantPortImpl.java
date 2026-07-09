@@ -1,38 +1,99 @@
 package org.sopt.hashi.restaurant.service;
 
 import java.util.Collection;
+import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
+import java.util.function.Function;
+import java.util.stream.Collectors;
 import org.sopt.hashi.restaurant.RestaurantDetailInfo;
 import org.sopt.hashi.restaurant.RestaurantInfo;
 import org.sopt.hashi.restaurant.RestaurantPort;
+import org.sopt.hashi.restaurant.domain.Restaurant;
+import org.sopt.hashi.restaurant.domain.RestaurantRepository;
+import org.sopt.hashi.shared.storage.FileStorage;
 import org.springframework.stereotype.Component;
+import org.springframework.transaction.annotation.Transactional;
 
-/**
- * ⚠️ 스텁 — restaurant 도메인 본체 개발 전, 부팅 시 빈 배선만을 위한 임시 구현.
- * 항상 "존재하지 않음"(false·empty)을 반환하므로 통합 시나리오에서 이 반환값을 신뢰하면 안 된다.
- * 도메인 본체(엔티티·Repository) 구현 시 실제 조회로 교체한다.
- */
 @Component
+@Transactional(readOnly = true)
 class RestaurantPortImpl implements RestaurantPort {
+
+    private final RestaurantRepository restaurantRepository;
+    private final FileStorage fileStorage;
+
+    RestaurantPortImpl(RestaurantRepository restaurantRepository, FileStorage fileStorage) {
+        this.restaurantRepository = restaurantRepository;
+        this.fileStorage = fileStorage;
+    }
 
     @Override
     public boolean existsById(Long restaurantId) {
-        return false;
+        return restaurantId != null && restaurantRepository.existsById(restaurantId);
     }
 
     @Override
     public Optional<RestaurantInfo> findSummaryById(Long restaurantId) {
-        return Optional.empty();
+        if (restaurantId == null) {
+            return Optional.empty();
+        }
+        return restaurantRepository.findById(restaurantId)
+                .map(this::toInfo);
     }
 
     @Override
     public List<RestaurantInfo> findSummaries(Collection<Long> restaurantIds) {
-        return List.of();
+        if (restaurantIds == null || restaurantIds.isEmpty()) {
+            return List.of();
+        }
+
+        List<Long> ids = restaurantIds.stream()
+                .filter(Objects::nonNull)
+                .collect(Collectors.collectingAndThen(
+                        Collectors.toCollection(LinkedHashSet::new),
+                        List::copyOf
+                ));
+        if (ids.isEmpty()) {
+            return List.of();
+        }
+
+        Map<Long, RestaurantInfo> summariesById = restaurantRepository.findAllById(ids).stream()
+                .map(this::toInfo)
+                .collect(Collectors.toMap(RestaurantInfo::id, Function.identity()));
+
+        return ids.stream()
+                .map(summariesById::get)
+                .filter(Objects::nonNull)
+                .toList();
     }
 
     @Override
     public Optional<RestaurantDetailInfo> findDetailById(Long restaurantId) {
-        return Optional.empty();
+        if (restaurantId == null) {
+            return Optional.empty();
+        }
+        return restaurantRepository.findById(restaurantId)
+                .map(this::toDetailInfo);
+    }
+
+    private RestaurantInfo toInfo(Restaurant restaurant) {
+        return new RestaurantInfo(
+                restaurant.getId(),
+                restaurant.getName(),
+                restaurant.getAddress(),
+                fileStorage.resolveFileUrl(restaurant.getThumbnailFileKey())
+        );
+    }
+
+    private RestaurantDetailInfo toDetailInfo(Restaurant restaurant) {
+        return new RestaurantDetailInfo(
+                restaurant.getId(),
+                restaurant.getName(),
+                restaurant.getLocalName(),
+                restaurant.getAddress(),
+                fileStorage.resolveFileUrl(restaurant.getThumbnailFileKey())
+        );
     }
 }

@@ -18,7 +18,7 @@ public class S3FileStorage implements FileStorage {
 
     @Override
     public PresignedUploadInfo createPresignedUploadUrl(String fileKey, String contentType, long contentLength) {
-        String fileUrl = buildFileUrl(fileKey);
+        String fileUrl = resolveFileUrl(fileKey);
         PutObjectRequest putObjectRequest = PutObjectRequest.builder()
                 .bucket(storageProperties.bucket())
                 .key(fileKey)
@@ -43,7 +43,20 @@ public class S3FileStorage implements FileStorage {
         );
     }
 
-    private String buildFileUrl(String fileKey) {
-        return storageProperties.cloudfrontDomain() + "/" + fileKey;
+    @Override
+    public String resolveFileUrl(String fileKey) {
+        if (fileKey == null || fileKey.isBlank()) {
+            return null;
+        }
+
+        return storageProperties.cloudfrontDomain() + "/" + removeLeadingSlashes(fileKey.strip());
+    }
+
+    private String removeLeadingSlashes(String fileKey) {
+        int startIndex = 0;
+        while (startIndex < fileKey.length() && fileKey.charAt(startIndex) == '/') {
+            startIndex++;
+        }
+        return fileKey.substring(startIndex);
     }
 }
