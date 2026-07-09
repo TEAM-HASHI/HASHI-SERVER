@@ -37,6 +37,7 @@ import org.springframework.data.domain.Sort;
 import org.springframework.data.jpa.domain.Specification;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.util.StringUtils;
 
 @Service
 @Transactional(readOnly = true)
@@ -172,7 +173,7 @@ public class RestaurantService {
 
         return new RestaurantStoreInformationResponse(
                 restaurant.getId(),
-                restaurant.getStoreDescription(),
+                toStoreDescription(restaurant),
                 restaurant.getBusinessHours().stream()
                         .sorted(Comparator.comparing(hour -> hour.getDayOfWeek().getValue()))
                         .map(this::toBusinessHourResponse)
@@ -289,6 +290,16 @@ public class RestaurantService {
                 .map(RestaurantImage::getFileKey)
                 .map(fileStorage::resolveFileUrl)
                 .toList();
+    }
+
+    private String toStoreDescription(Restaurant restaurant) {
+        if (StringUtils.hasText(restaurant.getStoreDescription())) {
+            return restaurant.getStoreDescription();
+        }
+        if (StringUtils.hasText(restaurant.getDescription())) {
+            return restaurant.getDescription();
+        }
+        return "";
     }
 
     private BusinessHourResponse toBusinessHourResponse(RestaurantBusinessHour businessHour) {
