@@ -19,7 +19,12 @@ public class CookieUtil {
     public static final String SIGNUP_TOKEN_COOKIE = "signup_token";
 
     private static final String REFRESH_COOKIE_PATH = "/api/v1/auth";
-    private static final String SIGNUP_COOKIE_PATH = "/api/v1/users/onboarding";
+    /**
+     * 온보딩 제출(/api/v1/users/onboarding)과 인증 상태 조회(/api/v1/auth/me) 둘 다 커버해야 해서
+     * 공통 프리픽스로 의도적으로 넓혔다(쿠키 Path는 1개뿐). 다른 API로 전송돼도 ROLE_ONBOARDING이라
+     * SecurityConfig 역할 규칙이 403으로 차단한다 — 전송 범위는 넓게, 접근 범위는 서버가 정밀하게.
+     */
+    private static final String SIGNUP_COOKIE_PATH = "/api/v1";
 
     private final JwtProperties properties;
 
@@ -41,7 +46,7 @@ public class CookieUtil {
                 .build();
     }
 
-    /** 온보딩 임시 토큰 쿠키 생성 — 온보딩 엔드포인트에만 전송된다. TTL은 Redis 임시 토큰과 동일. */
+    /** 온보딩 임시 토큰 쿠키 생성 — 온보딩 제출·인증 상태 조회(/auth/me)에 전송된다. TTL은 Redis 임시 토큰과 동일. */
     public ResponseCookie createSignupTokenCookie(String signupToken) {
         return baseCookieBuilder(SIGNUP_TOKEN_COOKIE, signupToken, SIGNUP_COOKIE_PATH)
                 .maxAge(properties.onboardingTokenTtl())
