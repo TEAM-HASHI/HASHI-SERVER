@@ -30,7 +30,6 @@ class UploadServiceTest {
     void presigned_URL을_발급한다() {
         PresignedUrlRequest request = new PresignedUrlRequest(
                 "review",
-                "ramen.jpg",
                 "image/jpeg",
                 1024L
         );
@@ -48,7 +47,6 @@ class UploadServiceTest {
     void 지원하지_않는_사용_목적이면_예외가_발생한다() {
         PresignedUrlRequest request = new PresignedUrlRequest(
                 "unknown",
-                "ramen.jpg",
                 "image/jpeg",
                 1024L
         );
@@ -62,7 +60,6 @@ class UploadServiceTest {
     void 지원하지_않는_파일_형식이면_예외가_발생한다() {
         PresignedUrlRequest request = new PresignedUrlRequest(
                 "review",
-                "ramen.gif",
                 "image/gif",
                 1024L
         );
@@ -76,7 +73,6 @@ class UploadServiceTest {
     void 파일_크기가_제한을_초과하면_예외가_발생한다() {
         PresignedUrlRequest request = new PresignedUrlRequest(
                 "review",
-                "ramen.jpg",
                 "image/jpeg",
                 DataSize.ofMegabytes(6).toBytes()
         );
