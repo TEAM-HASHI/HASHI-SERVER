@@ -11,6 +11,7 @@ import static org.mockito.Mockito.verifyNoInteractions;
 
 import java.math.BigDecimal;
 import java.util.List;
+import java.util.stream.IntStream;
 import java.util.stream.LongStream;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -230,6 +231,65 @@ class RestaurantServiceTest {
                 restaurantService.getSearchKeywordRecommendations(3);
 
         assertThat(response.keywords()).containsExactly("스시", "라멘", "야키토리");
+        verifyNoInteractions(restaurantRepository);
+    }
+
+    @Test
+    void 검색_보조_기능은_기본_검색_개수를_사용한다() {
+        RestaurantService restaurantService = new RestaurantService(restaurantRepository, fileStorage);
+        given(restaurantRepository.findRestaurantSuggestionKeywords(anyString(), any(Pageable.class)))
+                .willReturn(List.of());
+        given(restaurantRepository.findMenuSuggestionKeywords(anyString(), any(Pageable.class)))
+                .willReturn(List.of());
+
+        RestaurantSearchSuggestionResponse suggestionResponse =
+                restaurantService.getSearchSuggestions("스시", null);
+        RestaurantSearchKeywordRecommendationResponse recommendationResponse =
+                restaurantService.getSearchKeywordRecommendations(null);
+
+        assertThat(suggestionResponse.suggestions()).isEmpty();
+        assertThat(recommendationResponse.keywords()).hasSize(10);
+
+        ArgumentCaptor<Pageable> pageableCaptor = ArgumentCaptor.forClass(Pageable.class);
+        verify(restaurantRepository).findRestaurantSuggestionKeywords(anyString(), pageableCaptor.capture());
+        assertThat(pageableCaptor.getValue().getPageSize()).isEqualTo(10);
+    }
+
+    @Test
+    void 검색_보조_기능은_최대_검색_개수로_제한한다() {
+        RestaurantService restaurantService = new RestaurantService(restaurantRepository, fileStorage);
+        List<String> restaurantSuggestions = IntStream.rangeClosed(1, 50)
+                .mapToObj(index -> "스시 " + index)
+                .toList();
+        given(restaurantRepository.findRestaurantSuggestionKeywords(anyString(), any(Pageable.class)))
+                .willReturn(restaurantSuggestions);
+
+        RestaurantSearchSuggestionResponse suggestionResponse =
+                restaurantService.getSearchSuggestions("스시", 100);
+        RestaurantSearchKeywordRecommendationResponse recommendationResponse =
+                restaurantService.getSearchKeywordRecommendations(100);
+
+        assertThat(suggestionResponse.suggestions()).hasSize(50);
+        assertThat(recommendationResponse.keywords()).hasSize(10);
+
+        ArgumentCaptor<Pageable> pageableCaptor = ArgumentCaptor.forClass(Pageable.class);
+        verify(restaurantRepository).findRestaurantSuggestionKeywords(anyString(), pageableCaptor.capture());
+        verify(restaurantRepository, never())
+                .findMenuSuggestionKeywords(anyString(), any(Pageable.class));
+        assertThat(pageableCaptor.getValue().getPageSize()).isEqualTo(50);
+    }
+
+    @Test
+    void 검색_보조_기능은_검색_개수가_1보다_작으면_실패한다() {
+        RestaurantService restaurantService = new RestaurantService(restaurantRepository, fileStorage);
+
+        assertThatThrownBy(() -> restaurantService.getSearchSuggestions("스시", 0))
+                .isInstanceOfSatisfying(BusinessException.class, exception ->
+                        assertThat(exception.getErrorCode()).isEqualTo(CommonErrorCode.INVALID_INPUT));
+        assertThatThrownBy(() -> restaurantService.getSearchKeywordRecommendations(0))
+                .isInstanceOfSatisfying(BusinessException.class, exception ->
+                        assertThat(exception.getErrorCode()).isEqualTo(CommonErrorCode.INVALID_INPUT));
+
         verifyNoInteractions(restaurantRepository);
     }
 
