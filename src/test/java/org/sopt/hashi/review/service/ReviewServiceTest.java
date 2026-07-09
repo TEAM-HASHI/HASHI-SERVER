@@ -133,6 +133,33 @@ class ReviewServiceTest {
     }
 
     @Test
+    void 낮은_평점순으로_조회하면_커서_평점과_ID로_다음_페이지를_조회한다() {
+        Review cursorReview = createReview(10L, 1L, 2, LocalDateTime.of(2026, 7, 1, 12, 0));
+
+        given(restaurantPort.existsById(RESTAURANT_ID)).willReturn(true);
+        given(reviewRepository.findByIdAndRestaurantIdAndActiveTrue(10L, RESTAURANT_ID))
+                .willReturn(Optional.of(cursorReview));
+        given(reviewRepository.findRatingLowPage(RESTAURANT_ID, 2, 10L, PageRequest.of(0, 4)))
+                .willReturn(List.of());
+        given(reviewRepository.averageRatingByRestaurantId(RESTAURANT_ID)).willReturn(null);
+        given(reviewRepository.countByRestaurantIdAndActiveTrue(RESTAURANT_ID)).willReturn(0L);
+        given(reviewRepository.countByRating(RESTAURANT_ID)).willReturn(List.of());
+
+        RestaurantReviewResponse response = reviewService.getRestaurantReviews(
+                RESTAURANT_ID,
+                "rating-low",
+                10L,
+                3
+        );
+
+        assertThat(response.content()).isEmpty();
+        assertThat(response.averageRating()).isZero();
+        assertThat(response.nextCursor()).isNull();
+        assertThat(response.hasNext()).isFalse();
+        verify(reviewRepository).findRatingLowPage(RESTAURANT_ID, 2, 10L, PageRequest.of(0, 4));
+    }
+
+    @Test
     void 존재하지_않는_식당의_리뷰를_조회하면_예외가_발생한다() {
         given(restaurantPort.existsById(RESTAURANT_ID)).willReturn(false);
 
