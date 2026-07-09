@@ -18,6 +18,8 @@ public class SwaggerConfig {
     private static final String BEARER_SCHEME_NAME = "bearerAuth";
     private static final String API_BASE_PATH = "/api/v1/**";
     private static final String ADMIN_BASE_PATH = "/api/v1/admin/**";
+    /** 어드민 인증(로그인·로그아웃)은 permitAll 정책상 /api/v1/auth 아래에 있지만 문서는 admin 그룹에 속한다. */
+    private static final String ADMIN_AUTH_BASE_PATH = "/api/v1/auth/admin/**";
 
     /**
      * API 메타 정보와 JWT Bearer 인증 스킴(Authorize 버튼)을 정의한다.
@@ -47,22 +49,22 @@ public class SwaggerConfig {
         return new ApiExceptionsOperationCustomizer();
     }
 
-    /** 사용자 API 문서 그룹(/api/v1/** 중 admin 제외). */
+    /** 사용자 API 문서 그룹(/api/v1/** 중 admin·어드민 인증 제외). */
     @Bean
     public GroupedOpenApi userApi() {
         return GroupedOpenApi.builder()
                 .group("user")
                 .pathsToMatch(API_BASE_PATH)
-                .pathsToExclude(ADMIN_BASE_PATH)
+                .pathsToExclude(ADMIN_BASE_PATH, ADMIN_AUTH_BASE_PATH)
                 .build();
     }
 
-    /** 어드민 API 문서 그룹(/api/v1/admin/**). */
+    /** 어드민 API 문서 그룹(/api/v1/admin/** + 어드민 인증). */
     @Bean
     public GroupedOpenApi adminApi() {
         return GroupedOpenApi.builder()
                 .group("admin")
-                .pathsToMatch(ADMIN_BASE_PATH)
+                .pathsToMatch(ADMIN_BASE_PATH, ADMIN_AUTH_BASE_PATH)
                 .build();
     }
 }
