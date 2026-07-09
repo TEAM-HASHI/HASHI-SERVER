@@ -265,8 +265,13 @@ class RestaurantServiceTest {
         RestaurantService restaurantService = new RestaurantService(restaurantRepository, fileStorage);
         given(restaurantRepository.findByIdAndActiveTrue(404L)).willReturn(Optional.empty());
         given(restaurantRepository.existsByIdAndActiveTrue(404L)).willReturn(false);
+        given(restaurantRepository.findActiveByIdWithBusinessHours(404L)).willReturn(Optional.empty());
 
         assertThatThrownBy(() -> restaurantService.getRestaurantSummary(404L))
+                .isInstanceOfSatisfying(BusinessException.class, exception ->
+                        assertThat(exception.getErrorCode()).isEqualTo(RestaurantErrorCode.NOT_FOUND));
+
+        assertThatThrownBy(() -> restaurantService.getStoreInformation(404L))
                 .isInstanceOfSatisfying(BusinessException.class, exception ->
                         assertThat(exception.getErrorCode()).isEqualTo(RestaurantErrorCode.NOT_FOUND));
 
