@@ -12,6 +12,7 @@ import org.sopt.hashi.restaurant.domain.Restaurant;
 import org.sopt.hashi.restaurant.domain.RestaurantBusinessHour;
 import org.sopt.hashi.restaurant.domain.RestaurantCursor;
 import org.sopt.hashi.restaurant.domain.RestaurantGenre;
+import org.sopt.hashi.restaurant.domain.RestaurantImage;
 import org.sopt.hashi.restaurant.domain.RestaurantListType;
 import org.sopt.hashi.restaurant.domain.RestaurantMenu;
 import org.sopt.hashi.restaurant.domain.RestaurantRepository;
@@ -144,7 +145,8 @@ public class RestaurantService {
     }
 
     public RestaurantMainResponse getRestaurantSummary(Long restaurantId) {
-        Restaurant restaurant = findActiveRestaurant(restaurantId);
+        Restaurant restaurant = restaurantRepository.findActiveByIdWithImages(restaurantId)
+                .orElseThrow(() -> new BusinessException(RestaurantErrorCode.NOT_FOUND));
 
         return new RestaurantMainResponse(
                 restaurant.getId(),
@@ -155,6 +157,7 @@ public class RestaurantService {
                 restaurant.getDescription(),
                 restaurant.getAddress(),
                 fileStorage.resolveFileUrl(restaurant.getThumbnailFileKey()),
+                toImageUrls(restaurant),
                 restaurant.getSavedCount(),
                 restaurant.getReservationFee(),
                 formatDate(restaurant.getAvailableDate()),
@@ -169,7 +172,7 @@ public class RestaurantService {
 
         return new RestaurantStoreInformationResponse(
                 restaurant.getId(),
-                restaurant.getDescription(),
+                restaurant.getStoreDescription(),
                 restaurant.getBusinessHours().stream()
                         .sorted(Comparator.comparing(hour -> hour.getDayOfWeek().getValue()))
                         .map(this::toBusinessHourResponse)
@@ -265,11 +268,6 @@ public class RestaurantService {
         };
     }
 
-    private Restaurant findActiveRestaurant(Long restaurantId) {
-        return restaurantRepository.findByIdAndActiveTrue(restaurantId)
-                .orElseThrow(() -> new BusinessException(RestaurantErrorCode.NOT_FOUND));
-    }
-
     private RestaurantSummaryResponse toSummaryResponse(Restaurant restaurant) {
         return new RestaurantSummaryResponse(
                 restaurant.getId(),
@@ -284,6 +282,13 @@ public class RestaurantService {
                 restaurant.getAvailableStartTime(),
                 restaurant.getAvailableEndTime()
         );
+    }
+
+    private List<String> toImageUrls(Restaurant restaurant) {
+        return restaurant.getImages().stream()
+                .map(RestaurantImage::getFileKey)
+                .map(fileStorage::resolveFileUrl)
+                .toList();
     }
 
     private BusinessHourResponse toBusinessHourResponse(RestaurantBusinessHour businessHour) {

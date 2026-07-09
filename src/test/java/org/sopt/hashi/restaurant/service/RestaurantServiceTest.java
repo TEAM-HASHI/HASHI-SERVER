@@ -28,6 +28,7 @@ import org.sopt.hashi.restaurant.domain.Restaurant;
 import org.sopt.hashi.restaurant.domain.RestaurantBusinessHour;
 import org.sopt.hashi.restaurant.domain.RestaurantCursor;
 import org.sopt.hashi.restaurant.domain.RestaurantGenre;
+import org.sopt.hashi.restaurant.domain.RestaurantImage;
 import org.sopt.hashi.restaurant.domain.RestaurantMenu;
 import org.sopt.hashi.restaurant.domain.RestaurantRepository;
 import org.sopt.hashi.restaurant.domain.RestaurantSort;
@@ -310,9 +311,17 @@ class RestaurantServiceTest {
         ReflectionTestUtils.setField(restaurant, "availableDate", LocalDate.of(2026, 7, 19));
         ReflectionTestUtils.setField(restaurant, "availableStartTime", LocalTime.of(10, 0));
         ReflectionTestUtils.setField(restaurant, "availableEndTime", LocalTime.of(22, 0));
-        given(restaurantRepository.findByIdAndActiveTrue(1L)).willReturn(Optional.of(restaurant));
+        restaurant.replaceImages(List.of(
+                RestaurantImage.create("restaurants/1/images/1.jpg", 0),
+                RestaurantImage.create("restaurants/1/images/2.jpg", 1)
+        ));
+        given(restaurantRepository.findActiveByIdWithImages(1L)).willReturn(Optional.of(restaurant));
         given(fileStorage.resolveFileUrl("restaurants/1/thumbnail.jpg"))
                 .willReturn("https://cdn.example.com/restaurants/1/thumbnail.jpg");
+        given(fileStorage.resolveFileUrl("restaurants/1/images/1.jpg"))
+                .willReturn("https://cdn.example.com/restaurants/1/images/1.jpg");
+        given(fileStorage.resolveFileUrl("restaurants/1/images/2.jpg"))
+                .willReturn("https://cdn.example.com/restaurants/1/images/2.jpg");
 
         var response = restaurantService.getRestaurantSummary(1L);
 
@@ -320,6 +329,10 @@ class RestaurantServiceTest {
         assertThat(response.rating()).isEqualTo(4.8);
         assertThat(response.reviewCount()).isEqualTo(256L);
         assertThat(response.thumbnailUrl()).isEqualTo("https://cdn.example.com/restaurants/1/thumbnail.jpg");
+        assertThat(response.imageUrls()).containsExactly(
+                "https://cdn.example.com/restaurants/1/images/1.jpg",
+                "https://cdn.example.com/restaurants/1/images/2.jpg"
+        );
         assertThat(response.availableDate()).isEqualTo("2026-07-19");
         assertThat(response.availableStartTime()).isEqualTo("10:00");
         assertThat(response.availableEndTime()).isEqualTo("22:00");
@@ -340,6 +353,7 @@ class RestaurantServiceTest {
         RestaurantStoreInformationResponse response = restaurantService.getStoreInformation(1L);
 
         assertThat(response.restaurantId()).isEqualTo(1L);
+        assertThat(response.description()).isEqualTo("매장 상세 설명");
         assertThat(response.businessHours()).hasSize(2);
         assertThat(response.businessHours().getFirst().dayOfWeek()).isEqualTo("MONDAY");
         assertThat(response.businessHours().getFirst().openTime()).isEqualTo("10:00");
@@ -379,7 +393,7 @@ class RestaurantServiceTest {
     @Test
     void getRestaurantDetail_throws_not_found_when_restaurant_is_inactive_or_missing() {
         RestaurantService restaurantService = new RestaurantService(restaurantRepository, fileStorage);
-        given(restaurantRepository.findByIdAndActiveTrue(404L)).willReturn(Optional.empty());
+        given(restaurantRepository.findActiveByIdWithImages(404L)).willReturn(Optional.empty());
         given(restaurantRepository.existsByIdAndActiveTrue(404L)).willReturn(false);
         given(restaurantRepository.findActiveByIdWithBusinessHours(404L)).willReturn(Optional.empty());
 
@@ -423,6 +437,7 @@ class RestaurantServiceTest {
                 "히마와리 스시",
                 "Himawari Sushi",
                 "식당 소개",
+                "매장 상세 설명",
                 "도쿄도 신주쿠구",
                 "도쿄",
                 RestaurantGenre.SUSHI,
