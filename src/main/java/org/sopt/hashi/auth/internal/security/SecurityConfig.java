@@ -31,6 +31,8 @@ import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
 public class SecurityConfig {
 
     private static final String ONBOARDING_PATH = "/api/v1/users/onboarding";
+    /** 내 인증 정보 조회 — /api/v1/auth/**(permitAll) 아래에 있지만 인증이 필요해 예외로 먼저 매칭한다. */
+    private static final String AUTH_ME_PATH = "/api/v1/auth/me";
     private static final String[] PUBLIC_PATHS = {
             "/swagger-ui/**",
             "/swagger-ui.html",
@@ -53,6 +55,10 @@ public class SecurityConfig {
                 .cors(Customizer.withDefaults())
                 .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .authorizeHttpRequests(auth -> auth
+                        // permitAll(/api/v1/auth/**)보다 먼저 매칭해야 무인증 통과를 막는다.
+                        // 클라 진입 라우팅용 상태 조회라 온보딩 임시 토큰도 허용한다(auth.md §4의 명시적 예외) —
+                        // 응답은 역할만 내리고 온보딩 subject(kakaoId)는 노출하지 않는다.
+                        .requestMatchers(AUTH_ME_PATH).hasAnyRole("USER", "ADMIN", "ONBOARDING")
                         .requestMatchers(PUBLIC_PATHS).permitAll()
                         .requestMatchers(ONBOARDING_PATH).hasRole("ONBOARDING")
                         .requestMatchers("/api/v1/admin/**").hasRole("ADMIN")
