@@ -2,12 +2,15 @@ package org.sopt.hashi.restaurant.web;
 
 import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
+import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Positive;
 import jakarta.validation.constraints.Size;
 import org.sopt.hashi.restaurant.code.RestaurantErrorCode;
 import org.sopt.hashi.restaurant.dto.RestaurantListResponse;
 import org.sopt.hashi.restaurant.dto.RestaurantMainResponse;
 import org.sopt.hashi.restaurant.dto.RestaurantMenuListResponse;
+import org.sopt.hashi.restaurant.dto.RestaurantSearchKeywordRecommendationResponse;
+import org.sopt.hashi.restaurant.dto.RestaurantSearchSuggestionResponse;
 import org.sopt.hashi.restaurant.dto.RestaurantStoreInformationResponse;
 import org.sopt.hashi.restaurant.service.RestaurantService;
 import org.sopt.hashi.shared.error.CommonErrorCode;
@@ -46,6 +49,25 @@ public class RestaurantController {
     ) {
         return SuccessResponse.of(CommonSuccessCode.OK,
                 restaurantService.getRestaurants(keyword, genre, sort, type, cursor, size));
+    }
+
+    @ApiException(value = CommonErrorCode.class, codes = {"INVALID_INPUT"})
+    @GetMapping("/search-suggestions")
+    public SuccessResponse<RestaurantSearchSuggestionResponse> getSearchSuggestions(
+            @NotBlank @RequestParam String keyword,
+            @Min(1) @Max(50) @RequestParam(required = false) Integer size
+    ) {
+        return SuccessResponse.of(CommonSuccessCode.OK,
+                restaurantService.getSearchSuggestions(keyword, size));
+    }
+
+    @ApiException(value = CommonErrorCode.class, codes = {"INVALID_INPUT"})
+    @GetMapping("/search-keyword-recommendations")
+    public SuccessResponse<RestaurantSearchKeywordRecommendationResponse> getSearchKeywordRecommendations(
+            @Min(1) @Max(50) @RequestParam(required = false) Integer size
+    ) {
+        return SuccessResponse.of(CommonSuccessCode.OK,
+                restaurantService.getSearchKeywordRecommendations(size));
     }
 
     @ApiException(value = CommonErrorCode.class, codes = {"INVALID_INPUT"})
