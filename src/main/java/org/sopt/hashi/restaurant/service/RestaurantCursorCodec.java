@@ -2,6 +2,7 @@ package org.sopt.hashi.restaurant.service;
 
 import java.nio.charset.StandardCharsets;
 import java.util.Base64;
+import java.util.regex.Pattern;
 import org.sopt.hashi.restaurant.domain.Restaurant;
 import org.sopt.hashi.restaurant.domain.RestaurantCursor;
 import org.sopt.hashi.restaurant.domain.RestaurantSort;
@@ -22,7 +23,7 @@ final class RestaurantCursorCodec {
 
         try {
             String decoded = new String(Base64.getUrlDecoder().decode(cursor), StandardCharsets.UTF_8);
-            String[] parts = decoded.split("\\|", -1);
+            String[] parts = decoded.split(Pattern.quote(DELIMITER), -1);
             if (parts.length != 3) {
                 throw new IllegalArgumentException("Invalid cursor format");
             }
