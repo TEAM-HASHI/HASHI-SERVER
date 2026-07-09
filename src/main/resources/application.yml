@@ -3,6 +3,16 @@ spring:
     name: hashi
   profiles:
     active: local
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
+    validate-on-migrate: true
+    out-of-order: false
+    baseline-on-migrate: false
+    clean-disabled: true
+  jpa:
+    hibernate:
+      ddl-auto: validate
 
 jwt:
   secret: ${JWT_SECRET}
