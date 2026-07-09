@@ -89,10 +89,15 @@ class UploadServiceTest {
             return new PresignedUploadInfo(
                     "https://s3.example.com/" + fileKey + "?signature=test",
                     fileKey,
-                    "https://cdn.example.com/" + fileKey,
+                    resolveFileUrl(fileKey),
                     300,
                     "PUT"
             );
+        }
+
+        @Override
+        public String resolveFileUrl(String fileKey) {
+            return "https://cdn.example.com/" + fileKey;
         }
     }
 }
