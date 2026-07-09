@@ -12,7 +12,11 @@ import org.sopt.hashi.restaurant.domain.RestaurantSort;
 import org.sopt.hashi.restaurant.domain.RestaurantSpecifications;
 import org.sopt.hashi.restaurant.dto.RestaurantListResponse;
 import org.sopt.hashi.restaurant.dto.RestaurantListResponse.RestaurantSummaryResponse;
+import org.sopt.hashi.restaurant.dto.RestaurantSearchKeywordRecommendationResponse;
+import org.sopt.hashi.restaurant.dto.RestaurantSearchSuggestionResponse;
+import org.sopt.hashi.restaurant.dto.RestaurantSearchSuggestionResponse.Suggestion;
 import org.sopt.hashi.shared.error.BusinessException;
+import org.sopt.hashi.shared.error.CommonErrorCode;
 import org.sopt.hashi.shared.storage.FileStorage;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Sort;
@@ -26,6 +30,22 @@ public class RestaurantService {
 
     private static final int DEFAULT_PAGE_SIZE = 10;
     private static final int MAX_PAGE_SIZE = 50;
+    private static final int DEFAULT_SEARCH_SIZE = 10;
+    private static final int MAX_SEARCH_SIZE = 50;
+    private static final String SUGGESTION_TYPE_RESTAURANT = "restaurant";
+    private static final String SUGGESTION_TYPE_MENU = "menu";
+    private static final List<String> DEFAULT_RECOMMENDED_KEYWORDS = List.of(
+            "스시",
+            "라멘",
+            "야키토리",
+            "돈카츠",
+            "규카츠",
+            "오마카세",
+            "소바",
+            "우동",
+            "텐동",
+            "나베"
+    );
 
     private final RestaurantRepository restaurantRepository;
     private final FileStorage fileStorage;
@@ -75,6 +95,40 @@ public class RestaurantService {
         );
     }
 
+    public RestaurantSearchSuggestionResponse getSearchSuggestions(String keyword, Integer size) {
+        String normalizedKeyword = normalizeKeyword(keyword);
+        int searchSize = normalizeSearchSize(size);
+
+        List<Suggestion> suggestions = new ArrayList<>();
+        restaurantRepository.findRestaurantSuggestionKeywords(
+                        normalizedKeyword,
+                        PageRequest.of(0, searchSize)
+                ).stream()
+                .map(value -> new Suggestion(value, SUGGESTION_TYPE_RESTAURANT))
+                .forEach(suggestions::add);
+
+        int remainingSize = searchSize - suggestions.size();
+        if (remainingSize > 0) {
+            restaurantRepository.findMenuSuggestionKeywords(
+                            normalizedKeyword,
+                            PageRequest.of(0, remainingSize)
+                    ).stream()
+                    .map(value -> new Suggestion(value, SUGGESTION_TYPE_MENU))
+                    .forEach(suggestions::add);
+        }
+
+        return new RestaurantSearchSuggestionResponse(List.copyOf(suggestions));
+    }
+
+    public RestaurantSearchKeywordRecommendationResponse getSearchKeywordRecommendations(Integer size) {
+        int searchSize = normalizeSearchSize(size);
+        return new RestaurantSearchKeywordRecommendationResponse(
+                DEFAULT_RECOMMENDED_KEYWORDS.stream()
+                        .limit(searchSize)
+                        .toList()
+        );
+    }
+
     private RestaurantGenre parseGenre(String value) {
         if (value == null || value.isBlank() || "all".equals(value)) {
             return null;
@@ -104,6 +158,23 @@ public class RestaurantService {
             return DEFAULT_PAGE_SIZE;
         }
         return Math.min(size, MAX_PAGE_SIZE);
+    }
+
+    private String normalizeKeyword(String keyword) {
+        if (keyword == null || keyword.isBlank()) {
+            throw new BusinessException(CommonErrorCode.INVALID_INPUT);
+        }
+        return keyword.trim();
+    }
+
+    private int normalizeSearchSize(Integer size) {
+        if (size == null) {
+            return DEFAULT_SEARCH_SIZE;
+        }
+        if (size < 1) {
+            throw new BusinessException(CommonErrorCode.INVALID_INPUT);
+        }
+        return Math.min(size, MAX_SEARCH_SIZE);
     }
 
     private Sort toSort(RestaurantSort sort) {
