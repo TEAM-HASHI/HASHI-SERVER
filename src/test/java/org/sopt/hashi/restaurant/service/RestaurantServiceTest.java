@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.BDDMockito.given;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 
@@ -24,6 +25,8 @@ import org.sopt.hashi.restaurant.domain.RestaurantGenre;
 import org.sopt.hashi.restaurant.domain.RestaurantRepository;
 import org.sopt.hashi.restaurant.domain.RestaurantSort;
 import org.sopt.hashi.restaurant.dto.RestaurantListResponse;
+import org.sopt.hashi.restaurant.dto.RestaurantSearchKeywordRecommendationResponse;
+import org.sopt.hashi.restaurant.dto.RestaurantSearchSuggestionResponse;
 import org.sopt.hashi.shared.error.BusinessException;
 import org.sopt.hashi.shared.error.CommonErrorCode;
 import org.sopt.hashi.shared.storage.FileStorage;
@@ -174,6 +177,59 @@ class RestaurantServiceTest {
         )).isInstanceOfSatisfying(BusinessException.class, exception ->
                 assertThat(exception.getErrorCode()).isEqualTo(CommonErrorCode.INVALID_INPUT));
 
+        verifyNoInteractions(restaurantRepository);
+    }
+
+    @Test
+    void 식당명과_메뉴명으로_검색_자동완성을_조회한다() {
+        RestaurantService restaurantService = new RestaurantService(restaurantRepository, fileStorage);
+        given(restaurantRepository.findRestaurantSuggestionKeywords(anyString(), any(Pageable.class)))
+                .willReturn(List.of("히마와리 스시"));
+        given(restaurantRepository.findMenuSuggestionKeywords(anyString(), any(Pageable.class)))
+                .willReturn(List.of("스시"));
+
+        RestaurantSearchSuggestionResponse response = restaurantService.getSearchSuggestions(" 스시 ", 10);
+
+        assertThat(response.suggestions()).hasSize(2);
+        assertThat(response.suggestions().get(0).keyword()).isEqualTo("히마와리 스시");
+        assertThat(response.suggestions().get(0).type()).isEqualTo("restaurant");
+        assertThat(response.suggestions().get(1).keyword()).isEqualTo("스시");
+        assertThat(response.suggestions().get(1).type()).isEqualTo("menu");
+    }
+
+    @Test
+    void 검색_자동완성은_요청_개수만큼만_반환한다() {
+        RestaurantService restaurantService = new RestaurantService(restaurantRepository, fileStorage);
+        given(restaurantRepository.findRestaurantSuggestionKeywords(anyString(), any(Pageable.class)))
+                .willReturn(List.of("히마와리 스시", "스시 오마카세"));
+
+        RestaurantSearchSuggestionResponse response = restaurantService.getSearchSuggestions("스시", 2);
+
+        assertThat(response.suggestions()).hasSize(2);
+        verify(restaurantRepository).findRestaurantSuggestionKeywords(anyString(), any(Pageable.class));
+        verify(restaurantRepository, never())
+                .findMenuSuggestionKeywords(anyString(), any(Pageable.class));
+    }
+
+    @Test
+    void 검색어가_비어있으면_자동완성_조회에_실패한다() {
+        RestaurantService restaurantService = new RestaurantService(restaurantRepository, fileStorage);
+
+        assertThatThrownBy(() -> restaurantService.getSearchSuggestions(" ", 10))
+                .isInstanceOfSatisfying(BusinessException.class, exception ->
+                        assertThat(exception.getErrorCode()).isEqualTo(CommonErrorCode.INVALID_INPUT));
+
+        verifyNoInteractions(restaurantRepository);
+    }
+
+    @Test
+    void 추천_검색어를_조회한다() {
+        RestaurantService restaurantService = new RestaurantService(restaurantRepository, fileStorage);
+
+        RestaurantSearchKeywordRecommendationResponse response =
+                restaurantService.getSearchKeywordRecommendations(3);
+
+        assertThat(response.keywords()).containsExactly("스시", "라멘", "야키토리");
         verifyNoInteractions(restaurantRepository);
     }
 
