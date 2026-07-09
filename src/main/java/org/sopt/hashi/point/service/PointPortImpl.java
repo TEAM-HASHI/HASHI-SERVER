@@ -33,6 +33,11 @@ class PointPortImpl implements PointPort {
     }
 
     @Override
+    public boolean isRestored(PointSourceType sourceType, Long sourceId) {
+        return pointService.isRestored(sourceType, sourceId);
+    }
+
+    @Override
     public long getBalance(Long userId) {
         return pointService.getBalance(userId);
     }
