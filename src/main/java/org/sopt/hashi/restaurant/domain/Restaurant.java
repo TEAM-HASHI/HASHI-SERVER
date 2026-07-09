@@ -112,6 +112,10 @@ public class Restaurant extends BaseTimeEntity {
     @OneToMany(mappedBy = "restaurant", cascade = CascadeType.ALL, orphanRemoval = true)
     private List<RestaurantMenu> menus = new ArrayList<>();
 
+    @BatchSize(size = 100)
+    @OneToMany(mappedBy = "restaurant", cascade = CascadeType.ALL, orphanRemoval = true)
+    private List<RestaurantBusinessHour> businessHours = new ArrayList<>();
+
     private Restaurant(String name, String localName, String description, String address, String area,
                        RestaurantGenre genre, String thumbnailFileKey, long reservationFee, String currency,
                        BigDecimal minPrice, BigDecimal maxPrice) {
@@ -164,5 +168,17 @@ public class Restaurant extends BaseTimeEntity {
     public void addMenu(RestaurantMenu menu) {
         menu.assignRestaurant(this);
         this.menus.add(menu);
+    }
+
+    public void replaceBusinessHours(List<RestaurantBusinessHour> businessHours) {
+        this.businessHours.clear();
+        if (businessHours != null) {
+            businessHours.forEach(this::addBusinessHour);
+        }
+    }
+
+    public void addBusinessHour(RestaurantBusinessHour businessHour) {
+        businessHour.assignRestaurant(this);
+        this.businessHours.add(businessHour);
     }
 }
