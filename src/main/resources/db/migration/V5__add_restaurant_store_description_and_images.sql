@@ -1,6 +1,11 @@
 ALTER TABLE restaurant
     ADD COLUMN store_description TEXT;
 
+UPDATE restaurant
+SET store_description = description
+WHERE store_description IS NULL
+  AND description IS NOT NULL;
+
 CREATE TABLE restaurant_image (
     id BIGINT NOT NULL AUTO_INCREMENT,
     restaurant_id BIGINT NOT NULL,

@@ -364,6 +364,30 @@ class RestaurantServiceTest {
     }
 
     @Test
+    void getStoreInformation_falls_back_to_description_when_store_description_is_null() {
+        RestaurantService restaurantService = new RestaurantService(restaurantRepository, fileStorage);
+        Restaurant restaurant = Restaurant.create(
+                "Himawari Sushi",
+                "Himawari Sushi",
+                "legacy restaurant description",
+                "Tokyo",
+                "Tokyo",
+                RestaurantGenre.SUSHI,
+                "restaurants/2/thumbnail.jpg",
+                4_000L,
+                "JPY",
+                BigDecimal.valueOf(1000),
+                BigDecimal.valueOf(3000)
+        );
+        ReflectionTestUtils.setField(restaurant, "id", 2L);
+        given(restaurantRepository.findActiveByIdWithBusinessHours(2L)).willReturn(Optional.of(restaurant));
+
+        RestaurantStoreInformationResponse response = restaurantService.getStoreInformation(2L);
+
+        assertThat(response.description()).isEqualTo("legacy restaurant description");
+    }
+
+    @Test
     void getRestaurantMenus_returns_cursor_page() {
         RestaurantService restaurantService = new RestaurantService(restaurantRepository, fileStorage);
         List<RestaurantMenu> menus = List.of(
