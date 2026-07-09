@@ -6,7 +6,7 @@ import org.sopt.hashi.shared.error.CommonSuccessCode;
 import org.sopt.hashi.shared.response.SuccessResponse;
 import org.sopt.hashi.shared.swagger.ApiException;
 import org.sopt.hashi.upload.code.UploadErrorCode;
-import org.sopt.hashi.upload.dto.PresignedUrlRequest;
+import org.sopt.hashi.upload.dto.IssuePresignedUrlRequest;
 import org.sopt.hashi.upload.dto.PresignedUrlResponse;
 import org.sopt.hashi.upload.service.UploadService;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -29,7 +29,7 @@ public class UploadController {
             codes = {"UNSUPPORTED_USAGE", "UNSUPPORTED_FILE_TYPE", "FILE_SIZE_EXCEEDED"})
     @PostMapping("/presigned-urls")
     public SuccessResponse<PresignedUrlResponse> issuePresignedUrl(
-            @Valid @RequestBody PresignedUrlRequest request) {
+            @Valid @RequestBody IssuePresignedUrlRequest request) {
         return SuccessResponse.of(CommonSuccessCode.OK, uploadService.issuePresignedUrl(request));
     }
 }

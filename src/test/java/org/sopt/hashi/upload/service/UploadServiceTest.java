@@ -10,7 +10,7 @@ import org.sopt.hashi.shared.storage.FileStorage;
 import org.sopt.hashi.shared.storage.PresignedUploadInfo;
 import org.sopt.hashi.shared.storage.StorageProperties;
 import org.sopt.hashi.upload.code.UploadErrorCode;
-import org.sopt.hashi.upload.dto.PresignedUrlRequest;
+import org.sopt.hashi.upload.dto.IssuePresignedUrlRequest;
 import org.sopt.hashi.upload.dto.PresignedUrlResponse;
 import org.springframework.util.unit.DataSize;
 
@@ -28,7 +28,7 @@ class UploadServiceTest {
 
     @Test
     void presigned_URL을_발급한다() {
-        PresignedUrlRequest request = new PresignedUrlRequest(
+        IssuePresignedUrlRequest request = new IssuePresignedUrlRequest(
                 "review",
                 "image/jpeg",
                 1024L
@@ -45,7 +45,7 @@ class UploadServiceTest {
 
     @Test
     void 지원하지_않는_사용_목적이면_예외가_발생한다() {
-        PresignedUrlRequest request = new PresignedUrlRequest(
+        IssuePresignedUrlRequest request = new IssuePresignedUrlRequest(
                 "unknown",
                 "image/jpeg",
                 1024L
@@ -58,7 +58,7 @@ class UploadServiceTest {
 
     @Test
     void 지원하지_않는_파일_형식이면_예외가_발생한다() {
-        PresignedUrlRequest request = new PresignedUrlRequest(
+        IssuePresignedUrlRequest request = new IssuePresignedUrlRequest(
                 "review",
                 "image/gif",
                 1024L
@@ -71,7 +71,7 @@ class UploadServiceTest {
 
     @Test
     void 파일_크기가_제한을_초과하면_예외가_발생한다() {
-        PresignedUrlRequest request = new PresignedUrlRequest(
+        IssuePresignedUrlRequest request = new IssuePresignedUrlRequest(
                 "review",
                 "image/jpeg",
                 DataSize.ofMegabytes(6).toBytes()

@@ -3,6 +3,7 @@ package org.sopt.hashi.shared.storage;
 import static java.time.temporal.ChronoUnit.SECONDS;
 
 import java.time.Duration;
+import java.util.Locale;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.boot.convert.DurationUnit;
 import org.springframework.util.unit.DataSize;
@@ -18,6 +19,7 @@ public record StorageProperties(
 
     private static final String DEFAULT_REGION = "ap-northeast-2";
     private static final String DEFAULT_BUCKET = "hashi-local-uploads";
+    private static final String HTTP_PREFIX = "http://";
     private static final String HTTPS_PREFIX = "https://";
     private static final Duration DEFAULT_PRESIGNED_URL_EXPIRATION = Duration.ofMinutes(5);
     private static final DataSize DEFAULT_MAX_FILE_SIZE = DataSize.ofMegabytes(5);
@@ -47,10 +49,11 @@ public record StorageProperties(
         }
 
         String trimmedDomain = cloudfrontDomain.trim();
-        if (trimmedDomain.startsWith("http://")) {
+        String lowerCaseDomain = trimmedDomain.toLowerCase(Locale.ROOT);
+        if (lowerCaseDomain.startsWith(HTTP_PREFIX)) {
             throw new IllegalArgumentException("CloudFront domain must use HTTPS.");
         }
-        String domainWithoutScheme = trimmedDomain.startsWith(HTTPS_PREFIX)
+        String domainWithoutScheme = lowerCaseDomain.startsWith(HTTPS_PREFIX)
                 ? trimmedDomain.substring(HTTPS_PREFIX.length())
                 : trimmedDomain;
         String normalizedDomain = removeTrailingSlashes(domainWithoutScheme);

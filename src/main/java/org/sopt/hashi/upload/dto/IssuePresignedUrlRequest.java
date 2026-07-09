@@ -4,7 +4,7 @@ import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Positive;
 
-public record PresignedUrlRequest(
+public record IssuePresignedUrlRequest(
         @NotBlank(message = "usage는 필수입니다.")
         String usage,
 
