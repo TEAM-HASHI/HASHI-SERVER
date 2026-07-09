@@ -5,13 +5,16 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
+import lombok.extern.slf4j.Slf4j;
 import org.sopt.hashi.auth.CurrentUserProvider;
 import org.sopt.hashi.point.PointPort;
 import org.sopt.hashi.point.PointSourceType;
+import org.sopt.hashi.reservation.AdminReservationInfo;
+import org.sopt.hashi.reservation.ReservationStatus;
+import org.sopt.hashi.reservation.ReservationType;
 import org.sopt.hashi.reservation.code.ReservationErrorCode;
 import org.sopt.hashi.reservation.domain.Reservation;
 import org.sopt.hashi.reservation.domain.ReservationRepository;
-import org.sopt.hashi.reservation.domain.ReservationType;
 import org.sopt.hashi.reservation.dto.CreateAnywhereReservationRequest;
 import org.sopt.hashi.reservation.dto.CreateReservationRequest;
 import org.sopt.hashi.reservation.dto.ReservationDetailResponse;
@@ -22,15 +25,24 @@ import org.sopt.hashi.restaurant.RestaurantDetailInfo;
 import org.sopt.hashi.restaurant.RestaurantInfo;
 import org.sopt.hashi.restaurant.RestaurantPort;
 import org.sopt.hashi.shared.error.BusinessException;
+import org.sopt.hashi.user.UserInfo;
+import org.sopt.hashi.user.UserPort;
+import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 /**
  * 예약 생성·조회. 예약자는 {@link CurrentUserProvider}에서 얻는다. 등록 식당(STANDARD)의 존재·이름은
  * {@link RestaurantPort}로, 미등록 식당(ANYWHERE)의 이름·주소는 예약에 저장된 값으로 처리한다(§5).
+ *
+ * <p>어드민 유스케이스(상태 변경·전체 목록·예약자 조회)도 이 서비스가 담당한다 — 포인트 복원은
+ * admin이 접근할 수 없는 {@link PointPort} 소관이고(부록 의존 방향), 예약자 조회는 §5-3 교차 조회
+ * 담당 규칙(예약의 예약자 조회 = reservation 담당)에 따른다. admin 모듈은 ReservationPort로 위임만 한다.
  */
+@Slf4j
 @Service
 public class ReservationService {
 
@@ -45,15 +57,18 @@ public class ReservationService {
     private final ReservationRepository reservationRepository;
     private final RestaurantPort restaurantPort;
     private final PointPort pointPort;
+    private final UserPort userPort;
     private final CurrentUserProvider currentUserProvider;
 
     public ReservationService(ReservationRepository reservationRepository,
                               RestaurantPort restaurantPort,
                               PointPort pointPort,
+                              UserPort userPort,
                               CurrentUserProvider currentUserProvider) {
         this.reservationRepository = reservationRepository;
         this.restaurantPort = restaurantPort;
         this.pointPort = pointPort;
+        this.userPort = userPort;
         this.currentUserProvider = currentUserProvider;
     }
 
@@ -100,10 +115,22 @@ public class ReservationService {
                 .orElseThrow(() -> new BusinessException(ReservationErrorCode.NOT_FOUND));
         boolean refundable = reservation.refundableOnCancel();   // 전이 전에 판정
         reservation.cancel();
-        if (refundable && reservation.usedPointExists()) {
-            pointPort.restore(userId, PointSourceType.RESERVATION, reservation.getId());
-        }
+        restoreUsedPointIfRefundable(reservation, refundable);
         return toResponse(reservation);
+    }
+
+    /**
+     * 취소로 인한 사용 포인트 복원 — 진행중 취소만 환불한다. 취소(복원)→어드민 되살림→재취소 흐름에서는
+     * 이미 복원된 원장을 재복원하지 않는다(되살림 시 포인트 무처리 — 도메인 확정 규칙).
+     */
+    private void restoreUsedPointIfRefundable(Reservation reservation, boolean refundable) {
+        boolean restorable = refundable && reservation.usedPointExists()
+                && !pointPort.isRestored(PointSourceType.RESERVATION, reservation.getId());
+        if (restorable) {
+            pointPort.restore(reservation.getUserId(), PointSourceType.RESERVATION, reservation.getId());
+            log.info("예약 취소 포인트 복원. reservationId={}, userId={}, amount={}",
+                    reservation.getId(), reservation.getUserId(), reservation.getUsedPoint());
+        }
     }
 
     /** usedPoint는 선택 필드 — 미전송(null)이면 0(포인트 미사용). */
@@ -233,9 +260,93 @@ public class ReservationService {
      * {@link #toResponse(Reservation, RestaurantInfo)}에 위임한다. 목록은 {@link #toResponses(List)}가 다건 조회로 처리한다.
      */
     private ReservationResponse toResponse(Reservation reservation) {
-        RestaurantInfo summary = (reservation.getReservationType() == ReservationType.STANDARD)
+        return toResponse(reservation, findSummaryFor(reservation));
+    }
+
+    /** 단건 식당 요약 조회 — STANDARD만 RestaurantPort로 얻고, ANYWHERE·미존재 식당은 null(호출 측 fallback). */
+    private RestaurantInfo findSummaryFor(Reservation reservation) {
+        return (reservation.getReservationType() == ReservationType.STANDARD)
                 ? restaurantPort.findSummaryById(reservation.getRestaurantId()).orElse(null)
                 : null;
-        return toResponse(reservation, summary);
+    }
+
+    /**
+     * [어드민] 예약 상태 변경 — 자유 전이(되돌림 포함, 도메인 확정 규칙). CANCELED 진입 시 유저 취소와
+     * 동일한 환불 규칙(진행중 취소만 복원)을 상태 전이와 같은 트랜잭션에서 적용한다(§8).
+     */
+    @Transactional
+    public AdminReservationInfo changeStatusByAdmin(Long reservationId, ReservationStatus targetStatus) {
+        Reservation reservation = reservationRepository.findById(reservationId)
+                .orElseThrow(() -> new BusinessException(ReservationErrorCode.NOT_FOUND));
+        ReservationStatus fromStatus = reservation.getReservationStatus();
+        // 취소로 상태 변경 시 포인트 환불 가능 여부 판별(진행 중인 예약 한정)
+        boolean refundable = targetStatus == ReservationStatus.CANCELED
+                && reservation.refundableOnCancel();   // 전이 전에 판정
+        reservation.changeStatusByAdmin(targetStatus);
+        restoreUsedPointIfRefundable(reservation, refundable);
+        // 자유 전이(되돌림 허용) 정책이라 정정 추적이 필요 — 이력 테이블 도입 전까지의 감사 기록.
+        // 어드민 토큰의 subject가 adminId이므로 currentUserId()가 어드민 식별자를 돌려준다.
+        log.info("어드민 예약 상태 변경. adminId={}, reservationId={}, {} -> {}",
+                currentUserProvider.currentUserId(), reservationId, fromStatus, targetStatus);
+        return toAdminInfo(reservation, findSummaryFor(reservation));
+    }
+
+    /** [어드민] 예약 목록 — 전체 사용자 대상 offset 페이지네이션(최신순). statusFilter가 null이면 전체(coding-style §4-2). */
+    @Transactional(readOnly = true)
+    public Page<AdminReservationInfo> findPageByAdmin(ReservationStatus statusFilter, int page, int size) {
+        Pageable pageable = PageRequest.of(Math.max(page, 0), normalizeSize(size),
+                Sort.by(Sort.Direction.DESC, "id"));
+        Page<Reservation> reservations = (statusFilter == null)
+                ? reservationRepository.findAll(pageable)
+                : reservationRepository.findByReservationStatus(statusFilter, pageable);
+        Map<Long, RestaurantInfo> summaries = fetchRestaurantSummaries(reservations.getContent());
+        return reservations.map(reservation -> toAdminInfo(reservation, findSummary(summaries, reservation)));
+    }
+
+    /**
+     * [어드민] 예약자 정보 조회 — 교차 조회 담당 규칙(§5-3: 예약의 예약자 조회는 reservation 담당)에 따라
+     * 여기서 {@link UserPort}로 enrich한다. 예약자가 없으면(탈퇴 등) RESERVER_NOT_FOUND.
+     */
+    @Transactional(readOnly = true)
+    public UserInfo findReserverByAdmin(Long reservationId) {
+        Reservation reservation = reservationRepository.findById(reservationId)
+                .orElseThrow(() -> new BusinessException(ReservationErrorCode.NOT_FOUND));
+        return userPort.findById(reservation.getUserId())
+                .orElseThrow(() -> new BusinessException(ReservationErrorCode.RESERVER_NOT_FOUND));
+    }
+
+    /** 어드민 전달용 요약 변환 — 유형별 식당 표시 정보 해석은 사용자향 응답과 같은 규칙을 따른다. */
+    private AdminReservationInfo toAdminInfo(Reservation reservation, RestaurantInfo summary) {
+        if (reservation.getReservationType() == ReservationType.ANYWHERE) {
+            return toAdminInfo(reservation,
+                    reservation.getRestaurantName(), null, reservation.getRestaurantAddress());
+        }
+        if (summary == null) {
+            return toAdminInfo(reservation, UNKNOWN_RESTAURANT_NAME, null, null);
+        }
+        return toAdminInfo(reservation, summary.name(), summary.imageUrl(), summary.address());
+    }
+
+    private AdminReservationInfo toAdminInfo(Reservation reservation, String restaurantName,
+                                             String restaurantImageUrl, String restaurantAddress) {
+        return new AdminReservationInfo(
+                reservation.getId(),
+                reservation.getUserId(),
+                reservation.getReservationType(),
+                reservation.getReserverName(),
+                reservation.getRestaurantId(),
+                restaurantName,
+                restaurantImageUrl,
+                restaurantAddress,
+                reservation.getReservedAt(),
+                reservation.getAdultCount(),
+                reservation.getTeenCount(),
+                reservation.getChildCount(),
+                reservation.getRequestNote(),
+                reservation.getReservationStatus(),
+                reservation.getPaymentStatus(),
+                reservation.getUsedPoint(),
+                reservation.getAmount(),
+                reservation.confirmDDay());
     }
 }
