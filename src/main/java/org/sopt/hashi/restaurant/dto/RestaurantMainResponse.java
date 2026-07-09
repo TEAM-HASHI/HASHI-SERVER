@@ -1,5 +1,7 @@
 package org.sopt.hashi.restaurant.dto;
 
+import java.util.List;
+
 public record RestaurantMainResponse(
         Long restaurantId,
         String name,
@@ -9,6 +11,7 @@ public record RestaurantMainResponse(
         String description,
         String address,
         String thumbnailUrl,
+        List<String> imageUrls,
         Long savedCount,
         Long reservationFee,
         String availableDate,
