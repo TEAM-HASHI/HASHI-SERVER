@@ -87,6 +87,7 @@ public enum ReservationErrorCode implements ErrorCode {
 | `SUPPORT-` | support |
 | `AUTH-` | auth |
 | `UPLOAD-` | upload |
+| `ADMIN-` | admin(진입점) — 성공 코드 전용. 에러는 위임받은 소유 애그리거트의 코드(예: `RESERVATION-001`)가 그대로 내려간다 |
 | `COMMON-` | shared(공통) |
 
 ---

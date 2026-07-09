@@ -1,4 +1,4 @@
-package org.sopt.hashi.reservation.domain;
+package org.sopt.hashi.reservation;
 
 import lombok.Getter;
 

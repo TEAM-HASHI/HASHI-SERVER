@@ -16,7 +16,9 @@ import lombok.AccessLevel;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 import org.sopt.hashi.BaseTimeEntity;
+import org.sopt.hashi.reservation.PaymentStatus;
 import org.sopt.hashi.reservation.ReservationStatus;
+import org.sopt.hashi.reservation.ReservationType;
 import org.sopt.hashi.reservation.code.ReservationErrorCode;
 import org.sopt.hashi.shared.error.BusinessException;
 
@@ -198,6 +200,22 @@ public class Reservation extends BaseTimeEntity {
         }
         this.reservationStatus = ReservationStatus.CANCELED;
         this.paymentStatus = PaymentStatus.CANCELED;
+    }
+
+    /**
+     * 어드민 상태 변경 — 실수 정정을 위해 어떤 상태로든 전이할 수 있다(자유 전이, 도메인 확정 규칙).
+     * 결제 상태 동반 전이: CONFIRMED 진입 시 수수료 결제 완료(PAID), CANCELED 진입 시 결제 취소
+     * ({@link #cancel()}과 동일). 그 외 상태로의 이동(되살림 포함)은 결제 상태를 바꾸지 않는다
+     * (세밀한 정정은 추후 어드민 결제 상태 변경 기능에서 다룬다).
+     */
+    public void changeStatusByAdmin(ReservationStatus targetStatus) {
+        if (targetStatus == ReservationStatus.CONFIRMED) {
+            this.paymentStatus = PaymentStatus.PAID;
+        }
+        if (targetStatus == ReservationStatus.CANCELED) {
+            this.paymentStatus = PaymentStatus.CANCELED;
+        }
+        this.reservationStatus = targetStatus;
     }
 
     /** 이 예약이 포인트를 사용했는지 — 취소 시 복원 필요 여부 판단용. */
