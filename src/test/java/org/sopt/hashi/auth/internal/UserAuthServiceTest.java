@@ -47,7 +47,7 @@ class UserAuthServiceTest {
         TokenPair pair = service.reissue("oldRefresh");
 
         assertThat(pair.refreshToken()).isEqualTo("newRefresh");
-        verify(refreshTokenStore).rotate(7L, "oldRefresh", "newRefresh");
+        verify(refreshTokenStore).rotate(AuthRoles.USER, 7L, "oldRefresh", "newRefresh");
     }
 
     @Test
@@ -59,6 +59,6 @@ class UserAuthServiceTest {
         assertThatThrownBy(() -> service.reissue("accessToken"))
                 .isInstanceOf(BusinessException.class)
                 .hasFieldOrPropertyWithValue("errorCode", AuthErrorCode.INVALID_TOKEN);
-        verify(refreshTokenStore, never()).rotate(any(), any(), any());
+        verify(refreshTokenStore, never()).rotate(any(), any(), any(), any());
     }
 }

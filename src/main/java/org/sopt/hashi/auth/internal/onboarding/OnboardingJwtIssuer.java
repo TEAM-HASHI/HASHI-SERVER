@@ -72,7 +72,7 @@ public class OnboardingJwtIssuer implements ResponseBodyAdvice<Object> {
         authAccountService.findUserId(AuthProvider.KAKAO, String.valueOf(kakaoId)).ifPresent(userId -> {
             String accessToken = jwtProvider.createAccessToken(userId, AuthRoles.USER);
             String refreshToken = jwtProvider.createRefreshToken(userId, AuthRoles.USER);
-            refreshTokenStore.save(userId, refreshToken);
+            refreshTokenStore.save(AuthRoles.USER, userId, refreshToken);
             response.getHeaders().set(HttpHeaders.AUTHORIZATION, BEARER_PREFIX + accessToken);
             response.getHeaders().add(HttpHeaders.SET_COOKIE,
                     cookieUtil.createRefreshTokenCookie(refreshToken).toString());
