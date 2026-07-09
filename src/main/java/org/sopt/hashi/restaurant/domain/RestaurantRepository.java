@@ -19,6 +19,10 @@ public interface RestaurantRepository extends JpaRepository<Restaurant, Long>, J
     @Query("select distinct r from Restaurant r where r.id = :restaurantId and r.active = true")
     Optional<Restaurant> findActiveByIdWithBusinessHours(@Param("restaurantId") Long restaurantId);
 
+    @EntityGraph(attributePaths = "images")
+    @Query("select distinct r from Restaurant r where r.id = :restaurantId and r.active = true")
+    Optional<Restaurant> findActiveByIdWithImages(@Param("restaurantId") Long restaurantId);
+
     @Query("""
             select m from RestaurantMenu m
             where m.restaurant.id = :restaurantId
