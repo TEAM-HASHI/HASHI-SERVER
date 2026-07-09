@@ -16,7 +16,7 @@ import org.springframework.test.util.ReflectionTestUtils;
 class RestaurantCursorCodecTest {
 
     @Test
-    void encode_and_decode_basic_cursor() {
+    void 기본순_커서를_인코딩하고_디코딩한다() {
         Restaurant restaurant = createRestaurant(20L, 4.8, 100L);
 
         String encoded = RestaurantCursorCodec.encode(restaurant, RestaurantSort.BASIC);
@@ -29,7 +29,7 @@ class RestaurantCursorCodecTest {
     }
 
     @Test
-    void encode_and_decode_popular_cursor() {
+    void 인기순_커서를_인코딩하고_디코딩한다() {
         Restaurant restaurant = createRestaurant(20L, 4.8, 100L);
 
         String encoded = RestaurantCursorCodec.encode(restaurant, RestaurantSort.POPULAR);
@@ -41,7 +41,7 @@ class RestaurantCursorCodecTest {
     }
 
     @Test
-    void encode_and_decode_rating_cursor() {
+    void 별점순_커서를_인코딩하고_디코딩한다() {
         Restaurant restaurant = createRestaurant(20L, 4.8, 100L);
 
         String encoded = RestaurantCursorCodec.encode(restaurant, RestaurantSort.RATING);
@@ -53,7 +53,7 @@ class RestaurantCursorCodecTest {
     }
 
     @Test
-    void decode_throws_common_invalid_input_when_cursor_sort_does_not_match_request_sort() {
+    void 요청_정렬과_커서_정렬이_다르면_예외가_발생한다() {
         Restaurant restaurant = createRestaurant(20L, 4.8, 100L);
         String encoded = RestaurantCursorCodec.encode(restaurant, RestaurantSort.RATING);
 
@@ -63,7 +63,7 @@ class RestaurantCursorCodecTest {
     }
 
     @Test
-    void decode_throws_common_invalid_input_when_cursor_is_malformed() {
+    void 커서_형식이_잘못되면_예외가_발생한다() {
         assertThatThrownBy(() -> RestaurantCursorCodec.decode("not-a-valid-cursor", RestaurantSort.BASIC))
                 .isInstanceOfSatisfying(BusinessException.class, exception ->
                         assertThat(exception.getErrorCode()).isEqualTo(CommonErrorCode.INVALID_INPUT));
