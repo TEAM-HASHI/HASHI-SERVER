@@ -12,6 +12,7 @@ import org.sopt.hashi.restaurant.domain.Restaurant;
 import org.sopt.hashi.restaurant.domain.RestaurantBusinessHour;
 import org.sopt.hashi.restaurant.domain.RestaurantCursor;
 import org.sopt.hashi.restaurant.domain.RestaurantGenre;
+import org.sopt.hashi.restaurant.domain.RestaurantImage;
 import org.sopt.hashi.restaurant.domain.RestaurantListType;
 import org.sopt.hashi.restaurant.domain.RestaurantMenu;
 import org.sopt.hashi.restaurant.domain.RestaurantRepository;
@@ -36,6 +37,7 @@ import org.springframework.data.domain.Sort;
 import org.springframework.data.jpa.domain.Specification;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.util.StringUtils;
 
 @Service
 @Transactional(readOnly = true)
@@ -144,7 +146,8 @@ public class RestaurantService {
     }
 
     public RestaurantMainResponse getRestaurantSummary(Long restaurantId) {
-        Restaurant restaurant = findActiveRestaurant(restaurantId);
+        Restaurant restaurant = restaurantRepository.findActiveByIdWithImages(restaurantId)
+                .orElseThrow(() -> new BusinessException(RestaurantErrorCode.NOT_FOUND));
 
         return new RestaurantMainResponse(
                 restaurant.getId(),
@@ -155,6 +158,7 @@ public class RestaurantService {
                 restaurant.getDescription(),
                 restaurant.getAddress(),
                 fileStorage.resolveFileUrl(restaurant.getThumbnailFileKey()),
+                toImageUrls(restaurant),
                 restaurant.getSavedCount(),
                 restaurant.getReservationFee(),
                 formatDate(restaurant.getAvailableDate()),
@@ -169,7 +173,7 @@ public class RestaurantService {
 
         return new RestaurantStoreInformationResponse(
                 restaurant.getId(),
-                restaurant.getDescription(),
+                toStoreDescription(restaurant),
                 restaurant.getBusinessHours().stream()
                         .sorted(Comparator.comparing(hour -> hour.getDayOfWeek().getValue()))
                         .map(this::toBusinessHourResponse)
@@ -265,11 +269,6 @@ public class RestaurantService {
         };
     }
 
-    private Restaurant findActiveRestaurant(Long restaurantId) {
-        return restaurantRepository.findByIdAndActiveTrue(restaurantId)
-                .orElseThrow(() -> new BusinessException(RestaurantErrorCode.NOT_FOUND));
-    }
-
     private RestaurantSummaryResponse toSummaryResponse(Restaurant restaurant) {
         return new RestaurantSummaryResponse(
                 restaurant.getId(),
@@ -284,6 +283,23 @@ public class RestaurantService {
                 restaurant.getAvailableStartTime(),
                 restaurant.getAvailableEndTime()
         );
+    }
+
+    private List<String> toImageUrls(Restaurant restaurant) {
+        return restaurant.getImages().stream()
+                .map(RestaurantImage::getFileKey)
+                .map(fileStorage::resolveFileUrl)
+                .toList();
+    }
+
+    private String toStoreDescription(Restaurant restaurant) {
+        if (StringUtils.hasText(restaurant.getStoreDescription())) {
+            return restaurant.getStoreDescription();
+        }
+        if (StringUtils.hasText(restaurant.getDescription())) {
+            return restaurant.getDescription();
+        }
+        return "";
     }
 
     private BusinessHourResponse toBusinessHourResponse(RestaurantBusinessHour businessHour) {
