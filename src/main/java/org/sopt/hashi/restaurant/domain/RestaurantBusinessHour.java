@@ -13,6 +13,7 @@ import jakarta.persistence.ManyToOne;
 import jakarta.persistence.Table;
 import java.time.DayOfWeek;
 import java.time.LocalTime;
+import java.util.Objects;
 import lombok.AccessLevel;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
@@ -49,6 +50,7 @@ public class RestaurantBusinessHour {
 
     private RestaurantBusinessHour(DayOfWeek dayOfWeek, LocalTime openTime, LocalTime closeTime,
                                    LocalTime lastOrderTime, boolean closed) {
+        validate(dayOfWeek, openTime, closeTime, lastOrderTime, closed);
         this.dayOfWeek = dayOfWeek;
         this.openTime = openTime;
         this.closeTime = closeTime;
@@ -59,6 +61,30 @@ public class RestaurantBusinessHour {
     public static RestaurantBusinessHour create(DayOfWeek dayOfWeek, LocalTime openTime, LocalTime closeTime,
                                                 LocalTime lastOrderTime, boolean closed) {
         return new RestaurantBusinessHour(dayOfWeek, openTime, closeTime, lastOrderTime, closed);
+    }
+
+    private static void validate(DayOfWeek dayOfWeek, LocalTime openTime, LocalTime closeTime,
+                                 LocalTime lastOrderTime, boolean closed) {
+        Objects.requireNonNull(dayOfWeek, "dayOfWeek is required");
+
+        if (closed) {
+            if (openTime != null || closeTime != null || lastOrderTime != null) {
+                throw new IllegalArgumentException("Closed day cannot have business hours.");
+            }
+            return;
+        }
+
+        if (openTime == null || closeTime == null) {
+            throw new IllegalArgumentException("Open and close time are required for business day.");
+        }
+
+        if (!openTime.isBefore(closeTime)) {
+            throw new IllegalArgumentException("Open time must be before close time.");
+        }
+
+        if (lastOrderTime != null && (lastOrderTime.isBefore(openTime) || lastOrderTime.isAfter(closeTime))) {
+            throw new IllegalArgumentException("Last order time must be between open time and close time.");
+        }
     }
 
     void assignRestaurant(Restaurant restaurant) {
