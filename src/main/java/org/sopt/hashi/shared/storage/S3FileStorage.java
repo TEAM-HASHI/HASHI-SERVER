@@ -1,15 +1,12 @@
 package org.sopt.hashi.shared.storage;
 
 import java.time.Duration;
-import org.springframework.util.StringUtils;
 import software.amazon.awssdk.services.s3.model.PutObjectRequest;
 import software.amazon.awssdk.services.s3.presigner.S3Presigner;
 import software.amazon.awssdk.services.s3.presigner.model.PresignedPutObjectRequest;
 import software.amazon.awssdk.services.s3.presigner.model.PutObjectPresignRequest;
 
 public class S3FileStorage implements FileStorage {
-
-    private static final String HTTPS_PREFIX = "https://";
 
     private final S3Presigner s3Presigner;
     private final StorageProperties storageProperties;
@@ -47,22 +44,6 @@ public class S3FileStorage implements FileStorage {
     }
 
     private String buildFileUrl(String fileKey) {
-        if (StringUtils.hasText(storageProperties.cloudfrontDomain())) {
-            return normalizeCloudFrontDomain(storageProperties.cloudfrontDomain()) + "/" + fileKey;
-        }
-        throw new IllegalStateException("CloudFront domain must be configured to create fileUrl.");
-    }
-
-    private String normalizeCloudFrontDomain(String cloudfrontDomain) {
-        String trimmedDomain = cloudfrontDomain.trim();
-        String domainWithoutTrailingSlash = trimmedDomain.endsWith("/")
-                ? trimmedDomain.substring(0, trimmedDomain.length() - 1)
-                : trimmedDomain;
-
-        if (domainWithoutTrailingSlash.startsWith("http://")
-                || domainWithoutTrailingSlash.startsWith(HTTPS_PREFIX)) {
-            return domainWithoutTrailingSlash;
-        }
-        return HTTPS_PREFIX + domainWithoutTrailingSlash;
+        return storageProperties.cloudfrontDomain() + "/" + fileKey;
     }
 }
