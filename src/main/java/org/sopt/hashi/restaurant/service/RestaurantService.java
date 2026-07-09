@@ -1,20 +1,33 @@
 package org.sopt.hashi.restaurant.service;
 
+import java.math.BigDecimal;
+import java.time.LocalDate;
+import java.time.LocalTime;
+import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.List;
 import org.sopt.hashi.restaurant.code.RestaurantErrorCode;
 import org.sopt.hashi.restaurant.domain.Restaurant;
+import org.sopt.hashi.restaurant.domain.RestaurantBusinessHour;
 import org.sopt.hashi.restaurant.domain.RestaurantCursor;
 import org.sopt.hashi.restaurant.domain.RestaurantGenre;
 import org.sopt.hashi.restaurant.domain.RestaurantListType;
+import org.sopt.hashi.restaurant.domain.RestaurantMenu;
 import org.sopt.hashi.restaurant.domain.RestaurantRepository;
 import org.sopt.hashi.restaurant.domain.RestaurantSort;
 import org.sopt.hashi.restaurant.domain.RestaurantSpecifications;
 import org.sopt.hashi.restaurant.dto.RestaurantListResponse;
 import org.sopt.hashi.restaurant.dto.RestaurantListResponse.RestaurantSummaryResponse;
+import org.sopt.hashi.restaurant.dto.RestaurantMainResponse;
+import org.sopt.hashi.restaurant.dto.RestaurantMenuListResponse;
+import org.sopt.hashi.restaurant.dto.RestaurantMenuListResponse.RestaurantMenuResponse;
 import org.sopt.hashi.restaurant.dto.RestaurantSearchKeywordRecommendationResponse;
 import org.sopt.hashi.restaurant.dto.RestaurantSearchSuggestionResponse;
 import org.sopt.hashi.restaurant.dto.RestaurantSearchSuggestionResponse.Suggestion;
+import org.sopt.hashi.restaurant.dto.RestaurantStoreInformationResponse;
+import org.sopt.hashi.restaurant.dto.RestaurantStoreInformationResponse.BusinessHourResponse;
+import org.sopt.hashi.restaurant.dto.RestaurantStoreInformationResponse.PriceRangeResponse;
 import org.sopt.hashi.shared.error.BusinessException;
 import org.sopt.hashi.shared.error.CommonErrorCode;
 import org.sopt.hashi.shared.storage.FileStorage;
@@ -46,6 +59,7 @@ public class RestaurantService {
             "텐동",
             "나베"
     );
+    private static final DateTimeFormatter TIME_FORMATTER = DateTimeFormatter.ofPattern("HH:mm");
 
     private final RestaurantRepository restaurantRepository;
     private final FileStorage fileStorage;
@@ -129,6 +143,72 @@ public class RestaurantService {
         );
     }
 
+    public RestaurantMainResponse getRestaurantSummary(Long restaurantId) {
+        Restaurant restaurant = findActiveRestaurant(restaurantId);
+
+        return new RestaurantMainResponse(
+                restaurant.getId(),
+                restaurant.getName(),
+                restaurant.getLocalName(),
+                restaurant.getRating(),
+                restaurant.getReviewCount(),
+                restaurant.getDescription(),
+                restaurant.getAddress(),
+                fileStorage.resolveFileUrl(restaurant.getThumbnailFileKey()),
+                restaurant.getSavedCount(),
+                restaurant.getReservationFee(),
+                formatDate(restaurant.getAvailableDate()),
+                formatTime(restaurant.getAvailableStartTime()),
+                formatTime(restaurant.getAvailableEndTime())
+        );
+    }
+
+    public RestaurantStoreInformationResponse getStoreInformation(Long restaurantId) {
+        Restaurant restaurant = restaurantRepository.findActiveByIdWithBusinessHours(restaurantId)
+                .orElseThrow(() -> new BusinessException(RestaurantErrorCode.NOT_FOUND));
+
+        return new RestaurantStoreInformationResponse(
+                restaurant.getId(),
+                restaurant.getDescription(),
+                restaurant.getBusinessHours().stream()
+                        .sorted(Comparator.comparing(hour -> hour.getDayOfWeek().getValue()))
+                        .map(this::toBusinessHourResponse)
+                        .toList(),
+                new PriceRangeResponse(
+                        restaurant.getCurrency(),
+                        toWholeAmount(restaurant.getMinPrice()),
+                        toWholeAmount(restaurant.getMaxPrice())
+                )
+        );
+    }
+
+    public RestaurantMenuListResponse getRestaurantMenus(Long restaurantId, Long cursor, Integer size) {
+        if (!restaurantRepository.existsByIdAndActiveTrue(restaurantId)) {
+            throw new BusinessException(RestaurantErrorCode.NOT_FOUND);
+        }
+
+        int pageSize = normalizeSize(size);
+        List<RestaurantMenu> menus = restaurantRepository.findMenusByRestaurantId(
+                restaurantId,
+                cursor,
+                PageRequest.of(0, pageSize + 1)
+        );
+
+        boolean hasNext = menus.size() > pageSize;
+        List<RestaurantMenu> pageContent = hasNext
+                ? new ArrayList<>(menus.subList(0, pageSize))
+                : menus;
+        Long nextCursor = hasNext ? pageContent.getLast().getId() : null;
+
+        return new RestaurantMenuListResponse(
+                pageContent.stream()
+                        .map(this::toMenuResponse)
+                        .toList(),
+                nextCursor,
+                hasNext
+        );
+    }
+
     private RestaurantGenre parseGenre(String value) {
         if (value == null || value.isBlank() || "all".equals(value)) {
             return null;
@@ -185,6 +265,11 @@ public class RestaurantService {
         };
     }
 
+    private Restaurant findActiveRestaurant(Long restaurantId) {
+        return restaurantRepository.findByIdAndActiveTrue(restaurantId)
+                .orElseThrow(() -> new BusinessException(RestaurantErrorCode.NOT_FOUND));
+    }
+
     private RestaurantSummaryResponse toSummaryResponse(Restaurant restaurant) {
         return new RestaurantSummaryResponse(
                 restaurant.getId(),
@@ -199,5 +284,39 @@ public class RestaurantService {
                 restaurant.getAvailableStartTime(),
                 restaurant.getAvailableEndTime()
         );
+    }
+
+    private BusinessHourResponse toBusinessHourResponse(RestaurantBusinessHour businessHour) {
+        return new BusinessHourResponse(
+                businessHour.getDayOfWeek().name(),
+                formatTime(businessHour.getOpenTime()),
+                formatTime(businessHour.getCloseTime()),
+                formatTime(businessHour.getLastOrderTime()),
+                businessHour.isClosed()
+        );
+    }
+
+    private RestaurantMenuResponse toMenuResponse(RestaurantMenu menu) {
+        return new RestaurantMenuResponse(
+                menu.getId(),
+                menu.getName(),
+                menu.getDescription(),
+                fileStorage.resolveFileUrl(menu.getImageFileKey()),
+                menu.getCurrency(),
+                toWholeAmount(menu.getPrice()),
+                menu.isRepresentative()
+        );
+    }
+
+    private String formatDate(LocalDate date) {
+        return date == null ? null : date.toString();
+    }
+
+    private String formatTime(LocalTime time) {
+        return time == null ? null : time.format(TIME_FORMATTER);
+    }
+
+    private Long toWholeAmount(BigDecimal amount) {
+        return amount == null ? null : amount.longValue();
     }
 }
