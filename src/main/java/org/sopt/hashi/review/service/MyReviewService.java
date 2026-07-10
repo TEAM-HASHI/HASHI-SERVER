@@ -84,7 +84,10 @@ public class MyReviewService {
                 .stream()
                 .collect(Collectors.toMap(ReservationReviewInfo::id, Function.identity()));
         Map<Long, RestaurantInfo> restaurantsById = restaurantPort.findSummaries(
-                        pageContent.stream().map(Review::getRestaurantId).toList())
+                        pageContent.stream()
+                                .map(Review::getRestaurantId)
+                                .distinct()
+                                .toList())
                 .stream()
                 .collect(Collectors.toMap(RestaurantInfo::id, Function.identity()));
 

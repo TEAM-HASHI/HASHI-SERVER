@@ -148,6 +148,29 @@ class MyReviewServiceTest {
     }
 
     @Test
+    void 커서_다음_페이지가_있으면_마지막_응답_리뷰_ID를_다음_커서로_반환한다() {
+        Review firstReview = legacyReview(USER_ID, 30L);
+        Review extraReview = legacyReview(USER_ID, 20L);
+
+        given(currentUserProvider.currentUserId()).willReturn(USER_ID);
+        given(reviewRepository.findByWriterIdAndActiveTrueAndIdLessThanOrderByIdDesc(
+                USER_ID, 40L, PageRequest.of(0, 2)))
+                .willReturn(List.of(firstReview, extraReview));
+        given(reservationPort.findReviewInfos(List.of())).willReturn(List.of());
+        given(restaurantPort.findSummaries(List.of(RESTAURANT_ID)))
+                .willReturn(List.of(restaurant()));
+
+        MyReviewListResponse response = myReviewService.getMyReviews(40L, 1);
+
+        assertThat(response.content()).extracting(MyReviewListResponse.MyReviewSummaryResponse::reviewId)
+                .containsExactly(30L);
+        assertThat(response.nextCursor()).isEqualTo(30L);
+        assertThat(response.hasNext()).isTrue();
+        verify(reviewRepository).findByWriterIdAndActiveTrueAndIdLessThanOrderByIdDesc(
+                USER_ID, 40L, PageRequest.of(0, 2));
+    }
+
+    @Test
     void 작성자는_리뷰를_soft_delete_할_수_있다() {
         Review review = review(USER_ID);
         given(currentUserProvider.currentUserId()).willReturn(USER_ID);
@@ -205,13 +228,17 @@ class MyReviewServiceTest {
     }
 
     private Review legacyReview(Long writerId) {
+        return legacyReview(writerId, REVIEW_ID);
+    }
+
+    private Review legacyReview(Long writerId, Long reviewId) {
         Review review = Review.create(
                 RESTAURANT_ID,
                 writerId,
                 5,
                 "예약 연결 전 작성된 리뷰입니다."
         );
-        ReflectionTestUtils.setField(review, "id", REVIEW_ID);
+        ReflectionTestUtils.setField(review, "id", reviewId);
         ReflectionTestUtils.setField(review, "createdAt", LocalDateTime.of(2026, 6, 20, 12, 34));
         return review;
     }
