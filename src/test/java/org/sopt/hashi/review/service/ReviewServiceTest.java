@@ -21,8 +21,10 @@ import org.sopt.hashi.restaurant.RestaurantPort;
 import org.sopt.hashi.review.code.ReviewErrorCode;
 import org.sopt.hashi.review.domain.Review;
 import org.sopt.hashi.review.domain.ReviewImage;
+import org.sopt.hashi.review.domain.ReviewImageRepository;
 import org.sopt.hashi.review.domain.ReviewRepository;
 import org.sopt.hashi.review.domain.ReviewRepository.RatingCount;
+import org.sopt.hashi.review.dto.RestaurantReviewImageListResponse;
 import org.sopt.hashi.review.dto.RestaurantReviewResponse;
 import org.sopt.hashi.shared.error.BusinessException;
 import org.sopt.hashi.shared.error.CommonErrorCode;
@@ -41,6 +43,9 @@ class ReviewServiceTest {
     private ReviewRepository reviewRepository;
 
     @Mock
+    private ReviewImageRepository reviewImageRepository;
+
+    @Mock
     private RestaurantPort restaurantPort;
 
     @Mock
@@ -53,7 +58,12 @@ class ReviewServiceTest {
 
     @BeforeEach
     void setUp() {
-        reviewService = new ReviewService(reviewRepository, restaurantPort, userPort, fileStorage);
+        reviewService = new ReviewService(
+                reviewRepository,
+                reviewImageRepository,
+                restaurantPort,
+                userPort,
+                fileStorage);
     }
 
     @Test
@@ -66,7 +76,7 @@ class ReviewServiceTest {
         given(reviewRepository.findLatestPage(RESTAURANT_ID, null, null, PageRequest.of(0, 6)))
                 .willReturn(reviews);
         given(reviewRepository.averageRatingByRestaurantId(RESTAURANT_ID)).willReturn(3.75);
-        given(reviewRepository.countByRestaurantIdAndActiveTrue(RESTAURANT_ID)).willReturn(6L);
+        given(reviewRepository.countByRestaurantIdAndDeletedFalse(RESTAURANT_ID)).willReturn(6L);
         given(reviewRepository.countByRating(RESTAURANT_ID)).willReturn(List.of(
                 ratingCount(5, 2L),
                 ratingCount(4, 3L),
@@ -99,8 +109,12 @@ class ReviewServiceTest {
         assertThat(response.content().getFirst().writerNickname()).isEqualTo("하루");
         assertThat(response.content().get(2).writerNickname()).isEqualTo("탈퇴한 회원");
         assertThat(response.content().getFirst().keywords()).containsExactly("친절해요", "음식이 빨리 나와요");
-        assertThat(response.content().getFirst().imageUrls())
-                .containsExactly("https://cdn.example.com/uploads/reviews/1/1.jpg");
+        assertThat(response.content().getFirst().previewImageUrls())
+                .containsExactly(
+                        "https://cdn.example.com/uploads/reviews/1/1.jpg",
+                        "https://cdn.example.com/uploads/reviews/1/2.jpg",
+                        "https://cdn.example.com/uploads/reviews/1/3.jpg");
+        assertThat(response.content().getFirst().imageCount()).isEqualTo(4);
         assertThat(response.nextCursor()).isEqualTo(5L);
         assertThat(response.hasNext()).isTrue();
     }
@@ -110,12 +124,12 @@ class ReviewServiceTest {
         Review cursorReview = createReview(10L, 1L, 4, LocalDateTime.of(2026, 7, 1, 12, 0));
 
         given(restaurantPort.existsById(RESTAURANT_ID)).willReturn(true);
-        given(reviewRepository.findByIdAndRestaurantIdAndActiveTrue(10L, RESTAURANT_ID))
+        given(reviewRepository.findByIdAndRestaurantIdAndDeletedFalse(10L, RESTAURANT_ID))
                 .willReturn(Optional.of(cursorReview));
         given(reviewRepository.findRatingHighPage(RESTAURANT_ID, 4, 10L, PageRequest.of(0, 4)))
                 .willReturn(List.of());
         given(reviewRepository.averageRatingByRestaurantId(RESTAURANT_ID)).willReturn(null);
-        given(reviewRepository.countByRestaurantIdAndActiveTrue(RESTAURANT_ID)).willReturn(0L);
+        given(reviewRepository.countByRestaurantIdAndDeletedFalse(RESTAURANT_ID)).willReturn(0L);
         given(reviewRepository.countByRating(RESTAURANT_ID)).willReturn(List.of());
 
         RestaurantReviewResponse response = reviewService.getRestaurantReviews(
@@ -137,12 +151,12 @@ class ReviewServiceTest {
         Review cursorReview = createReview(10L, 1L, 2, LocalDateTime.of(2026, 7, 1, 12, 0));
 
         given(restaurantPort.existsById(RESTAURANT_ID)).willReturn(true);
-        given(reviewRepository.findByIdAndRestaurantIdAndActiveTrue(10L, RESTAURANT_ID))
+        given(reviewRepository.findByIdAndRestaurantIdAndDeletedFalse(10L, RESTAURANT_ID))
                 .willReturn(Optional.of(cursorReview));
         given(reviewRepository.findRatingLowPage(RESTAURANT_ID, 2, 10L, PageRequest.of(0, 4)))
                 .willReturn(List.of());
         given(reviewRepository.averageRatingByRestaurantId(RESTAURANT_ID)).willReturn(null);
-        given(reviewRepository.countByRestaurantIdAndActiveTrue(RESTAURANT_ID)).willReturn(0L);
+        given(reviewRepository.countByRestaurantIdAndDeletedFalse(RESTAURANT_ID)).willReturn(0L);
         given(reviewRepository.countByRating(RESTAURANT_ID)).willReturn(List.of());
 
         RestaurantReviewResponse response = reviewService.getRestaurantReviews(
@@ -184,7 +198,7 @@ class ReviewServiceTest {
     @Test
     void 유효하지_않은_커서로_조회하면_예외가_발생한다() {
         given(restaurantPort.existsById(RESTAURANT_ID)).willReturn(true);
-        given(reviewRepository.findByIdAndRestaurantIdAndActiveTrue(99L, RESTAURANT_ID))
+        given(reviewRepository.findByIdAndRestaurantIdAndDeletedFalse(99L, RESTAURANT_ID))
                 .willReturn(Optional.empty());
 
         assertThatThrownBy(() -> reviewService.getRestaurantReviews(RESTAURANT_ID, "latest", 99L, 5))
@@ -192,10 +206,38 @@ class ReviewServiceTest {
                         assertThat(exception.getErrorCode()).isEqualTo(CommonErrorCode.INVALID_INPUT));
     }
 
+    @Test
+    void 식당_리뷰_이미지는_별도_커서_페이지로_조회한다() {
+        Review review = createReview(10L, 1L, 5, LocalDateTime.of(2026, 7, 1, 12, 0));
+        ReviewImage firstImage = review.getImages().getFirst();
+        ReviewImage secondImage = review.getImages().get(1);
+        ReflectionTestUtils.setField(firstImage, "id", 11L);
+        ReflectionTestUtils.setField(secondImage, "id", 10L);
+
+        given(restaurantPort.existsById(RESTAURANT_ID)).willReturn(true);
+        given(reviewImageRepository.findPageByRestaurantId(
+                RESTAURANT_ID, null, PageRequest.of(0, 2)))
+                .willReturn(List.of(firstImage, secondImage));
+        given(fileStorage.resolveFileUrl(firstImage.getFileKey()))
+                .willReturn("https://cdn.example.com/" + firstImage.getFileKey());
+
+        RestaurantReviewImageListResponse response = reviewService
+                .getRestaurantReviewImages(RESTAURANT_ID, null, 1);
+
+        assertThat(response.content()).hasSize(1);
+        assertThat(response.content().getFirst().reviewId()).isEqualTo(10L);
+        assertThat(response.nextCursor()).isEqualTo(11L);
+        assertThat(response.hasNext()).isTrue();
+    }
+
     private Review createReview(Long id, Long writerId, int rating, LocalDateTime createdAt) {
-        Review review = Review.create(RESTAURANT_ID, writerId, rating, "리뷰 내용입니다.");
+        Review review = Review.create(id, RESTAURANT_ID, writerId, rating, "리뷰 내용입니다.");
         review.replaceKeywords(List.of("친절해요", "음식이 빨리 나와요"));
-        review.replaceImages(List.of(ReviewImage.create("uploads/reviews/%d/1.jpg".formatted(id), 0)));
+        review.replaceImages(List.of(
+                ReviewImage.create("uploads/reviews/%d/1.jpg".formatted(id), 0),
+                ReviewImage.create("uploads/reviews/%d/2.jpg".formatted(id), 1),
+                ReviewImage.create("uploads/reviews/%d/3.jpg".formatted(id), 2),
+                ReviewImage.create("uploads/reviews/%d/4.jpg".formatted(id), 3)));
         ReflectionTestUtils.setField(review, "id", id);
         ReflectionTestUtils.setField(review, "createdAt", createdAt);
         return review;
