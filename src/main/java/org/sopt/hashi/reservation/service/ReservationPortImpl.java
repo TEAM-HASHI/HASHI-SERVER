@@ -8,8 +8,10 @@ import org.sopt.hashi.reservation.ReservationInfo;
 import org.sopt.hashi.reservation.ReservationPort;
 import org.sopt.hashi.reservation.ReservationReviewInfo;
 import org.sopt.hashi.reservation.ReservationStatus;
+import org.sopt.hashi.reservation.code.ReservationErrorCode;
 import org.sopt.hashi.reservation.domain.Reservation;
 import org.sopt.hashi.reservation.domain.ReservationRepository;
+import org.sopt.hashi.shared.error.BusinessException;
 import org.sopt.hashi.user.UserInfo;
 import org.springframework.data.domain.Page;
 import org.springframework.stereotype.Component;
@@ -42,9 +44,10 @@ class ReservationPortImpl implements ReservationPort {
     }
 
     @Override
-    public Optional<ReservationReviewInfo> findReviewInfoById(Long reservationId) {
+    public ReservationReviewInfo getReviewInfoById(Long reservationId) {
         return reservationRepository.findById(reservationId)
-                .map(this::toReviewInfo);
+                .map(this::toReviewInfo)
+                .orElseThrow(() -> new BusinessException(ReservationErrorCode.NOT_FOUND));
     }
 
     @Override
