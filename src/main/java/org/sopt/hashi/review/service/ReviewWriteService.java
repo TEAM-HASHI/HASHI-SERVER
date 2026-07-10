@@ -76,6 +76,9 @@ public class ReviewWriteService {
     }
 
     private void validateReviewableReservation(ReservationReviewInfo reservation) {
+        if (!reservation.supportsReview()) {
+            throw new BusinessException(ReviewErrorCode.UNSUPPORTED_RESERVATION_TYPE);
+        }
         if (reservation.reservationStatus() != ReservationStatus.VISITED) {
             throw new BusinessException(ReviewErrorCode.NOT_VISITED);
         }

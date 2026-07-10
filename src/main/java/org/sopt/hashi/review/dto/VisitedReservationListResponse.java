@@ -20,6 +20,7 @@ public record VisitedReservationListResponse(
             String restaurantThumbnailUrl,
             LocalDateTime visitedAt,
             int adultCount,
+            int teenCount,
             int childCount,
             boolean reviewed,
             boolean reviewable,
