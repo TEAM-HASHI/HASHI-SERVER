@@ -13,7 +13,9 @@ public enum RestaurantErrorCode implements ErrorCode {
     NOT_FOUND(HttpStatus.NOT_FOUND, "RESTAURANT-004", "식당을 찾을 수 없습니다."),
     UNSUPPORTED_CURATION_TYPE(HttpStatus.BAD_REQUEST, "RESTAURANT-005", "지원하지 않는 큐레이션 유형입니다."),
     INVALID_BUSINESS_HOURS(HttpStatus.BAD_REQUEST, "RESTAURANT-006",
-            "영업시간 정보가 올바르지 않습니다. 모든 요일을 중복 없이 포함하고 시간 규칙을 지켜야 합니다.");
+            "영업시간 정보가 올바르지 않습니다. 모든 요일을 중복 없이 포함하고 시간 규칙을 지켜야 합니다."),
+    UNSUPPORTED_FOOD_CATEGORY(HttpStatus.BAD_REQUEST, "RESTAURANT-007",
+            "지원하지 않는 음식 카테고리입니다.");
 
     private final HttpStatus status;
     private final String code;

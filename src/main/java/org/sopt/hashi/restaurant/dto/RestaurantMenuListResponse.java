@@ -15,7 +15,7 @@ public record RestaurantMenuListResponse(
             String imageUrl,
             String currency,
             Long price,
-            boolean representative
+            boolean main
     ) {
     }
 }

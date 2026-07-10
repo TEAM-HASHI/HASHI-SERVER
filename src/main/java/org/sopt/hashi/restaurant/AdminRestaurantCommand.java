@@ -17,18 +17,18 @@ import java.util.List;
 public record AdminRestaurantCommand(
         String name,
         String localName,
+        String summary,
         String description,
-        String storeDescription,
         String address,
         String area,
         String genre,
-        String thumbnailKey,
-        Long reservationFee,
-        String currency,
+        String foodCategory,
+        String priceCurrency,
         BigDecimal minPrice,
         BigDecimal maxPrice,
         List<String> imageKeys,
         List<MenuCommand> menus,
+        List<String> hashtags,
         List<String> curationTypes,
         List<BusinessHourCommand> businessHours) {
 
@@ -37,9 +37,9 @@ public record AdminRestaurantCommand(
             String name,
             String description,
             String imageKey,
-            String currency,
-            BigDecimal price,
-            boolean representative) {
+            String priceCurrency,
+            BigDecimal priceAmount,
+            boolean main) {
     }
 
     /** 요일별 영업시간 — 휴무일(closed=true)은 시간 없이, 영업일은 open·close 필수(시간 규칙은 restaurant가 검증). */
@@ -47,7 +47,8 @@ public record AdminRestaurantCommand(
             DayOfWeek dayOfWeek,
             LocalTime openTime,
             LocalTime closeTime,
-            LocalTime lastOrderTime,
+            LocalTime breakStart,
+            LocalTime breakEnd,
             boolean closed) {
     }
 }

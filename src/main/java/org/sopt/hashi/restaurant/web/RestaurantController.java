@@ -37,21 +37,23 @@ public class RestaurantController {
 
     @ApiException(value = CommonErrorCode.class, codes = {"INVALID_INPUT", "UNAUTHORIZED"})
     @ApiException(value = RestaurantErrorCode.class,
-            codes = {"UNSUPPORTED_GENRE", "UNSUPPORTED_SORT", "UNSUPPORTED_LIST_TYPE"})
+            codes = {"UNSUPPORTED_GENRE", "UNSUPPORTED_FOOD_CATEGORY", "UNSUPPORTED_SORT",
+                    "UNSUPPORTED_LIST_TYPE"})
     @GetMapping
     public SuccessResponse<RestaurantListResponse> getRestaurants(
             @RequestParam(required = false) String keyword,
             @RequestParam(required = false) String genre,
+            @RequestParam(required = false) String foodCategory,
             @RequestParam(required = false) String sort,
             @RequestParam(name = "type", required = false) String type,
             @Size(max = 200) @RequestParam(required = false) String cursor,
             @Min(1) @Max(50) @RequestParam(required = false) Integer size
     ) {
         return SuccessResponse.of(CommonSuccessCode.OK,
-                restaurantService.getRestaurants(keyword, genre, sort, type, cursor, size));
+                restaurantService.getRestaurants(keyword, genre, foodCategory, sort, type, cursor, size));
     }
 
-    @ApiException(value = CommonErrorCode.class, codes = {"INVALID_INPUT"})
+    @ApiException(value = CommonErrorCode.class, codes = {"INVALID_INPUT", "UNAUTHORIZED"})
     @GetMapping("/search-suggestions")
     public SuccessResponse<RestaurantSearchSuggestionResponse> getSearchSuggestions(
             @NotBlank @RequestParam String keyword,
@@ -61,7 +63,7 @@ public class RestaurantController {
                 restaurantService.getSearchSuggestions(keyword, size));
     }
 
-    @ApiException(value = CommonErrorCode.class, codes = {"INVALID_INPUT"})
+    @ApiException(value = CommonErrorCode.class, codes = {"INVALID_INPUT", "UNAUTHORIZED"})
     @GetMapping("/search-keyword-recommendations")
     public SuccessResponse<RestaurantSearchKeywordRecommendationResponse> getSearchKeywordRecommendations(
             @Min(1) @Max(50) @RequestParam(required = false) Integer size
@@ -70,7 +72,7 @@ public class RestaurantController {
                 restaurantService.getSearchKeywordRecommendations(size));
     }
 
-    @ApiException(value = CommonErrorCode.class, codes = {"INVALID_INPUT"})
+    @ApiException(value = CommonErrorCode.class, codes = {"INVALID_INPUT", "UNAUTHORIZED"})
     @ApiException(value = RestaurantErrorCode.class, codes = {"NOT_FOUND"})
     @GetMapping("/{restaurantId}/summary")
     public SuccessResponse<RestaurantMainResponse> getRestaurantSummary(
@@ -79,7 +81,7 @@ public class RestaurantController {
         return SuccessResponse.of(CommonSuccessCode.OK, restaurantService.getRestaurantSummary(restaurantId));
     }
 
-    @ApiException(value = CommonErrorCode.class, codes = {"INVALID_INPUT"})
+    @ApiException(value = CommonErrorCode.class, codes = {"INVALID_INPUT", "UNAUTHORIZED"})
     @ApiException(value = RestaurantErrorCode.class, codes = {"NOT_FOUND"})
     @GetMapping("/{restaurantId}/store-information")
     public SuccessResponse<RestaurantStoreInformationResponse> getStoreInformation(
@@ -88,7 +90,7 @@ public class RestaurantController {
         return SuccessResponse.of(CommonSuccessCode.OK, restaurantService.getStoreInformation(restaurantId));
     }
 
-    @ApiException(value = CommonErrorCode.class, codes = {"INVALID_INPUT"})
+    @ApiException(value = CommonErrorCode.class, codes = {"INVALID_INPUT", "UNAUTHORIZED"})
     @ApiException(value = RestaurantErrorCode.class, codes = {"NOT_FOUND"})
     @GetMapping("/{restaurantId}/menus")
     public SuccessResponse<RestaurantMenuListResponse> getRestaurantMenus(
