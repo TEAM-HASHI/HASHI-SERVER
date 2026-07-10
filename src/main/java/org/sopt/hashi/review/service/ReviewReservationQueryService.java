@@ -5,6 +5,7 @@ import java.util.Collection;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 import org.sopt.hashi.auth.CurrentUserProvider;
@@ -58,11 +59,12 @@ public class ReviewReservationQueryService {
 
     public ReviewContextResponse getContext(Long reservationId) {
         Long userId = currentUserProvider.currentUserId();
-        ReservationReviewInfo reservation = reservationPort.getReviewInfoById(reservationId);
-        validateOwner(reservation, userId);
+        ReservationReviewInfo reservation = reservationPort
+                .getReviewInfoByIdAndUserId(reservationId, userId);
 
-        RestaurantInfo restaurant = findRestaurant(reservation.restaurantId());
-        boolean reviewed = reservation.reservationStatus() == ReservationStatus.VISITED
+        RestaurantDisplay restaurant = findRestaurantDisplay(reservation);
+        boolean reviewed = reservation.supportsReview()
+                && reservation.reservationStatus() == ReservationStatus.VISITED
                 && reviewRepository.existsByReservationIdAndActiveTrue(reservation.id());
         ReviewUnavailableReason unavailableReason = unavailableReason(reservation, reviewed);
 
@@ -70,7 +72,7 @@ public class ReviewReservationQueryService {
                 reservation.id(),
                 restaurant.id(),
                 restaurant.name(),
-                restaurant.imageUrl(),
+                restaurant.thumbnailUrl(),
                 reservation.reservedAt(),
                 reservation.adultCount(),
                 reservation.childCount(),
@@ -94,7 +96,6 @@ public class ReviewReservationQueryService {
         validateRestaurantFilter(restaurantId);
 
         List<ReservationReviewInfo> candidates = reservationPort.findVisitedReviewInfos(userId).stream()
-                .filter(reservation -> reservation.restaurantId() != null)
                 .filter(reservation -> restaurantId == null || restaurantId.equals(reservation.restaurantId()))
                 .toList();
         if (candidates.isEmpty()) {
@@ -108,6 +109,7 @@ public class ReviewReservationQueryService {
         List<ReservationReviewInfo> filteredReservations = candidates.stream()
                 .filter(reservation -> matchesReviewStatus(
                         reviewStatus,
+                        reservation,
                         reviewByReservationId.containsKey(reservation.id())))
                 .sorted(comparator(sort))
                 .toList();
@@ -140,24 +142,22 @@ public class ReviewReservationQueryService {
         return new VisitedReservationListResponse(content, totalCount, nextCursor, hasNext);
     }
 
-    private void validateOwner(ReservationReviewInfo reservation, Long userId) {
-        if (!reservation.userId().equals(userId)) {
-            throw new BusinessException(CommonErrorCode.FORBIDDEN);
+    private RestaurantDisplay findRestaurantDisplay(ReservationReviewInfo reservation) {
+        if (!reservation.supportsReview()) {
+            return new RestaurantDisplay(null, reservation.restaurantName(), null);
         }
-    }
-
-    private RestaurantInfo findRestaurant(Long restaurantId) {
-        if (restaurantId == null) {
-            throw new BusinessException(ReviewErrorCode.RESTAURANT_NOT_FOUND);
-        }
-        return restaurantPort.findSummaryById(restaurantId)
+        RestaurantInfo restaurant = restaurantPort.findSummaryById(reservation.restaurantId())
                 .orElseThrow(() -> new BusinessException(ReviewErrorCode.RESTAURANT_NOT_FOUND));
+        return new RestaurantDisplay(restaurant.id(), restaurant.name(), restaurant.imageUrl());
     }
 
     private ReviewUnavailableReason unavailableReason(
             ReservationReviewInfo reservation,
             boolean reviewed
     ) {
+        if (!reservation.supportsReview()) {
+            return ReviewUnavailableReason.UNSUPPORTED_RESERVATION_TYPE;
+        }
         if (reservation.reservationStatus() != ReservationStatus.VISITED) {
             return ReviewUnavailableReason.NOT_VISITED;
         }
@@ -203,10 +203,14 @@ public class ReviewReservationQueryService {
                 .collect(Collectors.toMap(Review::getReservationId, Function.identity()));
     }
 
-    private boolean matchesReviewStatus(ReviewStatusFilter status, boolean reviewed) {
+    private boolean matchesReviewStatus(
+            ReviewStatusFilter status,
+            ReservationReviewInfo reservation,
+            boolean reviewed
+    ) {
         return switch (status) {
             case ALL -> true;
-            case UNREVIEWED -> !reviewed;
+            case UNREVIEWED -> reservation.supportsReview() && !reviewed;
             case REVIEWED -> reviewed;
         };
     }
@@ -243,8 +247,12 @@ public class ReviewReservationQueryService {
         }
         List<Long> restaurantIds = reservations.stream()
                 .map(ReservationReviewInfo::restaurantId)
+                .filter(Objects::nonNull)
                 .distinct()
                 .toList();
+        if (restaurantIds.isEmpty()) {
+            return Map.of();
+        }
         return restaurantPort.findSummaries(restaurantIds).stream()
                 .collect(Collectors.toMap(RestaurantInfo::id, Function.identity()));
     }
@@ -269,28 +277,46 @@ public class ReviewReservationQueryService {
             Map<Long, Review> reviewByReservationId,
             Map<Long, Long> earnedPointByReservationId
     ) {
-        RestaurantInfo restaurant = restaurantById.get(reservation.restaurantId());
-        if (restaurant == null) {
-            throw new BusinessException(ReviewErrorCode.RESTAURANT_NOT_FOUND);
-        }
+        RestaurantDisplay restaurant = toRestaurantDisplay(reservation, restaurantById);
         Review review = reviewByReservationId.get(reservation.id());
         boolean reviewed = review != null;
+        boolean reviewable = reservation.supportsReview() && !reviewed;
+        ReviewUnavailableReason unavailableReason = unavailableReason(reservation, reviewed);
         return new VisitedReservationResponse(
                 reservation.id(),
                 restaurant.id(),
                 restaurant.name(),
-                restaurant.imageUrl(),
+                restaurant.thumbnailUrl(),
                 reservation.reservedAt(),
                 reservation.adultCount(),
                 reservation.childCount(),
                 reviewed,
+                reviewable,
+                unavailableReason,
                 reviewed ? review.getId() : null,
                 reviewed ? review.getRating() : null,
                 reviewed ? earnedPointByReservationId.getOrDefault(reservation.id(), 0L) : null
         );
     }
 
+    private RestaurantDisplay toRestaurantDisplay(
+            ReservationReviewInfo reservation,
+            Map<Long, RestaurantInfo> restaurantById
+    ) {
+        if (!reservation.supportsReview()) {
+            return new RestaurantDisplay(null, reservation.restaurantName(), null);
+        }
+        RestaurantInfo restaurant = restaurantById.get(reservation.restaurantId());
+        if (restaurant == null) {
+            throw new BusinessException(ReviewErrorCode.RESTAURANT_NOT_FOUND);
+        }
+        return new RestaurantDisplay(restaurant.id(), restaurant.name(), restaurant.imageUrl());
+    }
+
     private VisitedReservationListResponse emptyResponse() {
         return new VisitedReservationListResponse(List.of(), 0L, null, false);
+    }
+
+    private record RestaurantDisplay(Long id, String name, String thumbnailUrl) {
     }
 }

@@ -22,6 +22,8 @@ public record VisitedReservationListResponse(
             int adultCount,
             int childCount,
             boolean reviewed,
+            boolean reviewable,
+            ReviewUnavailableReason reviewUnavailableReason,
             Long reviewId,
             Integer rating,
             Long earnedPoint

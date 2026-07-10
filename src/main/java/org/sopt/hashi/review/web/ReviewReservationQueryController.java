@@ -31,7 +31,7 @@ public class ReviewReservationQueryController {
     }
 
     @ApiException(value = CommonErrorCode.class,
-            codes = {"INVALID_INPUT", "UNAUTHORIZED", "FORBIDDEN"})
+            codes = {"INVALID_INPUT", "UNAUTHORIZED"})
     @ApiException(value = ReviewErrorCode.class, codes = {"RESTAURANT_NOT_FOUND"})
     @GetMapping("/context")
     public SuccessResponse<ReviewContextResponse> getContext(
