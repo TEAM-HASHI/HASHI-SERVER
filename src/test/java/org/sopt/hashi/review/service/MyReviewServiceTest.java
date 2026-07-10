@@ -18,6 +18,7 @@ import org.sopt.hashi.auth.CurrentUserProvider;
 import org.sopt.hashi.reservation.ReservationPort;
 import org.sopt.hashi.reservation.ReservationReviewInfo;
 import org.sopt.hashi.reservation.ReservationStatus;
+import org.sopt.hashi.reservation.ReservationType;
 import org.sopt.hashi.restaurant.RestaurantInfo;
 import org.sopt.hashi.restaurant.RestaurantPort;
 import org.sopt.hashi.review.code.ReviewErrorCode;
@@ -256,7 +257,10 @@ class MyReviewServiceTest {
         return new ReservationReviewInfo(
                 RESERVATION_ID,
                 USER_ID,
+                ReservationType.STANDARD,
                 RESTAURANT_ID,
+                null,
+                null,
                 LocalDateTime.of(2026, 6, 22, 17, 0),
                 2,
                 0,
