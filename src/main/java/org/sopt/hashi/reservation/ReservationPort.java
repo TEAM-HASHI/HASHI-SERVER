@@ -16,8 +16,11 @@ public interface ReservationPort {
     /** 예약 요약을 조회한다 — 없으면 empty. */
     Optional<ReservationInfo> findById(Long reservationId);
 
-    /** 리뷰 작성·조회에 필요한 예약 정보를 조회한다 — 없으면 empty. */
-    Optional<ReservationReviewInfo> findReviewInfoById(Long reservationId);
+    /**
+     * 리뷰 작성·조회에 필요한 예약 정보를 조회한다.
+     * 예약이 없으면 BusinessException(RESERVATION-001 NOT_FOUND).
+     */
+    ReservationReviewInfo getReviewInfoById(Long reservationId);
 
     /** 여러 예약의 리뷰 화면용 정보를 한 번에 조회한다 — 목록 enrich용. */
     List<ReservationReviewInfo> findReviewInfos(Collection<Long> reservationIds);
