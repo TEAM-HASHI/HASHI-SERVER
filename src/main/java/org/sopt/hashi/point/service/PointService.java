@@ -1,5 +1,8 @@
 package org.sopt.hashi.point.service;
 
+import java.util.Collection;
+import java.util.Map;
+import java.util.stream.Collectors;
 import org.sopt.hashi.auth.CurrentUserProvider;
 import org.sopt.hashi.point.PointSourceType;
 import org.sopt.hashi.point.code.PointErrorCode;
@@ -21,6 +24,9 @@ import org.springframework.transaction.annotation.Transactional;
 @Service
 public class PointService {
 
+    private static final long REVIEW_REWARD = 500L;
+    private static final String REVIEW_REWARD_REASON = "리뷰 작성 보상";
+
     private final PointAccountRepository pointAccountRepository;
     private final PointTransactionRepository pointTransactionRepository;
     private final CurrentUserProvider currentUserProvider;
@@ -40,6 +46,40 @@ public class PointService {
         PointAccount account = getOrCreateAccount(userId);
         account.earn(amount);
         pointTransactionRepository.save(PointTransaction.earn(account.getId(), amount, reason, sourceType, sourceId));
+    }
+
+    /** 예약 단위 최초 리뷰에만 정액 보상을 적립한다. 삭제 후 재작성에는 0을 반환한다. */
+    @Transactional
+    public long earnReviewReward(Long userId, Long reservationId) {
+        if (pointTransactionRepository.existsByTypeAndSourceTypeAndSourceId(
+                PointTransactionType.EARN,
+                PointSourceType.REVIEW,
+                reservationId)) {
+            return 0L;
+        }
+        earn(userId, REVIEW_REWARD, REVIEW_REWARD_REASON, PointSourceType.REVIEW, reservationId);
+        return REVIEW_REWARD;
+    }
+
+    /** 해당 출처의 적립 금액 조회 — 적립 이력이 없으면 0. */
+    @Transactional(readOnly = true)
+    public long findEarnedAmount(PointSourceType sourceType, Long sourceId) {
+        return pointTransactionRepository
+                .findByTypeAndSourceTypeAndSourceId(PointTransactionType.EARN, sourceType, sourceId)
+                .map(PointTransaction::getAmount)
+                .orElse(0L);
+    }
+
+    /** 여러 출처의 적립 금액을 한 번에 조회해 목록 화면의 N+1을 방지한다. */
+    @Transactional(readOnly = true)
+    public Map<Long, Long> findEarnedAmounts(PointSourceType sourceType, Collection<Long> sourceIds) {
+        if (sourceIds == null || sourceIds.isEmpty()) {
+            return Map.of();
+        }
+        return pointTransactionRepository
+                .findByTypeAndSourceTypeAndSourceIdIn(PointTransactionType.EARN, sourceType, sourceIds)
+                .stream()
+                .collect(Collectors.toMap(PointTransaction::getSourceId, PointTransaction::getAmount));
     }
 
     /** 차감 — 잔액 부족 시 INSUFFICIENT_BALANCE. 잔액 감소 + 원장 기록. */

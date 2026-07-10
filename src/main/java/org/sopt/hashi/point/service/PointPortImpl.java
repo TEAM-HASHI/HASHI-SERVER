@@ -1,5 +1,7 @@
 package org.sopt.hashi.point.service;
 
+import java.util.Collection;
+import java.util.Map;
 import org.sopt.hashi.point.PointPort;
 import org.sopt.hashi.point.PointSourceType;
 import org.springframework.stereotype.Component;
@@ -20,6 +22,21 @@ class PointPortImpl implements PointPort {
     @Override
     public void earn(Long userId, long amount, String reason, PointSourceType sourceType, Long sourceId) {
         pointService.earn(userId, amount, reason, sourceType, sourceId);
+    }
+
+    @Override
+    public long earnReviewReward(Long userId, Long reservationId) {
+        return pointService.earnReviewReward(userId, reservationId);
+    }
+
+    @Override
+    public long findEarnedAmount(PointSourceType sourceType, Long sourceId) {
+        return pointService.findEarnedAmount(sourceType, sourceId);
+    }
+
+    @Override
+    public Map<Long, Long> findEarnedAmounts(PointSourceType sourceType, Collection<Long> sourceIds) {
+        return pointService.findEarnedAmounts(sourceType, sourceIds);
     }
 
     @Override
