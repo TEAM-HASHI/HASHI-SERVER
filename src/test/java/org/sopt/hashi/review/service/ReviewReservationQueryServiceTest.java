@@ -19,11 +19,13 @@ import org.sopt.hashi.point.PointSourceType;
 import org.sopt.hashi.reservation.ReservationPort;
 import org.sopt.hashi.reservation.ReservationReviewInfo;
 import org.sopt.hashi.reservation.ReservationStatus;
+import org.sopt.hashi.reservation.ReservationType;
 import org.sopt.hashi.restaurant.RestaurantInfo;
 import org.sopt.hashi.restaurant.RestaurantPort;
 import org.sopt.hashi.review.domain.Review;
 import org.sopt.hashi.review.domain.ReviewRepository;
 import org.sopt.hashi.review.dto.ReviewContextResponse;
+import org.sopt.hashi.review.dto.ReviewUnavailableReason;
 import org.sopt.hashi.review.dto.VisitedReservationListResponse;
 import org.springframework.test.util.ReflectionTestUtils;
 
@@ -64,7 +66,7 @@ class ReviewReservationQueryServiceTest {
     void 방문_완료된_미작성_예약의_리뷰_작성_정보를_조회한다() {
         ReservationReviewInfo reservation = reservation(100L, 10L, 22, ReservationStatus.VISITED);
         given(currentUserProvider.currentUserId()).willReturn(USER_ID);
-        given(reservationPort.getReviewInfoById(100L)).willReturn(reservation);
+        given(reservationPort.getReviewInfoByIdAndUserId(100L, USER_ID)).willReturn(reservation);
         given(restaurantPort.findSummaryById(10L))
                 .willReturn(Optional.of(restaurant(10L, "아키토리 무사시")));
         given(reviewRepository.existsByReservationIdAndActiveTrue(100L)).willReturn(false);
@@ -112,8 +114,12 @@ class ReviewReservationQueryServiceTest {
                 .extracting(item -> item.reservationId())
                 .containsExactly(101L, 102L);
         assertThat(response.content().getFirst().reviewed()).isFalse();
+        assertThat(response.content().getFirst().reviewable()).isTrue();
         assertThat(response.content().getFirst().reviewId()).isNull();
         assertThat(response.content().get(1).reviewed()).isTrue();
+        assertThat(response.content().get(1).reviewable()).isFalse();
+        assertThat(response.content().get(1).reviewUnavailableReason())
+                .isEqualTo(ReviewUnavailableReason.ALREADY_REVIEWED);
         assertThat(response.content().get(1).reviewId()).isEqualTo(52L);
         assertThat(response.content().get(1).rating()).isEqualTo(4);
         assertThat(response.content().get(1).earnedPoint()).isEqualTo(500L);
@@ -147,6 +153,30 @@ class ReviewReservationQueryServiceTest {
         verify(restaurantPort).existsById(10L);
     }
 
+    @Test
+    void 어디든_예약은_방문_완료_전체에는_포함하고_리뷰_쓰기에서는_제외한다() {
+        ReservationReviewInfo anywhere = anywhereReservation(200L, 23);
+
+        given(currentUserProvider.currentUserId()).willReturn(USER_ID);
+        given(reservationPort.findVisitedReviewInfos(USER_ID)).willReturn(List.of(anywhere));
+        given(reviewRepository.findByReservationIdInAndActiveTrue(List.of(200L)))
+                .willReturn(List.of());
+
+        VisitedReservationListResponse allResponse = reviewReservationQueryService
+                .getVisitedReservations("all", null, "latest", null, 10);
+        VisitedReservationListResponse unreviewedResponse = reviewReservationQueryService
+                .getVisitedReservations("unreviewed", null, "latest", null, 10);
+
+        assertThat(allResponse.content()).hasSize(1);
+        assertThat(allResponse.content().getFirst().restaurantId()).isNull();
+        assertThat(allResponse.content().getFirst().restaurantName()).isEqualTo("긴자 미등록 식당");
+        assertThat(allResponse.content().getFirst().reviewed()).isFalse();
+        assertThat(allResponse.content().getFirst().reviewable()).isFalse();
+        assertThat(allResponse.content().getFirst().reviewUnavailableReason())
+                .isEqualTo(ReviewUnavailableReason.UNSUPPORTED_RESERVATION_TYPE);
+        assertThat(unreviewedResponse.content()).isEmpty();
+    }
+
     private ReservationReviewInfo reservation(
             Long reservationId,
             Long restaurantId,
@@ -156,12 +186,31 @@ class ReviewReservationQueryServiceTest {
         return new ReservationReviewInfo(
                 reservationId,
                 USER_ID,
+                ReservationType.STANDARD,
                 restaurantId,
+                null,
+                null,
                 LocalDateTime.of(2026, 6, day, 17, 0),
                 2,
                 0,
                 0,
                 status
+        );
+    }
+
+    private ReservationReviewInfo anywhereReservation(Long reservationId, int day) {
+        return new ReservationReviewInfo(
+                reservationId,
+                USER_ID,
+                ReservationType.ANYWHERE,
+                null,
+                "긴자 미등록 식당",
+                "도쿄도 주오구 긴자",
+                LocalDateTime.of(2026, 6, day, 17, 0),
+                2,
+                0,
+                0,
+                ReservationStatus.VISITED
         );
     }
 
