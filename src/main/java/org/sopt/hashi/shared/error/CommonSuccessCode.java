@@ -9,7 +9,8 @@ import org.springframework.http.HttpStatus;
 @Getter
 public enum CommonSuccessCode implements SuccessCode {
 
-    OK(HttpStatus.OK, "COMMON-200", "요청에 성공했습니다");
+    OK(HttpStatus.OK, "COMMON-200", "요청에 성공했습니다"),
+    CREATED(HttpStatus.CREATED, "COMMON-201", "생성에 성공했습니다");
 
     private final HttpStatus status;
     private final String code;
