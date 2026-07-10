@@ -105,7 +105,7 @@ public class MyReviewService {
         Review review = getOwnedActiveReview(reviewId, userId);
         ReservationReviewInfo reservation = review.getReservationId() == null
                 ? null
-                : reservationPort.getReviewInfoById(review.getReservationId());
+                : reservationPort.getReviewInfoByIdAndUserId(review.getReservationId(), userId);
         RestaurantInfo restaurant = restaurantPort.findSummaryById(review.getRestaurantId())
                 .orElseThrow(() -> new BusinessException(ReviewErrorCode.RESTAURANT_NOT_FOUND));
         String writerNickname = userPort.findById(userId)
