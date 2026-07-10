@@ -11,30 +11,30 @@ import org.springframework.data.repository.query.Param;
 
 public interface ReviewRepository extends JpaRepository<Review, Long> {
 
-    boolean existsByReservationIdAndActiveTrue(Long reservationId);
+    boolean existsByReservationId(Long reservationId);
 
-    Optional<Review> findByReservationIdAndActiveTrue(Long reservationId);
+    Optional<Review> findByReservationId(Long reservationId);
 
-    List<Review> findByReservationIdInAndActiveTrue(Collection<Long> reservationIds);
+    List<Review> findByReservationIdIn(Collection<Long> reservationIds);
 
-    Optional<Review> findByIdAndWriterIdAndActiveTrue(Long reviewId, Long writerId);
+    Optional<Review> findByIdAndUserIdAndDeletedFalse(Long reviewId, Long userId);
 
-    long countByWriterIdAndActiveTrue(Long writerId);
+    long countByUserIdAndDeletedFalse(Long userId);
 
-    List<Review> findByWriterIdAndActiveTrueOrderByIdDesc(Long writerId, Pageable pageable);
+    List<Review> findByUserIdAndDeletedFalseOrderByIdDesc(Long userId, Pageable pageable);
 
-    List<Review> findByWriterIdAndActiveTrueAndIdLessThanOrderByIdDesc(
-            Long writerId, Long cursor, Pageable pageable);
+    List<Review> findByUserIdAndDeletedFalseAndIdLessThanOrderByIdDesc(
+            Long userId, Long cursor, Pageable pageable);
 
-    Optional<Review> findByIdAndRestaurantIdAndActiveTrue(Long id, Long restaurantId);
+    Optional<Review> findByIdAndRestaurantIdAndDeletedFalse(Long id, Long restaurantId);
 
-    long countByRestaurantIdAndActiveTrue(Long restaurantId);
+    long countByRestaurantIdAndDeletedFalse(Long restaurantId);
 
     @Query("""
             select avg(r.rating.value)
             from Review r
             where r.restaurantId = :restaurantId
-              and r.active = true
+              and r.deleted = false
             """)
     Double averageRatingByRestaurantId(@Param("restaurantId") Long restaurantId);
 
@@ -42,7 +42,7 @@ public interface ReviewRepository extends JpaRepository<Review, Long> {
             select r.rating.value as rating, count(r) as count
             from Review r
             where r.restaurantId = :restaurantId
-              and r.active = true
+              and r.deleted = false
             group by r.rating.value
             """)
     List<RatingCount> countByRating(@Param("restaurantId") Long restaurantId);
@@ -51,7 +51,7 @@ public interface ReviewRepository extends JpaRepository<Review, Long> {
             select r
             from Review r
             where r.restaurantId = :restaurantId
-              and r.active = true
+              and r.deleted = false
               and (:cursorCreatedAt is null
                    or r.createdAt < :cursorCreatedAt
                    or (r.createdAt = :cursorCreatedAt and r.id < :cursorId))
@@ -68,7 +68,7 @@ public interface ReviewRepository extends JpaRepository<Review, Long> {
             select r
             from Review r
             where r.restaurantId = :restaurantId
-              and r.active = true
+              and r.deleted = false
               and (:cursorRating is null
                    or r.rating.value < :cursorRating
                    or (r.rating.value = :cursorRating and r.id < :cursorId))
@@ -85,7 +85,7 @@ public interface ReviewRepository extends JpaRepository<Review, Long> {
             select r
             from Review r
             where r.restaurantId = :restaurantId
-              and r.active = true
+              and r.deleted = false
               and (:cursorRating is null
                    or r.rating.value > :cursorRating
                    or (r.rating.value = :cursorRating and r.id < :cursorId))

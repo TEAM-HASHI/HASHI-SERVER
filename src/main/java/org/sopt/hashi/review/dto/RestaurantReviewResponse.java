@@ -28,7 +28,8 @@ public record RestaurantReviewResponse(
             int rating,
             String content,
             List<String> keywords,
-            List<String> imageUrls,
+            List<String> previewImageUrls,
+            int imageCount,
             LocalDateTime createdAt
     ) {
     }

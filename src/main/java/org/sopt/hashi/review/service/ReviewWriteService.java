@@ -55,7 +55,7 @@ public class ReviewWriteService {
 
         validateReviewableReservation(reservation);
         validateRestaurant(reservation.restaurantId());
-        validateNoActiveReview(reservation.id());
+        validateNoReviewHistory(reservation.id());
 
         List<String> keywordCodes = parseKeywordCodes(request.keywordCodes());
         List<ReviewImage> images = parseImages(request.imageFileKeys());
@@ -71,6 +71,7 @@ public class ReviewWriteService {
         review.replaceImages(images);
 
         Review savedReview = save(review);
+        restaurantPort.increaseReviewStatistics(reservation.restaurantId(), request.rating());
         long earnedPoint = pointPort.earnReviewReward(userId, reservation.id());
         return new CreateReviewResponse(savedReview.getId(), earnedPoint);
     }
@@ -90,8 +91,8 @@ public class ReviewWriteService {
         }
     }
 
-    private void validateNoActiveReview(Long reservationId) {
-        if (reviewRepository.existsByReservationIdAndActiveTrue(reservationId)) {
+    private void validateNoReviewHistory(Long reservationId) {
+        if (reviewRepository.existsByReservationId(reservationId)) {
             throw new BusinessException(ReviewErrorCode.ALREADY_REVIEWED);
         }
     }
@@ -132,7 +133,7 @@ public class ReviewWriteService {
             return reviewRepository.saveAndFlush(review);
         } catch (DataIntegrityViolationException exception) {
             String causeMessage = exception.getMostSpecificCause().getMessage();
-            if (causeMessage != null && causeMessage.contains("uk_review_active_reservation_id")) {
+            if (causeMessage != null && causeMessage.contains("uk_review_reservation_id")) {
                 throw new BusinessException(ReviewErrorCode.ALREADY_REVIEWED, exception);
             }
             throw exception;
