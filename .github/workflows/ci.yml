@@ -69,22 +69,54 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Validate unique Flyway migration versions
-        shell: bash
         run: |
-          duplicate_versions="$(
-            find src/main/resources/db/migration -maxdepth 1 -type f -name 'V*__*.sql' \
-              | sed -E 's|.*/V(.+)__.*|\1|' \
-              | sort \
-              | uniq -d
-          )"
+          python3 - <<'PY'
+          from collections import defaultdict
+          from pathlib import Path
+          import re
+          import sys
 
-          if [[ -n "${duplicate_versions}" ]]; then
-            echo "❌ 중복된 Flyway 마이그레이션 버전이 있습니다:"
-            echo "${duplicate_versions}"
-            exit 1
-          fi
 
-          echo "✅ Flyway 마이그레이션 버전 중복 없음"
+          def normalize_version(raw_version: str) -> tuple[int, ...]:
+              parts = re.split(r"[._]", raw_version)
+              if not parts or any(not part.isdigit() for part in parts):
+                  raise ValueError(f"지원하지 않는 Flyway 버전 형식: {raw_version}")
+
+              normalized = [int(part) for part in parts]
+              while len(normalized) > 1 and normalized[-1] == 0:
+                  normalized.pop()
+              return tuple(normalized)
+
+
+          assert normalize_version("1") == normalize_version("01")
+          assert normalize_version("1.1") == normalize_version("1_1")
+          assert normalize_version("1") == normalize_version("1.0")
+          assert normalize_version("1.10") != normalize_version("1.1")
+
+          migrations_by_version = defaultdict(list)
+          migration_root = Path("src/main/resources/db/migration")
+
+          for path in migration_root.rglob("V*__*.sql"):
+              match = re.match(r"^V(.+?)__.+\.sql$", path.name)
+              if match:
+                  migrations_by_version[normalize_version(match.group(1))].append(path)
+
+          duplicates = {
+              version: paths
+              for version, paths in migrations_by_version.items()
+              if len(paths) > 1
+          }
+
+          if duplicates:
+              print("중복된 Flyway 마이그레이션 버전이 있습니다:")
+              for version, paths in sorted(duplicates.items()):
+                  print(f"- {'.'.join(map(str, version))}")
+                  for path in paths:
+                      print(f"  - {path}")
+              sys.exit(1)
+
+          print("Flyway 마이그레이션 버전 중복 없음")
+          PY
 
       - name: Set up JDK 21
         uses: actions/setup-java@v4
