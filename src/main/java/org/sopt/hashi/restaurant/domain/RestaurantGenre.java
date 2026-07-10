@@ -27,6 +27,10 @@ public enum RestaurantGenre {
                 .findFirst();
     }
 
+    public String value() {
+        return value;
+    }
+
     public String description() {
         return description;
     }

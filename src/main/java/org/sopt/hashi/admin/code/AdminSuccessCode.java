@@ -14,7 +14,10 @@ public enum AdminSuccessCode implements SuccessCode {
     RESERVATION_STATUS_CHANGED(HttpStatus.OK, "ADMIN-200", "예약 상태가 변경되었습니다"),
     MAGAZINE_CREATED(HttpStatus.CREATED, "ADMIN-201", "매거진이 등록되었습니다"),
     MAGAZINE_UPDATED(HttpStatus.OK, "ADMIN-202", "매거진이 수정되었습니다"),
-    MAGAZINE_DELETED(HttpStatus.OK, "ADMIN-203", "매거진이 삭제되었습니다");
+    MAGAZINE_DELETED(HttpStatus.OK, "ADMIN-203", "매거진이 삭제되었습니다"),
+    RESTAURANT_CREATED(HttpStatus.CREATED, "ADMIN-204", "식당이 등록되었습니다"),
+    RESTAURANT_UPDATED(HttpStatus.OK, "ADMIN-205", "식당이 수정되었습니다"),
+    RESTAURANT_DELETED(HttpStatus.OK, "ADMIN-206", "식당이 삭제되었습니다");
 
     private final HttpStatus status;
     private final String code;

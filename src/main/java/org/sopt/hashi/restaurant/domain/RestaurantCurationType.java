@@ -21,4 +21,8 @@ public enum RestaurantCurationType {
                 .filter(type -> type.value.equals(value))
                 .findFirst();
     }
+
+    public String value() {
+        return value;
+    }
 }

@@ -163,6 +163,53 @@ public class Restaurant extends BaseTimeEntity {
                 reservationFee, currency, minPrice, maxPrice);
     }
 
+    /** 부분 수정(PATCH) — null 필드는 기존 값을 유지한다(값 비우기 불가, magazine과 동일 정책). */
+    public void updateBasicInfo(String name, String localName, String description, String storeDescription,
+                                String address, String area, RestaurantGenre genre, String thumbnailFileKey,
+                                Long reservationFee, String currency, BigDecimal minPrice, BigDecimal maxPrice) {
+        if (name != null) {
+            this.name = name;
+        }
+        if (localName != null) {
+            this.localName = localName;
+        }
+        if (description != null) {
+            this.description = description;
+        }
+        if (storeDescription != null) {
+            this.storeDescription = storeDescription;
+        }
+        if (address != null) {
+            this.address = address;
+        }
+        if (area != null) {
+            this.area = area;
+        }
+        if (genre != null) {
+            this.genre = genre;
+        }
+        if (thumbnailFileKey != null) {
+            this.thumbnailFileKey = thumbnailFileKey;
+        }
+        if (reservationFee != null) {
+            this.reservationFee = reservationFee;
+        }
+        if (currency != null) {
+            this.currency = currency;
+        }
+        if (minPrice != null) {
+            this.minPrice = minPrice;
+        }
+        if (maxPrice != null) {
+            this.maxPrice = maxPrice;
+        }
+    }
+
+    /** 어드민 삭제(soft delete) — 사용자 노출만 차단하고 예약·리뷰가 참조하는 데이터는 보존한다. */
+    public void deactivate() {
+        this.active = false;
+    }
+
     public void replaceTags(List<String> tags) {
         this.tags.clear();
         if (tags != null) {
