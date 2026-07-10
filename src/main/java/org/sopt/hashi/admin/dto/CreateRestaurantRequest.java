@@ -3,6 +3,7 @@ package org.sopt.hashi.admin.dto;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
+import jakarta.validation.constraints.Pattern;
 import jakarta.validation.constraints.PositiveOrZero;
 import jakarta.validation.constraints.Size;
 import java.math.BigDecimal;
@@ -25,6 +26,7 @@ public record CreateRestaurantRequest(
         @Size(max = 255, message = "주소는 255자 이내입니다") String address,
         @Size(max = 100, message = "지역은 100자 이내입니다") String area,
         @NotBlank(message = "장르는 필수입니다") String genre,
+        @Pattern(regexp = ".*\\S.*", message = "썸네일 이미지 키는 공백일 수 없습니다")
         @Size(max = 500, message = "썸네일 이미지 키는 500자 이내입니다") String thumbnailKey,
         @NotNull(message = "예약 수수료는 필수입니다")
         @PositiveOrZero(message = "예약 수수료는 0 이상입니다") Long reservationFee,
@@ -34,17 +36,18 @@ public record CreateRestaurantRequest(
         @PositiveOrZero(message = "최대 가격은 0 이상입니다") BigDecimal maxPrice,
         List<@NotBlank(message = "이미지 키는 비어 있을 수 없습니다")
         @Size(max = 500, message = "이미지 키는 500자 이내입니다") String> imageKeys,
-        @Valid List<MenuRequest> menus,
+        List<@NotNull(message = "메뉴 항목은 null일 수 없습니다") @Valid MenuRequest> menus,
         List<@NotBlank(message = "큐레이션 유형은 비어 있을 수 없습니다") String> curationTypes,
         @NotNull(message = "영업시간은 필수입니다")
         @Size(min = 7, max = 7, message = "영업시간은 모든 요일(7개)을 포함해야 합니다")
-        @Valid List<BusinessHourRequest> businessHours) {
+        List<@NotNull(message = "영업시간 항목은 null일 수 없습니다") @Valid BusinessHourRequest> businessHours) {
 
     /** 메뉴 항목 — 목록 전체가 함께 저장되므로 각 항목은 완전한 값으로 받는다. */
     public record MenuRequest(
             @NotBlank(message = "메뉴명은 필수입니다")
             @Size(max = 100, message = "메뉴명은 100자 이내입니다") String name,
             @Size(max = 500, message = "메뉴 설명은 500자 이내입니다") String description,
+            @Pattern(regexp = ".*\\S.*", message = "메뉴 이미지 키는 공백일 수 없습니다")
             @Size(max = 500, message = "메뉴 이미지 키는 500자 이내입니다") String imageKey,
             @NotBlank(message = "통화는 필수입니다")
             @Size(max = 10, message = "통화는 10자 이내입니다") String currency,
