@@ -7,10 +7,14 @@ import java.util.stream.Collectors;
 import org.sopt.hashi.restaurant.RestaurantPort;
 import org.sopt.hashi.review.code.ReviewErrorCode;
 import org.sopt.hashi.review.domain.Review;
+import org.sopt.hashi.review.domain.ReviewImage;
+import org.sopt.hashi.review.domain.ReviewImageRepository;
 import org.sopt.hashi.review.domain.ReviewKeyword;
 import org.sopt.hashi.review.domain.ReviewRepository;
 import org.sopt.hashi.review.domain.ReviewRepository.RatingCount;
 import org.sopt.hashi.review.domain.ReviewSort;
+import org.sopt.hashi.review.dto.RestaurantReviewImageListResponse;
+import org.sopt.hashi.review.dto.RestaurantReviewImageListResponse.RestaurantReviewImageResponse;
 import org.sopt.hashi.review.dto.RestaurantReviewResponse;
 import org.sopt.hashi.review.dto.RestaurantReviewResponse.RatingDistributionResponse;
 import org.sopt.hashi.review.dto.RestaurantReviewResponse.ReviewSummaryResponse;
@@ -28,21 +32,26 @@ import org.springframework.transaction.annotation.Transactional;
 public class ReviewService {
 
     private static final int DEFAULT_PAGE_SIZE = 5;
+    private static final int DEFAULT_IMAGE_PAGE_SIZE = 20;
     private static final int MAX_PAGE_SIZE = 50;
+    private static final int REVIEW_PREVIEW_IMAGE_COUNT = 3;
     private static final String WITHDRAWN_USER_NICKNAME = "탈퇴한 회원";
 
     private final ReviewRepository reviewRepository;
+    private final ReviewImageRepository reviewImageRepository;
     private final RestaurantPort restaurantPort;
     private final UserPort userPort;
     private final FileStorage fileStorage;
 
     public ReviewService(
             ReviewRepository reviewRepository,
+            ReviewImageRepository reviewImageRepository,
             RestaurantPort restaurantPort,
             UserPort userPort,
             FileStorage fileStorage
     ) {
         this.reviewRepository = reviewRepository;
+        this.reviewImageRepository = reviewImageRepository;
         this.restaurantPort = restaurantPort;
         this.userPort = userPort;
         this.fileStorage = fileStorage;
@@ -66,14 +75,14 @@ public class ReviewService {
                 : reviews;
         Long nextCursor = hasNext ? pageContent.getLast().getId() : null;
         Map<Long, String> writerNicknames = pageContent.stream()
-                .map(Review::getWriterId)
+                .map(Review::getUserId)
                 .distinct()
-                .collect(Collectors.toMap(writerId -> writerId, this::writerNickname));
+                .collect(Collectors.toMap(userId -> userId, this::writerNickname));
 
         return new RestaurantReviewResponse(
                 restaurantId,
                 averageRating(restaurantId),
-                reviewRepository.countByRestaurantIdAndActiveTrue(restaurantId),
+                reviewRepository.countByRestaurantIdAndDeletedFalse(restaurantId),
                 ratingDistribution(restaurantId),
                 pageContent.stream()
                         .map(review -> toReviewSummaryResponse(review, writerNicknames))
@@ -81,6 +90,34 @@ public class ReviewService {
                 nextCursor,
                 hasNext
         );
+    }
+
+    public RestaurantReviewImageListResponse getRestaurantReviewImages(
+            Long restaurantId,
+            Long cursor,
+            Integer size
+    ) {
+        validateRestaurantExists(restaurantId);
+        int pageSize = size == null ? DEFAULT_IMAGE_PAGE_SIZE : normalizeSize(size);
+        List<ReviewImage> images = reviewImageRepository.findPageByRestaurantId(
+                restaurantId,
+                cursor,
+                PageRequest.of(0, pageSize + 1));
+        boolean hasNext = images.size() > pageSize;
+        List<ReviewImage> content = hasNext
+                ? new ArrayList<>(images.subList(0, pageSize))
+                : images;
+        Long nextCursor = hasNext ? content.getLast().getId() : null;
+
+        return new RestaurantReviewImageListResponse(
+                content.stream()
+                        .map(image -> new RestaurantReviewImageResponse(
+                                image.getId(),
+                                image.getReview().getId(),
+                                fileStorage.resolveFileUrl(image.getFileKey())))
+                        .toList(),
+                nextCursor,
+                hasNext);
     }
 
     private void validateRestaurantExists(Long restaurantId) {
@@ -108,7 +145,7 @@ public class ReviewService {
         if (cursor == null) {
             return null;
         }
-        return reviewRepository.findByIdAndRestaurantIdAndActiveTrue(cursor, restaurantId)
+        return reviewRepository.findByIdAndRestaurantIdAndDeletedFalse(cursor, restaurantId)
                 .orElseThrow(() -> new BusinessException(CommonErrorCode.INVALID_INPUT));
     }
 
@@ -156,15 +193,17 @@ public class ReviewService {
     private ReviewSummaryResponse toReviewSummaryResponse(Review review, Map<Long, String> writerNicknames) {
         return new ReviewSummaryResponse(
                 review.getId(),
-                writerNicknames.get(review.getWriterId()),
+                writerNicknames.get(review.getUserId()),
                 review.getRating(),
                 review.getContent(),
                 review.getKeywords().stream()
                         .map(ReviewKeyword::labelOfStoredValue)
                         .toList(),
                 review.getImages().stream()
+                        .limit(REVIEW_PREVIEW_IMAGE_COUNT)
                         .map(image -> fileStorage.resolveFileUrl(image.getFileKey()))
                         .toList(),
+                review.getImages().size(),
                 review.getCreatedAt()
         );
     }
