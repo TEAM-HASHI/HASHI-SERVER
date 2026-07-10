@@ -1,6 +1,7 @@
 package org.sopt.hashi.review.service;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.Mockito.verify;
 
@@ -76,6 +77,7 @@ class ReviewReservationQueryServiceTest {
         assertThat(response.reservationId()).isEqualTo(100L);
         assertThat(response.restaurantId()).isEqualTo(10L);
         assertThat(response.restaurantName()).isEqualTo("아키토리 무사시");
+        assertThat(response.teenCount()).isZero();
         assertThat(response.reviewable()).isTrue();
         assertThat(response.reviewUnavailableReason()).isNull();
         assertThat(response.reviewKeywordOptions())
@@ -114,6 +116,7 @@ class ReviewReservationQueryServiceTest {
                 .extracting(item -> item.reservationId())
                 .containsExactly(101L, 102L);
         assertThat(response.content().getFirst().reviewed()).isFalse();
+        assertThat(response.content().getFirst().teenCount()).isZero();
         assertThat(response.content().getFirst().reviewable()).isTrue();
         assertThat(response.content().getFirst().reviewId()).isNull();
         assertThat(response.content().get(1).reviewed()).isTrue();
@@ -175,6 +178,27 @@ class ReviewReservationQueryServiceTest {
         assertThat(allResponse.content().getFirst().reviewUnavailableReason())
                 .isEqualTo(ReviewUnavailableReason.UNSUPPORTED_RESERVATION_TYPE);
         assertThat(unreviewedResponse.content()).isEmpty();
+    }
+
+    @Test
+    void 방문_완료_목록을_조합할_때_연결된_식당이_없으면_정합성_오류로_처리한다() {
+        ReservationReviewInfo reservation = reservation(
+                100L,
+                10L,
+                22,
+                ReservationStatus.VISITED);
+
+        given(currentUserProvider.currentUserId()).willReturn(USER_ID);
+        given(reservationPort.findVisitedReviewInfos(USER_ID)).willReturn(List.of(reservation));
+        given(reviewRepository.findByReservationIdInAndActiveTrue(List.of(100L)))
+                .willReturn(List.of());
+        given(restaurantPort.findSummaries(List.of(10L))).willReturn(List.of());
+
+        assertThatThrownBy(() -> reviewReservationQueryService
+                .getVisitedReservations("all", null, "latest", null, 10))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("예약(id=100)")
+                .hasMessageContaining("식당(id=10)");
     }
 
     private ReservationReviewInfo reservation(

@@ -310,7 +310,9 @@ public class ReviewReservationQueryService {
         }
         RestaurantInfo restaurant = restaurantById.get(reservation.restaurantId());
         if (restaurant == null) {
-            throw new BusinessException(ReviewErrorCode.RESTAURANT_NOT_FOUND);
+            throw new IllegalStateException(
+                    "예약(id=%d)에 연결된 식당(id=%d)을 찾을 수 없습니다."
+                            .formatted(reservation.id(), reservation.restaurantId()));
         }
         return new RestaurantDisplay(restaurant.id(), restaurant.name(), restaurant.imageUrl());
     }
