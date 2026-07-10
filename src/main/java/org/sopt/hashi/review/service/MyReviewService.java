@@ -75,8 +75,12 @@ public class MyReviewService {
                 : reviews;
         Long nextCursor = hasNext ? pageContent.getLast().getId() : null;
 
-        Map<Long, ReservationReviewInfo> reservationsById = reservationPort.findReviewInfos(
-                        pageContent.stream().map(Review::getReservationId).toList())
+        List<Long> reservationIds = pageContent.stream()
+                .map(Review::getReservationId)
+                .filter(reservationId -> reservationId != null)
+                .distinct()
+                .toList();
+        Map<Long, ReservationReviewInfo> reservationsById = reservationPort.findReviewInfos(reservationIds)
                 .stream()
                 .collect(Collectors.toMap(ReservationReviewInfo::id, Function.identity()));
         Map<Long, RestaurantInfo> restaurantsById = restaurantPort.findSummaries(
@@ -87,7 +91,7 @@ public class MyReviewService {
         List<MyReviewSummaryResponse> content = pageContent.stream()
                 .map(review -> toSummary(
                         review,
-                        requiredReservation(reservationsById, review.getReservationId()),
+                        resolveReservation(reservationsById, review.getReservationId()),
                         requiredRestaurant(restaurantsById, review.getRestaurantId())))
                 .toList();
         return new MyReviewListResponse(content, nextCursor, hasNext);
@@ -96,7 +100,9 @@ public class MyReviewService {
     public MyReviewDetailResponse getMyReview(Long reviewId) {
         Long userId = currentUserProvider.currentUserId();
         Review review = getOwnedActiveReview(reviewId, userId);
-        ReservationReviewInfo reservation = reservationPort.getReviewInfoById(review.getReservationId());
+        ReservationReviewInfo reservation = review.getReservationId() == null
+                ? null
+                : reservationPort.getReviewInfoById(review.getReservationId());
         RestaurantInfo restaurant = restaurantPort.findSummaryById(review.getRestaurantId())
                 .orElseThrow(() -> new BusinessException(ReviewErrorCode.RESTAURANT_NOT_FOUND));
         String writerNickname = userPort.findById(userId)
@@ -108,9 +114,9 @@ public class MyReviewService {
                 restaurant.id(),
                 restaurant.name(),
                 restaurant.imageUrl(),
-                reservation.reservedAt(),
-                reservation.adultCount(),
-                reservation.childCount(),
+                reservation == null ? null : reservation.reservedAt(),
+                reservation == null ? null : reservation.adultCount(),
+                reservation == null ? null : reservation.childCount(),
                 writerNickname,
                 review.getRating(),
                 review.getContent(),
@@ -133,13 +139,8 @@ public class MyReviewService {
     }
 
     private Review getOwnedActiveReview(Long reviewId, Long userId) {
-        Review review = reviewRepository.findById(reviewId)
-                .filter(Review::isActive)
+        return reviewRepository.findByIdAndWriterIdAndActiveTrue(reviewId, userId)
                 .orElseThrow(() -> new BusinessException(ReviewErrorCode.NOT_FOUND));
-        if (!review.writtenBy(userId)) {
-            throw new BusinessException(CommonErrorCode.FORBIDDEN);
-        }
-        return review;
     }
 
     private MyReviewSummaryResponse toSummary(
@@ -152,9 +153,9 @@ public class MyReviewService {
                 restaurant.id(),
                 restaurant.name(),
                 restaurant.imageUrl(),
-                reservation.reservedAt(),
-                reservation.adultCount(),
-                reservation.childCount(),
+                reservation == null ? null : reservation.reservedAt(),
+                reservation == null ? null : reservation.adultCount(),
+                reservation == null ? null : reservation.childCount(),
                 review.getRating(),
                 review.getContent(),
                 keywordLabels(review),
@@ -175,10 +176,13 @@ public class MyReviewService {
                 .toList();
     }
 
-    private ReservationReviewInfo requiredReservation(
+    private ReservationReviewInfo resolveReservation(
             Map<Long, ReservationReviewInfo> reservationsById,
             Long reservationId
     ) {
+        if (reservationId == null) {
+            return null;
+        }
         ReservationReviewInfo reservation = reservationsById.get(reservationId);
         if (reservation == null) {
             throw new IllegalStateException("리뷰에 연결된 예약 정보를 찾을 수 없습니다.");
@@ -198,10 +202,10 @@ public class MyReviewService {
         if (size == null) {
             return DEFAULT_PAGE_SIZE;
         }
-        if (size < 1) {
+        if (size < 1 || size > MAX_PAGE_SIZE) {
             throw new BusinessException(CommonErrorCode.INVALID_INPUT);
         }
-        return Math.min(size, MAX_PAGE_SIZE);
+        return size;
     }
 
     private void validateCursor(Long cursor) {
