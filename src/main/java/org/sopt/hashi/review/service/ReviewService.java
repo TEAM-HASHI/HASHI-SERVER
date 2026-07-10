@@ -7,6 +7,7 @@ import java.util.stream.Collectors;
 import org.sopt.hashi.restaurant.RestaurantPort;
 import org.sopt.hashi.review.code.ReviewErrorCode;
 import org.sopt.hashi.review.domain.Review;
+import org.sopt.hashi.review.domain.ReviewKeyword;
 import org.sopt.hashi.review.domain.ReviewRepository;
 import org.sopt.hashi.review.domain.ReviewRepository.RatingCount;
 import org.sopt.hashi.review.domain.ReviewSort;
@@ -158,7 +159,9 @@ public class ReviewService {
                 writerNicknames.get(review.getWriterId()),
                 review.getRating(),
                 review.getContent(),
-                List.copyOf(review.getKeywords()),
+                review.getKeywords().stream()
+                        .map(ReviewKeyword::labelOfStoredValue)
+                        .toList(),
                 review.getImages().stream()
                         .map(image -> fileStorage.resolveFileUrl(image.getFileKey()))
                         .toList(),
