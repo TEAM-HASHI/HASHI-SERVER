@@ -33,6 +33,10 @@ public class Review extends BaseTimeEntity {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
+    /** 레거시 리뷰는 null일 수 있고, 신규 리뷰는 예약 1건을 기준으로 생성한다. */
+    @Column(name = "reservation_id")
+    private Long reservationId;
+
     @Column(name = "restaurant_id", nullable = false)
     private Long restaurantId;
 
@@ -60,7 +64,8 @@ public class Review extends BaseTimeEntity {
     @OrderBy("displayOrder ASC")
     private List<ReviewImage> images = new ArrayList<>();
 
-    private Review(Long restaurantId, Long writerId, int rating, String content) {
+    private Review(Long reservationId, Long restaurantId, Long writerId, int rating, String content) {
+        this.reservationId = reservationId;
         this.restaurantId = restaurantId;
         this.writerId = writerId;
         this.rating = ReviewRating.from(rating);
@@ -69,7 +74,17 @@ public class Review extends BaseTimeEntity {
     }
 
     public static Review create(Long restaurantId, Long writerId, int rating, String content) {
-        return new Review(restaurantId, writerId, rating, content);
+        return new Review(null, restaurantId, writerId, rating, content);
+    }
+
+    public static Review create(
+            Long reservationId,
+            Long restaurantId,
+            Long writerId,
+            int rating,
+            String content
+    ) {
+        return new Review(reservationId, restaurantId, writerId, rating, content);
     }
 
     public void replaceKeywords(List<String> keywords) {
@@ -88,6 +103,14 @@ public class Review extends BaseTimeEntity {
 
     public int getRating() {
         return rating.value();
+    }
+
+    public boolean writtenBy(Long userId) {
+        return writerId.equals(userId);
+    }
+
+    public void deactivate() {
+        this.active = false;
     }
 
     private void addImage(ReviewImage image) {

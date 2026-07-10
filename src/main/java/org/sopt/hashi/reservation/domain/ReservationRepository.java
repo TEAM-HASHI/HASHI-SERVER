@@ -9,6 +9,13 @@ import org.springframework.data.jpa.repository.JpaRepository;
 
 public interface ReservationRepository extends JpaRepository<Reservation, Long> {
 
+    /** 여러 예약을 리뷰/목록 화면에서 일괄 enrich하기 위한 조회. */
+    List<Reservation> findByIdIn(Collection<Long> reservationIds);
+
+    /** 사용자의 방문 완료 예약을 방문 일시와 ID 기준 최신순으로 조회한다. */
+    List<Reservation> findByUserIdAndReservationStatusOrderByReservedAtDescIdDesc(
+            Long userId, ReservationStatus reservationStatus);
+
     /** 어드민 목록 — 전체 사용자 대상 상태 필터 offset 페이지(정렬은 Pageable의 Sort로 지정). */
     Page<Reservation> findByReservationStatus(ReservationStatus reservationStatus, Pageable pageable);
 

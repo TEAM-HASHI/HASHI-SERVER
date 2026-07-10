@@ -1,6 +1,7 @@
 package org.sopt.hashi.review.domain;
 
 import java.time.LocalDateTime;
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 import org.springframework.data.domain.Pageable;
@@ -9,6 +10,21 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
 public interface ReviewRepository extends JpaRepository<Review, Long> {
+
+    boolean existsByReservationIdAndActiveTrue(Long reservationId);
+
+    Optional<Review> findByReservationIdAndActiveTrue(Long reservationId);
+
+    List<Review> findByReservationIdInAndActiveTrue(Collection<Long> reservationIds);
+
+    Optional<Review> findByIdAndWriterIdAndActiveTrue(Long reviewId, Long writerId);
+
+    long countByWriterIdAndActiveTrue(Long writerId);
+
+    List<Review> findByWriterIdAndActiveTrueOrderByIdDesc(Long writerId, Pageable pageable);
+
+    List<Review> findByWriterIdAndActiveTrueAndIdLessThanOrderByIdDesc(
+            Long writerId, Long cursor, Pageable pageable);
 
     Optional<Review> findByIdAndRestaurantIdAndActiveTrue(Long id, Long restaurantId);
 
