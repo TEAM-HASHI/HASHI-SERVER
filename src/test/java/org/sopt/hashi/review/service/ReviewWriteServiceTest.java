@@ -20,6 +20,7 @@ import org.sopt.hashi.point.PointPort;
 import org.sopt.hashi.reservation.ReservationPort;
 import org.sopt.hashi.reservation.ReservationReviewInfo;
 import org.sopt.hashi.reservation.ReservationStatus;
+import org.sopt.hashi.reservation.ReservationType;
 import org.sopt.hashi.restaurant.RestaurantPort;
 import org.sopt.hashi.review.code.ReviewErrorCode;
 import org.sopt.hashi.review.domain.Review;
@@ -27,7 +28,6 @@ import org.sopt.hashi.review.domain.ReviewRepository;
 import org.sopt.hashi.review.dto.CreateReviewRequest;
 import org.sopt.hashi.review.dto.CreateReviewResponse;
 import org.sopt.hashi.shared.error.BusinessException;
-import org.sopt.hashi.shared.error.CommonErrorCode;
 import org.springframework.test.util.ReflectionTestUtils;
 
 @ExtendWith(MockitoExtension.class)
@@ -68,7 +68,7 @@ class ReviewWriteServiceTest {
     @Test
     void 방문_완료된_본인_예약에_리뷰를_작성하고_포인트를_적립한다() {
         given(currentUserProvider.currentUserId()).willReturn(USER_ID);
-        given(reservationPort.getReviewInfoById(RESERVATION_ID))
+        given(reservationPort.getReviewInfoByIdAndUserId(RESERVATION_ID, USER_ID))
                 .willReturn(reservation(USER_ID, ReservationStatus.VISITED));
         given(restaurantPort.existsById(RESTAURANT_ID)).willReturn(true);
         given(reviewRepository.existsByReservationIdAndActiveTrue(RESERVATION_ID)).willReturn(false);
@@ -101,22 +101,9 @@ class ReviewWriteServiceTest {
     }
 
     @Test
-    void 본인_예약이_아니면_리뷰를_작성할_수_없다() {
-        given(currentUserProvider.currentUserId()).willReturn(USER_ID);
-        given(reservationPort.getReviewInfoById(RESERVATION_ID))
-                .willReturn(reservation(99L, ReservationStatus.VISITED));
-
-        assertThatThrownBy(() -> reviewWriteService.create(request()))
-                .isInstanceOfSatisfying(BusinessException.class, exception ->
-                        assertThat(exception.getErrorCode()).isEqualTo(CommonErrorCode.FORBIDDEN));
-
-        verifyNoInteractions(restaurantPort, reviewRepository, pointPort);
-    }
-
-    @Test
     void 방문_완료되지_않은_예약에는_리뷰를_작성할_수_없다() {
         given(currentUserProvider.currentUserId()).willReturn(USER_ID);
-        given(reservationPort.getReviewInfoById(RESERVATION_ID))
+        given(reservationPort.getReviewInfoByIdAndUserId(RESERVATION_ID, USER_ID))
                 .willReturn(reservation(USER_ID, ReservationStatus.CONFIRMED));
 
         assertThatThrownBy(() -> reviewWriteService.create(request()))
@@ -127,9 +114,23 @@ class ReviewWriteServiceTest {
     }
 
     @Test
+    void 어디든_예약에는_리뷰를_작성할_수_없다() {
+        given(currentUserProvider.currentUserId()).willReturn(USER_ID);
+        given(reservationPort.getReviewInfoByIdAndUserId(RESERVATION_ID, USER_ID))
+                .willReturn(anywhereReservation());
+
+        assertThatThrownBy(() -> reviewWriteService.create(request()))
+                .isInstanceOfSatisfying(BusinessException.class, exception ->
+                        assertThat(exception.getErrorCode())
+                                .isEqualTo(ReviewErrorCode.UNSUPPORTED_RESERVATION_TYPE));
+
+        verifyNoInteractions(restaurantPort, reviewRepository, pointPort);
+    }
+
+    @Test
     void 활성_리뷰가_이미_있으면_중복_작성할_수_없다() {
         given(currentUserProvider.currentUserId()).willReturn(USER_ID);
-        given(reservationPort.getReviewInfoById(RESERVATION_ID))
+        given(reservationPort.getReviewInfoByIdAndUserId(RESERVATION_ID, USER_ID))
                 .willReturn(reservation(USER_ID, ReservationStatus.VISITED));
         given(restaurantPort.existsById(RESTAURANT_ID)).willReturn(true);
         given(reviewRepository.existsByReservationIdAndActiveTrue(RESERVATION_ID)).willReturn(true);
@@ -155,12 +156,31 @@ class ReviewWriteServiceTest {
         return new ReservationReviewInfo(
                 RESERVATION_ID,
                 userId,
+                ReservationType.STANDARD,
                 RESTAURANT_ID,
+                null,
+                null,
                 LocalDateTime.of(2026, 7, 1, 18, 0),
                 2,
                 0,
                 0,
                 status
+        );
+    }
+
+    private ReservationReviewInfo anywhereReservation() {
+        return new ReservationReviewInfo(
+                RESERVATION_ID,
+                USER_ID,
+                ReservationType.ANYWHERE,
+                null,
+                "긴자 미등록 식당",
+                "도쿄도 주오구 긴자",
+                LocalDateTime.of(2026, 7, 1, 18, 0),
+                2,
+                0,
+                0,
+                ReservationStatus.VISITED
         );
     }
 }

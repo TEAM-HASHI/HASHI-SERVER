@@ -9,7 +9,10 @@ import java.time.LocalDateTime;
 public record ReservationReviewInfo(
         Long id,
         Long userId,
+        ReservationType reservationType,
         Long restaurantId,
+        String restaurantName,
+        String restaurantAddress,
         LocalDateTime reservedAt,
         int adultCount,
         int teenCount,
@@ -19,5 +22,9 @@ public record ReservationReviewInfo(
 
     public int partySize() {
         return adultCount + teenCount + childCount;
+    }
+
+    public boolean supportsReview() {
+        return reservationType == ReservationType.STANDARD && restaurantId != null;
     }
 }
