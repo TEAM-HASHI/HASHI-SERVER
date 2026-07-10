@@ -6,6 +6,7 @@ import java.util.List;
 import java.util.Optional;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
@@ -18,6 +19,19 @@ public interface ReviewRepository extends JpaRepository<Review, Long> {
     List<Review> findByReservationIdIn(Collection<Long> reservationIds);
 
     Optional<Review> findByIdAndUserIdAndDeletedFalse(Long reviewId, Long userId);
+
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
+    @Query("""
+            update Review r
+            set r.deleted = true
+            where r.id = :reviewId
+              and r.userId = :userId
+              and r.deleted = false
+            """)
+    int softDeleteByIdAndUserId(
+            @Param("reviewId") Long reviewId,
+            @Param("userId") Long userId
+    );
 
     long countByUserIdAndDeletedFalse(Long userId);
 

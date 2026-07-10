@@ -136,7 +136,10 @@ public class MyReviewService {
     public void deleteMyReview(Long reviewId) {
         Long userId = currentUserProvider.currentUserId();
         Review review = getOwnedActiveReview(reviewId, userId);
-        review.softDelete();
+        int deletedCount = reviewRepository.softDeleteByIdAndUserId(reviewId, userId);
+        if (deletedCount == 0) {
+            throw new BusinessException(ReviewErrorCode.NOT_FOUND);
+        }
         restaurantPort.decreaseReviewStatistics(review.getRestaurantId(), review.getRating());
     }
 
