@@ -1,5 +1,8 @@
 package org.sopt.hashi.point;
 
+import java.util.Collection;
+import java.util.Map;
+
 /**
  * point 모듈의 공개 포트 — 타 도메인(reservation·review 등)이 포인트를 조작·조회할 때 쓰는 계약.
  * 모든 변동 연산은 호출자의 트랜잭션에 참여한다(§8 — 예약 저장과 포인트 차감이 함께 커밋/롤백).
@@ -9,6 +12,18 @@ public interface PointPort {
 
     /** 포인트를 적립한다(예: 리뷰 작성 보상). 계정이 없으면 생성한다. */
     void earn(Long userId, long amount, String reason, PointSourceType sourceType, Long sourceId);
+
+    /**
+     * 예약 1건의 최초 리뷰 보상을 적립한다. 같은 reservationId로 이미 적립된 이력이 있으면
+     * 추가 적립하지 않고 0을 반환한다.
+     */
+    long earnReviewReward(Long userId, Long reservationId);
+
+    /** 해당 출처로 적립된 포인트를 조회한다 — 이력이 없으면 0. */
+    long findEarnedAmount(PointSourceType sourceType, Long sourceId);
+
+    /** 여러 출처의 적립 포인트를 한 번에 조회한다 — 적립 이력이 없는 출처는 결과에 포함하지 않는다. */
+    Map<Long, Long> findEarnedAmounts(PointSourceType sourceType, Collection<Long> sourceIds);
 
     /** 포인트를 차감한다(예: 예약 수수료). 잔액이 부족하면 BusinessException(INSUFFICIENT_BALANCE). */
     void use(Long userId, long amount, String reason, PointSourceType sourceType, Long sourceId);
