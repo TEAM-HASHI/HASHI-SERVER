@@ -107,7 +107,7 @@ class ReviewRepositoryTest {
     }
 
     private Review saveReview(int rating, LocalDateTime createdAt) {
-        Review review = Review.create(RESTAURANT_ID, 1L, rating, "리뷰 내용입니다.");
+        Review review = Review.create((long) rating, RESTAURANT_ID, 1L, rating, "리뷰 내용입니다.");
         entityManager.persistAndFlush(review);
         jdbcTemplate.update(
                 "update review set created_at = ?, updated_at = ? where id = ?",

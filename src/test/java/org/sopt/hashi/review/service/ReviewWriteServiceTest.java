@@ -71,7 +71,7 @@ class ReviewWriteServiceTest {
         given(reservationPort.getReviewInfoByIdAndUserId(RESERVATION_ID, USER_ID))
                 .willReturn(reservation(USER_ID, ReservationStatus.VISITED));
         given(restaurantPort.existsById(RESTAURANT_ID)).willReturn(true);
-        given(reviewRepository.existsByReservationIdAndActiveTrue(RESERVATION_ID)).willReturn(false);
+        given(reviewRepository.existsByReservationId(RESERVATION_ID)).willReturn(false);
         given(reviewRepository.saveAndFlush(any(Review.class))).willAnswer(invocation -> {
             Review review = invocation.getArgument(0);
             ReflectionTestUtils.setField(review, "id", 1L);
@@ -89,7 +89,7 @@ class ReviewWriteServiceTest {
         Review savedReview = reviewCaptor.getValue();
         assertThat(savedReview.getReservationId()).isEqualTo(RESERVATION_ID);
         assertThat(savedReview.getRestaurantId()).isEqualTo(RESTAURANT_ID);
-        assertThat(savedReview.getWriterId()).isEqualTo(USER_ID);
+        assertThat(savedReview.getUserId()).isEqualTo(USER_ID);
         assertThat(savedReview.getKeywords())
                 .containsExactly("FOOD_IS_DELICIOUS", "GOOD_VALUE");
         assertThat(savedReview.getImages())
@@ -98,6 +98,7 @@ class ReviewWriteServiceTest {
                         org.assertj.core.groups.Tuple.tuple("uploads/reviews/2026/07/10/review-1.jpg", 0)
                 );
         verify(pointPort).earnReviewReward(USER_ID, RESERVATION_ID);
+        verify(restaurantPort).increaseReviewStatistics(RESTAURANT_ID, 5);
     }
 
     @Test
@@ -133,7 +134,7 @@ class ReviewWriteServiceTest {
         given(reservationPort.getReviewInfoByIdAndUserId(RESERVATION_ID, USER_ID))
                 .willReturn(reservation(USER_ID, ReservationStatus.VISITED));
         given(restaurantPort.existsById(RESTAURANT_ID)).willReturn(true);
-        given(reviewRepository.existsByReservationIdAndActiveTrue(RESERVATION_ID)).willReturn(true);
+        given(reviewRepository.existsByReservationId(RESERVATION_ID)).willReturn(true);
 
         assertThatThrownBy(() -> reviewWriteService.create(request()))
                 .isInstanceOfSatisfying(BusinessException.class, exception ->

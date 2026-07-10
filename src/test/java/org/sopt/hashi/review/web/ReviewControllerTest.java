@@ -56,6 +56,7 @@ class ReviewControllerTest {
                         "리뷰 내용입니다.",
                         List.of("친절해요"),
                         List.of("https://cdn.example.com/reviews/10/1.jpg"),
+                        1,
                         LocalDateTime.of(2026, 7, 9, 12, 0)
                 )),
                 null,
