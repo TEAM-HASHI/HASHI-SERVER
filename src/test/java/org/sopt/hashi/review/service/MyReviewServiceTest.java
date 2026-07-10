@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 
 import java.time.LocalDateTime;
 import java.util.List;
@@ -152,10 +153,11 @@ class MyReviewServiceTest {
         given(currentUserProvider.currentUserId()).willReturn(USER_ID);
         given(reviewRepository.findByIdAndUserIdAndDeletedFalse(REVIEW_ID, USER_ID))
                 .willReturn(Optional.of(review));
+        given(reviewRepository.softDeleteByIdAndUserId(REVIEW_ID, USER_ID)).willReturn(1);
 
         myReviewService.deleteMyReview(REVIEW_ID);
 
-        assertThat(review.isDeleted()).isTrue();
+        verify(reviewRepository).softDeleteByIdAndUserId(REVIEW_ID, USER_ID);
         verify(restaurantPort).decreaseReviewStatistics(RESTAURANT_ID, 5);
     }
 
@@ -168,6 +170,21 @@ class MyReviewServiceTest {
         assertThatThrownBy(() -> myReviewService.deleteMyReview(REVIEW_ID))
                 .isInstanceOfSatisfying(BusinessException.class, exception ->
                         assertThat(exception.getErrorCode()).isEqualTo(ReviewErrorCode.NOT_FOUND));
+    }
+
+    @Test
+    void 동시에_삭제된_리뷰는_식당_통계를_중복_차감하지_않는다() {
+        Review review = review(USER_ID);
+        given(currentUserProvider.currentUserId()).willReturn(USER_ID);
+        given(reviewRepository.findByIdAndUserIdAndDeletedFalse(REVIEW_ID, USER_ID))
+                .willReturn(Optional.of(review));
+        given(reviewRepository.softDeleteByIdAndUserId(REVIEW_ID, USER_ID)).willReturn(0);
+
+        assertThatThrownBy(() -> myReviewService.deleteMyReview(REVIEW_ID))
+                .isInstanceOfSatisfying(BusinessException.class, exception ->
+                        assertThat(exception.getErrorCode()).isEqualTo(ReviewErrorCode.NOT_FOUND));
+
+        verifyNoInteractions(restaurantPort);
     }
 
     @Test
