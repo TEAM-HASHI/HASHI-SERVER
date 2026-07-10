@@ -4,11 +4,15 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import java.math.BigDecimal;
+import java.util.List;
 import org.junit.jupiter.api.Test;
 import org.sopt.hashi.restaurant.domain.Restaurant;
 import org.sopt.hashi.restaurant.domain.RestaurantCursor;
+import org.sopt.hashi.restaurant.domain.RestaurantFoodCategory;
 import org.sopt.hashi.restaurant.domain.RestaurantGenre;
+import org.sopt.hashi.restaurant.domain.RestaurantImage;
 import org.sopt.hashi.restaurant.domain.RestaurantSort;
+import org.sopt.hashi.restaurant.domain.PriceCurrency;
 import org.sopt.hashi.shared.error.BusinessException;
 import org.sopt.hashi.shared.error.CommonErrorCode;
 import org.springframework.test.util.ReflectionTestUtils;
@@ -25,7 +29,7 @@ class RestaurantCursorCodecTest {
         assertThat(decoded.sort()).isEqualTo(RestaurantSort.BASIC);
         assertThat(decoded.id()).isEqualTo(20L);
         assertThat(decoded.rating()).isNull();
-        assertThat(decoded.popularityScore()).isNull();
+        assertThat(decoded.reviewCount()).isNull();
     }
 
     @Test
@@ -37,7 +41,8 @@ class RestaurantCursorCodecTest {
 
         assertThat(decoded.sort()).isEqualTo(RestaurantSort.POPULAR);
         assertThat(decoded.id()).isEqualTo(20L);
-        assertThat(decoded.popularityScore()).isEqualTo(100L);
+        assertThat(decoded.reviewCount()).isEqualTo(100L);
+        assertThat(decoded.rating()).isEqualByComparingTo("4.8");
     }
 
     @Test
@@ -49,7 +54,7 @@ class RestaurantCursorCodecTest {
 
         assertThat(decoded.sort()).isEqualTo(RestaurantSort.RATING);
         assertThat(decoded.id()).isEqualTo(20L);
-        assertThat(decoded.rating()).isEqualTo(4.8);
+        assertThat(decoded.rating()).isEqualByComparingTo("4.8");
     }
 
     @Test
@@ -69,23 +74,25 @@ class RestaurantCursorCodecTest {
                         assertThat(exception.getErrorCode()).isEqualTo(CommonErrorCode.INVALID_INPUT));
     }
 
-    private Restaurant createRestaurant(Long id, double rating, long popularityScore) {
+    private Restaurant createRestaurant(Long id, double rating, long reviewCount) {
         Restaurant restaurant = Restaurant.create(
                 "Himawari Sushi",
                 "Himawari Sushi",
                 "Sample restaurant",
+                "Detailed restaurant description",
                 "Tokyo",
                 "Tokyo",
                 RestaurantGenre.SUSHI,
-                "restaurants/%d/thumbnail.jpg".formatted(id),
-                4_000L,
-                "JPY",
+                RestaurantFoodCategory.SUSHI,
+                PriceCurrency.JPY,
                 BigDecimal.valueOf(1000),
                 BigDecimal.valueOf(3000)
         );
+        restaurant.replaceImages(List.of(
+                RestaurantImage.create("restaurants/%d/thumbnail.jpg".formatted(id), 1)));
         ReflectionTestUtils.setField(restaurant, "id", id);
-        ReflectionTestUtils.setField(restaurant, "rating", rating);
-        ReflectionTestUtils.setField(restaurant, "popularityScore", popularityScore);
+        ReflectionTestUtils.setField(restaurant, "rating", BigDecimal.valueOf(rating));
+        ReflectionTestUtils.setField(restaurant, "reviewCount", reviewCount);
         return restaurant;
     }
 }

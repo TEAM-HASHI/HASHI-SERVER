@@ -11,7 +11,6 @@ import static org.mockito.Mockito.verifyNoInteractions;
 
 import java.math.BigDecimal;
 import java.time.DayOfWeek;
-import java.time.LocalDate;
 import java.time.LocalTime;
 import java.util.List;
 import java.util.Optional;
@@ -24,9 +23,11 @@ import org.mockito.ArgumentMatchers;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.sopt.hashi.restaurant.code.RestaurantErrorCode;
+import org.sopt.hashi.restaurant.domain.PriceCurrency;
 import org.sopt.hashi.restaurant.domain.Restaurant;
 import org.sopt.hashi.restaurant.domain.RestaurantBusinessHour;
 import org.sopt.hashi.restaurant.domain.RestaurantCursor;
+import org.sopt.hashi.restaurant.domain.RestaurantFoodCategory;
 import org.sopt.hashi.restaurant.domain.RestaurantGenre;
 import org.sopt.hashi.restaurant.domain.RestaurantImage;
 import org.sopt.hashi.restaurant.domain.RestaurantMenu;
@@ -71,6 +72,7 @@ class RestaurantServiceTest {
                 null,
                 null,
                 null,
+                null,
                 null
         );
 
@@ -101,6 +103,7 @@ class RestaurantServiceTest {
         RestaurantListResponse response = restaurantService.getRestaurants(
                 "스시",
                 "sushi",
+                null,
                 "popular",
                 "sns-hot",
                 cursor,
@@ -113,7 +116,8 @@ class RestaurantServiceTest {
 
         Pageable pageable = capturePageable();
         assertThat(pageable.getPageSize()).isEqualTo(21);
-        assertSortOrder(pageable, "popularityScore");
+        assertSortOrder(pageable, "reviewCount");
+        assertSortOrder(pageable, "rating");
         assertSortOrder(pageable, "id");
     }
 
@@ -126,6 +130,7 @@ class RestaurantServiceTest {
 
         RestaurantListResponse response = restaurantService.getRestaurants(
                 null,
+                "all",
                 "all",
                 "rating",
                 "all",
@@ -153,11 +158,24 @@ class RestaurantServiceTest {
                 null,
                 null,
                 null,
+                null,
                 10
         )).isInstanceOfSatisfying(BusinessException.class, exception ->
                 assertThat(exception.getErrorCode()).isEqualTo(RestaurantErrorCode.UNSUPPORTED_GENRE));
 
         assertThatThrownBy(() -> restaurantService.getRestaurants(
+                null,
+                null,
+                "invalid-category",
+                null,
+                null,
+                null,
+                10
+        )).isInstanceOfSatisfying(BusinessException.class, exception ->
+                assertThat(exception.getErrorCode()).isEqualTo(RestaurantErrorCode.UNSUPPORTED_FOOD_CATEGORY));
+
+        assertThatThrownBy(() -> restaurantService.getRestaurants(
+                null,
                 null,
                 null,
                 "invalid-sort",
@@ -171,6 +189,7 @@ class RestaurantServiceTest {
                 null,
                 null,
                 null,
+                null,
                 "invalid-type",
                 null,
                 10
@@ -178,6 +197,7 @@ class RestaurantServiceTest {
                 assertThat(exception.getErrorCode()).isEqualTo(RestaurantErrorCode.UNSUPPORTED_LIST_TYPE));
 
         assertThatThrownBy(() -> restaurantService.getRestaurants(
+                null,
                 null,
                 null,
                 "popular",
@@ -307,17 +327,11 @@ class RestaurantServiceTest {
         RestaurantService restaurantService = new RestaurantService(restaurantRepository, fileStorage);
         Restaurant restaurant = createRestaurant(1L, 4.8, 100L);
         ReflectionTestUtils.setField(restaurant, "reviewCount", 256L);
-        ReflectionTestUtils.setField(restaurant, "savedCount", 35L);
-        ReflectionTestUtils.setField(restaurant, "availableDate", LocalDate.of(2026, 7, 19));
-        ReflectionTestUtils.setField(restaurant, "availableStartTime", LocalTime.of(10, 0));
-        ReflectionTestUtils.setField(restaurant, "availableEndTime", LocalTime.of(22, 0));
         restaurant.replaceImages(List.of(
-                RestaurantImage.create("restaurants/1/images/1.jpg", 0),
-                RestaurantImage.create("restaurants/1/images/2.jpg", 1)
+                RestaurantImage.create("restaurants/1/images/1.jpg", 1),
+                RestaurantImage.create("restaurants/1/images/2.jpg", 2)
         ));
         given(restaurantRepository.findActiveByIdWithImages(1L)).willReturn(Optional.of(restaurant));
-        given(fileStorage.resolveFileUrl("restaurants/1/thumbnail.jpg"))
-                .willReturn("https://cdn.example.com/restaurants/1/thumbnail.jpg");
         given(fileStorage.resolveFileUrl("restaurants/1/images/1.jpg"))
                 .willReturn("https://cdn.example.com/restaurants/1/images/1.jpg");
         given(fileStorage.resolveFileUrl("restaurants/1/images/2.jpg"))
@@ -326,16 +340,15 @@ class RestaurantServiceTest {
         var response = restaurantService.getRestaurantSummary(1L);
 
         assertThat(response.restaurantId()).isEqualTo(1L);
-        assertThat(response.rating()).isEqualTo(4.8);
+        assertThat(response.rating()).isEqualByComparingTo("4.8");
         assertThat(response.reviewCount()).isEqualTo(256L);
-        assertThat(response.thumbnailUrl()).isEqualTo("https://cdn.example.com/restaurants/1/thumbnail.jpg");
+        assertThat(response.foodCategory()).isEqualTo("초밥");
+        assertThat(response.thumbnailUrl()).isEqualTo("https://cdn.example.com/restaurants/1/images/1.jpg");
         assertThat(response.imageUrls()).containsExactly(
                 "https://cdn.example.com/restaurants/1/images/1.jpg",
                 "https://cdn.example.com/restaurants/1/images/2.jpg"
         );
-        assertThat(response.availableDate()).isEqualTo("2026-07-19");
-        assertThat(response.availableStartTime()).isEqualTo("10:00");
-        assertThat(response.availableEndTime()).isEqualTo("22:00");
+        assertThat(response.reservationFee()).isEqualTo(4_000L);
     }
 
     @Test
@@ -344,9 +357,9 @@ class RestaurantServiceTest {
         Restaurant restaurant = createRestaurant(1L, 4.8, 100L);
         restaurant.replaceBusinessHours(List.of(
                 RestaurantBusinessHour.create(DayOfWeek.TUESDAY, LocalTime.of(11, 0),
-                        LocalTime.of(21, 0), LocalTime.of(20, 30), false),
+                        LocalTime.of(21, 0), LocalTime.of(15, 0), LocalTime.of(16, 0), false),
                 RestaurantBusinessHour.create(DayOfWeek.MONDAY, LocalTime.of(10, 0),
-                        LocalTime.of(22, 0), LocalTime.of(21, 30), false)
+                        LocalTime.of(22, 0), LocalTime.of(14, 30), LocalTime.of(15, 30), false)
         ));
         given(restaurantRepository.findActiveByIdWithBusinessHours(1L)).willReturn(Optional.of(restaurant));
 
@@ -357,25 +370,26 @@ class RestaurantServiceTest {
         assertThat(response.businessHours()).hasSize(2);
         assertThat(response.businessHours().getFirst().dayOfWeek()).isEqualTo("MONDAY");
         assertThat(response.businessHours().getFirst().openTime()).isEqualTo("10:00");
-        assertThat(response.businessHours().getFirst().lastOrderTime()).isEqualTo("21:30");
+        assertThat(response.businessHours().getFirst().breakStart()).isEqualTo("14:30");
+        assertThat(response.businessHours().getFirst().breakEnd()).isEqualTo("15:30");
         assertThat(response.priceRange().currency()).isEqualTo("JPY");
         assertThat(response.priceRange().minPrice()).isEqualTo(1000L);
         assertThat(response.priceRange().maxPrice()).isEqualTo(3000L);
     }
 
     @Test
-    void getStoreInformation_falls_back_to_description_when_store_description_is_null() {
+    void getStoreInformation_returns_description() {
         RestaurantService restaurantService = new RestaurantService(restaurantRepository, fileStorage);
         Restaurant restaurant = Restaurant.create(
                 "Himawari Sushi",
                 "Himawari Sushi",
-                "legacy restaurant description",
+                "restaurant summary",
+                "restaurant description",
                 "Tokyo",
                 "Tokyo",
                 RestaurantGenre.SUSHI,
-                "restaurants/2/thumbnail.jpg",
-                4_000L,
-                "JPY",
+                RestaurantFoodCategory.SUSHI,
+                PriceCurrency.JPY,
                 BigDecimal.valueOf(1000),
                 BigDecimal.valueOf(3000)
         );
@@ -384,7 +398,7 @@ class RestaurantServiceTest {
 
         RestaurantStoreInformationResponse response = restaurantService.getStoreInformation(2L);
 
-        assertThat(response.description()).isEqualTo("legacy restaurant description");
+        assertThat(response.description()).isEqualTo("restaurant description");
     }
 
     @Test
@@ -456,7 +470,7 @@ class RestaurantServiceTest {
         assertThat(order.getDirection()).isEqualTo(Sort.Direction.DESC);
     }
 
-    private Restaurant createRestaurant(Long id, double rating, long popularityScore) {
+    private Restaurant createRestaurant(Long id, double rating, long reviewCount) {
         Restaurant restaurant = Restaurant.create(
                 "히마와리 스시",
                 "Himawari Sushi",
@@ -465,16 +479,17 @@ class RestaurantServiceTest {
                 "도쿄도 신주쿠구",
                 "도쿄",
                 RestaurantGenre.SUSHI,
-                "restaurants/%d/thumbnail.jpg".formatted(id),
-                4_000L,
-                "JPY",
+                RestaurantFoodCategory.SUSHI,
+                PriceCurrency.JPY,
                 BigDecimal.valueOf(1000),
                 BigDecimal.valueOf(3000)
         );
-        restaurant.replaceTags(List.of("예약 가능", "스시"));
+        restaurant.replaceImages(List.of(
+                RestaurantImage.create("restaurants/%d/thumbnail.jpg".formatted(id), 1)));
+        restaurant.replaceHashtags(List.of("예약가능", "스시"));
         ReflectionTestUtils.setField(restaurant, "id", id);
-        ReflectionTestUtils.setField(restaurant, "rating", rating);
-        ReflectionTestUtils.setField(restaurant, "popularityScore", popularityScore);
+        ReflectionTestUtils.setField(restaurant, "rating", BigDecimal.valueOf(rating));
+        ReflectionTestUtils.setField(restaurant, "reviewCount", reviewCount);
         return restaurant;
     }
 
@@ -483,7 +498,7 @@ class RestaurantServiceTest {
                 name,
                 "menu description",
                 "restaurant-menus/%d.jpg".formatted(id),
-                "JPY",
+                PriceCurrency.JPY,
                 BigDecimal.valueOf(1200),
                 representative
         );
