@@ -17,13 +17,6 @@ public interface ReservationPort {
     Optional<ReservationInfo> findById(Long reservationId);
 
     /**
-     * 소유권 검증이 이미 끝난 교차 조회에서 리뷰 화면용 예약 정보를 조회한다.
-     * 사용자 요청에서 예약 ID를 직접 받는 경우에는 {@link #getReviewInfoByIdAndUserId(Long, Long)}를 사용한다.
-     */
-    @Deprecated(forRemoval = true)
-    ReservationReviewInfo getReviewInfoById(Long reservationId);
-
-    /**
      * 리뷰 작성·조회에 필요한 현재 사용자의 예약 정보를 조회한다.
      * 예약이 없거나 해당 사용자의 예약이 아니면 BusinessException(RESERVATION-001 NOT_FOUND).
      */
