@@ -12,6 +12,7 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.sopt.hashi.reservation.ReservationReviewInfo;
+import org.sopt.hashi.reservation.ReservationType;
 import org.sopt.hashi.reservation.code.ReservationErrorCode;
 import org.sopt.hashi.reservation.domain.Reservation;
 import org.sopt.hashi.reservation.domain.ReservationRepository;
@@ -43,7 +44,36 @@ class ReservationPortImplTest {
 
         assertThat(result.id()).isEqualTo(100L);
         assertThat(result.userId()).isEqualTo(7L);
+        assertThat(result.reservationType()).isEqualTo(ReservationType.STANDARD);
         assertThat(result.restaurantId()).isEqualTo(10L);
+        assertThat(result.restaurantName()).isNull();
+        assertThat(result.restaurantAddress()).isNull();
+    }
+
+    @Test
+    void 어디든_예약의_직접_입력한_식당_정보를_매핑한다() {
+        Reservation reservation = Reservation.anywhere(
+                7L,
+                "예약자",
+                "긴자 미등록 식당",
+                "도쿄도 주오구 긴자",
+                LocalDateTime.of(2026, 7, 1, 18, 0),
+                2,
+                0,
+                0,
+                null,
+                0L,
+                4_000L
+        );
+        ReflectionTestUtils.setField(reservation, "id", 101L);
+        given(reservationRepository.findById(101L)).willReturn(Optional.of(reservation));
+
+        ReservationReviewInfo result = reservationPort.getReviewInfoByIdAndUserId(101L, 7L);
+
+        assertThat(result.reservationType()).isEqualTo(ReservationType.ANYWHERE);
+        assertThat(result.restaurantId()).isNull();
+        assertThat(result.restaurantName()).isEqualTo("긴자 미등록 식당");
+        assertThat(result.restaurantAddress()).isEqualTo("도쿄도 주오구 긴자");
     }
 
     @Test
