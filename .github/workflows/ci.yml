@@ -68,6 +68,24 @@ jobs:
       - name: Checkout source code
         uses: actions/checkout@v4
 
+      - name: Validate unique Flyway migration versions
+        shell: bash
+        run: |
+          duplicate_versions="$(
+            find src/main/resources/db/migration -maxdepth 1 -type f -name 'V*__*.sql' \
+              | sed -E 's|.*/V(.+)__.*|\1|' \
+              | sort \
+              | uniq -d
+          )"
+
+          if [[ -n "${duplicate_versions}" ]]; then
+            echo "❌ 중복된 Flyway 마이그레이션 버전이 있습니다:"
+            echo "${duplicate_versions}"
+            exit 1
+          fi
+
+          echo "✅ Flyway 마이그레이션 버전 중복 없음"
+
       - name: Set up JDK 21
         uses: actions/setup-java@v4
         with:
