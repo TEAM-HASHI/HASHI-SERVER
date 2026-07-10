@@ -1,5 +1,7 @@
 package org.sopt.hashi.reservation;
 
+import java.util.Collection;
+import java.util.List;
 import java.util.Optional;
 import org.sopt.hashi.user.UserInfo;
 import org.springframework.data.domain.Page;
@@ -13,6 +15,15 @@ public interface ReservationPort {
 
     /** 예약 요약을 조회한다 — 없으면 empty. */
     Optional<ReservationInfo> findById(Long reservationId);
+
+    /** 리뷰 작성·조회에 필요한 예약 정보를 조회한다 — 없으면 empty. */
+    Optional<ReservationReviewInfo> findReviewInfoById(Long reservationId);
+
+    /** 여러 예약의 리뷰 화면용 정보를 한 번에 조회한다 — 목록 enrich용. */
+    List<ReservationReviewInfo> findReviewInfos(Collection<Long> reservationIds);
+
+    /** 사용자의 방문 완료 예약을 최신 방문순으로 조회한다. */
+    List<ReservationReviewInfo> findVisitedReviewInfos(Long userId);
 
     /**
      * 어드민 예약 상태 변경 — 자유 전이(되돌림 포함). CANCELED 진입 시 진행중이던 예약의
