@@ -8,6 +8,8 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.function.Function;
 import java.util.stream.Collectors;
+import org.sopt.hashi.restaurant.AdminRestaurantCommand;
+import org.sopt.hashi.restaurant.AdminRestaurantInfo;
 import org.sopt.hashi.restaurant.RestaurantDetailInfo;
 import org.sopt.hashi.restaurant.RestaurantInfo;
 import org.sopt.hashi.restaurant.RestaurantPort;
@@ -22,10 +24,13 @@ import org.springframework.transaction.annotation.Transactional;
 class RestaurantPortImpl implements RestaurantPort {
 
     private final RestaurantRepository restaurantRepository;
+    private final RestaurantService restaurantService;
     private final FileStorage fileStorage;
 
-    RestaurantPortImpl(RestaurantRepository restaurantRepository, FileStorage fileStorage) {
+    RestaurantPortImpl(RestaurantRepository restaurantRepository, RestaurantService restaurantService,
+                       FileStorage fileStorage) {
         this.restaurantRepository = restaurantRepository;
+        this.restaurantService = restaurantService;
         this.fileStorage = fileStorage;
     }
 
@@ -76,6 +81,24 @@ class RestaurantPortImpl implements RestaurantPort {
         }
         return restaurantRepository.findById(restaurantId)
                 .map(this::toDetailInfo);
+    }
+
+    @Override
+    @Transactional
+    public AdminRestaurantInfo createByAdmin(AdminRestaurantCommand command) {
+        return restaurantService.createByAdmin(command);
+    }
+
+    @Override
+    @Transactional
+    public AdminRestaurantInfo updateByAdmin(Long restaurantId, AdminRestaurantCommand command) {
+        return restaurantService.updateByAdmin(restaurantId, command);
+    }
+
+    @Override
+    @Transactional
+    public void deleteByAdmin(Long restaurantId) {
+        restaurantService.deleteByAdmin(restaurantId);
     }
 
     private RestaurantInfo toInfo(Restaurant restaurant) {
