@@ -44,8 +44,9 @@ class ReservationPortImpl implements ReservationPort {
     }
 
     @Override
-    public ReservationReviewInfo getReviewInfoById(Long reservationId) {
+    public ReservationReviewInfo getReviewInfoByIdAndUserId(Long reservationId, Long userId) {
         return reservationRepository.findById(reservationId)
+                .filter(reservation -> reservation.ownedBy(userId))
                 .map(this::toReviewInfo)
                 .orElseThrow(() -> new BusinessException(ReservationErrorCode.NOT_FOUND));
     }
@@ -90,7 +91,10 @@ class ReservationPortImpl implements ReservationPort {
         return new ReservationReviewInfo(
                 reservation.getId(),
                 reservation.getUserId(),
+                reservation.getReservationType(),
                 reservation.getRestaurantId(),
+                reservation.getRestaurantName(),
+                reservation.getRestaurantAddress(),
                 reservation.getReservedAt(),
                 reservation.getAdultCount(),
                 reservation.getTeenCount(),

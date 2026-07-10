@@ -50,9 +50,10 @@ public class ReviewWriteService {
     @Transactional
     public CreateReviewResponse create(CreateReviewRequest request) {
         Long userId = currentUserProvider.currentUserId();
-        ReservationReviewInfo reservation = reservationPort.getReviewInfoById(request.reservationId());
+        ReservationReviewInfo reservation = reservationPort
+                .getReviewInfoByIdAndUserId(request.reservationId(), userId);
 
-        validateReviewableReservation(reservation, userId);
+        validateReviewableReservation(reservation);
         validateRestaurant(reservation.restaurantId());
         validateNoActiveReview(reservation.id());
 
@@ -74,9 +75,9 @@ public class ReviewWriteService {
         return new CreateReviewResponse(savedReview.getId(), earnedPoint);
     }
 
-    private void validateReviewableReservation(ReservationReviewInfo reservation, Long userId) {
-        if (!reservation.userId().equals(userId)) {
-            throw new BusinessException(CommonErrorCode.FORBIDDEN);
+    private void validateReviewableReservation(ReservationReviewInfo reservation) {
+        if (!reservation.supportsReview()) {
+            throw new BusinessException(ReviewErrorCode.UNSUPPORTED_RESERVATION_TYPE);
         }
         if (reservation.reservationStatus() != ReservationStatus.VISITED) {
             throw new BusinessException(ReviewErrorCode.NOT_VISITED);
