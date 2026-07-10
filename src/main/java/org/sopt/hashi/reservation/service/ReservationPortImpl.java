@@ -44,14 +44,6 @@ class ReservationPortImpl implements ReservationPort {
     }
 
     @Override
-    @Deprecated(forRemoval = true)
-    public ReservationReviewInfo getReviewInfoById(Long reservationId) {
-        return reservationRepository.findById(reservationId)
-                .map(this::toReviewInfo)
-                .orElseThrow(() -> new BusinessException(ReservationErrorCode.NOT_FOUND));
-    }
-
-    @Override
     public ReservationReviewInfo getReviewInfoByIdAndUserId(Long reservationId, Long userId) {
         return reservationRepository.findById(reservationId)
                 .filter(reservation -> reservation.ownedBy(userId))

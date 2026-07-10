@@ -20,32 +20,6 @@ public record ReservationReviewInfo(
         ReservationStatus reservationStatus
 ) {
 
-    /** 기존 리뷰 조회 코드와의 소스 호환을 위한 생성자. */
-    public ReservationReviewInfo(
-            Long id,
-            Long userId,
-            Long restaurantId,
-            LocalDateTime reservedAt,
-            int adultCount,
-            int teenCount,
-            int childCount,
-            ReservationStatus reservationStatus
-    ) {
-        this(
-                id,
-                userId,
-                restaurantId == null ? ReservationType.ANYWHERE : ReservationType.STANDARD,
-                restaurantId,
-                null,
-                null,
-                reservedAt,
-                adultCount,
-                teenCount,
-                childCount,
-                reservationStatus
-        );
-    }
-
     public int partySize() {
         return adultCount + teenCount + childCount;
     }
