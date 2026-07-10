@@ -114,6 +114,20 @@ class ReviewWriteServiceTest {
     }
 
     @Test
+    void 어디든_예약에는_리뷰를_작성할_수_없다() {
+        given(currentUserProvider.currentUserId()).willReturn(USER_ID);
+        given(reservationPort.getReviewInfoByIdAndUserId(RESERVATION_ID, USER_ID))
+                .willReturn(anywhereReservation());
+
+        assertThatThrownBy(() -> reviewWriteService.create(request()))
+                .isInstanceOfSatisfying(BusinessException.class, exception ->
+                        assertThat(exception.getErrorCode())
+                                .isEqualTo(ReviewErrorCode.UNSUPPORTED_RESERVATION_TYPE));
+
+        verifyNoInteractions(restaurantPort, reviewRepository, pointPort);
+    }
+
+    @Test
     void 활성_리뷰가_이미_있으면_중복_작성할_수_없다() {
         given(currentUserProvider.currentUserId()).willReturn(USER_ID);
         given(reservationPort.getReviewInfoByIdAndUserId(RESERVATION_ID, USER_ID))
@@ -151,6 +165,22 @@ class ReviewWriteServiceTest {
                 0,
                 0,
                 status
+        );
+    }
+
+    private ReservationReviewInfo anywhereReservation() {
+        return new ReservationReviewInfo(
+                RESERVATION_ID,
+                USER_ID,
+                ReservationType.ANYWHERE,
+                null,
+                "긴자 미등록 식당",
+                "도쿄도 주오구 긴자",
+                LocalDateTime.of(2026, 7, 1, 18, 0),
+                2,
+                0,
+                0,
+                ReservationStatus.VISITED
         );
     }
 }

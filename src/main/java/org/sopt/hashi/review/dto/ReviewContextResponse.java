@@ -14,6 +14,7 @@ public record ReviewContextResponse(
         String restaurantThumbnailUrl,
         LocalDateTime visitedAt,
         int adultCount,
+        int teenCount,
         int childCount,
         boolean reviewable,
         ReviewUnavailableReason reviewUnavailableReason,
