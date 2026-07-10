@@ -1,14 +1,26 @@
 package org.sopt.hashi.restaurant.service;
 
 import java.math.BigDecimal;
+import java.time.DayOfWeek;
 import java.time.LocalDate;
 import java.time.LocalTime;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
+import java.util.Objects;
+import java.util.Set;
+import java.util.stream.Collectors;
+import java.util.stream.IntStream;
+import org.sopt.hashi.restaurant.AdminRestaurantCommand;
+import org.sopt.hashi.restaurant.AdminRestaurantCommand.BusinessHourCommand;
+import org.sopt.hashi.restaurant.AdminRestaurantCommand.MenuCommand;
+import org.sopt.hashi.restaurant.AdminRestaurantInfo;
+import org.sopt.hashi.restaurant.AdminRestaurantInfo.AdminRestaurantBusinessHourInfo;
+import org.sopt.hashi.restaurant.AdminRestaurantInfo.AdminRestaurantMenuInfo;
 import org.sopt.hashi.restaurant.code.RestaurantErrorCode;
 import org.sopt.hashi.restaurant.domain.Restaurant;
+import org.sopt.hashi.restaurant.domain.RestaurantCurationType;
 import org.sopt.hashi.restaurant.domain.RestaurantBusinessHour;
 import org.sopt.hashi.restaurant.domain.RestaurantCursor;
 import org.sopt.hashi.restaurant.domain.RestaurantGenre;
@@ -213,6 +225,76 @@ public class RestaurantService {
         );
     }
 
+    /** 어드민 식당 등록 — 필수 값 형식 검증은 admin 요청 DTO가, 도메인 값 해석·저장은 여기가 담당한다. */
+    @Transactional
+    public AdminRestaurantInfo createByAdmin(AdminRestaurantCommand command) {
+        validateRequiredForCreate(command);
+
+        Restaurant restaurant = Restaurant.create(
+                command.name(),
+                command.localName(),
+                command.description(),
+                command.storeDescription(),
+                command.address(),
+                command.area(),
+                toGenre(command.genre()),
+                command.thumbnailKey(),
+                command.reservationFee(),
+                command.currency(),
+                command.minPrice(),
+                command.maxPrice());
+        restaurant.replaceImages(toImages(command.imageKeys()));
+        restaurant.replaceMenus(toMenus(command.menus()));
+        restaurant.replaceCurationTypes(toCurationTypes(command.curationTypes()));
+        restaurant.replaceBusinessHours(toBusinessHours(command.businessHours()));
+        validatePriceRange(restaurant);
+
+        return toAdminInfo(restaurantRepository.save(restaurant));
+    }
+
+    /** 어드민 식당 수정 — 부분 수정(PATCH). null 필드는 유지하고, 컬렉션은 전체 교체한다. */
+    @Transactional
+    public AdminRestaurantInfo updateByAdmin(Long restaurantId, AdminRestaurantCommand command) {
+        Restaurant restaurant = findRestaurantForAdmin(restaurantId);
+
+        restaurant.updateBasicInfo(
+                command.name(),
+                command.localName(),
+                command.description(),
+                command.storeDescription(),
+                command.address(),
+                command.area(),
+                command.genre() == null ? null : toGenre(command.genre()),
+                command.thumbnailKey(),
+                command.reservationFee(),
+                command.currency(),
+                command.minPrice(),
+                command.maxPrice());
+        validatePriceRange(restaurant);
+
+        if (command.imageKeys() != null) {
+            replaceImagesWithFlush(restaurant, command.imageKeys());
+        }
+        if (command.menus() != null) {
+            restaurant.replaceMenus(toMenus(command.menus()));
+        }
+        if (command.curationTypes() != null) {
+            restaurant.replaceCurationTypes(toCurationTypes(command.curationTypes()));
+        }
+        if (command.businessHours() != null) {
+            replaceBusinessHoursWithFlush(restaurant, command.businessHours());
+        }
+
+        return toAdminInfo(restaurant);
+    }
+
+    /** 어드민 식당 삭제 — soft delete(active=false). 예약·리뷰가 참조하는 데이터는 보존한다. */
+    @Transactional
+    public void deleteByAdmin(Long restaurantId) {
+        Restaurant restaurant = findRestaurantForAdmin(restaurantId);
+        restaurant.deactivate();
+    }
+
     private RestaurantGenre parseGenre(String value) {
         if (value == null || value.isBlank() || "all".equals(value)) {
             return null;
@@ -322,6 +404,159 @@ public class RestaurantService {
                 toWholeAmount(menu.getPrice()),
                 menu.isRepresentative()
         );
+    }
+
+    private Restaurant findRestaurantForAdmin(Long restaurantId) {
+        return restaurantRepository.findById(restaurantId)
+                .orElseThrow(() -> new BusinessException(RestaurantErrorCode.NOT_FOUND));
+    }
+
+    private void validateRequiredForCreate(AdminRestaurantCommand command) {
+        boolean missingRequired = command.name() == null || command.address() == null
+                || command.genre() == null || command.reservationFee() == null || command.currency() == null;
+        if (missingRequired) {
+            throw new BusinessException(CommonErrorCode.INVALID_INPUT);
+        }
+    }
+
+    private void validatePriceRange(Restaurant restaurant) {
+        BigDecimal minPrice = restaurant.getMinPrice();
+        BigDecimal maxPrice = restaurant.getMaxPrice();
+        boolean invalidRange = minPrice != null && maxPrice != null && minPrice.compareTo(maxPrice) > 0;
+        if (invalidRange) {
+            throw new BusinessException(CommonErrorCode.INVALID_INPUT);
+        }
+    }
+
+    // (restaurant_id, display_order) 유니크 제약이 있어, Hibernate가 delete보다 insert를 먼저 실행하면
+    // 같은 순서 값끼리 충돌한다. 기존 이미지를 비워 flush로 delete를 먼저 내보낸 뒤 새 이미지를 넣는다.
+    private void replaceImagesWithFlush(Restaurant restaurant, List<String> imageKeys) {
+        restaurant.replaceImages(List.of());
+        restaurantRepository.flush();
+        restaurant.replaceImages(toImages(imageKeys));
+    }
+
+    // (restaurant_id, day_of_week) 유니크 제약도 이미지와 동일한 insert-before-delete 충돌이 있어 같은 방식으로 교체한다.
+    private void replaceBusinessHoursWithFlush(Restaurant restaurant, List<BusinessHourCommand> businessHours) {
+        restaurant.replaceBusinessHours(List.of());
+        restaurantRepository.flush();
+        restaurant.replaceBusinessHours(toBusinessHours(businessHours));
+    }
+
+    private RestaurantGenre toGenre(String value) {
+        return RestaurantGenre.from(value)
+                .orElseThrow(() -> new BusinessException(RestaurantErrorCode.UNSUPPORTED_GENRE));
+    }
+
+    private List<RestaurantImage> toImages(List<String> imageKeys) {
+        if (imageKeys == null) {
+            return List.of();
+        }
+        return IntStream.range(0, imageKeys.size())
+                .mapToObj(index -> RestaurantImage.create(imageKeys.get(index), index + 1))
+                .toList();
+    }
+
+    private List<RestaurantMenu> toMenus(List<MenuCommand> menus) {
+        if (menus == null) {
+            return List.of();
+        }
+        return menus.stream()
+                .map(menu -> RestaurantMenu.create(menu.name(), menu.description(), menu.imageKey(),
+                        menu.currency(), menu.price(), menu.representative()))
+                .toList();
+    }
+
+    private List<RestaurantBusinessHour> toBusinessHours(List<BusinessHourCommand> businessHours) {
+        validateBusinessHourCoverage(businessHours);
+        try {
+            return businessHours.stream()
+                    .map(hour -> RestaurantBusinessHour.create(hour.dayOfWeek(), hour.openTime(),
+                            hour.closeTime(), hour.lastOrderTime(), hour.closed()))
+                    .toList();
+        } catch (IllegalArgumentException exception) {
+            throw new BusinessException(RestaurantErrorCode.INVALID_BUSINESS_HOURS, exception);
+        }
+    }
+
+    // 요일별 유니크 제약(uk_restaurant_business_hour_day)과 매장정보 노출 스펙(요일 전체 응답)을 만족하려면
+    // 7개 요일이 정확히 한 번씩 있어야 한다.
+    private void validateBusinessHourCoverage(List<BusinessHourCommand> businessHours) {
+        if (businessHours == null) {
+            throw new BusinessException(RestaurantErrorCode.INVALID_BUSINESS_HOURS);
+        }
+        Set<DayOfWeek> days = businessHours.stream()
+                .map(BusinessHourCommand::dayOfWeek)
+                .filter(Objects::nonNull)
+                .collect(Collectors.toSet());
+        boolean coversAllDaysOnce = businessHours.size() == DayOfWeek.values().length
+                && days.size() == DayOfWeek.values().length;
+        if (!coversAllDaysOnce) {
+            throw new BusinessException(RestaurantErrorCode.INVALID_BUSINESS_HOURS);
+        }
+    }
+
+    private List<RestaurantCurationType> toCurationTypes(List<String> values) {
+        if (values == null) {
+            return List.of();
+        }
+        return values.stream()
+                .map(value -> RestaurantCurationType.from(value)
+                        .orElseThrow(() -> new BusinessException(RestaurantErrorCode.UNSUPPORTED_CURATION_TYPE)))
+                .toList();
+    }
+
+    private AdminRestaurantInfo toAdminInfo(Restaurant restaurant) {
+        return new AdminRestaurantInfo(
+                restaurant.getId(),
+                restaurant.getName(),
+                restaurant.getLocalName(),
+                restaurant.getDescription(),
+                restaurant.getStoreDescription(),
+                restaurant.getAddress(),
+                restaurant.getArea(),
+                restaurant.getGenre().value(),
+                fileStorage.resolveFileUrl(restaurant.getThumbnailFileKey()),
+                restaurant.getReservationFee(),
+                restaurant.getCurrency(),
+                restaurant.getMinPrice(),
+                restaurant.getMaxPrice(),
+                restaurant.isActive(),
+                restaurant.getImages().stream()
+                        .map(RestaurantImage::getFileKey)
+                        .map(fileStorage::resolveFileUrl)
+                        .toList(),
+                restaurant.getMenus().stream()
+                        .map(this::toAdminMenuInfo)
+                        .toList(),
+                restaurant.getCurationTypes().stream()
+                        .map(RestaurantCurationType::value)
+                        .toList(),
+                restaurant.getBusinessHours().stream()
+                        .sorted(Comparator.comparing(hour -> hour.getDayOfWeek().getValue()))
+                        .map(this::toAdminBusinessHourInfo)
+                        .toList(),
+                restaurant.getCreatedAt());
+    }
+
+    private AdminRestaurantBusinessHourInfo toAdminBusinessHourInfo(RestaurantBusinessHour businessHour) {
+        return new AdminRestaurantBusinessHourInfo(
+                businessHour.getDayOfWeek().name(),
+                formatTime(businessHour.getOpenTime()),
+                formatTime(businessHour.getCloseTime()),
+                formatTime(businessHour.getLastOrderTime()),
+                businessHour.isClosed());
+    }
+
+    private AdminRestaurantMenuInfo toAdminMenuInfo(RestaurantMenu menu) {
+        return new AdminRestaurantMenuInfo(
+                menu.getId(),
+                menu.getName(),
+                menu.getDescription(),
+                fileStorage.resolveFileUrl(menu.getImageFileKey()),
+                menu.getCurrency(),
+                menu.getPrice(),
+                menu.isRepresentative());
     }
 
     private String formatDate(LocalDate date) {

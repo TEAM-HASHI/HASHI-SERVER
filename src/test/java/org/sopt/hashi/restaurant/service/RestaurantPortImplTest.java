@@ -28,13 +28,16 @@ class RestaurantPortImplTest {
     private RestaurantRepository restaurantRepository;
 
     @Mock
+    private RestaurantService restaurantService;
+
+    @Mock
     private FileStorage fileStorage;
 
     private RestaurantPortImpl restaurantPort;
 
     @BeforeEach
     void setUp() {
-        restaurantPort = new RestaurantPortImpl(restaurantRepository, fileStorage);
+        restaurantPort = new RestaurantPortImpl(restaurantRepository, restaurantService, fileStorage);
     }
 
     @Test
