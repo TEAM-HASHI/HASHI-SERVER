@@ -12,8 +12,8 @@ import java.util.List;
 
 /**
  * 어드민 식당 부분 수정(PATCH) 요청 — null 필드는 변경하지 않는다(값 비우기 불가).
- * 컬렉션(imageKeys·menus·curationTypes·businessHours)은 전체 교체 의미다 — null이면 유지, 빈 배열이면
- * 비운다. 단 businessHours는 보낼 경우 7개 요일을 중복 없이 모두 포함해야 한다.
+ * 컬렉션은 전체 교체 의미다. null이면 유지하며, imageKeys·hashtags는 최소 1개를 유지해야 한다.
+ * businessHours는 보낼 경우 7개 요일을 중복 없이 모두 포함해야 한다.
  */
 public record UpdateRestaurantRequest(
         @Size(max = 100, message = "식당명은 100자 이내입니다") String name,
@@ -31,6 +31,7 @@ public record UpdateRestaurantRequest(
         List<@NotBlank(message = "이미지 키는 비어 있을 수 없습니다")
         @Size(max = 500, message = "이미지 키는 500자 이내입니다") String> imageKeys,
         List<@NotNull(message = "메뉴 항목은 null일 수 없습니다") @Valid MenuRequest> menus,
+        @Size(min = 1, message = "해시태그는 최소 1개 이상 필요합니다")
         List<@NotBlank(message = "해시태그는 비어 있을 수 없습니다")
         @Size(max = 20, message = "해시태그는 20자 이내입니다") String> hashtags,
         List<@NotBlank(message = "큐레이션 유형은 비어 있을 수 없습니다") String> curationTypes,
