@@ -44,7 +44,7 @@ public class AdminRestaurantController {
                 adminRestaurantService.create(request));
     }
 
-    /** 식당 수정 — 부분 수정(PATCH). 보낸 필드만 변경되고, 컬렉션(이미지·메뉴·큐레이션)은 전체 교체된다. */
+    /** 식당 수정 — 부분 수정(PATCH). 보낸 필드만 변경되고, 컬렉션은 전체 교체된다. */
     @ApiException(value = CommonErrorCode.class, codes = {"INVALID_INPUT", "UNAUTHORIZED", "FORBIDDEN"})
     @PatchMapping("/{restaurantId}")
     public SuccessResponse<AdminRestaurantResponse> update(
