@@ -7,19 +7,35 @@ CREATE TEMPORARY TABLE v8_restaurant_schema_guard (
 -- Narrowing columns must fail before any DDL when legacy data does not fit the new contract.
 INSERT INTO v8_restaurant_schema_guard (violation, valid)
 SELECT 'restaurant.area exceeds 20 characters', 0
-WHERE EXISTS (SELECT 1 FROM restaurant WHERE CHAR_LENGTH(area) > 20);
+WHERE EXISTS (
+    SELECT 1
+    FROM restaurant
+    WHERE CHAR_LENGTH(area) > 20
+);
 
 INSERT INTO v8_restaurant_schema_guard (violation, valid)
 SELECT 'restaurant.description exceeds summary limit', 0
-WHERE EXISTS (SELECT 1 FROM restaurant WHERE CHAR_LENGTH(description) > 100);
+WHERE EXISTS (
+    SELECT 1
+    FROM restaurant
+    WHERE CHAR_LENGTH(description) > 100
+);
 
 INSERT INTO v8_restaurant_schema_guard (violation, valid)
 SELECT 'restaurant.store_description exceeds 500 characters', 0
-WHERE EXISTS (SELECT 1 FROM restaurant WHERE CHAR_LENGTH(store_description) > 500);
+WHERE EXISTS (
+    SELECT 1
+    FROM restaurant
+    WHERE CHAR_LENGTH(store_description) > 500
+);
 
 INSERT INTO v8_restaurant_schema_guard (violation, valid)
 SELECT 'restaurant.genre exceeds 20 characters', 0
-WHERE EXISTS (SELECT 1 FROM restaurant WHERE CHAR_LENGTH(genre) > 20);
+WHERE EXISTS (
+    SELECT 1
+    FROM restaurant
+    WHERE CHAR_LENGTH(genre) > 20
+);
 
 INSERT INTO v8_restaurant_schema_guard (violation, valid)
 SELECT 'restaurant currency is unsupported', 0
@@ -49,11 +65,19 @@ WHERE EXISTS (
 
 INSERT INTO v8_restaurant_schema_guard (violation, valid)
 SELECT 'restaurant tag exceeds 20 characters', 0
-WHERE EXISTS (SELECT 1 FROM restaurant_tag WHERE CHAR_LENGTH(tag) > 20);
+WHERE EXISTS (
+    SELECT 1
+    FROM restaurant_tag
+    WHERE CHAR_LENGTH(tag) > 20
+);
 
 INSERT INTO v8_restaurant_schema_guard (violation, valid)
 SELECT 'restaurant image display_order must be positive', 0
-WHERE EXISTS (SELECT 1 FROM restaurant_image WHERE display_order <= 0);
+WHERE EXISTS (
+    SELECT 1
+    FROM restaurant_image
+    WHERE display_order <= 0
+);
 
 DROP TEMPORARY TABLE v8_restaurant_schema_guard;
 
