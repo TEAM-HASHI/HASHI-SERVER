@@ -107,6 +107,34 @@ class RestaurantServiceTest {
     }
 
     @Test
+    void 어드민_식당_수정에서_이미지를_빈_목록으로_교체할_수_없다() {
+        RestaurantService restaurantService = new RestaurantService(restaurantRepository, fileStorage);
+        AdminRestaurantCommand command = new AdminRestaurantCommand(
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                List.of(),
+                null,
+                null,
+                null,
+                null
+        );
+
+        assertThatThrownBy(() -> restaurantService.updateByAdmin(1L, command))
+                .isInstanceOfSatisfying(BusinessException.class, exception ->
+                        assertThat(exception.getErrorCode()).isEqualTo(CommonErrorCode.INVALID_INPUT));
+        verifyNoInteractions(restaurantRepository);
+    }
+
+    @Test
     void 기본값으로_식당_목록을_조회하고_다음_커서를_반환한다() {
         RestaurantService restaurantService = new RestaurantService(restaurantRepository, fileStorage);
         List<Restaurant> restaurants = LongStream.rangeClosed(1, 11)
