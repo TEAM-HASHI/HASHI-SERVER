@@ -22,6 +22,7 @@ import org.mockito.ArgumentCaptor;
 import org.mockito.ArgumentMatchers;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.sopt.hashi.restaurant.AdminRestaurantCommand;
 import org.sopt.hashi.restaurant.code.RestaurantErrorCode;
 import org.sopt.hashi.restaurant.domain.PriceCurrency;
 import org.sopt.hashi.restaurant.domain.Restaurant;
@@ -55,6 +56,55 @@ class RestaurantServiceTest {
 
     @Mock
     private FileStorage fileStorage;
+
+    @Test
+    void 어드민_식당_등록에서_이미지나_해시태그가_비어있으면_거부한다() {
+        RestaurantService restaurantService = new RestaurantService(restaurantRepository, fileStorage);
+        AdminRestaurantCommand emptyHashtagCommand = createAdminCommand(
+                List.of("restaurants/1/thumbnail.jpg"),
+                List.of()
+        );
+        AdminRestaurantCommand emptyImageCommand = createAdminCommand(
+                List.of(),
+                List.of("스시")
+        );
+
+        assertThatThrownBy(() -> restaurantService.createByAdmin(emptyHashtagCommand))
+                .isInstanceOfSatisfying(BusinessException.class, exception ->
+                        assertThat(exception.getErrorCode()).isEqualTo(CommonErrorCode.INVALID_INPUT));
+        assertThatThrownBy(() -> restaurantService.createByAdmin(emptyImageCommand))
+                .isInstanceOfSatisfying(BusinessException.class, exception ->
+                        assertThat(exception.getErrorCode()).isEqualTo(CommonErrorCode.INVALID_INPUT));
+        verifyNoInteractions(restaurantRepository);
+    }
+
+    @Test
+    void 어드민_식당_수정에서_해시태그를_빈_목록으로_교체할_수_없다() {
+        RestaurantService restaurantService = new RestaurantService(restaurantRepository, fileStorage);
+        AdminRestaurantCommand command = new AdminRestaurantCommand(
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                List.of(),
+                null,
+                null
+        );
+
+        assertThatThrownBy(() -> restaurantService.updateByAdmin(1L, command))
+                .isInstanceOfSatisfying(BusinessException.class, exception ->
+                        assertThat(exception.getErrorCode()).isEqualTo(CommonErrorCode.INVALID_INPUT));
+        verifyNoInteractions(restaurantRepository);
+    }
 
     @Test
     void 기본값으로_식당_목록을_조회하고_다음_커서를_반환한다() {
@@ -491,6 +541,30 @@ class RestaurantServiceTest {
         ReflectionTestUtils.setField(restaurant, "rating", BigDecimal.valueOf(rating));
         ReflectionTestUtils.setField(restaurant, "reviewCount", reviewCount);
         return restaurant;
+    }
+
+    private AdminRestaurantCommand createAdminCommand(
+            List<String> imageKeys,
+            List<String> hashtags
+    ) {
+        return new AdminRestaurantCommand(
+                "히마와리 스시",
+                "Himawari Sushi",
+                "식당 소개",
+                "매장 상세 설명",
+                "도쿄도 신주쿠구",
+                "도쿄",
+                "sushi",
+                "sushi",
+                "JPY",
+                BigDecimal.valueOf(1000),
+                BigDecimal.valueOf(3000),
+                imageKeys,
+                List.of(),
+                hashtags,
+                List.of(),
+                null
+        );
     }
 
     private RestaurantMenu createMenu(Long id, String name, boolean representative) {
