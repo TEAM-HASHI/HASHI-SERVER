@@ -36,10 +36,13 @@ public record CreateRestaurantRequest(
         @PositiveOrZero(message = "최소 가격은 0 이상입니다") BigDecimal minPrice,
         @NotNull(message = "최대 가격은 필수입니다")
         @PositiveOrZero(message = "최대 가격은 0 이상입니다") BigDecimal maxPrice,
+        @NotNull(message = "식당 이미지는 필수입니다")
         @Size(min = 1, message = "식당 이미지는 최소 1개 이상 필요합니다")
         List<@NotBlank(message = "이미지 키는 비어 있을 수 없습니다")
         @Size(max = 500, message = "이미지 키는 500자 이내입니다") String> imageKeys,
         List<@NotNull(message = "메뉴 항목은 null일 수 없습니다") @Valid MenuRequest> menus,
+        @NotNull(message = "해시태그는 필수입니다")
+        @Size(min = 1, message = "해시태그는 최소 1개 이상 필요합니다")
         List<@NotBlank(message = "해시태그는 비어 있을 수 없습니다")
         @Size(max = 20, message = "해시태그는 20자 이내입니다") String> hashtags,
         List<@NotBlank(message = "큐레이션 유형은 비어 있을 수 없습니다") String> curationTypes,
