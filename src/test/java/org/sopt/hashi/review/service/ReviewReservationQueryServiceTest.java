@@ -236,6 +236,38 @@ class ReviewReservationQueryServiceTest {
         assertThat(item.earnedPoint()).isEqualTo(500L);
     }
 
+    @Test
+    void 커서_예약의_리뷰_상태가_바뀌어도_다음_작성완료_예약을_조회한다() {
+        List<ReservationReviewInfo> reservations = List.of(
+                reservation(103L, 13L, 23, ReservationStatus.VISITED),
+                reservation(102L, 12L, 22, ReservationStatus.VISITED),
+                reservation(101L, 11L, 21, ReservationStatus.VISITED)
+        );
+        Review review103 = review(53L, 103L, 13L, 5);
+        Review deletedReview102 = review(52L, 102L, 12L, 4);
+        deletedReview102.softDelete();
+        Review review101 = review(51L, 101L, 11L, 3);
+
+        given(currentUserProvider.currentUserId()).willReturn(USER_ID);
+        given(reservationPort.findVisitedReviewInfos(USER_ID)).willReturn(reservations);
+        given(reviewRepository.findByReservationIdIn(List.of(103L, 102L, 101L)))
+                .willReturn(List.of(review103, deletedReview102, review101));
+        given(restaurantPort.findSummaries(List.of(11L)))
+                .willReturn(List.of(restaurant(11L, "스시 하루")));
+        given(pointPort.findEarnedAmounts(PointSourceType.REVIEW, List.of(101L)))
+                .willReturn(Map.of(101L, 500L));
+
+        VisitedReservationListResponse response = reviewReservationQueryService
+                .getVisitedReservations("reviewed", null, "latest", 102L, 10);
+
+        assertThat(response.totalCount()).isEqualTo(2L);
+        assertThat(response.content())
+                .extracting(VisitedReservationListResponse.VisitedReservationResponse::reservationId)
+                .containsExactly(101L);
+        assertThat(response.hasNext()).isFalse();
+        assertThat(response.nextCursor()).isNull();
+    }
+
     private ReservationReviewInfo reservation(
             Long reservationId,
             Long restaurantId,

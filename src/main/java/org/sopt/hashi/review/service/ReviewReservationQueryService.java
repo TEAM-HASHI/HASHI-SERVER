@@ -108,17 +108,21 @@ public class ReviewReservationQueryService {
         }
 
         Map<Long, Review> reviewByReservationId = findReviewsByReservationId(candidates);
-        List<ReservationReviewInfo> filteredReservations = candidates.stream()
+        List<ReservationReviewInfo> sortedCandidates = candidates.stream()
+                .sorted(comparator(sort))
+                .toList();
+        long totalCount = sortedCandidates.stream()
                 .filter(reservation -> matchesReviewStatus(
                         reviewStatus,
                         reservation,
                         reviewByReservationId.get(reservation.id())))
-                .sorted(comparator(sort))
-                .toList();
-
-        long totalCount = filteredReservations.size();
-        List<ReservationReviewInfo> cursorApplied = applyCursor(filteredReservations, cursor);
+                .count();
+        List<ReservationReviewInfo> cursorApplied = applyCursor(sortedCandidates, cursor);
         List<ReservationReviewInfo> page = cursorApplied.stream()
+                .filter(reservation -> matchesReviewStatus(
+                        reviewStatus,
+                        reservation,
+                        reviewByReservationId.get(reservation.id())))
                 .limit((long) pageSize + 1)
                 .toList();
         boolean hasNext = page.size() > pageSize;
