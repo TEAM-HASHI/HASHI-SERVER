@@ -72,6 +72,15 @@ WHERE EXISTS (
 );
 
 INSERT INTO v8_restaurant_schema_guard (violation, valid)
+SELECT 'restaurant must have at least one hashtag', 0
+WHERE EXISTS (
+    SELECT 1
+    FROM restaurant r
+    LEFT JOIN restaurant_tag rt ON rt.restaurant_id = r.id
+    WHERE rt.restaurant_id IS NULL
+);
+
+INSERT INTO v8_restaurant_schema_guard (violation, valid)
 SELECT 'restaurant image display_order must be positive', 0
 WHERE EXISTS (
     SELECT 1
