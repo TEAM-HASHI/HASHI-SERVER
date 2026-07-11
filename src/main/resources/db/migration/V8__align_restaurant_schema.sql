@@ -1,3 +1,82 @@
+CREATE TEMPORARY TABLE v8_restaurant_schema_guard (
+    violation VARCHAR(100) NOT NULL,
+    valid TINYINT NOT NULL,
+    CONSTRAINT chk_v8_restaurant_schema_guard CHECK (valid = 1)
+);
+
+-- Narrowing columns must fail before any DDL when legacy data does not fit the new contract.
+INSERT INTO v8_restaurant_schema_guard (violation, valid)
+SELECT 'restaurant.area exceeds 20 characters', 0
+WHERE EXISTS (SELECT 1 FROM restaurant WHERE CHAR_LENGTH(area) > 20);
+
+INSERT INTO v8_restaurant_schema_guard (violation, valid)
+SELECT 'restaurant.description exceeds summary limit', 0
+WHERE EXISTS (SELECT 1 FROM restaurant WHERE CHAR_LENGTH(description) > 100);
+
+INSERT INTO v8_restaurant_schema_guard (violation, valid)
+SELECT 'restaurant.store_description exceeds 500 characters', 0
+WHERE EXISTS (SELECT 1 FROM restaurant WHERE CHAR_LENGTH(store_description) > 500);
+
+INSERT INTO v8_restaurant_schema_guard (violation, valid)
+SELECT 'restaurant.genre exceeds 20 characters', 0
+WHERE EXISTS (SELECT 1 FROM restaurant WHERE CHAR_LENGTH(genre) > 20);
+
+INSERT INTO v8_restaurant_schema_guard (violation, valid)
+SELECT 'restaurant currency is unsupported', 0
+WHERE EXISTS (
+    SELECT 1
+    FROM restaurant
+    WHERE UPPER(TRIM(currency)) NOT IN ('JPY', 'KRW', 'USD')
+);
+
+INSERT INTO v8_restaurant_schema_guard (violation, valid)
+SELECT 'restaurant_menu currency is unsupported', 0
+WHERE EXISTS (
+    SELECT 1
+    FROM restaurant_menu
+    WHERE UPPER(TRIM(currency)) NOT IN ('JPY', 'KRW', 'USD')
+);
+
+INSERT INTO v8_restaurant_schema_guard (violation, valid)
+SELECT 'restaurant price range is invalid', 0
+WHERE EXISTS (
+    SELECT 1
+    FROM restaurant
+    WHERE min_price < 0
+       OR max_price < 0
+       OR (min_price IS NOT NULL AND max_price IS NOT NULL AND min_price > max_price)
+);
+
+INSERT INTO v8_restaurant_schema_guard (violation, valid)
+SELECT 'restaurant tag exceeds 20 characters', 0
+WHERE EXISTS (SELECT 1 FROM restaurant_tag WHERE CHAR_LENGTH(tag) > 20);
+
+INSERT INTO v8_restaurant_schema_guard (violation, valid)
+SELECT 'restaurant image display_order must be positive', 0
+WHERE EXISTS (SELECT 1 FROM restaurant_image WHERE display_order <= 0);
+
+DROP TEMPORARY TABLE v8_restaurant_schema_guard;
+
+-- Preserve the legacy thumbnail as display_order=1 even when detail images already exist.
+UPDATE restaurant_image ri
+JOIN restaurant r ON r.id = ri.restaurant_id
+SET ri.display_order = -ri.display_order
+WHERE r.thumbnail_file_key IS NOT NULL
+  AND r.thumbnail_file_key <> '';
+
+UPDATE restaurant_image ri
+JOIN restaurant r ON r.id = ri.restaurant_id
+LEFT JOIN restaurant_image earlier
+    ON earlier.restaurant_id = ri.restaurant_id
+   AND earlier.file_key = ri.file_key
+   AND earlier.id < ri.id
+SET ri.display_order = 1
+WHERE r.thumbnail_file_key IS NOT NULL
+  AND r.thumbnail_file_key <> ''
+  AND ri.file_key = r.thumbnail_file_key
+  AND ri.display_order < 0
+  AND earlier.id IS NULL;
+
 INSERT INTO restaurant_image (restaurant_id, created_at, updated_at, file_key, display_order)
 SELECT r.id,
        COALESCE(r.created_at, CURRENT_TIMESTAMP(6)),
@@ -11,7 +90,15 @@ WHERE r.thumbnail_file_key IS NOT NULL
       SELECT 1
       FROM restaurant_image ri
       WHERE ri.restaurant_id = r.id
+        AND ri.file_key = r.thumbnail_file_key
   );
+
+UPDATE restaurant_image ri
+JOIN restaurant r ON r.id = ri.restaurant_id
+SET ri.display_order = -ri.display_order + 1
+WHERE r.thumbnail_file_key IS NOT NULL
+  AND r.thumbnail_file_key <> ''
+  AND ri.display_order < 0;
 
 ALTER TABLE restaurant
     RENAME COLUMN description TO summary,
@@ -40,7 +127,7 @@ WHERE description IS NULL OR TRIM(description) = '';
 
 UPDATE restaurant
 SET food_category = genre,
-    price_currency = UPPER(LEFT(price_currency, 3)),
+    price_currency = UPPER(TRIM(price_currency)),
     price_min = COALESCE(price_min, 0),
     price_max = COALESCE(price_max, COALESCE(price_min, 0));
 
@@ -97,8 +184,8 @@ ALTER TABLE restaurant_hashtag
     MODIFY COLUMN hashtag VARCHAR(20) NOT NULL;
 
 UPDATE restaurant_menu
-SET description = ''
-WHERE description IS NULL;
+SET description = COALESCE(description, ''),
+    currency = UPPER(TRIM(currency));
 
 ALTER TABLE restaurant_menu
     RENAME COLUMN image_file_key TO image_key,
