@@ -8,7 +8,11 @@ CREATE TEMPORARY TABLE v9_review_schema_guard (
 
 INSERT INTO v9_review_schema_guard (violation, valid)
 SELECT 'review.reservation_id contains null', 0
-WHERE EXISTS (SELECT 1 FROM review WHERE reservation_id IS NULL);
+WHERE EXISTS (
+    SELECT 1
+    FROM review
+    WHERE reservation_id IS NULL
+);
 
 INSERT INTO v9_review_schema_guard (violation, valid)
 SELECT 'review.reservation_id contains duplicates', 0
@@ -21,7 +25,11 @@ WHERE EXISTS (
 
 INSERT INTO v9_review_schema_guard (violation, valid)
 SELECT 'review_keyword.keyword exceeds 30 characters', 0
-WHERE EXISTS (SELECT 1 FROM review_keyword WHERE CHAR_LENGTH(keyword) > 30);
+WHERE EXISTS (
+    SELECT 1
+    FROM review_keyword
+    WHERE CHAR_LENGTH(keyword) > 30
+);
 
 INSERT INTO v9_review_schema_guard (violation, valid)
 SELECT 'review_keyword.display_order is invalid', 0
