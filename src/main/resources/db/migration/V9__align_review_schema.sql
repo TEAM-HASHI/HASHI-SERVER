@@ -1,5 +1,58 @@
 -- Precondition: every review must have a reservation_id and each reservation must have at most one review.
 -- Resolve inconsistent legacy rows before applying this migration instead of deleting or guessing data here.
+CREATE TEMPORARY TABLE v9_review_schema_guard (
+    violation VARCHAR(100) NOT NULL,
+    valid TINYINT NOT NULL,
+    CONSTRAINT chk_v9_review_schema_guard CHECK (valid = 1)
+);
+
+INSERT INTO v9_review_schema_guard (violation, valid)
+SELECT 'review.reservation_id contains null', 0
+WHERE EXISTS (SELECT 1 FROM review WHERE reservation_id IS NULL);
+
+INSERT INTO v9_review_schema_guard (violation, valid)
+SELECT 'review.reservation_id contains duplicates', 0
+WHERE EXISTS (
+    SELECT 1
+    FROM review
+    GROUP BY reservation_id
+    HAVING COUNT(*) > 1
+);
+
+INSERT INTO v9_review_schema_guard (violation, valid)
+SELECT 'review_keyword.keyword exceeds 30 characters', 0
+WHERE EXISTS (SELECT 1 FROM review_keyword WHERE CHAR_LENGTH(keyword) > 30);
+
+INSERT INTO v9_review_schema_guard (violation, valid)
+SELECT 'review_keyword.display_order is invalid', 0
+WHERE EXISTS (
+    SELECT 1
+    FROM review_keyword
+    GROUP BY review_id
+    HAVING MIN(display_order) <> 0
+        OR MAX(display_order) <> COUNT(*) - 1
+        OR MAX(display_order) > 2
+);
+
+INSERT INTO v9_review_schema_guard (violation, valid)
+SELECT 'review_image.display_order is invalid', 0
+WHERE EXISTS (
+    SELECT 1
+    FROM review_image
+    WHERE display_order < 0 OR display_order > 9
+);
+
+INSERT INTO v9_review_schema_guard (violation, valid)
+SELECT 'review_image.display_order contains duplicates', 0
+WHERE EXISTS (
+    SELECT 1
+    FROM review_image
+    GROUP BY review_id, display_order
+    HAVING COUNT(*) > 1
+);
+
+DROP TEMPORARY TABLE v9_review_schema_guard;
+
 ALTER TABLE review
     DROP INDEX uk_review_active_reservation_id,
     DROP COLUMN active_reservation_id,
