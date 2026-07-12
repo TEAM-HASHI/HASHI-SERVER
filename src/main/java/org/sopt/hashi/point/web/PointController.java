@@ -10,10 +10,7 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
-/**
- * 포인트(points) 리소스 컨트롤러. 사용자 본인의 잔액 조회를 다룬다(사용자는 인증 컨텍스트에서 판단).
- * 적립·차감·복원은 API가 아니라 각 도메인(예약·리뷰)이 PointPort로 호출한다.
- */
+/** 포인트 조회 API. */
 @RestController
 @RequestMapping("/api/v1/points")
 public class PointController {
@@ -24,7 +21,7 @@ public class PointController {
         this.pointService = pointService;
     }
 
-    /** 내 잔여 포인트 조회. */
+    /** 내 잔여 포인트 조회 — 이력 없으면 0. */
     @ApiException(value = CommonErrorCode.class, codes = {"UNAUTHORIZED"})
     @GetMapping("/me")
     public SuccessResponse<PointBalanceResponse> getMyBalance() {

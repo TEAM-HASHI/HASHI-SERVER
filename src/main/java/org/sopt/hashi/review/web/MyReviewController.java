@@ -20,6 +20,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
+/** 내 리뷰 조회·삭제 API. */
 @Validated
 @RestController
 @RequestMapping("/api/v1/reviews")
@@ -31,6 +32,7 @@ public class MyReviewController {
         this.myReviewService = myReviewService;
     }
 
+    /** 내 리뷰 목록 조회(커서 페이지네이션). */
     @ApiException(value = CommonErrorCode.class, codes = {"INVALID_INPUT", "UNAUTHORIZED"})
     @GetMapping("/me")
     public SuccessResponse<MyReviewListResponse> getMyReviews(
@@ -40,6 +42,7 @@ public class MyReviewController {
         return SuccessResponse.of(CommonSuccessCode.OK, myReviewService.getMyReviews(cursor, size));
     }
 
+    /** 내 리뷰 상세 조회 — 본인 소유가 아니면 404. */
     @ApiException(value = CommonErrorCode.class, codes = {"UNAUTHORIZED"})
     @ApiException(value = ReviewErrorCode.class, codes = {"NOT_FOUND", "RESTAURANT_NOT_FOUND"})
     @GetMapping("/me/{reviewId}")
@@ -47,12 +50,14 @@ public class MyReviewController {
         return SuccessResponse.of(CommonSuccessCode.OK, myReviewService.getMyReview(reviewId));
     }
 
+    /** 내 리뷰 개수 조회. */
     @ApiException(value = CommonErrorCode.class, codes = {"UNAUTHORIZED"})
     @GetMapping("/me/count")
     public SuccessResponse<MyReviewCountResponse> getMyReviewCount() {
         return SuccessResponse.of(CommonSuccessCode.OK, myReviewService.getMyReviewCount());
     }
 
+    /** 내 리뷰 삭제 — 본인 소유가 아니면 404. */
     @ApiException(value = CommonErrorCode.class, codes = {"UNAUTHORIZED"})
     @ApiException(value = ReviewErrorCode.class, codes = {"NOT_FOUND"})
     @DeleteMapping("/{reviewId}")

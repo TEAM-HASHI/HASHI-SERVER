@@ -24,6 +24,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
+/** 식당 조회·검색 API. */
 @Validated
 @RestController
 @RequestMapping("/api/v1/restaurants")
@@ -35,6 +36,7 @@ public class RestaurantController {
         this.restaurantService = restaurantService;
     }
 
+    /** 식당 목록 조회 — 키워드·장르·정렬·유형 필터(커서 페이지네이션). */
     @ApiException(value = CommonErrorCode.class, codes = {"INVALID_INPUT", "UNAUTHORIZED"})
     @ApiException(value = RestaurantErrorCode.class,
             codes = {"UNSUPPORTED_GENRE", "UNSUPPORTED_FOOD_CATEGORY", "UNSUPPORTED_SORT",
@@ -53,7 +55,8 @@ public class RestaurantController {
                 restaurantService.getRestaurants(keyword, genre, foodCategory, sort, type, cursor, size));
     }
 
-    @ApiException(value = CommonErrorCode.class, codes = {"INVALID_INPUT", "UNAUTHORIZED"})
+    /** 검색어 자동완성 제안 목록 조회. */
+    @ApiException(value = CommonErrorCode.class, codes = {"INVALID_INPUT"})
     @GetMapping("/search-suggestions")
     public SuccessResponse<RestaurantSearchSuggestionResponse> getSearchSuggestions(
             @NotBlank @RequestParam String keyword,
@@ -63,7 +66,8 @@ public class RestaurantController {
                 restaurantService.getSearchSuggestions(keyword, size));
     }
 
-    @ApiException(value = CommonErrorCode.class, codes = {"INVALID_INPUT", "UNAUTHORIZED"})
+    /** 추천 검색 키워드 목록 조회. */
+    @ApiException(value = CommonErrorCode.class, codes = {"INVALID_INPUT"})
     @GetMapping("/search-keyword-recommendations")
     public SuccessResponse<RestaurantSearchKeywordRecommendationResponse> getSearchKeywordRecommendations(
             @Min(1) @Max(50) @RequestParam(required = false) Integer size
@@ -72,7 +76,8 @@ public class RestaurantController {
                 restaurantService.getSearchKeywordRecommendations(size));
     }
 
-    @ApiException(value = CommonErrorCode.class, codes = {"INVALID_INPUT", "UNAUTHORIZED"})
+    /** 식당 상세 요약 조회. */
+    @ApiException(value = CommonErrorCode.class, codes = {"INVALID_INPUT"})
     @ApiException(value = RestaurantErrorCode.class, codes = {"NOT_FOUND"})
     @GetMapping("/{restaurantId}/summary")
     public SuccessResponse<RestaurantMainResponse> getRestaurantSummary(
@@ -81,7 +86,8 @@ public class RestaurantController {
         return SuccessResponse.of(CommonSuccessCode.OK, restaurantService.getRestaurantSummary(restaurantId));
     }
 
-    @ApiException(value = CommonErrorCode.class, codes = {"INVALID_INPUT", "UNAUTHORIZED"})
+    /** 식당 매장 정보 조회. */
+    @ApiException(value = CommonErrorCode.class, codes = {"INVALID_INPUT"})
     @ApiException(value = RestaurantErrorCode.class, codes = {"NOT_FOUND"})
     @GetMapping("/{restaurantId}/store-information")
     public SuccessResponse<RestaurantStoreInformationResponse> getStoreInformation(
@@ -90,7 +96,8 @@ public class RestaurantController {
         return SuccessResponse.of(CommonSuccessCode.OK, restaurantService.getStoreInformation(restaurantId));
     }
 
-    @ApiException(value = CommonErrorCode.class, codes = {"INVALID_INPUT", "UNAUTHORIZED"})
+    /** 식당 메뉴 목록 조회(커서 페이지네이션). */
+    @ApiException(value = CommonErrorCode.class, codes = {"INVALID_INPUT"})
     @ApiException(value = RestaurantErrorCode.class, codes = {"NOT_FOUND"})
     @GetMapping("/{restaurantId}/menus")
     public SuccessResponse<RestaurantMenuListResponse> getRestaurantMenus(

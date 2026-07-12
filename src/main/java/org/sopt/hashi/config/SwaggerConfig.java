@@ -23,8 +23,8 @@ public class SwaggerConfig {
 
     /**
      * API 메타 정보와 JWT Bearer 인증 스킴(Authorize 버튼)을 정의한다.
-     * 전역 인증 요구는 걸지 않는다 — 인증이 필요한 엔드포인트에만
-     * {@code @SecurityRequirement(name = "bearerAuth")}로 개별 적용한다(공개 API는 자물쇠 미표시).
+     * 전역 인증 요구는 걸지 않는다 — 오퍼레이션별 자물쇠는 auth의 SwaggerAuthorizationCustomizer가
+     * SecurityConfig 공개 경로 규칙과 같은 소스로 자동 부여한다(공개 API는 자물쇠 미표시).
      */
     @Bean
     public OpenAPI openAPI() {
@@ -47,6 +47,12 @@ public class SwaggerConfig {
     @Bean
     public GlobalOperationCustomizer apiExceptionsOperationCustomizer() {
         return new ApiExceptionsOperationCustomizer();
+    }
+
+    /** @ApiSuccess 기반 성공 응답 예시 자동 문서화(어노테이션 없으면 200에 OK 기본). */
+    @Bean
+    public GlobalOperationCustomizer apiSuccessOperationCustomizer() {
+        return new ApiSuccessOperationCustomizer();
     }
 
     /** 사용자 API 문서 그룹(/api/v1/** 중 admin·어드민 인증 제외). */

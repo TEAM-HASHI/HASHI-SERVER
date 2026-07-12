@@ -12,6 +12,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
+/** 매거진 조회 API. */
 @RestController
 @RequestMapping("/api/v1/magazines")
 public class MagazineController {
@@ -22,14 +23,14 @@ public class MagazineController {
         this.magazineService = magazineService;
     }
 
-    /** 매거진 배너 목록 — 최신 5개. 배너 클릭 시 클라이언트가 instagramRedirectUrl로 이동시킨다. */
+    /** 매거진 배너 목록 조회 — 최신 5개. 탭 시 instagramRedirectUrl로 이동. */
     @ApiException(value = CommonErrorCode.class, codes = {"UNAUTHORIZED"})
     @GetMapping("/banners")
     public SuccessResponse<MagazineBannerListResponse> getBanners() {
         return SuccessResponse.of(CommonSuccessCode.OK, magazineService.getBanners());
     }
 
-    /** 매거진 목록(최신순 커서 페이지네이션). ⚠️ 필터링은 MVP 이후 추가 예정. */
+    /** 매거진 목록 조회 — 최신순 커서 페이지네이션. */
     @ApiException(value = CommonErrorCode.class, codes = {"UNAUTHORIZED"})
     @GetMapping
     public SuccessResponse<MagazineListResponse> getMagazines(

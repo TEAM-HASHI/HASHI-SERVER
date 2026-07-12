@@ -17,6 +17,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
+/** 리뷰 작성 흐름의 예약 조회 API. */
 @Validated
 @RestController
 @RequestMapping("/api/v1/reviews")
@@ -30,6 +31,7 @@ public class ReviewReservationQueryController {
         this.reviewReservationQueryService = reviewReservationQueryService;
     }
 
+    /** 리뷰 작성 화면 컨텍스트 조회 — 대상 예약·식당 정보. */
     @ApiException(value = CommonErrorCode.class,
             codes = {"INVALID_INPUT", "UNAUTHORIZED"})
     @ApiException(value = ReviewErrorCode.class, codes = {"RESTAURANT_NOT_FOUND"})
@@ -42,6 +44,7 @@ public class ReviewReservationQueryController {
                 reviewReservationQueryService.getContext(reservationId));
     }
 
+    /** 방문 완료 예약 목록 조회 — 리뷰 작성 여부 필터(커서 페이지네이션). */
     @ApiException(value = CommonErrorCode.class, codes = {"INVALID_INPUT", "UNAUTHORIZED"})
     @ApiException(value = ReviewErrorCode.class,
             codes = {"UNSUPPORTED_STATUS", "UNSUPPORTED_SORT", "RESTAURANT_NOT_FOUND"})
