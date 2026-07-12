@@ -2,6 +2,7 @@ package org.sopt.hashi.upload.service;
 
 import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import org.sopt.hashi.shared.error.BusinessException;
@@ -9,8 +10,9 @@ import org.sopt.hashi.shared.storage.FileStorage;
 import org.sopt.hashi.shared.storage.PresignedUploadInfo;
 import org.sopt.hashi.shared.storage.StorageProperties;
 import org.sopt.hashi.upload.code.UploadErrorCode;
-import org.sopt.hashi.upload.dto.IssuePresignedUrlRequest;
+import org.sopt.hashi.upload.dto.IssuePresignedUrlsRequest;
 import org.sopt.hashi.upload.dto.PresignedUrlResponse;
+import org.sopt.hashi.upload.dto.PresignedUrlsResponse;
 import org.springframework.stereotype.Service;
 
 @Service
@@ -31,19 +33,32 @@ public class UploadService {
         this.storageProperties = storageProperties;
     }
 
-    public PresignedUrlResponse issuePresignedUrl(IssuePresignedUrlRequest request) {
+    public PresignedUrlsResponse issuePresignedUrls(IssuePresignedUrlsRequest request) {
         UploadUsage usage = UploadUsage.from(request.usage())
                 .orElseThrow(() -> new BusinessException(UploadErrorCode.UNSUPPORTED_USAGE));
-        String extension = resolveExtension(request.contentType());
-        validateFileSize(request.fileSize());
+        List<ValidatedFile> validatedFiles = request.files().stream()
+                .map(this::validateFile)
+                .toList();
 
-        String fileKey = generateFileKey(usage, extension);
+        List<PresignedUrlResponse> uploads = validatedFiles.stream()
+                .map(file -> issuePresignedUrl(usage, file))
+                .toList();
+        return new PresignedUrlsResponse(uploads);
+    }
+
+    private ValidatedFile validateFile(IssuePresignedUrlsRequest.FileRequest file) {
+        String extension = resolveExtension(file.contentType());
+        validateFileSize(file.fileSize());
+        return new ValidatedFile(file.contentType(), file.fileSize(), extension);
+    }
+
+    private PresignedUrlResponse issuePresignedUrl(UploadUsage usage, ValidatedFile file) {
+        String fileKey = generateFileKey(usage, file.extension());
         PresignedUploadInfo presignedUploadInfo = fileStorage.createPresignedUploadUrl(
                 fileKey,
-                request.contentType(),
-                request.fileSize()
+                file.contentType(),
+                file.fileSize()
         );
-
         return PresignedUrlResponse.from(presignedUploadInfo);
     }
 
@@ -68,5 +83,8 @@ public class UploadService {
                 UUID.randomUUID(),
                 extension
         );
+    }
+
+    private record ValidatedFile(String contentType, long fileSize, String extension) {
     }
 }
