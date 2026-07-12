@@ -40,7 +40,7 @@ public class Restaurant extends BaseTimeEntity {
     @Column(name = "name", length = 100, nullable = false)
     private String name;
 
-    @Column(name = "local_name", length = 100)
+    @Column(name = "local_name", length = 100, nullable = false)
     private String localName;
 
     @Column(name = "summary", length = 100, nullable = false)
@@ -73,13 +73,13 @@ public class Restaurant extends BaseTimeEntity {
     @Column(name = "price_max", precision = 15, scale = 2, nullable = false)
     private BigDecimal maxPrice;
 
-    @Column(name = "rating_sum", nullable = false)
+    @Column(name = "rating_sum", nullable = false, updatable = false)
     private long ratingSum;
 
-    @Column(name = "review_count", nullable = false)
+    @Column(name = "review_count", nullable = false, updatable = false)
     private long reviewCount;
 
-    @Column(name = "rating", precision = 2, scale = 1, nullable = false)
+    @Column(name = "rating", precision = 2, scale = 1, nullable = false, updatable = false)
     private BigDecimal rating;
 
     @Column(name = "active", nullable = false)

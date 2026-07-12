@@ -256,6 +256,9 @@ public class RestaurantService {
     /** 어드민 식당 수정 — 부분 수정(PATCH). null 필드는 유지하고, 컬렉션은 전체 교체한다. */
     @Transactional
     public AdminRestaurantInfo updateByAdmin(Long restaurantId, AdminRestaurantCommand command) {
+        validateNonBlankIfPresent(command.localName());
+        validateNonEmptyIfPresent(command.imageKeys());
+        validateNonEmptyIfPresent(command.hashtags());
         Restaurant restaurant = findRestaurantForAdmin(restaurantId);
 
         restaurant.updateBasicInfo(
@@ -422,11 +425,26 @@ public class RestaurantService {
     }
 
     private void validateRequiredForCreate(AdminRestaurantCommand command) {
-        boolean missingRequired = command.name() == null || command.address() == null
+        boolean missingRequired = command.name() == null || command.localName() == null || command.localName().isBlank()
+                || command.address() == null
                 || command.summary() == null || command.description() == null
                 || command.area() == null || command.genre() == null || command.foodCategory() == null
-                || command.priceCurrency() == null || command.minPrice() == null || command.maxPrice() == null;
+                || command.priceCurrency() == null || command.minPrice() == null || command.maxPrice() == null
+                || command.imageKeys() == null || command.imageKeys().isEmpty()
+                || command.hashtags() == null || command.hashtags().isEmpty();
         if (missingRequired) {
+            throw new BusinessException(CommonErrorCode.INVALID_INPUT);
+        }
+    }
+
+    private void validateNonEmptyIfPresent(List<?> values) {
+        if (values != null && values.isEmpty()) {
+            throw new BusinessException(CommonErrorCode.INVALID_INPUT);
+        }
+    }
+
+    private void validateNonBlankIfPresent(String value) {
+        if (value != null && value.isBlank()) {
             throw new BusinessException(CommonErrorCode.INVALID_INPUT);
         }
     }
