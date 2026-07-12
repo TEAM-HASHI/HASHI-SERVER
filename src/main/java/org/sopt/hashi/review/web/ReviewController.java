@@ -29,7 +29,7 @@ public class ReviewController {
         this.reviewService = reviewService;
     }
 
-    @ApiException(value = CommonErrorCode.class, codes = {"INVALID_INPUT", "UNAUTHORIZED"})
+    @ApiException(value = CommonErrorCode.class, codes = {"INVALID_INPUT"})
     @ApiException(value = ReviewErrorCode.class, codes = {"UNSUPPORTED_SORT", "RESTAURANT_NOT_FOUND"})
     @GetMapping
     public SuccessResponse<RestaurantReviewResponse> getRestaurantReviews(
@@ -42,7 +42,7 @@ public class ReviewController {
                 reviewService.getRestaurantReviews(restaurantId, sort, cursor, size));
     }
 
-    @ApiException(value = CommonErrorCode.class, codes = {"INVALID_INPUT", "UNAUTHORIZED"})
+    @ApiException(value = CommonErrorCode.class, codes = {"INVALID_INPUT"})
     @ApiException(value = ReviewErrorCode.class, codes = {"RESTAURANT_NOT_FOUND"})
     @GetMapping("/images")
     public SuccessResponse<RestaurantReviewImageListResponse> getRestaurantReviewImages(
