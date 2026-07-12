@@ -4,14 +4,16 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import java.time.Duration;
+import java.util.List;
 import org.junit.jupiter.api.Test;
 import org.sopt.hashi.shared.error.BusinessException;
 import org.sopt.hashi.shared.storage.FileStorage;
 import org.sopt.hashi.shared.storage.PresignedUploadInfo;
 import org.sopt.hashi.shared.storage.StorageProperties;
 import org.sopt.hashi.upload.code.UploadErrorCode;
-import org.sopt.hashi.upload.dto.IssuePresignedUrlRequest;
+import org.sopt.hashi.upload.dto.IssuePresignedUrlsRequest;
 import org.sopt.hashi.upload.dto.PresignedUrlResponse;
+import org.sopt.hashi.upload.dto.PresignedUrlsResponse;
 import org.springframework.util.unit.DataSize;
 
 class UploadServiceTest {
@@ -27,65 +29,81 @@ class UploadServiceTest {
     private final UploadService uploadService = new UploadService(fileStorage, storageProperties);
 
     @Test
-    void presigned_URL을_발급한다() {
-        IssuePresignedUrlRequest request = new IssuePresignedUrlRequest(
+    void 여러_파일의_presigned_URL을_요청_순서대로_발급한다() {
+        IssuePresignedUrlsRequest request = new IssuePresignedUrlsRequest(
                 "review",
-                "image/jpeg",
-                1024L
+                List.of(
+                        file("image/jpeg", 1024L),
+                        file("image/png", 2048L)
+                )
         );
 
-        PresignedUrlResponse response = uploadService.issuePresignedUrl(request);
+        PresignedUrlsResponse response = uploadService.issuePresignedUrls(request);
 
-        assertThat(response.uploadMethod()).isEqualTo("PUT");
-        assertThat(response.expiresInSeconds()).isEqualTo(300);
-        assertThat(response.fileKey()).startsWith("uploads/reviews/");
-        assertThat(response.fileKey()).endsWith(".jpg");
-        assertThat(response.fileUrl()).isEqualTo("https://cdn.example.com/" + response.fileKey());
+        assertThat(response.uploads()).hasSize(2);
+        PresignedUrlResponse first = response.uploads().get(0);
+        PresignedUrlResponse second = response.uploads().get(1);
+        assertThat(first.uploadMethod()).isEqualTo("PUT");
+        assertThat(first.expiresInSeconds()).isEqualTo(300);
+        assertThat(first.fileKey()).startsWith("uploads/reviews/").endsWith(".jpg");
+        assertThat(first.fileUrl()).isEqualTo("https://cdn.example.com/" + first.fileKey());
+        assertThat(second.fileKey()).startsWith("uploads/reviews/").endsWith(".png");
+        assertThat(fileStorage.callCount()).isEqualTo(2);
     }
 
     @Test
     void 지원하지_않는_사용_목적이면_예외가_발생한다() {
-        IssuePresignedUrlRequest request = new IssuePresignedUrlRequest(
+        IssuePresignedUrlsRequest request = new IssuePresignedUrlsRequest(
                 "unknown",
-                "image/jpeg",
-                1024L
+                List.of(file("image/jpeg", 1024L))
         );
 
-        assertThatThrownBy(() -> uploadService.issuePresignedUrl(request))
+        assertThatThrownBy(() -> uploadService.issuePresignedUrls(request))
                 .isInstanceOfSatisfying(BusinessException.class, exception ->
                         assertThat(exception.getErrorCode()).isEqualTo(UploadErrorCode.UNSUPPORTED_USAGE));
+        assertThat(fileStorage.callCount()).isZero();
     }
 
     @Test
-    void 지원하지_않는_파일_형식이면_예외가_발생한다() {
-        IssuePresignedUrlRequest request = new IssuePresignedUrlRequest(
+    void 파일_목록에_지원하지_않는_형식이_있으면_어떤_URL도_발급하지_않는다() {
+        IssuePresignedUrlsRequest request = new IssuePresignedUrlsRequest(
                 "review",
-                "image/gif",
-                1024L
+                List.of(
+                        file("image/jpeg", 1024L),
+                        file("image/gif", 1024L)
+                )
         );
 
-        assertThatThrownBy(() -> uploadService.issuePresignedUrl(request))
+        assertThatThrownBy(() -> uploadService.issuePresignedUrls(request))
                 .isInstanceOfSatisfying(BusinessException.class, exception ->
                         assertThat(exception.getErrorCode()).isEqualTo(UploadErrorCode.UNSUPPORTED_FILE_TYPE));
+        assertThat(fileStorage.callCount()).isZero();
     }
 
     @Test
     void 파일_크기가_제한을_초과하면_예외가_발생한다() {
-        IssuePresignedUrlRequest request = new IssuePresignedUrlRequest(
+        IssuePresignedUrlsRequest request = new IssuePresignedUrlsRequest(
                 "review",
-                "image/jpeg",
-                DataSize.ofMegabytes(6).toBytes()
+                List.of(file("image/jpeg", DataSize.ofMegabytes(6).toBytes()))
         );
 
-        assertThatThrownBy(() -> uploadService.issuePresignedUrl(request))
+        assertThatThrownBy(() -> uploadService.issuePresignedUrls(request))
                 .isInstanceOfSatisfying(BusinessException.class, exception ->
                         assertThat(exception.getErrorCode()).isEqualTo(UploadErrorCode.FILE_SIZE_EXCEEDED));
+        assertThat(fileStorage.callCount()).isZero();
+    }
+
+    private static IssuePresignedUrlsRequest.FileRequest file(String contentType, long fileSize) {
+        return new IssuePresignedUrlsRequest.FileRequest(contentType, fileSize);
     }
 
     private static class FakeFileStorage implements FileStorage {
 
+        private int callCount;
+
         @Override
         public PresignedUploadInfo createPresignedUploadUrl(String fileKey, String contentType, long contentLength) {
+            callCount++;
             return new PresignedUploadInfo(
                     "https://s3.example.com/" + fileKey + "?signature=test",
                     fileKey,
@@ -98,6 +116,10 @@ class UploadServiceTest {
         @Override
         public String resolveFileUrl(String fileKey) {
             return "https://cdn.example.com/" + fileKey;
+        }
+
+        int callCount() {
+            return callCount;
         }
     }
 }
