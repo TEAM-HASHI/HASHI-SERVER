@@ -78,6 +78,34 @@ class RestaurantRequestValidationTest {
                 .containsExactlyInAnyOrder("imageKeys", "hashtags");
     }
 
+    @Test
+    void 식당_수정에서_현지_식당명을_보내면_공백일_수_없다() {
+        UpdateRestaurantRequest request = new UpdateRestaurantRequest(
+                null,
+                " ",
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null
+        );
+
+        Set<ConstraintViolation<UpdateRestaurantRequest>> violations = validator.validate(request);
+
+        assertThat(violations)
+                .extracting(violation -> violation.getPropertyPath().toString())
+                .containsExactly("localName");
+    }
+
     private static List<CreateRestaurantRequest.BusinessHourRequest> createBusinessHours() {
         return Arrays.stream(DayOfWeek.values())
                 .map(day -> new CreateRestaurantRequest.BusinessHourRequest(

@@ -40,7 +40,7 @@ public class Restaurant extends BaseTimeEntity {
     @Column(name = "name", length = 100, nullable = false)
     private String name;
 
-    @Column(name = "local_name", length = 100)
+    @Column(name = "local_name", length = 100, nullable = false)
     private String localName;
 
     @Column(name = "summary", length = 100, nullable = false)
