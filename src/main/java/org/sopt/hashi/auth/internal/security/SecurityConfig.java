@@ -32,10 +32,11 @@ public class SecurityConfig {
 
     private static final String ONBOARDING_PATH = "/api/v1/users/onboarding";
     /** 내 인증 정보 조회 — /api/v1/auth/**(permitAll) 아래에 있지만 인증이 필요해 예외로 먼저 매칭한다. */
-    private static final String AUTH_ME_PATH = "/api/v1/auth/me";
+    static final String AUTH_ME_PATH = "/api/v1/auth/me";
     /** presigned URL 발급 — 온보딩(프로필 사진 업로드) 단계에서도 필요해 임시 권한까지 허용한다. */
     private static final String UPLOAD_PATH = "/api/v1/uploads/**";
-    private static final String[] PUBLIC_PATHS = {
+    /** 공개 경로 단일 소스 — {@link SwaggerAuthorizationCustomizer}가 같은 목록으로 문서 자물쇠를 판정한다. */
+    static final String[] PUBLIC_PATHS = {
             "/swagger-ui/**",
             "/swagger-ui.html",
             "/v3/api-docs/**",
