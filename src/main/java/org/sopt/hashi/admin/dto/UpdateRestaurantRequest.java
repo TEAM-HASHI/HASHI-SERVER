@@ -1,5 +1,6 @@
 package org.sopt.hashi.admin.dto;
 
+import io.swagger.v3.oas.annotations.media.Schema;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
@@ -17,22 +18,26 @@ import java.util.List;
  * 비운다. 단 businessHours는 보낼 경우 7개 요일을 중복 없이 모두 포함해야 한다.
  */
 public record UpdateRestaurantRequest(
+        @Schema(description = "식당명(선택)", example = "야키니쿠 리키마루 이케부쿠로점")
         @Size(max = 100, message = "식당명은 100자 이내입니다") String name,
         @Size(max = 100, message = "현지 식당명은 100자 이내입니다") String localName,
         @Size(max = 500, message = "설명은 500자 이내입니다") String description,
         String storeDescription,
         @Size(max = 255, message = "주소는 255자 이내입니다") String address,
         @Size(max = 100, message = "지역은 100자 이내입니다") String area,
+        @Schema(description = "장르(소문자 케밥, 선택)", example = "sushi")
         String genre,
         @Pattern(regexp = ".*\\S.*", message = "썸네일 이미지 키는 공백일 수 없습니다")
         @Size(max = 500, message = "썸네일 이미지 키는 500자 이내입니다") String thumbnailKey,
         @PositiveOrZero(message = "예약 수수료는 0 이상입니다") Long reservationFee,
+        @Schema(description = "통화 코드(선택)", example = "JPY")
         @Size(max = 10, message = "통화는 10자 이내입니다") String currency,
         @PositiveOrZero(message = "최소 가격은 0 이상입니다") BigDecimal minPrice,
         @PositiveOrZero(message = "최대 가격은 0 이상입니다") BigDecimal maxPrice,
         List<@NotBlank(message = "이미지 키는 비어 있을 수 없습니다")
         @Size(max = 500, message = "이미지 키는 500자 이내입니다") String> imageKeys,
         List<@NotNull(message = "메뉴 항목은 null일 수 없습니다") @Valid MenuRequest> menus,
+        @Schema(description = "큐레이션 유형 목록(소문자 케밥, 선택) — 보내면 전체 교체", example = "[\"sns-hot\"]")
         List<@NotBlank(message = "큐레이션 유형은 비어 있을 수 없습니다") String> curationTypes,
         @Size(min = 7, max = 7, message = "영업시간은 모든 요일(7개)을 포함해야 합니다")
         List<@NotNull(message = "영업시간 항목은 null일 수 없습니다") @Valid BusinessHourRequest> businessHours) {
