@@ -16,6 +16,7 @@ public record MagazineListResponse(
             Long magazineId,
             String title,
             String bannerImageUrl,
+            String thumbnailImageUrl,
             String instagramRedirectUrl,
             LocalDateTime createdAt) {
     }
