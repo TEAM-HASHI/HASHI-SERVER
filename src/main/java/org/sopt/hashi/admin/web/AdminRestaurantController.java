@@ -31,7 +31,7 @@ public class AdminRestaurantController {
         this.adminRestaurantService = adminRestaurantService;
     }
 
-    /** 식당 등록 — 썸네일·이미지·메뉴 사진은 presigned URL로 업로드를 마친 S3 키로 받는다. */
+    /** 식당 등록 — 식당·메뉴 사진은 presigned URL로 업로드를 마친 S3 키로 받는다. */
     @ApiException(value = CommonErrorCode.class, codes = {"INVALID_INPUT", "UNAUTHORIZED", "FORBIDDEN"})
     @ApiSuccess(value = AdminSuccessCode.class, codes = {"RESTAURANT_CREATED"})
     @ResponseStatus(HttpStatus.CREATED)
@@ -42,7 +42,7 @@ public class AdminRestaurantController {
                 adminRestaurantService.create(request));
     }
 
-    /** 식당 부분 수정 — 보낸 필드만 변경, 컬렉션(이미지·메뉴·큐레이션)은 전체 교체. */
+    /** 식당 부분 수정 — 보낸 필드만 변경하며, 컬렉션(이미지·메뉴·해시태그·큐레이션)은 전체 교체한다. */
     @ApiException(value = CommonErrorCode.class, codes = {"INVALID_INPUT", "UNAUTHORIZED", "FORBIDDEN"})
     @ApiSuccess(value = AdminSuccessCode.class, codes = {"RESTAURANT_UPDATED"})
     @PatchMapping("/{restaurantId}")

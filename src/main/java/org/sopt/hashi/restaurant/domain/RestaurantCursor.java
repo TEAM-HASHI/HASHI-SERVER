@@ -1,9 +1,11 @@
 package org.sopt.hashi.restaurant.domain;
 
+import java.math.BigDecimal;
+
 public record RestaurantCursor(
         RestaurantSort sort,
-        Double rating,
-        Long popularityScore,
+        BigDecimal rating,
+        Long reviewCount,
         Long id
 ) {
 
@@ -15,26 +17,26 @@ public record RestaurantCursor(
             throw new IllegalArgumentException("Cursor id must be positive");
         }
         switch (sort) {
-            case BASIC -> validateBasicCursor(rating, popularityScore);
-            case POPULAR -> validatePopularCursor(rating, popularityScore);
-            case RATING -> validateRatingCursor(rating, popularityScore);
+            case BASIC -> validateBasicCursor(rating, reviewCount);
+            case POPULAR -> validatePopularCursor(rating, reviewCount);
+            case RATING -> validateRatingCursor(rating, reviewCount);
         }
     }
 
-    private static void validateBasicCursor(Double rating, Long popularityScore) {
-        if (rating != null || popularityScore != null) {
+    private static void validateBasicCursor(BigDecimal rating, Long reviewCount) {
+        if (rating != null || reviewCount != null) {
             throw new IllegalArgumentException("Basic cursor must not contain sort value");
         }
     }
 
-    private static void validatePopularCursor(Double rating, Long popularityScore) {
-        if (rating != null || popularityScore == null) {
-            throw new IllegalArgumentException("Popular cursor must contain only popularity score");
+    private static void validatePopularCursor(BigDecimal rating, Long reviewCount) {
+        if (rating == null || reviewCount == null) {
+            throw new IllegalArgumentException("Popular cursor must contain review count and rating");
         }
     }
 
-    private static void validateRatingCursor(Double rating, Long popularityScore) {
-        if (rating == null || popularityScore != null) {
+    private static void validateRatingCursor(BigDecimal rating, Long reviewCount) {
+        if (rating == null || reviewCount != null) {
             throw new IllegalArgumentException("Rating cursor must contain only rating");
         }
     }

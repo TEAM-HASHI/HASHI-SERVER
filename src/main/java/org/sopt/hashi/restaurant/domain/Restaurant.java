@@ -16,9 +16,8 @@ import jakarta.persistence.OneToMany;
 import jakarta.persistence.OrderBy;
 import jakarta.persistence.Table;
 import java.math.BigDecimal;
-import java.time.LocalDate;
-import java.time.LocalTime;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Set;
@@ -41,69 +40,56 @@ public class Restaurant extends BaseTimeEntity {
     @Column(name = "name", length = 100, nullable = false)
     private String name;
 
-    @Column(name = "local_name", length = 100)
+    @Column(name = "local_name", length = 100, nullable = false)
     private String localName;
 
-    @Column(name = "description", length = 500)
-    private String description;
+    @Column(name = "summary", length = 100, nullable = false)
+    private String summary;
 
-    @Column(name = "store_description", columnDefinition = "TEXT")
-    private String storeDescription;
+    @Column(name = "description", length = 500, nullable = false)
+    private String description;
 
     @Column(name = "address", length = 255, nullable = false)
     private String address;
 
-    @Column(name = "area", length = 100)
+    @Column(name = "area", length = 20, nullable = false)
     private String area;
 
     @Enumerated(EnumType.STRING)
-    @Column(name = "genre", length = 30, nullable = false)
+    @Column(name = "genre", length = 20, nullable = false)
     private RestaurantGenre genre;
 
-    @Column(name = "thumbnail_file_key", length = 500)
-    private String thumbnailFileKey;
+    @Enumerated(EnumType.STRING)
+    @Column(name = "food_category", length = 20, nullable = false)
+    private RestaurantFoodCategory foodCategory;
 
-    @Column(name = "reservation_fee", nullable = false)
-    private long reservationFee;
+    @Enumerated(EnumType.STRING)
+    @Column(name = "price_currency", length = 3, nullable = false)
+    private PriceCurrency priceCurrency;
 
-    @Column(name = "currency", length = 10, nullable = false)
-    private String currency;
-
-    @Column(name = "min_price", precision = 15, scale = 2)
+    @Column(name = "price_min", precision = 15, scale = 2, nullable = false)
     private BigDecimal minPrice;
 
-    @Column(name = "max_price", precision = 15, scale = 2)
+    @Column(name = "price_max", precision = 15, scale = 2, nullable = false)
     private BigDecimal maxPrice;
 
-    @Column(name = "rating", nullable = false)
-    private double rating;
+    @Column(name = "rating_sum", nullable = false, updatable = false)
+    private long ratingSum;
 
-    @Column(name = "review_count", nullable = false)
+    @Column(name = "review_count", nullable = false, updatable = false)
     private long reviewCount;
 
-    @Column(name = "saved_count", nullable = false)
-    private long savedCount;
-
-    @Column(name = "popularity_score", nullable = false)
-    private long popularityScore;
+    @Column(name = "rating", precision = 2, scale = 1, nullable = false, updatable = false)
+    private BigDecimal rating;
 
     @Column(name = "active", nullable = false)
     private boolean active;
 
-    @Column(name = "available_date")
-    private LocalDate availableDate;
-
-    @Column(name = "available_start_time")
-    private LocalTime availableStartTime;
-
-    @Column(name = "available_end_time")
-    private LocalTime availableEndTime;
-
     @BatchSize(size = 100)
     @ElementCollection(fetch = FetchType.LAZY)
-    @CollectionTable(name = "restaurant_tag", joinColumns = @JoinColumn(name = "restaurant_id"))
-    @Column(name = "tag", length = 50, nullable = false)
-    private Set<String> tags = new LinkedHashSet<>();
+    @CollectionTable(name = "restaurant_hashtag", joinColumns = @JoinColumn(name = "restaurant_id"))
+    @Column(name = "hashtag", length = 20, nullable = false)
+    private Set<String> hashtags = new LinkedHashSet<>();
 
     @BatchSize(size = 100)
     @Enumerated(EnumType.STRING)
@@ -125,59 +111,51 @@ public class Restaurant extends BaseTimeEntity {
     @OneToMany(mappedBy = "restaurant", cascade = CascadeType.ALL, orphanRemoval = true)
     private List<RestaurantBusinessHour> businessHours = new ArrayList<>();
 
-    private Restaurant(String name, String localName, String description, String storeDescription, String address,
-                       String area,
-                       RestaurantGenre genre, String thumbnailFileKey, long reservationFee, String currency,
-                       BigDecimal minPrice, BigDecimal maxPrice) {
+    private Restaurant(String name, String localName, String summary, String description, String address,
+                       String area, RestaurantGenre genre, RestaurantFoodCategory foodCategory,
+                       PriceCurrency priceCurrency, BigDecimal minPrice, BigDecimal maxPrice) {
         this.name = name;
         this.localName = localName;
+        this.summary = summary;
         this.description = description;
-        this.storeDescription = storeDescription;
         this.address = address;
         this.area = area;
         this.genre = genre;
-        this.thumbnailFileKey = thumbnailFileKey;
-        this.reservationFee = reservationFee;
-        this.currency = currency;
+        this.foodCategory = foodCategory;
+        this.priceCurrency = priceCurrency;
         this.minPrice = minPrice;
         this.maxPrice = maxPrice;
-        this.rating = 0.0;
+        this.ratingSum = 0;
         this.reviewCount = 0;
-        this.savedCount = 0;
-        this.popularityScore = 0;
+        this.rating = BigDecimal.ZERO.setScale(1);
         this.active = true;
     }
 
-    public static Restaurant create(String name, String localName, String description, String address, String area,
-                                    RestaurantGenre genre, String thumbnailFileKey, long reservationFee,
-                                    String currency, BigDecimal minPrice, BigDecimal maxPrice) {
-        return create(name, localName, description, null, address, area, genre, thumbnailFileKey,
-                reservationFee, currency, minPrice, maxPrice);
-    }
-
-    public static Restaurant create(String name, String localName, String description, String storeDescription,
-                                    String address, String area, RestaurantGenre genre, String thumbnailFileKey,
-                                    long reservationFee, String currency, BigDecimal minPrice,
+    public static Restaurant create(String name, String localName, String summary, String description,
+                                    String address, String area, RestaurantGenre genre,
+                                    RestaurantFoodCategory foodCategory, PriceCurrency priceCurrency,
+                                    BigDecimal minPrice,
                                     BigDecimal maxPrice) {
-        return new Restaurant(name, localName, description, storeDescription, address, area, genre, thumbnailFileKey,
-                reservationFee, currency, minPrice, maxPrice);
+        return new Restaurant(name, localName, summary, description, address, area, genre, foodCategory,
+                priceCurrency, minPrice, maxPrice);
     }
 
     /** 부분 수정(PATCH) — null 필드는 기존 값을 유지한다(값 비우기 불가, magazine과 동일 정책). */
-    public void updateBasicInfo(String name, String localName, String description, String storeDescription,
-                                String address, String area, RestaurantGenre genre, String thumbnailFileKey,
-                                Long reservationFee, String currency, BigDecimal minPrice, BigDecimal maxPrice) {
+    public void updateBasicInfo(String name, String localName, String summary, String description,
+                                String address, String area, RestaurantGenre genre,
+                                RestaurantFoodCategory foodCategory, PriceCurrency priceCurrency,
+                                BigDecimal minPrice, BigDecimal maxPrice) {
         if (name != null) {
             this.name = name;
         }
         if (localName != null) {
             this.localName = localName;
         }
+        if (summary != null) {
+            this.summary = summary;
+        }
         if (description != null) {
             this.description = description;
-        }
-        if (storeDescription != null) {
-            this.storeDescription = storeDescription;
         }
         if (address != null) {
             this.address = address;
@@ -188,14 +166,11 @@ public class Restaurant extends BaseTimeEntity {
         if (genre != null) {
             this.genre = genre;
         }
-        if (thumbnailFileKey != null) {
-            this.thumbnailFileKey = thumbnailFileKey;
+        if (foodCategory != null) {
+            this.foodCategory = foodCategory;
         }
-        if (reservationFee != null) {
-            this.reservationFee = reservationFee;
-        }
-        if (currency != null) {
-            this.currency = currency;
+        if (priceCurrency != null) {
+            this.priceCurrency = priceCurrency;
         }
         if (minPrice != null) {
             this.minPrice = minPrice;
@@ -210,11 +185,19 @@ public class Restaurant extends BaseTimeEntity {
         this.active = false;
     }
 
-    public void replaceTags(List<String> tags) {
-        this.tags.clear();
-        if (tags != null) {
-            this.tags.addAll(tags);
+    public void replaceHashtags(List<String> hashtags) {
+        this.hashtags.clear();
+        if (hashtags != null) {
+            this.hashtags.addAll(hashtags);
         }
+    }
+
+    /** 정렬 순서가 가장 빠른 식당 이미지를 대표 이미지로 사용한다. */
+    public String getThumbnailFileKey() {
+        return images.stream()
+                .min(Comparator.comparingInt(RestaurantImage::getDisplayOrder))
+                .map(RestaurantImage::getFileKey)
+                .orElse(null);
     }
 
     public void replaceCurationTypes(List<RestaurantCurationType> curationTypes) {

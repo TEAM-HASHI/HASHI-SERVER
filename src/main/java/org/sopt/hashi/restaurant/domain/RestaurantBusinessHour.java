@@ -42,33 +42,37 @@ public class RestaurantBusinessHour {
     @Column(name = "close_time")
     private LocalTime closeTime;
 
-    @Column(name = "last_order_time")
-    private LocalTime lastOrderTime;
+    @Column(name = "break_start")
+    private LocalTime breakStart;
 
-    @Column(name = "closed", nullable = false)
+    @Column(name = "break_end")
+    private LocalTime breakEnd;
+
+    @Column(name = "is_closed", nullable = false)
     private boolean closed;
 
     private RestaurantBusinessHour(DayOfWeek dayOfWeek, LocalTime openTime, LocalTime closeTime,
-                                   LocalTime lastOrderTime, boolean closed) {
-        validate(dayOfWeek, openTime, closeTime, lastOrderTime, closed);
+                                   LocalTime breakStart, LocalTime breakEnd, boolean closed) {
+        validate(dayOfWeek, openTime, closeTime, breakStart, breakEnd, closed);
         this.dayOfWeek = dayOfWeek;
         this.openTime = openTime;
         this.closeTime = closeTime;
-        this.lastOrderTime = lastOrderTime;
+        this.breakStart = breakStart;
+        this.breakEnd = breakEnd;
         this.closed = closed;
     }
 
     public static RestaurantBusinessHour create(DayOfWeek dayOfWeek, LocalTime openTime, LocalTime closeTime,
-                                                LocalTime lastOrderTime, boolean closed) {
-        return new RestaurantBusinessHour(dayOfWeek, openTime, closeTime, lastOrderTime, closed);
+                                                LocalTime breakStart, LocalTime breakEnd, boolean closed) {
+        return new RestaurantBusinessHour(dayOfWeek, openTime, closeTime, breakStart, breakEnd, closed);
     }
 
     private static void validate(DayOfWeek dayOfWeek, LocalTime openTime, LocalTime closeTime,
-                                 LocalTime lastOrderTime, boolean closed) {
+                                 LocalTime breakStart, LocalTime breakEnd, boolean closed) {
         Objects.requireNonNull(dayOfWeek, "dayOfWeek is required");
 
         if (closed) {
-            if (openTime != null || closeTime != null || lastOrderTime != null) {
+            if (openTime != null || closeTime != null || breakStart != null || breakEnd != null) {
                 throw new IllegalArgumentException("Closed day cannot have business hours.");
             }
             return;
@@ -82,8 +86,13 @@ public class RestaurantBusinessHour {
             throw new IllegalArgumentException("Open time must be before close time.");
         }
 
-        if (lastOrderTime != null && (lastOrderTime.isBefore(openTime) || lastOrderTime.isAfter(closeTime))) {
-            throw new IllegalArgumentException("Last order time must be between open time and close time.");
+        if ((breakStart == null) != (breakEnd == null)) {
+            throw new IllegalArgumentException("Break start and end time must be provided together.");
+        }
+
+        if (breakStart != null && (!breakStart.isBefore(breakEnd)
+                || breakStart.isBefore(openTime) || breakEnd.isAfter(closeTime))) {
+            throw new IllegalArgumentException("Break time must be within business hours.");
         }
     }
 

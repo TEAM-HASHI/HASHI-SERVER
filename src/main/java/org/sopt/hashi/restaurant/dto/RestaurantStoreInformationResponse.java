@@ -13,7 +13,8 @@ public record RestaurantStoreInformationResponse(
             String dayOfWeek,
             String openTime,
             String closeTime,
-            String lastOrderTime,
+            String breakStart,
+            String breakEnd,
             boolean closed
     ) {
     }
