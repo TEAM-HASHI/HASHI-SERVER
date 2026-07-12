@@ -36,7 +36,7 @@ public record CreateAnywhereReservationRequest(
         @Min(value = 0, message = "인원은 0명 이상입니다")
         @Max(value = 100, message = "인원은 최대 100명입니다") Integer childCount,
         @Schema(description = "요청사항(선택)", example = "창가 자리 부탁드립니다")
-        @Size(max = 500, message = "요청사항은 500자 이내입니다") String requestNote,
+        @Size(max = 1000, message = "요청사항은 1000자 이내입니다") String requestNote,
         @Schema(description = "사용 포인트(선택, 미전송 시 0)", example = "0")
         @Min(value = 0, message = "사용 포인트는 0 이상이어야 합니다")
         @Max(value = Reservation.BASE_FEE, message = "사용 포인트는 결제 수수료를 초과할 수 없습니다") Long usedPoint,
