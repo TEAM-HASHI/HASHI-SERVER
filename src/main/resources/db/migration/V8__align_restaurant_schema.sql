@@ -213,7 +213,9 @@ ALTER TABLE restaurant
 RENAME TABLE restaurant_tag TO restaurant_hashtag;
 
 ALTER TABLE restaurant_hashtag
-    RENAME COLUMN tag TO hashtag,
+    RENAME COLUMN tag TO hashtag;
+
+ALTER TABLE restaurant_hashtag
     MODIFY COLUMN hashtag VARCHAR(20) NOT NULL;
 
 UPDATE restaurant_menu
@@ -224,7 +226,9 @@ ALTER TABLE restaurant_menu
     RENAME COLUMN image_file_key TO image_key,
     RENAME COLUMN currency TO price_currency,
     RENAME COLUMN price TO price_amount,
-    RENAME COLUMN representative TO is_main,
+    RENAME COLUMN representative TO is_main;
+
+ALTER TABLE restaurant_menu
     MODIFY COLUMN description VARCHAR(500) NOT NULL,
     MODIFY COLUMN price_currency VARCHAR(3) NULL;
 
