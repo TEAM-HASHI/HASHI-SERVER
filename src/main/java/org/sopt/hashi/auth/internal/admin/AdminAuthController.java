@@ -12,6 +12,7 @@ import org.sopt.hashi.shared.error.BusinessException;
 import org.sopt.hashi.shared.error.CommonErrorCode;
 import org.sopt.hashi.shared.response.SuccessResponse;
 import org.sopt.hashi.shared.swagger.ApiException;
+import org.sopt.hashi.shared.swagger.ApiSuccess;
 import org.springframework.http.HttpHeaders;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -19,11 +20,7 @@ import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
-/**
- * 어드민 인증 컨트롤러 — 로그인·로그아웃. 유저 인증과 동일한 토큰 전달 규칙을 따른다
- * (액세스 = Authorization 헤더, 리프레시 = HttpOnly 쿠키). permitAll(/api/v1/auth/**) 경로이며
- * 로그아웃은 리프레시 쿠키 자체를 검증하므로 별도 인증 컨텍스트가 필요 없다.
- */
+/** 어드민 인증 API — ID/PW 로그인·로그아웃. */
 @RestController
 @RequestMapping("/api/v1/auth/admin")
 public class AdminAuthController {
@@ -42,8 +39,10 @@ public class AdminAuthController {
         this.originValidator = originValidator;
     }
 
+    /** 어드민 로그인 — 액세스 토큰은 Authorization 헤더, 리프레시는 HttpOnly 쿠키로 내려간다. */
     @ApiException(value = AuthErrorCode.class, codes = {"INVALID_CREDENTIALS"})
     @ApiException(value = CommonErrorCode.class, codes = {"INVALID_INPUT"})
+    @ApiSuccess(value = AuthSuccessCode.class, codes = {"ADMIN_LOGIN_SUCCESS"})
     @PostMapping("/login")
     public SuccessResponse<Void> login(@Valid @RequestBody AdminLoginRequest request,
                                        HttpServletResponse response) {
@@ -54,10 +53,11 @@ public class AdminAuthController {
         return SuccessResponse.of(AuthSuccessCode.ADMIN_LOGIN_SUCCESS);
     }
 
-    /** 로그아웃 — 쿠키 기반이라 reissue와 동일하게 Origin으로 CSRF를 방어하고, 클라 쿠키도 만료시킨다. */
+    /** 어드민 로그아웃 — 리프레시 토큰을 무효화하고 쿠키를 만료시킨다. */
     @ApiException(value = AuthErrorCode.class,
             codes = {"INVALID_TOKEN", "EXPIRED_TOKEN", "REFRESH_TOKEN_NOT_FOUND"})
     @ApiException(value = CommonErrorCode.class, codes = {"FORBIDDEN"})
+    @ApiSuccess(value = AuthSuccessCode.class, codes = {"ADMIN_LOGOUT_SUCCESS"})
     @PostMapping("/logout")
     public SuccessResponse<Void> logout(@RequestHeader(value = HttpHeaders.ORIGIN, required = false) String origin,
                                         HttpServletRequest request,
