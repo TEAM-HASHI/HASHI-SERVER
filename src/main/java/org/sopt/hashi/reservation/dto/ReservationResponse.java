@@ -6,9 +6,8 @@ import org.sopt.hashi.reservation.domain.Reservation;
 import org.sopt.hashi.reservation.ReservationType;
 
 /**
- * 예약 단건 응답(목록·생성·취소). 식당명·주소·대표이미지는 유형에 따라 다르게 채운다 — STANDARD는 RestaurantPort로
- * live enrich한 값(주소 포함, 스냅샷 아님), ANYWHERE는 예약에 저장된 값(이미지는 미등록 식당이라 null).
- * {@code confirmDDay}는 진행중(REQUESTED·CONTACTING) 예약만 값이 있고, 예정일 경과 시 음수로 감소한다.
+ * 예약 단건 응답(목록·생성·취소). 식당 정보는 STANDARD면 실시간 조회 값, ANYWHERE면 저장된 값(이미지 null).
+ * confirmDDay는 진행중(REQUESTED·CONTACTING) 예약만 값이 있고, 예정일 경과 시 음수로 감소한다.
  */
 public record ReservationResponse(
         Long reservationId,

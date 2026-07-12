@@ -39,18 +39,18 @@ public class AdminRestaurantService {
         return new AdminRestaurantCommand(
                 request.name(),
                 request.localName(),
+                request.summary(),
                 request.description(),
-                request.storeDescription(),
                 request.address(),
                 request.area(),
                 request.genre(),
-                request.thumbnailKey(),
-                request.reservationFee(),
-                request.currency(),
+                request.foodCategory(),
+                request.priceCurrency(),
                 request.minPrice(),
                 request.maxPrice(),
                 request.imageKeys(),
                 toMenuCommands(request.menus()),
+                request.hashtags(),
                 request.curationTypes(),
                 toBusinessHourCommands(request.businessHours()));
     }
@@ -59,18 +59,18 @@ public class AdminRestaurantService {
         return new AdminRestaurantCommand(
                 request.name(),
                 request.localName(),
+                request.summary(),
                 request.description(),
-                request.storeDescription(),
                 request.address(),
                 request.area(),
                 request.genre(),
-                request.thumbnailKey(),
-                request.reservationFee(),
-                request.currency(),
+                request.foodCategory(),
+                request.priceCurrency(),
                 request.minPrice(),
                 request.maxPrice(),
                 request.imageKeys(),
                 toUpdateMenuCommands(request.menus()),
+                request.hashtags(),
                 request.curationTypes(),
                 toUpdateBusinessHourCommands(request.businessHours()));
     }
@@ -81,7 +81,7 @@ public class AdminRestaurantService {
         }
         return menus.stream()
                 .map(menu -> new MenuCommand(menu.name(), menu.description(), menu.imageKey(),
-                        menu.currency(), menu.price(), menu.representative()))
+                        menu.priceCurrency(), menu.priceAmount(), menu.main()))
                 .toList();
     }
 
@@ -91,7 +91,7 @@ public class AdminRestaurantService {
         }
         return menus.stream()
                 .map(menu -> new MenuCommand(menu.name(), menu.description(), menu.imageKey(),
-                        menu.currency(), menu.price(), menu.representative()))
+                        menu.priceCurrency(), menu.priceAmount(), menu.main()))
                 .toList();
     }
 
@@ -102,7 +102,7 @@ public class AdminRestaurantService {
         }
         return businessHours.stream()
                 .map(hour -> new BusinessHourCommand(hour.dayOfWeek(), hour.openTime(),
-                        hour.closeTime(), hour.lastOrderTime(), hour.closed()))
+                        hour.closeTime(), hour.breakStart(), hour.breakEnd(), hour.closed()))
                 .toList();
     }
 
@@ -113,7 +113,7 @@ public class AdminRestaurantService {
         }
         return businessHours.stream()
                 .map(hour -> new BusinessHourCommand(hour.dayOfWeek(), hour.openTime(),
-                        hour.closeTime(), hour.lastOrderTime(), hour.closed()))
+                        hour.closeTime(), hour.breakStart(), hour.breakEnd(), hour.closed()))
                 .toList();
     }
 }

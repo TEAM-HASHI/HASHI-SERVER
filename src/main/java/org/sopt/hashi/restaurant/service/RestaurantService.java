@@ -2,7 +2,6 @@ package org.sopt.hashi.restaurant.service;
 
 import java.math.BigDecimal;
 import java.time.DayOfWeek;
-import java.time.LocalDate;
 import java.time.LocalTime;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
@@ -23,13 +22,16 @@ import org.sopt.hashi.restaurant.domain.Restaurant;
 import org.sopt.hashi.restaurant.domain.RestaurantCurationType;
 import org.sopt.hashi.restaurant.domain.RestaurantBusinessHour;
 import org.sopt.hashi.restaurant.domain.RestaurantCursor;
+import org.sopt.hashi.restaurant.domain.RestaurantFoodCategory;
 import org.sopt.hashi.restaurant.domain.RestaurantGenre;
 import org.sopt.hashi.restaurant.domain.RestaurantImage;
 import org.sopt.hashi.restaurant.domain.RestaurantListType;
 import org.sopt.hashi.restaurant.domain.RestaurantMenu;
 import org.sopt.hashi.restaurant.domain.RestaurantRepository;
+import org.sopt.hashi.restaurant.domain.RestaurantReservationPolicy;
 import org.sopt.hashi.restaurant.domain.RestaurantSort;
 import org.sopt.hashi.restaurant.domain.RestaurantSpecifications;
+import org.sopt.hashi.restaurant.domain.PriceCurrency;
 import org.sopt.hashi.restaurant.dto.RestaurantListResponse;
 import org.sopt.hashi.restaurant.dto.RestaurantListResponse.RestaurantSummaryResponse;
 import org.sopt.hashi.restaurant.dto.RestaurantMainResponse;
@@ -49,7 +51,6 @@ import org.springframework.data.domain.Sort;
 import org.springframework.data.jpa.domain.Specification;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-import org.springframework.util.StringUtils;
 
 @Service
 @Transactional(readOnly = true)
@@ -86,12 +87,14 @@ public class RestaurantService {
     public RestaurantListResponse getRestaurants(
             String keyword,
             String genreValue,
+            String foodCategoryValue,
             String sortValue,
             String typeValue,
             String cursor,
             Integer size
     ) {
         RestaurantGenre genre = parseGenre(genreValue);
+        RestaurantFoodCategory foodCategory = parseFoodCategory(foodCategoryValue);
         RestaurantSort sort = parseSort(sortValue);
         RestaurantListType type = parseListType(typeValue);
         RestaurantCursor decodedCursor = RestaurantCursorCodec.decode(cursor, sort);
@@ -100,6 +103,7 @@ public class RestaurantService {
         Specification<Restaurant> specification = RestaurantSpecifications.active()
                 .and(RestaurantSpecifications.cursorAfter(decodedCursor))
                 .and(RestaurantSpecifications.genreEquals(genre))
+                .and(RestaurantSpecifications.foodCategoryEquals(foodCategory))
                 .and(RestaurantSpecifications.curationTypeEquals(type.curationType()))
                 .and(RestaurantSpecifications.keywordContains(keyword));
 
@@ -167,15 +171,12 @@ public class RestaurantService {
                 restaurant.getLocalName(),
                 restaurant.getRating(),
                 restaurant.getReviewCount(),
-                restaurant.getDescription(),
+                restaurant.getSummary(),
+                restaurant.getFoodCategory().description(),
                 restaurant.getAddress(),
                 fileStorage.resolveFileUrl(restaurant.getThumbnailFileKey()),
                 toImageUrls(restaurant),
-                restaurant.getSavedCount(),
-                restaurant.getReservationFee(),
-                formatDate(restaurant.getAvailableDate()),
-                formatTime(restaurant.getAvailableStartTime()),
-                formatTime(restaurant.getAvailableEndTime())
+                RestaurantReservationPolicy.RESERVATION_FEE
         );
     }
 
@@ -185,13 +186,13 @@ public class RestaurantService {
 
         return new RestaurantStoreInformationResponse(
                 restaurant.getId(),
-                toStoreDescription(restaurant),
+                restaurant.getDescription(),
                 restaurant.getBusinessHours().stream()
                         .sorted(Comparator.comparing(hour -> hour.getDayOfWeek().getValue()))
                         .map(this::toBusinessHourResponse)
                         .toList(),
                 new PriceRangeResponse(
-                        restaurant.getCurrency(),
+                        restaurant.getPriceCurrency().value(),
                         toWholeAmount(restaurant.getMinPrice()),
                         toWholeAmount(restaurant.getMaxPrice())
                 )
@@ -233,18 +234,18 @@ public class RestaurantService {
         Restaurant restaurant = Restaurant.create(
                 command.name(),
                 command.localName(),
+                command.summary(),
                 command.description(),
-                command.storeDescription(),
                 command.address(),
                 command.area(),
                 toGenre(command.genre()),
-                command.thumbnailKey(),
-                command.reservationFee(),
-                command.currency(),
+                toFoodCategory(command.foodCategory()),
+                toPriceCurrency(command.priceCurrency()),
                 command.minPrice(),
                 command.maxPrice());
         restaurant.replaceImages(toImages(command.imageKeys()));
         restaurant.replaceMenus(toMenus(command.menus()));
+        restaurant.replaceHashtags(command.hashtags());
         restaurant.replaceCurationTypes(toCurationTypes(command.curationTypes()));
         restaurant.replaceBusinessHours(toBusinessHours(command.businessHours()));
         validatePriceRange(restaurant);
@@ -255,19 +256,21 @@ public class RestaurantService {
     /** 어드민 식당 수정 — 부분 수정(PATCH). null 필드는 유지하고, 컬렉션은 전체 교체한다. */
     @Transactional
     public AdminRestaurantInfo updateByAdmin(Long restaurantId, AdminRestaurantCommand command) {
+        validateNonBlankIfPresent(command.localName());
+        validateNonEmptyIfPresent(command.imageKeys());
+        validateNonEmptyIfPresent(command.hashtags());
         Restaurant restaurant = findRestaurantForAdmin(restaurantId);
 
         restaurant.updateBasicInfo(
                 command.name(),
                 command.localName(),
+                command.summary(),
                 command.description(),
-                command.storeDescription(),
                 command.address(),
                 command.area(),
                 command.genre() == null ? null : toGenre(command.genre()),
-                command.thumbnailKey(),
-                command.reservationFee(),
-                command.currency(),
+                command.foodCategory() == null ? null : toFoodCategory(command.foodCategory()),
+                command.priceCurrency() == null ? null : toPriceCurrency(command.priceCurrency()),
                 command.minPrice(),
                 command.maxPrice());
         validatePriceRange(restaurant);
@@ -277,6 +280,9 @@ public class RestaurantService {
         }
         if (command.menus() != null) {
             restaurant.replaceMenus(toMenus(command.menus()));
+        }
+        if (command.hashtags() != null) {
+            restaurant.replaceHashtags(command.hashtags());
         }
         if (command.curationTypes() != null) {
             restaurant.replaceCurationTypes(toCurationTypes(command.curationTypes()));
@@ -309,6 +315,14 @@ public class RestaurantService {
         }
         return RestaurantSort.from(value)
                 .orElseThrow(() -> new BusinessException(RestaurantErrorCode.UNSUPPORTED_SORT));
+    }
+
+    private RestaurantFoodCategory parseFoodCategory(String value) {
+        if (value == null || value.isBlank() || "all".equals(value)) {
+            return null;
+        }
+        return RestaurantFoodCategory.from(value)
+                .orElseThrow(() -> new BusinessException(RestaurantErrorCode.UNSUPPORTED_FOOD_CATEGORY));
     }
 
     private RestaurantListType parseListType(String value) {
@@ -346,7 +360,10 @@ public class RestaurantService {
     private Sort toSort(RestaurantSort sort) {
         return switch (sort) {
             case BASIC -> Sort.by(Sort.Order.desc("id"));
-            case POPULAR -> Sort.by(Sort.Order.desc("popularityScore"), Sort.Order.desc("id"));
+            case POPULAR -> Sort.by(
+                    Sort.Order.desc("reviewCount"),
+                    Sort.Order.desc("rating"),
+                    Sort.Order.desc("id"));
             case RATING -> Sort.by(Sort.Order.desc("rating"), Sort.Order.desc("id"));
         };
     }
@@ -357,31 +374,26 @@ public class RestaurantService {
                 restaurant.getName(),
                 restaurant.getRating(),
                 fileStorage.resolveFileUrl(restaurant.getThumbnailFileKey()),
+                toImageUrls(restaurant, 3),
                 restaurant.getArea(),
                 restaurant.getGenre().description(),
-                restaurant.getDescription(),
-                List.copyOf(restaurant.getTags()),
-                restaurant.getAvailableDate(),
-                restaurant.getAvailableStartTime(),
-                restaurant.getAvailableEndTime()
+                restaurant.getFoodCategory().description(),
+                restaurant.getSummary(),
+                List.copyOf(restaurant.getHashtags())
         );
     }
 
     private List<String> toImageUrls(Restaurant restaurant) {
+        return toImageUrls(restaurant, Integer.MAX_VALUE);
+    }
+
+    private List<String> toImageUrls(Restaurant restaurant, int limit) {
         return restaurant.getImages().stream()
+                .sorted(Comparator.comparingInt(RestaurantImage::getDisplayOrder))
+                .limit(limit)
                 .map(RestaurantImage::getFileKey)
                 .map(fileStorage::resolveFileUrl)
                 .toList();
-    }
-
-    private String toStoreDescription(Restaurant restaurant) {
-        if (StringUtils.hasText(restaurant.getStoreDescription())) {
-            return restaurant.getStoreDescription();
-        }
-        if (StringUtils.hasText(restaurant.getDescription())) {
-            return restaurant.getDescription();
-        }
-        return "";
     }
 
     private BusinessHourResponse toBusinessHourResponse(RestaurantBusinessHour businessHour) {
@@ -389,7 +401,8 @@ public class RestaurantService {
                 businessHour.getDayOfWeek().name(),
                 formatTime(businessHour.getOpenTime()),
                 formatTime(businessHour.getCloseTime()),
-                formatTime(businessHour.getLastOrderTime()),
+                formatTime(businessHour.getBreakStart()),
+                formatTime(businessHour.getBreakEnd()),
                 businessHour.isClosed()
         );
     }
@@ -399,10 +412,10 @@ public class RestaurantService {
                 menu.getId(),
                 menu.getName(),
                 menu.getDescription(),
-                fileStorage.resolveFileUrl(menu.getImageFileKey()),
-                menu.getCurrency(),
-                toWholeAmount(menu.getPrice()),
-                menu.isRepresentative()
+                fileStorage.resolveFileUrl(menu.getImageKey()),
+                menu.getPriceCurrency() == null ? null : menu.getPriceCurrency().value(),
+                toWholeAmount(menu.getPriceAmount()),
+                menu.isMain()
         );
     }
 
@@ -412,9 +425,26 @@ public class RestaurantService {
     }
 
     private void validateRequiredForCreate(AdminRestaurantCommand command) {
-        boolean missingRequired = command.name() == null || command.address() == null
-                || command.genre() == null || command.reservationFee() == null || command.currency() == null;
+        boolean missingRequired = command.name() == null || command.localName() == null || command.localName().isBlank()
+                || command.address() == null
+                || command.summary() == null || command.description() == null
+                || command.area() == null || command.genre() == null || command.foodCategory() == null
+                || command.priceCurrency() == null || command.minPrice() == null || command.maxPrice() == null
+                || command.imageKeys() == null || command.imageKeys().isEmpty()
+                || command.hashtags() == null || command.hashtags().isEmpty();
         if (missingRequired) {
+            throw new BusinessException(CommonErrorCode.INVALID_INPUT);
+        }
+    }
+
+    private void validateNonEmptyIfPresent(List<?> values) {
+        if (values != null && values.isEmpty()) {
+            throw new BusinessException(CommonErrorCode.INVALID_INPUT);
+        }
+    }
+
+    private void validateNonBlankIfPresent(String value) {
+        if (value != null && value.isBlank()) {
             throw new BusinessException(CommonErrorCode.INVALID_INPUT);
         }
     }
@@ -448,6 +478,16 @@ public class RestaurantService {
                 .orElseThrow(() -> new BusinessException(RestaurantErrorCode.UNSUPPORTED_GENRE));
     }
 
+    private RestaurantFoodCategory toFoodCategory(String value) {
+        return RestaurantFoodCategory.from(value)
+                .orElseThrow(() -> new BusinessException(RestaurantErrorCode.UNSUPPORTED_FOOD_CATEGORY));
+    }
+
+    private PriceCurrency toPriceCurrency(String value) {
+        return PriceCurrency.from(value)
+                .orElseThrow(() -> new BusinessException(CommonErrorCode.INVALID_INPUT));
+    }
+
     private List<RestaurantImage> toImages(List<String> imageKeys) {
         if (imageKeys == null) {
             return List.of();
@@ -463,7 +503,7 @@ public class RestaurantService {
         }
         return menus.stream()
                 .map(menu -> RestaurantMenu.create(menu.name(), menu.description(), menu.imageKey(),
-                        menu.currency(), menu.price(), menu.representative()))
+                        toPriceCurrency(menu.priceCurrency()), menu.priceAmount(), menu.main()))
                 .toList();
     }
 
@@ -472,7 +512,7 @@ public class RestaurantService {
         try {
             return businessHours.stream()
                     .map(hour -> RestaurantBusinessHour.create(hour.dayOfWeek(), hour.openTime(),
-                            hour.closeTime(), hour.lastOrderTime(), hour.closed()))
+                            hour.closeTime(), hour.breakStart(), hour.breakEnd(), hour.closed()))
                     .toList();
         } catch (IllegalArgumentException exception) {
             throw new BusinessException(RestaurantErrorCode.INVALID_BUSINESS_HOURS, exception);
@@ -511,14 +551,14 @@ public class RestaurantService {
                 restaurant.getId(),
                 restaurant.getName(),
                 restaurant.getLocalName(),
+                restaurant.getSummary(),
                 restaurant.getDescription(),
-                restaurant.getStoreDescription(),
                 restaurant.getAddress(),
                 restaurant.getArea(),
                 restaurant.getGenre().value(),
+                restaurant.getFoodCategory().value(),
                 fileStorage.resolveFileUrl(restaurant.getThumbnailFileKey()),
-                restaurant.getReservationFee(),
-                restaurant.getCurrency(),
+                restaurant.getPriceCurrency().value(),
                 restaurant.getMinPrice(),
                 restaurant.getMaxPrice(),
                 restaurant.isActive(),
@@ -529,6 +569,7 @@ public class RestaurantService {
                 restaurant.getMenus().stream()
                         .map(this::toAdminMenuInfo)
                         .toList(),
+                List.copyOf(restaurant.getHashtags()),
                 restaurant.getCurationTypes().stream()
                         .map(RestaurantCurationType::value)
                         .toList(),
@@ -544,7 +585,8 @@ public class RestaurantService {
                 businessHour.getDayOfWeek().name(),
                 formatTime(businessHour.getOpenTime()),
                 formatTime(businessHour.getCloseTime()),
-                formatTime(businessHour.getLastOrderTime()),
+                formatTime(businessHour.getBreakStart()),
+                formatTime(businessHour.getBreakEnd()),
                 businessHour.isClosed());
     }
 
@@ -553,14 +595,10 @@ public class RestaurantService {
                 menu.getId(),
                 menu.getName(),
                 menu.getDescription(),
-                fileStorage.resolveFileUrl(menu.getImageFileKey()),
-                menu.getCurrency(),
-                menu.getPrice(),
-                menu.isRepresentative());
-    }
-
-    private String formatDate(LocalDate date) {
-        return date == null ? null : date.toString();
+                fileStorage.resolveFileUrl(menu.getImageKey()),
+                menu.getPriceCurrency() == null ? null : menu.getPriceCurrency().value(),
+                menu.getPriceAmount(),
+                menu.isMain());
     }
 
     private String formatTime(LocalTime time) {

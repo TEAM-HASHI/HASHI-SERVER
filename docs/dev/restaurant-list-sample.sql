@@ -1,135 +1,71 @@
--- Development-only sample schema/data for restaurant list API.
--- This file is not a Flyway migration. Run it manually only against a dev database.
+-- Development-only sample data for restaurant APIs.
+-- Flyway must create the schema first. Run this file manually only against a dev database.
 
-CREATE TABLE IF NOT EXISTS restaurant (
-    id BIGINT NOT NULL AUTO_INCREMENT,
-    created_at DATETIME(6) NULL,
-    updated_at DATETIME(6) NULL,
-    name VARCHAR(100) NOT NULL,
-    local_name VARCHAR(100) NULL,
-    description VARCHAR(500) NULL,
-    address VARCHAR(255) NOT NULL,
-    area VARCHAR(100) NULL,
-    genre VARCHAR(30) NOT NULL,
-    thumbnail_file_key VARCHAR(500) NULL,
-    reservation_fee BIGINT NOT NULL,
-    currency VARCHAR(10) NOT NULL,
-    min_price DECIMAL(15, 2) NULL,
-    max_price DECIMAL(15, 2) NULL,
-    rating DOUBLE NOT NULL,
-    review_count BIGINT NOT NULL,
-    saved_count BIGINT NOT NULL,
-    popularity_score BIGINT NOT NULL,
-    active BOOLEAN NOT NULL,
-    available_date DATE NULL,
-    available_start_time TIME NULL,
-    available_end_time TIME NULL,
-    PRIMARY KEY (id)
-);
-
-CREATE TABLE IF NOT EXISTS restaurant_menu (
-    id BIGINT NOT NULL AUTO_INCREMENT,
-    restaurant_id BIGINT NOT NULL,
-    created_at DATETIME(6) NULL,
-    updated_at DATETIME(6) NULL,
-    name VARCHAR(100) NOT NULL,
-    description VARCHAR(500) NULL,
-    image_file_key VARCHAR(500) NULL,
-    currency VARCHAR(10) NOT NULL,
-    price DECIMAL(15, 2) NULL,
-    representative BOOLEAN NOT NULL,
-    PRIMARY KEY (id),
-    CONSTRAINT fk_restaurant_menu_restaurant
-        FOREIGN KEY (restaurant_id) REFERENCES restaurant (id)
-);
-
-CREATE TABLE IF NOT EXISTS restaurant_tag (
-    restaurant_id BIGINT NOT NULL,
-    tag VARCHAR(50) NOT NULL,
-    CONSTRAINT fk_restaurant_tag_restaurant
-        FOREIGN KEY (restaurant_id) REFERENCES restaurant (id)
-);
-
-CREATE TABLE IF NOT EXISTS restaurant_curation_type (
-    restaurant_id BIGINT NOT NULL,
-    curation_type VARCHAR(30) NOT NULL,
-    CONSTRAINT fk_restaurant_curation_type_restaurant
-        FOREIGN KEY (restaurant_id) REFERENCES restaurant (id)
-);
-
-CREATE TABLE IF NOT EXISTS restaurant_business_hour (
-    id BIGINT NOT NULL AUTO_INCREMENT,
-    restaurant_id BIGINT NOT NULL,
-    day_of_week VARCHAR(10) NOT NULL,
-    open_time TIME NULL,
-    close_time TIME NULL,
-    last_order_time TIME NULL,
-    closed BOOLEAN NOT NULL,
-    PRIMARY KEY (id),
-    CONSTRAINT uk_restaurant_business_hour_day UNIQUE (restaurant_id, day_of_week),
-    CONSTRAINT fk_restaurant_business_hour_restaurant
-        FOREIGN KEY (restaurant_id) REFERENCES restaurant (id)
-);
-
-DELETE FROM restaurant_curation_type WHERE restaurant_id BETWEEN 1001 AND 1005;
-DELETE FROM restaurant_tag WHERE restaurant_id BETWEEN 1001 AND 1005;
-DELETE FROM restaurant_menu WHERE restaurant_id BETWEEN 1001 AND 1005;
-DELETE FROM restaurant_business_hour WHERE restaurant_id BETWEEN 1001 AND 1005;
-DELETE FROM restaurant WHERE id BETWEEN 1001 AND 1005;
+DELETE FROM restaurant_curation_type WHERE restaurant_id BETWEEN 1001 AND 1002;
+DELETE FROM restaurant_hashtag WHERE restaurant_id BETWEEN 1001 AND 1002;
+DELETE FROM restaurant_menu WHERE restaurant_id BETWEEN 1001 AND 1002;
+DELETE FROM restaurant_business_hour WHERE restaurant_id BETWEEN 1001 AND 1002;
+DELETE FROM restaurant_image WHERE restaurant_id BETWEEN 1001 AND 1002;
+DELETE FROM restaurant WHERE id BETWEEN 1001 AND 1002;
 
 INSERT INTO restaurant (
-    id, created_at, updated_at, name, local_name, description, address, area,
-    genre, thumbnail_file_key, reservation_fee, currency, min_price, max_price,
-    rating, review_count, saved_count, popularity_score, active,
-    available_date, available_start_time, available_end_time
+    id, created_at, updated_at, name, local_name, summary, description, address, area,
+    genre, food_category, price_currency, price_min, price_max,
+    rating_sum, review_count, rating, active
 ) VALUES
-    (1001, NOW(6), NOW(6), 'Himawari Sushi Shintoshin', 'Himawari Sushi', 'Fresh sushi course near Shintoshin.', 'Tokyo Shintoshin 1-1', 'Tokyo', 'SUSHI', 'uploads/restaurants/sample/himawari.jpg', 4000, 'JPY', 1500.00, 5000.00, 4.8, 256, 180, 980, TRUE, '2026-07-19', '10:00:00', '22:00:00'),
-    (1002, NOW(6), NOW(6), 'Akitora Ramen', 'Akitora Ramen', 'Rich ramen with house-made broth.', 'Tokyo Shibuya 2-3', 'Tokyo', 'NOODLE', 'uploads/restaurants/sample/akitora.jpg', 3000, 'JPY', 1000.00, 2500.00, 4.6, 182, 132, 830, TRUE, '2026-07-19', '11:00:00', '21:30:00'),
-    (1003, NOW(6), NOW(6), 'Tonkatsu Hajime', 'Tonkatsu Hajime', 'Crispy tonkatsu set meals.', 'Osaka Namba 3-2', 'Osaka', 'FRIED', 'uploads/restaurants/sample/tonkatsu.jpg', 3500, 'JPY', 1200.00, 3000.00, 4.7, 144, 95, 760, TRUE, '2026-07-20', '10:30:00', '21:00:00'),
-    (1004, NOW(6), NOW(6), 'Nabe Kuro', 'Nabe Kuro', 'Seasonal nabe dishes for groups.', 'Kyoto Gion 5-4', 'Kyoto', 'NABE', 'uploads/restaurants/sample/nabe-kuro.jpg', 5000, 'JPY', 2500.00, 8000.00, 4.5, 98, 77, 610, TRUE, '2026-07-20', '12:00:00', '22:00:00'),
-    (1005, NOW(6), NOW(6), 'Teppan Mori', 'Teppan Mori', 'Casual teppan grill restaurant.', 'Fukuoka Tenjin 6-7', 'Fukuoka', 'GRILL', 'uploads/restaurants/sample/teppan-mori.jpg', 4500, 'JPY', 2000.00, 6500.00, 4.4, 87, 61, 540, TRUE, '2026-07-21', '11:30:00', '22:30:00');
+    (1001, NOW(6), NOW(6), '히마와리 스시 신도심점', 'Himawari Sushi',
+     '현지에서 사랑받는 스시 전문점', '신선한 제철 생선을 사용하는 스시 전문점입니다.',
+     'Tokyo Shintoshin 1-1', '도쿄', 'SUSHI', 'SUSHI', 'JPY', 1500.00, 5000.00,
+     0, 0, 0.0, TRUE),
+    (1002, NOW(6), NOW(6), '아키토라 라멘', 'Akitora Ramen',
+     '진한 육수가 특징인 라멘집', '매일 직접 끓인 육수와 생면을 제공합니다.',
+     'Tokyo Shibuya 2-3', '도쿄', 'NOODLE', 'NOODLE', 'JPY', 1000.00, 2500.00,
+     0, 0, 0.0, TRUE);
+
+INSERT INTO restaurant_image (
+    restaurant_id, created_at, updated_at, file_key, display_order
+) VALUES
+    (1001, NOW(6), NOW(6), 'uploads/restaurants/sample/himawari-01.jpg', 1),
+    (1001, NOW(6), NOW(6), 'uploads/restaurants/sample/himawari-02.jpg', 2),
+    (1002, NOW(6), NOW(6), 'uploads/restaurants/sample/akitora-01.jpg', 1);
 
 INSERT INTO restaurant_menu (
-    restaurant_id, created_at, updated_at, name, description, image_file_key, currency, price, representative
+    restaurant_id, created_at, updated_at, name, description,
+    image_key, price_currency, price_amount, is_main
 ) VALUES
-    (1001, NOW(6), NOW(6), 'Omakase Sushi', 'Chef selection sushi course.', 'uploads/restaurant-menus/sample/omakase.jpg', 'JPY', 4800.00, TRUE),
-    (1001, NOW(6), NOW(6), 'Salmon Nigiri', 'Fresh salmon nigiri.', 'uploads/restaurant-menus/sample/salmon.jpg', 'JPY', 1500.00, FALSE),
-    (1002, NOW(6), NOW(6), 'Tonkotsu Ramen', 'Pork broth ramen.', 'uploads/restaurant-menus/sample/tonkotsu.jpg', 'JPY', 1200.00, TRUE),
-    (1003, NOW(6), NOW(6), 'Pork Cutlet Set', 'Tonkatsu with rice and soup.', 'uploads/restaurant-menus/sample/tonkatsu-set.jpg', 'JPY', 1800.00, TRUE),
-    (1004, NOW(6), NOW(6), 'Beef Nabe', 'Hot pot with beef and vegetables.', 'uploads/restaurant-menus/sample/beef-nabe.jpg', 'JPY', 3200.00, TRUE),
-    (1005, NOW(6), NOW(6), 'Mixed Teppan Grill', 'Assorted grilled meat and vegetables.', 'uploads/restaurant-menus/sample/teppan.jpg', 'JPY', 2800.00, TRUE);
+    (1001, NOW(6), NOW(6), '오마카세 스시', '셰프 추천 스시 코스',
+     'uploads/restaurant-menus/sample/omakase.jpg', 'JPY', 4800.00, TRUE),
+    (1001, NOW(6), NOW(6), '연어 니기리', '신선한 연어 니기리',
+     'uploads/restaurant-menus/sample/salmon.jpg', 'JPY', 1500.00, FALSE),
+    (1002, NOW(6), NOW(6), '돈코츠 라멘', '진한 돼지뼈 육수 라멘',
+     'uploads/restaurant-menus/sample/tonkotsu.jpg', 'JPY', 1200.00, TRUE);
 
 INSERT INTO restaurant_business_hour (
-    restaurant_id, day_of_week, open_time, close_time, last_order_time, closed
+    restaurant_id, day_of_week, open_time, close_time,
+    break_start, break_end, is_closed
 ) VALUES
-    (1001, 'MONDAY', '10:00:00', '22:00:00', '21:30:00', FALSE),
-    (1001, 'TUESDAY', '10:00:00', '22:00:00', '21:30:00', FALSE),
-    (1001, 'WEDNESDAY', '10:00:00', '22:00:00', '21:30:00', FALSE),
-    (1001, 'THURSDAY', '10:00:00', '22:00:00', '21:30:00', FALSE),
-    (1001, 'FRIDAY', '10:00:00', '22:00:00', '21:30:00', FALSE),
-    (1001, 'SATURDAY', '11:00:00', '22:00:00', '21:30:00', FALSE),
-    (1001, 'SUNDAY', NULL, NULL, NULL, TRUE),
-    (1002, 'MONDAY', '11:00:00', '21:30:00', '21:00:00', FALSE),
-    (1002, 'TUESDAY', '11:00:00', '21:30:00', '21:00:00', FALSE),
-    (1002, 'WEDNESDAY', '11:00:00', '21:30:00', '21:00:00', FALSE),
-    (1002, 'THURSDAY', '11:00:00', '21:30:00', '21:00:00', FALSE),
-    (1002, 'FRIDAY', '11:00:00', '21:30:00', '21:00:00', FALSE),
-    (1002, 'SATURDAY', '11:00:00', '21:30:00', '21:00:00', FALSE),
-    (1002, 'SUNDAY', NULL, NULL, NULL, TRUE);
+    (1001, 'MONDAY', '10:00:00', '22:00:00', '15:00:00', '16:00:00', FALSE),
+    (1001, 'TUESDAY', '10:00:00', '22:00:00', '15:00:00', '16:00:00', FALSE),
+    (1001, 'WEDNESDAY', '10:00:00', '22:00:00', '15:00:00', '16:00:00', FALSE),
+    (1001, 'THURSDAY', '10:00:00', '22:00:00', '15:00:00', '16:00:00', FALSE),
+    (1001, 'FRIDAY', '10:00:00', '22:00:00', '15:00:00', '16:00:00', FALSE),
+    (1001, 'SATURDAY', '11:00:00', '22:00:00', NULL, NULL, FALSE),
+    (1001, 'SUNDAY', NULL, NULL, NULL, NULL, TRUE),
+    (1002, 'MONDAY', '11:00:00', '21:30:00', NULL, NULL, FALSE),
+    (1002, 'TUESDAY', '11:00:00', '21:30:00', NULL, NULL, FALSE),
+    (1002, 'WEDNESDAY', '11:00:00', '21:30:00', NULL, NULL, FALSE),
+    (1002, 'THURSDAY', '11:00:00', '21:30:00', NULL, NULL, FALSE),
+    (1002, 'FRIDAY', '11:00:00', '21:30:00', NULL, NULL, FALSE),
+    (1002, 'SATURDAY', '11:00:00', '21:30:00', NULL, NULL, FALSE),
+    (1002, 'SUNDAY', NULL, NULL, NULL, NULL, TRUE);
 
-INSERT INTO restaurant_tag (restaurant_id, tag) VALUES
-    (1001, 'omakase'),
-    (1001, 'date-night'),
-    (1002, 'ramen'),
-    (1002, 'local-favorite'),
-    (1003, 'crispy'),
-    (1004, 'group-friendly'),
-    (1005, 'grill');
+INSERT INTO restaurant_hashtag (restaurant_id, hashtag) VALUES
+    (1001, '오마카세'),
+    (1001, '데이트'),
+    (1002, '라멘'),
+    (1002, '현지맛집');
 
 INSERT INTO restaurant_curation_type (restaurant_id, curation_type) VALUES
     (1001, 'SNS_HOT'),
     (1001, 'HASHI_PICK'),
-    (1002, 'POPULAR'),
-    (1003, 'TODAY_RESTAURANT'),
-    (1004, 'HASHI_PICK'),
-    (1005, 'SNS_HOT');
+    (1002, 'POPULAR');

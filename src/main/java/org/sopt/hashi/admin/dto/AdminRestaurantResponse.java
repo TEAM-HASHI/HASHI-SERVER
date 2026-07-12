@@ -13,19 +13,20 @@ public record AdminRestaurantResponse(
         Long restaurantId,
         String name,
         String localName,
+        String summary,
         String description,
-        String storeDescription,
         String address,
         String area,
         String genre,
+        String foodCategory,
         String thumbnailUrl,
-        Long reservationFee,
-        String currency,
+        String priceCurrency,
         BigDecimal minPrice,
         BigDecimal maxPrice,
         boolean active,
         List<String> imageUrls,
         List<AdminRestaurantMenuResponse> menus,
+        List<String> hashtags,
         List<String> curationTypes,
         List<AdminRestaurantBusinessHourResponse> businessHours,
         LocalDateTime createdAt) {
@@ -35,14 +36,14 @@ public record AdminRestaurantResponse(
                 info.restaurantId(),
                 info.name(),
                 info.localName(),
+                info.summary(),
                 info.description(),
-                info.storeDescription(),
                 info.address(),
                 info.area(),
                 info.genre(),
+                info.foodCategory(),
                 info.thumbnailUrl(),
-                info.reservationFee(),
-                info.currency(),
+                info.priceCurrency(),
                 info.minPrice(),
                 info.maxPrice(),
                 info.active(),
@@ -50,6 +51,7 @@ public record AdminRestaurantResponse(
                 info.menus().stream()
                         .map(AdminRestaurantMenuResponse::from)
                         .toList(),
+                info.hashtags(),
                 info.curationTypes(),
                 info.businessHours().stream()
                         .map(AdminRestaurantBusinessHourResponse::from)
@@ -62,9 +64,9 @@ public record AdminRestaurantResponse(
             String name,
             String description,
             String imageUrl,
-            String currency,
-            BigDecimal price,
-            boolean representative) {
+            String priceCurrency,
+            BigDecimal priceAmount,
+            boolean main) {
 
         static AdminRestaurantMenuResponse from(AdminRestaurantInfo.AdminRestaurantMenuInfo info) {
             return new AdminRestaurantMenuResponse(
@@ -72,9 +74,9 @@ public record AdminRestaurantResponse(
                     info.name(),
                     info.description(),
                     info.imageUrl(),
-                    info.currency(),
-                    info.price(),
-                    info.representative());
+                    info.priceCurrency(),
+                    info.priceAmount(),
+                    info.main());
         }
     }
 
@@ -83,7 +85,8 @@ public record AdminRestaurantResponse(
             String dayOfWeek,
             String openTime,
             String closeTime,
-            String lastOrderTime,
+            String breakStart,
+            String breakEnd,
             boolean closed) {
 
         static AdminRestaurantBusinessHourResponse from(
@@ -92,7 +95,8 @@ public record AdminRestaurantResponse(
                     info.dayOfWeek(),
                     info.openTime(),
                     info.closeTime(),
-                    info.lastOrderTime(),
+                    info.breakStart(),
+                    info.breakEnd(),
                     info.closed());
         }
     }
