@@ -58,19 +58,20 @@ public class MagazineService {
                 hasNext);
     }
 
-    /** 어드민 매거진 등록 — 배너 이미지는 업로드 완료된 S3 키로 받아 키만 저장한다. */
+    /** 어드민 매거진 등록 — 배너·썸네일 이미지는 업로드 완료된 S3 키로 받아 키만 저장한다. */
     @Transactional
-    public MagazineInfo create(String title, String bannerKey, String instagramRedirectUrl) {
+    public MagazineInfo create(String title, String bannerKey, String thumbnailKey, String instagramRedirectUrl) {
         Magazine magazine = magazineRepository.save(
-                Magazine.create(title, bannerKey, instagramRedirectUrl));
+                Magazine.create(title, bannerKey, thumbnailKey, instagramRedirectUrl));
         return toInfo(magazine);
     }
 
     /** 어드민 매거진 수정 — 부분 수정(PATCH), null 필드는 변경하지 않는다. */
     @Transactional
-    public MagazineInfo update(Long magazineId, String title, String bannerKey, String instagramRedirectUrl) {
+    public MagazineInfo update(Long magazineId, String title, String bannerKey, String thumbnailKey,
+                               String instagramRedirectUrl) {
         Magazine magazine = findMagazine(magazineId);
-        magazine.update(title, bannerKey, instagramRedirectUrl);
+        magazine.update(title, bannerKey, thumbnailKey, instagramRedirectUrl);
         return toInfo(magazine);
     }
 
@@ -115,6 +116,7 @@ public class MagazineService {
                 magazine.getId(),
                 magazine.getTitle(),
                 fileStorage.resolveFileUrl(magazine.getBannerKey()),
+                fileStorage.resolveFileUrl(magazine.getThumbnailKey()),
                 magazine.getInstagramRedirectUrl(),
                 magazine.getCreatedAt());
     }
@@ -124,6 +126,7 @@ public class MagazineService {
                 magazine.getId(),
                 magazine.getTitle(),
                 fileStorage.resolveFileUrl(magazine.getBannerKey()),
+                fileStorage.resolveFileUrl(magazine.getThumbnailKey()),
                 magazine.getInstagramRedirectUrl(),
                 magazine.getCreatedAt());
     }

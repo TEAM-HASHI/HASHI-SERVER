@@ -9,6 +9,8 @@ public record UpdateMagazineRequest(
         @Size(max = 150, message = "제목은 150자 이내입니다") String title,
         @Schema(description = "새 배너 이미지 S3 key(선택, 보내면 교체)", example = "magazines/a1b2c3-new-banner.jpg")
         @Size(max = 500, message = "배너 이미지 키는 500자 이내입니다") String bannerKey,
+        @Schema(description = "새 썸네일 이미지 S3 key(선택, 보내면 교체)", example = "magazines/a1b2c3-new-thumbnail.jpg")
+        @Size(max = 500, message = "썸네일 이미지 키는 500자 이내입니다") String thumbnailKey,
         @Schema(description = "인스타그램 URL(선택)", example = "https://www.instagram.com/p/def456/")
         @Size(max = 255, message = "인스타그램 리다이렉트 URL은 255자 이내입니다") String instagramRedirectUrl) {
 }
