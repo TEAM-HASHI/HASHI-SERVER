@@ -1,8 +1,10 @@
 package org.sopt.hashi.restaurant.dto;
 
+import com.fasterxml.jackson.annotation.JsonInclude;
 import java.math.BigDecimal;
 import java.util.List;
 
+@JsonInclude(JsonInclude.Include.NON_NULL)
 public record RestaurantListResponse(
         List<RestaurantSummaryResponse> content,
         String nextCursor,
