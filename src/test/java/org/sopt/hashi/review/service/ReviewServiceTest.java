@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.BDDMockito.given;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 
@@ -228,6 +229,22 @@ class ReviewServiceTest {
         assertThat(response.content().getFirst().reviewId()).isEqualTo(10L);
         assertThat(response.nextCursor()).isEqualTo(11L);
         assertThat(response.hasNext()).isTrue();
+    }
+
+    @Test
+    void 식당_리뷰_이미지_커서가_해당_식당의_활성_이미지가_아니면_예외가_발생한다() {
+        given(restaurantPort.existsById(RESTAURANT_ID)).willReturn(true);
+        given(reviewImageRepository.findActiveByIdAndRestaurantId(99L, RESTAURANT_ID))
+                .willReturn(Optional.empty());
+
+        assertThatThrownBy(() -> reviewService.getRestaurantReviewImages(RESTAURANT_ID, 99L, 20))
+                .isInstanceOfSatisfying(BusinessException.class, exception ->
+                        assertThat(exception.getErrorCode()).isEqualTo(CommonErrorCode.INVALID_INPUT));
+
+        verify(reviewImageRepository, never()).findPageByRestaurantId(
+                RESTAURANT_ID,
+                99L,
+                PageRequest.of(0, 21));
     }
 
     private Review createReview(Long id, Long writerId, int rating, LocalDateTime createdAt) {

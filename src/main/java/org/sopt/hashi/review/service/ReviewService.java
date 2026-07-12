@@ -99,9 +99,10 @@ public class ReviewService {
     ) {
         validateRestaurantExists(restaurantId);
         int pageSize = size == null ? DEFAULT_IMAGE_PAGE_SIZE : normalizeSize(size);
+        Long validatedCursor = findImageCursor(restaurantId, cursor);
         List<ReviewImage> images = reviewImageRepository.findPageByRestaurantId(
                 restaurantId,
-                cursor,
+                validatedCursor,
                 PageRequest.of(0, pageSize + 1));
         boolean hasNext = images.size() > pageSize;
         List<ReviewImage> content = hasNext
@@ -118,6 +119,15 @@ public class ReviewService {
                         .toList(),
                 nextCursor,
                 hasNext);
+    }
+
+    private Long findImageCursor(Long restaurantId, Long cursor) {
+        if (cursor == null) {
+            return null;
+        }
+        return reviewImageRepository.findActiveByIdAndRestaurantId(cursor, restaurantId)
+                .map(ReviewImage::getId)
+                .orElseThrow(() -> new BusinessException(CommonErrorCode.INVALID_INPUT));
     }
 
     private void validateRestaurantExists(Long restaurantId) {
