@@ -22,9 +22,13 @@ import org.springframework.test.context.TestPropertySource;
 class ReviewRepositoryTest {
 
     private static final Long RESTAURANT_ID = 1L;
+    private long nextReservationId = 1L;
 
     @Autowired
     private ReviewRepository reviewRepository;
+
+    @Autowired
+    private ReviewImageRepository reviewImageRepository;
 
     @Autowired
     private TestEntityManager entityManager;
@@ -106,8 +110,30 @@ class ReviewRepositoryTest {
                 .containsExactly(lowerSameRating.getId(), highest.getId());
     }
 
+    @Test
+    void 이미지_커서는_요청_식당의_삭제되지_않은_리뷰_이미지만_조회한다() {
+        Review review = Review.create(100L, RESTAURANT_ID, 1L, 5, "리뷰 내용입니다.");
+        review.replaceImages(List.of(ReviewImage.create("uploads/reviews/cursor.jpg", 0)));
+        entityManager.persistAndFlush(review);
+        Long imageId = review.getImages().getFirst().getId();
+
+        assertThat(reviewImageRepository.findActiveByIdAndRestaurantId(imageId, RESTAURANT_ID))
+                .isPresent();
+        assertThat(reviewImageRepository.findActiveByIdAndRestaurantId(imageId, 999L))
+                .isEmpty();
+        assertThat(reviewImageRepository.findActiveByIdAndRestaurantId(999L, RESTAURANT_ID))
+                .isEmpty();
+
+        review.softDelete();
+        entityManager.flush();
+        entityManager.clear();
+
+        assertThat(reviewImageRepository.findActiveByIdAndRestaurantId(imageId, RESTAURANT_ID))
+                .isEmpty();
+    }
+
     private Review saveReview(int rating, LocalDateTime createdAt) {
-        Review review = Review.create((long) rating, RESTAURANT_ID, 1L, rating, "리뷰 내용입니다.");
+        Review review = Review.create(nextReservationId++, RESTAURANT_ID, 1L, rating, "리뷰 내용입니다.");
         entityManager.persistAndFlush(review);
         jdbcTemplate.update(
                 "update review set created_at = ?, updated_at = ? where id = ?",
