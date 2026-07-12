@@ -1,4 +1,4 @@
-package org.sopt.hashi.auth.internal.dev;
+package org.sopt.hashi.auth.dev;
 
 import org.sopt.hashi.auth.internal.jwt.AuthRoles;
 
