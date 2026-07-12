@@ -24,6 +24,7 @@ import org.sopt.hashi.reservation.ReservationType;
 import org.sopt.hashi.restaurant.RestaurantInfo;
 import org.sopt.hashi.restaurant.RestaurantPort;
 import org.sopt.hashi.review.domain.Review;
+import org.sopt.hashi.review.domain.ReviewLifecycleStatus;
 import org.sopt.hashi.review.domain.ReviewRepository;
 import org.sopt.hashi.review.dto.ReviewContextResponse;
 import org.sopt.hashi.review.dto.ReviewUnavailableReason;
@@ -70,7 +71,7 @@ class ReviewReservationQueryServiceTest {
         given(reservationPort.getReviewInfoByIdAndUserId(100L, USER_ID)).willReturn(reservation);
         given(restaurantPort.findSummaryById(10L))
                 .willReturn(Optional.of(restaurant(10L, "아키토리 무사시")));
-        given(reviewRepository.existsByReservationIdAndActiveTrue(100L)).willReturn(false);
+        given(reviewRepository.existsByReservationId(100L)).willReturn(false);
 
         ReviewContextResponse response = reviewReservationQueryService.getContext(100L);
 
@@ -97,7 +98,7 @@ class ReviewReservationQueryServiceTest {
 
         given(currentUserProvider.currentUserId()).willReturn(USER_ID);
         given(reservationPort.findVisitedReviewInfos(USER_ID)).willReturn(reservations);
-        given(reviewRepository.findByReservationIdInAndActiveTrue(List.of(100L, 101L, 102L)))
+        given(reviewRepository.findByReservationIdIn(List.of(100L, 101L, 102L)))
                 .willReturn(List.of(review100, review102));
         given(restaurantPort.findSummaries(List.of(11L, 12L)))
                 .willReturn(List.of(
@@ -115,11 +116,13 @@ class ReviewReservationQueryServiceTest {
         assertThat(response.content())
                 .extracting(item -> item.reservationId())
                 .containsExactly(101L, 102L);
-        assertThat(response.content().getFirst().reviewed()).isFalse();
+        assertThat(response.content().getFirst().reviewStatus()).isEqualTo(
+                ReviewLifecycleStatus.UNREVIEWED);
         assertThat(response.content().getFirst().teenCount()).isZero();
         assertThat(response.content().getFirst().reviewable()).isTrue();
         assertThat(response.content().getFirst().reviewId()).isNull();
-        assertThat(response.content().get(1).reviewed()).isTrue();
+        assertThat(response.content().get(1).reviewStatus()).isEqualTo(
+                ReviewLifecycleStatus.REVIEWED);
         assertThat(response.content().get(1).reviewable()).isFalse();
         assertThat(response.content().get(1).reviewUnavailableReason())
                 .isEqualTo(ReviewUnavailableReason.ALREADY_REVIEWED);
@@ -139,7 +142,7 @@ class ReviewReservationQueryServiceTest {
         given(currentUserProvider.currentUserId()).willReturn(USER_ID);
         given(restaurantPort.existsById(10L)).willReturn(true);
         given(reservationPort.findVisitedReviewInfos(USER_ID)).willReturn(reservations);
-        given(reviewRepository.findByReservationIdInAndActiveTrue(List.of(100L, 101L)))
+        given(reviewRepository.findByReservationIdIn(List.of(100L, 101L)))
                 .willReturn(List.of());
         given(restaurantPort.findSummaries(List.of(10L)))
                 .willReturn(List.of(restaurant(10L, "아키토리 무사시")));
@@ -150,7 +153,8 @@ class ReviewReservationQueryServiceTest {
         assertThat(response.totalCount()).isEqualTo(2L);
         assertThat(response.content()).hasSize(1);
         assertThat(response.content().getFirst().reservationId()).isEqualTo(100L);
-        assertThat(response.content().getFirst().reviewed()).isFalse();
+        assertThat(response.content().getFirst().reviewStatus()).isEqualTo(
+                ReviewLifecycleStatus.UNREVIEWED);
         assertThat(response.nextCursor()).isEqualTo(100L);
         assertThat(response.hasNext()).isTrue();
         verify(restaurantPort).existsById(10L);
@@ -162,7 +166,7 @@ class ReviewReservationQueryServiceTest {
 
         given(currentUserProvider.currentUserId()).willReturn(USER_ID);
         given(reservationPort.findVisitedReviewInfos(USER_ID)).willReturn(List.of(anywhere));
-        given(reviewRepository.findByReservationIdInAndActiveTrue(List.of(200L)))
+        given(reviewRepository.findByReservationIdIn(List.of(200L)))
                 .willReturn(List.of());
 
         VisitedReservationListResponse allResponse = reviewReservationQueryService
@@ -173,7 +177,8 @@ class ReviewReservationQueryServiceTest {
         assertThat(allResponse.content()).hasSize(1);
         assertThat(allResponse.content().getFirst().restaurantId()).isNull();
         assertThat(allResponse.content().getFirst().restaurantName()).isEqualTo("긴자 미등록 식당");
-        assertThat(allResponse.content().getFirst().reviewed()).isFalse();
+        assertThat(allResponse.content().getFirst().reviewStatus())
+                .isEqualTo(ReviewLifecycleStatus.UNREVIEWED);
         assertThat(allResponse.content().getFirst().reviewable()).isFalse();
         assertThat(allResponse.content().getFirst().reviewUnavailableReason())
                 .isEqualTo(ReviewUnavailableReason.UNSUPPORTED_RESERVATION_TYPE);
@@ -190,7 +195,7 @@ class ReviewReservationQueryServiceTest {
 
         given(currentUserProvider.currentUserId()).willReturn(USER_ID);
         given(reservationPort.findVisitedReviewInfos(USER_ID)).willReturn(List.of(reservation));
-        given(reviewRepository.findByReservationIdInAndActiveTrue(List.of(100L)))
+        given(reviewRepository.findByReservationIdIn(List.of(100L)))
                 .willReturn(List.of());
         given(restaurantPort.findSummaries(List.of(10L))).willReturn(List.of());
 
@@ -199,6 +204,68 @@ class ReviewReservationQueryServiceTest {
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("예약(id=100)")
                 .hasMessageContaining("식당(id=10)");
+    }
+
+    @Test
+    void 삭제한_리뷰는_전체_방문_목록에서_삭제_상태로_반환한다() {
+        ReservationReviewInfo reservation = reservation(
+                100L,
+                10L,
+                22,
+                ReservationStatus.VISITED);
+        Review deletedReview = review(50L, 100L, 10L, 5);
+        deletedReview.softDelete();
+
+        given(currentUserProvider.currentUserId()).willReturn(USER_ID);
+        given(reservationPort.findVisitedReviewInfos(USER_ID)).willReturn(List.of(reservation));
+        given(reviewRepository.findByReservationIdIn(List.of(100L)))
+                .willReturn(List.of(deletedReview));
+        given(restaurantPort.findSummaries(List.of(10L)))
+                .willReturn(List.of(restaurant(10L, "야키토리 무사시")));
+        given(pointPort.findEarnedAmounts(PointSourceType.REVIEW, List.of(100L)))
+                .willReturn(Map.of(100L, 500L));
+
+        VisitedReservationListResponse response = reviewReservationQueryService
+                .getVisitedReservations("all", null, "latest", null, 10);
+
+        VisitedReservationListResponse.VisitedReservationResponse item = response.content().getFirst();
+        assertThat(item.reviewStatus()).isEqualTo(ReviewLifecycleStatus.DELETED);
+        assertThat(item.reviewable()).isFalse();
+        assertThat(item.reviewId()).isNull();
+        assertThat(item.rating()).isNull();
+        assertThat(item.earnedPoint()).isEqualTo(500L);
+    }
+
+    @Test
+    void 커서_예약의_리뷰_상태가_바뀌어도_다음_작성완료_예약을_조회한다() {
+        List<ReservationReviewInfo> reservations = List.of(
+                reservation(103L, 13L, 23, ReservationStatus.VISITED),
+                reservation(102L, 12L, 22, ReservationStatus.VISITED),
+                reservation(101L, 11L, 21, ReservationStatus.VISITED)
+        );
+        Review review103 = review(53L, 103L, 13L, 5);
+        Review deletedReview102 = review(52L, 102L, 12L, 4);
+        deletedReview102.softDelete();
+        Review review101 = review(51L, 101L, 11L, 3);
+
+        given(currentUserProvider.currentUserId()).willReturn(USER_ID);
+        given(reservationPort.findVisitedReviewInfos(USER_ID)).willReturn(reservations);
+        given(reviewRepository.findByReservationIdIn(List.of(103L, 102L, 101L)))
+                .willReturn(List.of(review103, deletedReview102, review101));
+        given(restaurantPort.findSummaries(List.of(11L)))
+                .willReturn(List.of(restaurant(11L, "스시 하루")));
+        given(pointPort.findEarnedAmounts(PointSourceType.REVIEW, List.of(101L)))
+                .willReturn(Map.of(101L, 500L));
+
+        VisitedReservationListResponse response = reviewReservationQueryService
+                .getVisitedReservations("reviewed", null, "latest", 102L, 10);
+
+        assertThat(response.totalCount()).isEqualTo(2L);
+        assertThat(response.content())
+                .extracting(VisitedReservationListResponse.VisitedReservationResponse::reservationId)
+                .containsExactly(101L);
+        assertThat(response.hasNext()).isFalse();
+        assertThat(response.nextCursor()).isNull();
     }
 
     private ReservationReviewInfo reservation(

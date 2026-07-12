@@ -18,6 +18,7 @@ import org.sopt.hashi.restaurant.RestaurantInfo;
 import org.sopt.hashi.restaurant.RestaurantPort;
 import org.sopt.hashi.review.code.ReviewErrorCode;
 import org.sopt.hashi.review.domain.Review;
+import org.sopt.hashi.review.domain.ReviewLifecycleStatus;
 import org.sopt.hashi.review.domain.ReviewRepository;
 import org.sopt.hashi.review.domain.ReviewStatusFilter;
 import org.sopt.hashi.review.domain.VisitedReservationSort;
@@ -63,10 +64,10 @@ public class ReviewReservationQueryService {
                 .getReviewInfoByIdAndUserId(reservationId, userId);
 
         RestaurantDisplay restaurant = findRestaurantDisplay(reservation);
-        boolean reviewed = reservation.supportsReview()
+        boolean hasReviewHistory = reservation.supportsReview()
                 && reservation.reservationStatus() == ReservationStatus.VISITED
-                && reviewRepository.existsByReservationIdAndActiveTrue(reservation.id());
-        ReviewUnavailableReason unavailableReason = unavailableReason(reservation, reviewed);
+                && reviewRepository.existsByReservationId(reservation.id());
+        ReviewUnavailableReason unavailableReason = unavailableReason(reservation, hasReviewHistory);
 
         return new ReviewContextResponse(
                 reservation.id(),
@@ -107,17 +108,21 @@ public class ReviewReservationQueryService {
         }
 
         Map<Long, Review> reviewByReservationId = findReviewsByReservationId(candidates);
-        List<ReservationReviewInfo> filteredReservations = candidates.stream()
+        List<ReservationReviewInfo> sortedCandidates = candidates.stream()
+                .sorted(comparator(sort))
+                .toList();
+        long totalCount = sortedCandidates.stream()
                 .filter(reservation -> matchesReviewStatus(
                         reviewStatus,
                         reservation,
-                        reviewByReservationId.containsKey(reservation.id())))
-                .sorted(comparator(sort))
-                .toList();
-
-        long totalCount = filteredReservations.size();
-        List<ReservationReviewInfo> cursorApplied = applyCursor(filteredReservations, cursor);
+                        reviewByReservationId.get(reservation.id())))
+                .count();
+        List<ReservationReviewInfo> cursorApplied = applyCursor(sortedCandidates, cursor);
         List<ReservationReviewInfo> page = cursorApplied.stream()
+                .filter(reservation -> matchesReviewStatus(
+                        reviewStatus,
+                        reservation,
+                        reviewByReservationId.get(reservation.id())))
                 .limit((long) pageSize + 1)
                 .toList();
         boolean hasNext = page.size() > pageSize;
@@ -154,7 +159,7 @@ public class ReviewReservationQueryService {
 
     private ReviewUnavailableReason unavailableReason(
             ReservationReviewInfo reservation,
-            boolean reviewed
+            boolean hasReviewHistory
     ) {
         if (!reservation.supportsReview()) {
             return ReviewUnavailableReason.UNSUPPORTED_RESERVATION_TYPE;
@@ -162,7 +167,7 @@ public class ReviewReservationQueryService {
         if (reservation.reservationStatus() != ReservationStatus.VISITED) {
             return ReviewUnavailableReason.NOT_VISITED;
         }
-        if (reviewed) {
+        if (hasReviewHistory) {
             return ReviewUnavailableReason.ALREADY_REVIEWED;
         }
         return null;
@@ -200,19 +205,19 @@ public class ReviewReservationQueryService {
         List<Long> reservationIds = reservations.stream()
                 .map(ReservationReviewInfo::id)
                 .toList();
-        return reviewRepository.findByReservationIdInAndActiveTrue(reservationIds).stream()
+        return reviewRepository.findByReservationIdIn(reservationIds).stream()
                 .collect(Collectors.toMap(Review::getReservationId, Function.identity()));
     }
 
     private boolean matchesReviewStatus(
             ReviewStatusFilter status,
             ReservationReviewInfo reservation,
-            boolean reviewed
+            Review review
     ) {
         return switch (status) {
             case ALL -> true;
-            case UNREVIEWED -> reservation.supportsReview() && !reviewed;
-            case REVIEWED -> reviewed;
+            case UNREVIEWED -> reservation.supportsReview() && review == null;
+            case REVIEWED -> review != null && !review.isDeleted();
         };
     }
 
@@ -280,9 +285,10 @@ public class ReviewReservationQueryService {
     ) {
         RestaurantDisplay restaurant = toRestaurantDisplay(reservation, restaurantById);
         Review review = reviewByReservationId.get(reservation.id());
-        boolean reviewed = review != null;
-        boolean reviewable = reservation.supportsReview() && !reviewed;
-        ReviewUnavailableReason unavailableReason = unavailableReason(reservation, reviewed);
+        boolean hasReviewHistory = review != null;
+        boolean activeReview = hasReviewHistory && !review.isDeleted();
+        boolean reviewable = reservation.supportsReview() && !hasReviewHistory;
+        ReviewUnavailableReason unavailableReason = unavailableReason(reservation, hasReviewHistory);
         return new VisitedReservationResponse(
                 reservation.id(),
                 restaurant.id(),
@@ -292,13 +298,22 @@ public class ReviewReservationQueryService {
                 reservation.adultCount(),
                 reservation.teenCount(),
                 reservation.childCount(),
-                reviewed,
+                lifecycleStatus(review),
                 reviewable,
                 unavailableReason,
-                reviewed ? review.getId() : null,
-                reviewed ? review.getRating() : null,
-                reviewed ? earnedPointByReservationId.getOrDefault(reservation.id(), 0L) : null
+                activeReview ? review.getId() : null,
+                activeReview ? review.getRating() : null,
+                hasReviewHistory ? earnedPointByReservationId.getOrDefault(reservation.id(), 0L) : null
         );
+    }
+
+    private ReviewLifecycleStatus lifecycleStatus(Review review) {
+        if (review == null) {
+            return ReviewLifecycleStatus.UNREVIEWED;
+        }
+        return review.isDeleted()
+                ? ReviewLifecycleStatus.DELETED
+                : ReviewLifecycleStatus.REVIEWED;
     }
 
     private RestaurantDisplay toRestaurantDisplay(

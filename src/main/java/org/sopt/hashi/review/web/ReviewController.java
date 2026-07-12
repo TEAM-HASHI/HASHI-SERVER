@@ -4,6 +4,7 @@ import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.Positive;
 import org.sopt.hashi.review.code.ReviewErrorCode;
+import org.sopt.hashi.review.dto.RestaurantReviewImageListResponse;
 import org.sopt.hashi.review.dto.RestaurantReviewResponse;
 import org.sopt.hashi.review.service.ReviewService;
 import org.sopt.hashi.shared.error.CommonErrorCode;
@@ -39,5 +40,18 @@ public class ReviewController {
     ) {
         return SuccessResponse.of(CommonSuccessCode.OK,
                 reviewService.getRestaurantReviews(restaurantId, sort, cursor, size));
+    }
+
+    @ApiException(value = CommonErrorCode.class, codes = {"INVALID_INPUT", "UNAUTHORIZED"})
+    @ApiException(value = ReviewErrorCode.class, codes = {"RESTAURANT_NOT_FOUND"})
+    @GetMapping("/images")
+    public SuccessResponse<RestaurantReviewImageListResponse> getRestaurantReviewImages(
+            @Positive @PathVariable Long restaurantId,
+            @Positive @RequestParam(required = false) Long cursor,
+            @Min(1) @Max(50) @RequestParam(required = false) Integer size
+    ) {
+        return SuccessResponse.of(
+                CommonSuccessCode.OK,
+                reviewService.getRestaurantReviewImages(restaurantId, cursor, size));
     }
 }
