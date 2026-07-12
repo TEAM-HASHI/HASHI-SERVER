@@ -20,7 +20,7 @@ public record CreateAnywhereReservationRequest(
         @NotBlank(message = "식당명은 필수입니다") @Size(max = 100) String restaurantName,
         @Schema(description = "식당 주소(직접 입력)", example = "도쿄도 도시마구 히가시이케부쿠로 1-1-1")
         @NotBlank(message = "식당 주소는 필수입니다") @Size(max = 255) String restaurantAddress,
-        @Schema(description = "예약 일시(미래 시각)", example = "2026-08-01T19:00:00")
+        @Schema(description = "예약 일시(미래 시각)", example = "2030-08-01T19:00:00")
         @NotNull(message = "예약 일시는 필수입니다")
         @Future(message = "예약 일시는 미래여야 합니다") LocalDateTime reservedAt,
         @Schema(description = "성인 인원", example = "2")
