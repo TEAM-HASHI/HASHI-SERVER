@@ -79,6 +79,34 @@ class RestaurantServiceTest {
     }
 
     @Test
+    void 어드민_식당_등록에서_현지_식당명이_없으면_거부한다() {
+        RestaurantService restaurantService = new RestaurantService(restaurantRepository, fileStorage);
+        AdminRestaurantCommand command = new AdminRestaurantCommand(
+                "히마와리 스시",
+                null,
+                "식당 소개",
+                "매장 상세 설명",
+                "도쿄도 신주쿠구",
+                "도쿄",
+                "sushi",
+                "sushi",
+                "JPY",
+                BigDecimal.valueOf(1000),
+                BigDecimal.valueOf(3000),
+                List.of("restaurants/1/thumbnail.jpg"),
+                List.of(),
+                List.of("스시"),
+                List.of(),
+                null
+        );
+
+        assertThatThrownBy(() -> restaurantService.createByAdmin(command))
+                .isInstanceOfSatisfying(BusinessException.class, exception ->
+                        assertThat(exception.getErrorCode()).isEqualTo(CommonErrorCode.INVALID_INPUT));
+        verifyNoInteractions(restaurantRepository);
+    }
+
+    @Test
     void 어드민_식당_수정에서_해시태그를_빈_목록으로_교체할_수_없다() {
         RestaurantService restaurantService = new RestaurantService(restaurantRepository, fileStorage);
         AdminRestaurantCommand command = new AdminRestaurantCommand(
@@ -122,6 +150,34 @@ class RestaurantServiceTest {
                 null,
                 null,
                 List.of(),
+                null,
+                null,
+                null,
+                null
+        );
+
+        assertThatThrownBy(() -> restaurantService.updateByAdmin(1L, command))
+                .isInstanceOfSatisfying(BusinessException.class, exception ->
+                        assertThat(exception.getErrorCode()).isEqualTo(CommonErrorCode.INVALID_INPUT));
+        verifyNoInteractions(restaurantRepository);
+    }
+
+    @Test
+    void 어드민_식당_수정에서_현지_식당명을_공백으로_바꿀_수_없다() {
+        RestaurantService restaurantService = new RestaurantService(restaurantRepository, fileStorage);
+        AdminRestaurantCommand command = new AdminRestaurantCommand(
+                null,
+                " ",
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
                 null,
                 null,
                 null,

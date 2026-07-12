@@ -3,6 +3,7 @@ package org.sopt.hashi.admin.dto;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
+import jakarta.validation.constraints.Pattern;
 import jakarta.validation.constraints.PositiveOrZero;
 import jakarta.validation.constraints.Size;
 import java.math.BigDecimal;
@@ -17,6 +18,7 @@ import java.util.List;
  */
 public record UpdateRestaurantRequest(
         @Size(max = 100, message = "식당명은 100자 이내입니다") String name,
+        @Pattern(regexp = ".*\\S.*", message = "현지 식당명은 공백일 수 없습니다")
         @Size(max = 100, message = "현지 식당명은 100자 이내입니다") String localName,
         @Size(max = 100, message = "한 줄 소개는 100자 이내입니다") String summary,
         @Size(max = 500, message = "상세 설명은 500자 이내입니다") String description,
