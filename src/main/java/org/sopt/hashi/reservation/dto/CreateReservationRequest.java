@@ -20,7 +20,7 @@ public record CreateReservationRequest(
         @Schema(description = "예약할 식당 ID", example = "1")
         @NotNull(message = "식당 ID는 필수입니다")
         @Positive(message = "식당 ID는 양수여야 합니다") Long restaurantId,
-        @Schema(description = "예약 일시(미래 시각)", example = "2026-08-01T19:00:00")
+        @Schema(description = "예약 일시(미래 시각)", example = "2030-08-01T19:00:00")
         @NotNull(message = "예약 일시는 필수입니다")
         @Future(message = "예약 일시는 미래여야 합니다") LocalDateTime reservedAt,
         @Schema(description = "성인 인원", example = "2")
