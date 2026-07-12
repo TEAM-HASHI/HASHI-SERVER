@@ -19,7 +19,7 @@ spring:
 
 jwt:
   secret: ${JWT_SECRET}
-  access-token-ttl: 30m
+  access-token-ttl: 7d
   refresh-token-ttl: 14d
   onboarding-token-ttl: 30m
 
