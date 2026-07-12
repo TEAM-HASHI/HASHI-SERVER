@@ -1,4 +1,4 @@
-package org.sopt.hashi.auth.internal.dev;
+package org.sopt.hashi.auth.dev;
 
 import io.swagger.v3.oas.annotations.media.Schema;
 import jakarta.validation.constraints.NotNull;
