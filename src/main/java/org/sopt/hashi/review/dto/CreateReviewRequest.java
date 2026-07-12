@@ -32,7 +32,7 @@ public record CreateReviewRequest(
         @Size(min = 10, max = 1000, message = "리뷰 내용은 10자 이상 1000자 이하여야 합니다")
         String content,
 
-        @Schema(description = "리뷰 이미지 S3 key 목록(선택, 최대 10개)", example = "[\"reviews/a1b2c3-1.jpg\"]")
+        @Schema(description = "리뷰 이미지 S3 key 목록(선택, 최대 10개)", example = "[\"uploads/reviews/a1b2c3-1.jpg\"]")
         @Size(max = 10, message = "리뷰 이미지는 최대 10개까지 등록할 수 있습니다")
         List<@NotBlank(message = "이미지 파일 key는 비어 있을 수 없습니다")
                 @Size(max = 500, message = "이미지 파일 key는 500자 이하여야 합니다") String> imageFileKeys
