@@ -6,8 +6,8 @@ import org.sopt.hashi.shared.error.CommonSuccessCode;
 import org.sopt.hashi.shared.response.SuccessResponse;
 import org.sopt.hashi.shared.swagger.ApiException;
 import org.sopt.hashi.upload.code.UploadErrorCode;
-import org.sopt.hashi.upload.dto.IssuePresignedUrlRequest;
-import org.sopt.hashi.upload.dto.PresignedUrlResponse;
+import org.sopt.hashi.upload.dto.IssuePresignedUrlsRequest;
+import org.sopt.hashi.upload.dto.PresignedUrlsResponse;
 import org.sopt.hashi.upload.service.UploadService;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -25,13 +25,13 @@ public class UploadController {
         this.uploadService = uploadService;
     }
 
-    /** 업로드용 presigned URL 발급 — 발급받은 URL로 파일을 PUT한 뒤, 응답의 key를 등록 API에 전달한다. */
+    /** 업로드용 presigned URL 벌크 발급 — 각 URL로 파일을 PUT한 뒤, 응답의 key를 등록 API에 전달한다. */
     @ApiException(value = CommonErrorCode.class, codes = {"INVALID_INPUT", "UNAUTHORIZED"})
     @ApiException(value = UploadErrorCode.class,
             codes = {"UNSUPPORTED_USAGE", "UNSUPPORTED_FILE_TYPE", "FILE_SIZE_EXCEEDED"})
     @PostMapping("/presigned-urls")
-    public SuccessResponse<PresignedUrlResponse> issuePresignedUrl(
-            @Valid @RequestBody IssuePresignedUrlRequest request) {
-        return SuccessResponse.of(CommonSuccessCode.OK, uploadService.issuePresignedUrl(request));
+    public SuccessResponse<PresignedUrlsResponse> issuePresignedUrls(
+            @Valid @RequestBody IssuePresignedUrlsRequest request) {
+        return SuccessResponse.of(CommonSuccessCode.OK, uploadService.issuePresignedUrls(request));
     }
 }
