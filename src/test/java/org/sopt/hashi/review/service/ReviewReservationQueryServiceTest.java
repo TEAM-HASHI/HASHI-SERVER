@@ -117,12 +117,12 @@ class ReviewReservationQueryServiceTest {
                 .extracting(item -> item.reservationId())
                 .containsExactly(101L, 102L);
         assertThat(response.content().getFirst().reviewStatus()).isEqualTo(
-                org.sopt.hashi.review.domain.ReviewLifecycleStatus.UNREVIEWED);
+                ReviewLifecycleStatus.UNREVIEWED);
         assertThat(response.content().getFirst().teenCount()).isZero();
         assertThat(response.content().getFirst().reviewable()).isTrue();
         assertThat(response.content().getFirst().reviewId()).isNull();
         assertThat(response.content().get(1).reviewStatus()).isEqualTo(
-                org.sopt.hashi.review.domain.ReviewLifecycleStatus.REVIEWED);
+                ReviewLifecycleStatus.REVIEWED);
         assertThat(response.content().get(1).reviewable()).isFalse();
         assertThat(response.content().get(1).reviewUnavailableReason())
                 .isEqualTo(ReviewUnavailableReason.ALREADY_REVIEWED);
@@ -154,7 +154,7 @@ class ReviewReservationQueryServiceTest {
         assertThat(response.content()).hasSize(1);
         assertThat(response.content().getFirst().reservationId()).isEqualTo(100L);
         assertThat(response.content().getFirst().reviewStatus()).isEqualTo(
-                org.sopt.hashi.review.domain.ReviewLifecycleStatus.UNREVIEWED);
+                ReviewLifecycleStatus.UNREVIEWED);
         assertThat(response.nextCursor()).isEqualTo(100L);
         assertThat(response.hasNext()).isTrue();
         verify(restaurantPort).existsById(10L);
