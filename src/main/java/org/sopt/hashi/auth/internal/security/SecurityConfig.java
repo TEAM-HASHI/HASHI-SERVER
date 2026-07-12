@@ -45,7 +45,9 @@ public class SecurityConfig {
             "/api/v1/auth/**",         // 로그인·재발급(후속) — 토큰 없이 접근
             // 비로그인 탐색 화면(#93) — 식당 조회(하위 리뷰 목록 포함)와 매거진 조회는 공개
             "/api/v1/restaurants/**",
-            "/api/v1/magazines/**"
+            "/api/v1/magazines/**",
+            // 개발용 더미데이터 생성 — 컨트롤러가 local·dev 프로필 전용이라 운영에서는 404다
+            "/api/v1/dev/**"
     };
 
     @Bean
