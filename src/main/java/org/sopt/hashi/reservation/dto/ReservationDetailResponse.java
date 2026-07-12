@@ -6,12 +6,8 @@ import org.sopt.hashi.reservation.domain.Reservation;
 import org.sopt.hashi.reservation.ReservationType;
 
 /**
- * 예약 상세 응답. 목록보다 많은 식당 정보(일본어명·주소·대표이미지)를 함께 내린다.
- * 식당 정보는 STANDARD면 RestaurantPort로 enrich한 값, ANYWHERE면 예약에 저장된 값이다
- * (ANYWHERE는 미등록 식당이라 일본어명·이미지는 없어 null).
- *
- * <p>{@code receivedAt}(접수 일자)는 생성 시각, {@code confirmExpectedAt}(확정 예정 일자)는 도메인 규칙
- * ({@link Reservation#confirmExpectedAt()})으로 계산된 값을 그대로 매핑한다.
+ * 예약 상세 응답. 식당 정보는 STANDARD면 실시간 조회 값, ANYWHERE면 저장된 값(일본어명·이미지 null).
+ * receivedAt은 접수(생성) 시각, confirmExpectedAt은 접수 + 2일이다.
  */
 public record ReservationDetailResponse(
         Long reservationId,
