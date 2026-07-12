@@ -3,6 +3,7 @@ package org.sopt.hashi.review.dto;
 import com.fasterxml.jackson.annotation.JsonInclude;
 import java.time.LocalDateTime;
 import java.util.List;
+import org.sopt.hashi.review.domain.ReviewLifecycleStatus;
 
 @JsonInclude(JsonInclude.Include.NON_NULL)
 public record VisitedReservationListResponse(
@@ -22,7 +23,7 @@ public record VisitedReservationListResponse(
             int adultCount,
             int teenCount,
             int childCount,
-            boolean reviewed,
+            ReviewLifecycleStatus reviewStatus,
             boolean reviewable,
             ReviewUnavailableReason reviewUnavailableReason,
             Long reviewId,

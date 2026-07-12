@@ -65,8 +65,8 @@ public class MyReviewService {
         PageRequest pageRequest = PageRequest.of(0, pageSize + 1);
 
         List<Review> reviews = cursor == null
-                ? reviewRepository.findByWriterIdAndActiveTrueOrderByIdDesc(userId, pageRequest)
-                : reviewRepository.findByWriterIdAndActiveTrueAndIdLessThanOrderByIdDesc(
+                ? reviewRepository.findByUserIdAndDeletedFalseOrderByIdDesc(userId, pageRequest)
+                : reviewRepository.findByUserIdAndDeletedFalseAndIdLessThanOrderByIdDesc(
                         userId, cursor, pageRequest);
 
         boolean hasNext = reviews.size() > pageSize;
@@ -77,7 +77,6 @@ public class MyReviewService {
 
         List<Long> reservationIds = pageContent.stream()
                 .map(Review::getReservationId)
-                .filter(reservationId -> reservationId != null)
                 .distinct()
                 .toList();
         Map<Long, ReservationReviewInfo> reservationsById = reservationPort.findReviewInfos(reservationIds)
@@ -103,9 +102,8 @@ public class MyReviewService {
     public MyReviewDetailResponse getMyReview(Long reviewId) {
         Long userId = currentUserProvider.currentUserId();
         Review review = getOwnedActiveReview(reviewId, userId);
-        ReservationReviewInfo reservation = review.getReservationId() == null
-                ? null
-                : reservationPort.getReviewInfoByIdAndUserId(review.getReservationId(), userId);
+        ReservationReviewInfo reservation = reservationPort
+                .getReviewInfoByIdAndUserId(review.getReservationId(), userId);
         RestaurantInfo restaurant = restaurantPort.findSummaryById(review.getRestaurantId())
                 .orElseThrow(() -> new BusinessException(ReviewErrorCode.RESTAURANT_NOT_FOUND));
         String writerNickname = userPort.findById(userId)
@@ -117,9 +115,9 @@ public class MyReviewService {
                 restaurant.id(),
                 restaurant.name(),
                 restaurant.imageUrl(),
-                reservation == null ? null : reservation.reservedAt(),
-                reservation == null ? null : reservation.adultCount(),
-                reservation == null ? null : reservation.childCount(),
+                reservation.reservedAt(),
+                reservation.adultCount(),
+                reservation.childCount(),
                 writerNickname,
                 review.getRating(),
                 review.getContent(),
@@ -131,18 +129,22 @@ public class MyReviewService {
 
     public MyReviewCountResponse getMyReviewCount() {
         Long userId = currentUserProvider.currentUserId();
-        return new MyReviewCountResponse(reviewRepository.countByWriterIdAndActiveTrue(userId));
+        return new MyReviewCountResponse(reviewRepository.countByUserIdAndDeletedFalse(userId));
     }
 
     @Transactional
     public void deleteMyReview(Long reviewId) {
         Long userId = currentUserProvider.currentUserId();
         Review review = getOwnedActiveReview(reviewId, userId);
-        review.deactivate();
+        int deletedCount = reviewRepository.softDeleteByIdAndUserId(reviewId, userId);
+        if (deletedCount == 0) {
+            throw new BusinessException(ReviewErrorCode.NOT_FOUND);
+        }
+        restaurantPort.decreaseReviewStatistics(review.getRestaurantId(), review.getRating());
     }
 
     private Review getOwnedActiveReview(Long reviewId, Long userId) {
-        return reviewRepository.findByIdAndWriterIdAndActiveTrue(reviewId, userId)
+        return reviewRepository.findByIdAndUserIdAndDeletedFalse(reviewId, userId)
                 .orElseThrow(() -> new BusinessException(ReviewErrorCode.NOT_FOUND));
     }
 
@@ -162,7 +164,6 @@ public class MyReviewService {
                 review.getRating(),
                 review.getContent(),
                 keywordLabels(review),
-                imageUrls(review),
                 review.getCreatedAt()
         );
     }
@@ -183,9 +184,6 @@ public class MyReviewService {
             Map<Long, ReservationReviewInfo> reservationsById,
             Long reservationId
     ) {
-        if (reservationId == null) {
-            return null;
-        }
         ReservationReviewInfo reservation = reservationsById.get(reservationId);
         if (reservation == null) {
             throw new IllegalStateException("리뷰에 연결된 예약 정보를 찾을 수 없습니다.");

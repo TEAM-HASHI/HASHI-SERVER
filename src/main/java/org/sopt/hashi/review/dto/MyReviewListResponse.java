@@ -22,7 +22,6 @@ public record MyReviewListResponse(
             int rating,
             String content,
             List<String> keywords,
-            List<String> imageUrls,
             LocalDateTime createdAt
     ) {
     }
