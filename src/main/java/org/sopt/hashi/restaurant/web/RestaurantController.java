@@ -39,22 +39,24 @@ public class RestaurantController {
     /** 식당 목록 조회 — 키워드·장르·정렬·유형 필터(커서 페이지네이션). */
     @ApiException(value = CommonErrorCode.class, codes = {"INVALID_INPUT", "UNAUTHORIZED"})
     @ApiException(value = RestaurantErrorCode.class,
-            codes = {"UNSUPPORTED_GENRE", "UNSUPPORTED_SORT", "UNSUPPORTED_LIST_TYPE"})
+            codes = {"UNSUPPORTED_GENRE", "UNSUPPORTED_FOOD_CATEGORY", "UNSUPPORTED_SORT",
+                    "UNSUPPORTED_LIST_TYPE"})
     @GetMapping
     public SuccessResponse<RestaurantListResponse> getRestaurants(
             @RequestParam(required = false) String keyword,
             @RequestParam(required = false) String genre,
+            @RequestParam(required = false) String foodCategory,
             @RequestParam(required = false) String sort,
             @RequestParam(name = "type", required = false) String type,
             @Size(max = 200) @RequestParam(required = false) String cursor,
             @Min(1) @Max(50) @RequestParam(required = false) Integer size
     ) {
         return SuccessResponse.of(CommonSuccessCode.OK,
-                restaurantService.getRestaurants(keyword, genre, sort, type, cursor, size));
+                restaurantService.getRestaurants(keyword, genre, foodCategory, sort, type, cursor, size));
     }
 
     /** 검색어 자동완성 제안 목록 조회. */
-    @ApiException(value = CommonErrorCode.class, codes = {"INVALID_INPUT"})
+    @ApiException(value = CommonErrorCode.class, codes = {"INVALID_INPUT", "UNAUTHORIZED"})
     @GetMapping("/search-suggestions")
     public SuccessResponse<RestaurantSearchSuggestionResponse> getSearchSuggestions(
             @NotBlank @RequestParam String keyword,
@@ -65,7 +67,7 @@ public class RestaurantController {
     }
 
     /** 추천 검색 키워드 목록 조회. */
-    @ApiException(value = CommonErrorCode.class, codes = {"INVALID_INPUT"})
+    @ApiException(value = CommonErrorCode.class, codes = {"INVALID_INPUT", "UNAUTHORIZED"})
     @GetMapping("/search-keyword-recommendations")
     public SuccessResponse<RestaurantSearchKeywordRecommendationResponse> getSearchKeywordRecommendations(
             @Min(1) @Max(50) @RequestParam(required = false) Integer size
@@ -75,7 +77,7 @@ public class RestaurantController {
     }
 
     /** 식당 상세 요약 조회. */
-    @ApiException(value = CommonErrorCode.class, codes = {"INVALID_INPUT"})
+    @ApiException(value = CommonErrorCode.class, codes = {"INVALID_INPUT", "UNAUTHORIZED"})
     @ApiException(value = RestaurantErrorCode.class, codes = {"NOT_FOUND"})
     @GetMapping("/{restaurantId}/summary")
     public SuccessResponse<RestaurantMainResponse> getRestaurantSummary(
@@ -85,7 +87,7 @@ public class RestaurantController {
     }
 
     /** 식당 매장 정보 조회. */
-    @ApiException(value = CommonErrorCode.class, codes = {"INVALID_INPUT"})
+    @ApiException(value = CommonErrorCode.class, codes = {"INVALID_INPUT", "UNAUTHORIZED"})
     @ApiException(value = RestaurantErrorCode.class, codes = {"NOT_FOUND"})
     @GetMapping("/{restaurantId}/store-information")
     public SuccessResponse<RestaurantStoreInformationResponse> getStoreInformation(
@@ -95,7 +97,7 @@ public class RestaurantController {
     }
 
     /** 식당 메뉴 목록 조회(커서 페이지네이션). */
-    @ApiException(value = CommonErrorCode.class, codes = {"INVALID_INPUT"})
+    @ApiException(value = CommonErrorCode.class, codes = {"INVALID_INPUT", "UNAUTHORIZED"})
     @ApiException(value = RestaurantErrorCode.class, codes = {"NOT_FOUND"})
     @GetMapping("/{restaurantId}/menus")
     public SuccessResponse<RestaurantMenuListResponse> getRestaurantMenus(

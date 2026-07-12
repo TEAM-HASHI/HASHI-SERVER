@@ -22,9 +22,14 @@ public final class RestaurantSpecifications {
             return switch (cursor.sort()) {
                 case BASIC -> criteriaBuilder.lessThan(root.get("id"), cursor.id());
                 case POPULAR -> criteriaBuilder.or(
-                        criteriaBuilder.lessThan(root.get("popularityScore"), cursor.popularityScore()),
+                        criteriaBuilder.lessThan(root.get("reviewCount"), cursor.reviewCount()),
                         criteriaBuilder.and(
-                                criteriaBuilder.equal(root.get("popularityScore"), cursor.popularityScore()),
+                                criteriaBuilder.equal(root.get("reviewCount"), cursor.reviewCount()),
+                                criteriaBuilder.lessThan(root.get("rating"), cursor.rating())
+                        ),
+                        criteriaBuilder.and(
+                                criteriaBuilder.equal(root.get("reviewCount"), cursor.reviewCount()),
+                                criteriaBuilder.equal(root.get("rating"), cursor.rating()),
                                 criteriaBuilder.lessThan(root.get("id"), cursor.id())
                         )
                 );
@@ -45,6 +50,15 @@ public final class RestaurantSpecifications {
                 return criteriaBuilder.conjunction();
             }
             return criteriaBuilder.equal(root.get("genre"), genre);
+        };
+    }
+
+    public static Specification<Restaurant> foodCategoryEquals(RestaurantFoodCategory foodCategory) {
+        return (root, query, criteriaBuilder) -> {
+            if (foodCategory == null) {
+                return criteriaBuilder.conjunction();
+            }
+            return criteriaBuilder.equal(root.get("foodCategory"), foodCategory);
         };
     }
 

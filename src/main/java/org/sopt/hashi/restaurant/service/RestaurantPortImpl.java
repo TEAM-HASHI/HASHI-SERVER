@@ -85,6 +85,22 @@ class RestaurantPortImpl implements RestaurantPort {
 
     @Override
     @Transactional
+    public void increaseReviewStatistics(Long restaurantId, int rating) {
+        if (restaurantRepository.increaseReviewStatistics(restaurantId, rating) == 0) {
+            throw new IllegalStateException("리뷰 통계를 갱신할 식당을 찾을 수 없습니다.");
+        }
+    }
+
+    @Override
+    @Transactional
+    public void decreaseReviewStatistics(Long restaurantId, int rating) {
+        if (restaurantRepository.decreaseReviewStatistics(restaurantId, rating) == 0) {
+            throw new IllegalStateException("차감할 식당 리뷰 통계가 올바르지 않습니다.");
+        }
+    }
+
+    @Override
+    @Transactional
     public AdminRestaurantInfo createByAdmin(AdminRestaurantCommand command) {
         return restaurantService.createByAdmin(command);
     }

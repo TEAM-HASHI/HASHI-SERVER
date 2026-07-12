@@ -13,19 +13,20 @@ public record AdminRestaurantInfo(
         Long restaurantId,
         String name,
         String localName,
+        String summary,
         String description,
-        String storeDescription,
         String address,
         String area,
         String genre,
+        String foodCategory,
         String thumbnailUrl,
-        long reservationFee,
-        String currency,
+        String priceCurrency,
         BigDecimal minPrice,
         BigDecimal maxPrice,
         boolean active,
         List<String> imageUrls,
         List<AdminRestaurantMenuInfo> menus,
+        List<String> hashtags,
         List<String> curationTypes,
         List<AdminRestaurantBusinessHourInfo> businessHours,
         LocalDateTime createdAt) {
@@ -35,9 +36,9 @@ public record AdminRestaurantInfo(
             String name,
             String description,
             String imageUrl,
-            String currency,
-            BigDecimal price,
-            boolean representative) {
+            String priceCurrency,
+            BigDecimal priceAmount,
+            boolean main) {
     }
 
     /** 요일별 영업시간 — dayOfWeek는 MONDAY~SUNDAY, 시간은 HH:mm 문자열(휴무일은 null). */
@@ -45,7 +46,8 @@ public record AdminRestaurantInfo(
             String dayOfWeek,
             String openTime,
             String closeTime,
-            String lastOrderTime,
+            String breakStart,
+            String breakEnd,
             boolean closed) {
     }
 }
