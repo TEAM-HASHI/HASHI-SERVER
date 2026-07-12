@@ -2,6 +2,8 @@ package org.sopt.hashi.restaurant.domain;
 
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
+import jakarta.persistence.EnumType;
+import jakarta.persistence.Enumerated;
 import jakarta.persistence.FetchType;
 import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
@@ -32,34 +34,35 @@ public class RestaurantMenu extends BaseTimeEntity {
     @Column(name = "name", length = 100, nullable = false)
     private String name;
 
-    @Column(name = "description", length = 500)
+    @Column(name = "description", length = 500, nullable = false)
     private String description;
 
-    @Column(name = "image_file_key", length = 500)
-    private String imageFileKey;
+    @Column(name = "image_key", length = 500)
+    private String imageKey;
 
-    @Column(name = "currency", length = 10, nullable = false)
-    private String currency;
+    @Enumerated(EnumType.STRING)
+    @Column(name = "price_currency", length = 3)
+    private PriceCurrency priceCurrency;
 
-    @Column(name = "price", precision = 15, scale = 2)
-    private BigDecimal price;
+    @Column(name = "price_amount", precision = 15, scale = 2)
+    private BigDecimal priceAmount;
 
-    @Column(name = "representative", nullable = false)
-    private boolean representative;
+    @Column(name = "is_main", nullable = false)
+    private boolean main;
 
-    private RestaurantMenu(String name, String description, String imageFileKey,
-                           String currency, BigDecimal price, boolean representative) {
+    private RestaurantMenu(String name, String description, String imageKey,
+                           PriceCurrency priceCurrency, BigDecimal priceAmount, boolean main) {
         this.name = name;
         this.description = description;
-        this.imageFileKey = imageFileKey;
-        this.currency = currency;
-        this.price = price;
-        this.representative = representative;
+        this.imageKey = imageKey;
+        this.priceCurrency = priceCurrency;
+        this.priceAmount = priceAmount;
+        this.main = main;
     }
 
-    public static RestaurantMenu create(String name, String description, String imageFileKey,
-                                        String currency, BigDecimal price, boolean representative) {
-        return new RestaurantMenu(name, description, imageFileKey, currency, price, representative);
+    public static RestaurantMenu create(String name, String description, String imageKey,
+                                        PriceCurrency priceCurrency, BigDecimal priceAmount, boolean main) {
+        return new RestaurantMenu(name, description, imageKey, priceCurrency, priceAmount, main);
     }
 
     void assignRestaurant(Restaurant restaurant) {

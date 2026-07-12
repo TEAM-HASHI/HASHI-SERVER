@@ -22,6 +22,12 @@ public interface RestaurantPort {
     /** 식당 상세 정보를 조회한다 — 예약 상세 등 이름·일본어명·주소·대표이미지가 필요한 조회용. 없으면 empty. */
     Optional<RestaurantDetailInfo> findDetailById(Long restaurantId);
 
+    /** 리뷰 생성 시 식당 평점 합계·리뷰 수·평균을 원자적으로 증가시킨다. */
+    void increaseReviewStatistics(Long restaurantId, int rating);
+
+    /** 리뷰 삭제 시 식당 평점 합계·리뷰 수·평균을 원자적으로 감소시킨다. */
+    void decreaseReviewStatistics(Long restaurantId, int rating);
+
     /** 어드민 식당 등록 — 이미지·메뉴 사진은 업로드 완료된 S3 키로 받는다. */
     AdminRestaurantInfo createByAdmin(AdminRestaurantCommand command);
 

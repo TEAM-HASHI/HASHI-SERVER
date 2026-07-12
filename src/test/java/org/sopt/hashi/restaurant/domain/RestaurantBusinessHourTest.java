@@ -14,7 +14,8 @@ class RestaurantBusinessHourTest {
                 DayOfWeek.MONDAY,
                 null,
                 LocalTime.of(22, 0),
-                LocalTime.of(21, 0),
+                null,
+                null,
                 false
         )).isInstanceOf(IllegalArgumentException.class);
     }
@@ -26,17 +27,19 @@ class RestaurantBusinessHourTest {
                 LocalTime.of(10, 0),
                 LocalTime.of(22, 0),
                 null,
+                null,
                 true
         )).isInstanceOf(IllegalArgumentException.class);
     }
 
     @Test
-    void 마지막_주문_시간은_영업_시간_범위_안에_있어야_한다() {
+    void 브레이크_시간은_영업_시간_범위_안에_있어야_한다() {
         assertThatThrownBy(() -> RestaurantBusinessHour.create(
                 DayOfWeek.MONDAY,
                 LocalTime.of(10, 0),
                 LocalTime.of(22, 0),
                 LocalTime.of(23, 0),
+                LocalTime.of(23, 30),
                 false
         )).isInstanceOf(IllegalArgumentException.class);
     }
