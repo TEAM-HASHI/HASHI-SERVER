@@ -90,7 +90,7 @@ public class AdminRestaurantService {
             return null;
         }
         return menus.stream()
-                .map(menu -> new MenuCommand(menu.name(), menu.description(), menu.imageKey(),
+                .map(menu -> new MenuCommand(menu.menuId(), menu.name(), menu.description(), menu.imageKey(),
                         menu.priceCurrency(), menu.priceAmount(), menu.main()))
                 .toList();
     }

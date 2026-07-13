@@ -92,6 +92,17 @@ public class AdminRestaurantController {
             {
               "name": "야키니쿠 리키마루 이케부쿠로 본점",
               "summary": "리뉴얼한 이케부쿠로 야키니쿠 맛집",
+              "menus": [
+                {
+                  "menuId": 10,
+                  "name": "특선 모둠 야키니쿠",
+                  "description": "엄선한 부위 5종 모둠",
+                  "imageKey": "restaurant-menus/a1b2c3-menu.jpg",
+                  "priceCurrency": "JPY",
+                  "priceAmount": 4500,
+                  "main": true
+                }
+              ],
               "businessHours": [
                 {"dayOfWeek": "MONDAY", "openTime": "11:30", "closeTime": "22:00", "closed": false},
                 {"dayOfWeek": "TUESDAY", "openTime": "11:30", "closeTime": "22:00", "closed": false},

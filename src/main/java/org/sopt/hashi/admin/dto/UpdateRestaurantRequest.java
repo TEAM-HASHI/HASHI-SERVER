@@ -5,6 +5,7 @@ import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Pattern;
+import jakarta.validation.constraints.Positive;
 import jakarta.validation.constraints.PositiveOrZero;
 import jakarta.validation.constraints.Size;
 import java.math.BigDecimal;
@@ -56,8 +57,10 @@ public record UpdateRestaurantRequest(
         @Size(min = 7, max = 7, message = "영업시간은 모든 요일(7개)을 포함해야 합니다")
         List<@NotNull(message = "영업시간 항목은 null일 수 없습니다") @Valid BusinessHourRequest> businessHours) {
 
-    /** 메뉴 항목 — 목록 전체 교체 단위라 수정 요청이라도 각 항목은 완전한 값으로 받는다. */
+    /** 메뉴 항목 — 기존 메뉴는 menuId를, 신규 메뉴는 null을 전달한다. */
     public record MenuRequest(
+            @Schema(description = "기존 메뉴 ID(신규 메뉴는 생략)", example = "10")
+            @Positive(message = "메뉴 ID는 1 이상이어야 합니다") Long menuId,
             @Schema(description = "메뉴명", example = "특선 모둠 야키니쿠")
             @NotBlank(message = "메뉴명은 필수입니다")
             @Size(max = 100, message = "메뉴명은 100자 이내입니다") String name,
