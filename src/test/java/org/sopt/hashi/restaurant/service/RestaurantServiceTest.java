@@ -55,7 +55,7 @@ import org.springframework.test.util.ReflectionTestUtils;
 class RestaurantServiceTest {
 
     private static final Clock JAPAN_CLOCK = Clock.fixed(
-            Instant.parse("2026-07-13T00:00:00Z"),
+            Instant.parse("2026-07-12T15:30:00Z"),
             ZoneId.of("Asia/Tokyo")
     );
 
