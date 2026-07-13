@@ -23,7 +23,7 @@ public record AdminRestaurantResponse(
         String priceCurrency,
         BigDecimal minPrice,
         BigDecimal maxPrice,
-        boolean active,
+        boolean deleted,
         List<String> imageUrls,
         List<AdminRestaurantMenuResponse> menus,
         List<String> hashtags,
@@ -46,7 +46,7 @@ public record AdminRestaurantResponse(
                 info.priceCurrency(),
                 info.minPrice(),
                 info.maxPrice(),
-                info.active(),
+                info.deleted(),
                 info.imageUrls(),
                 info.menus().stream()
                         .map(AdminRestaurantMenuResponse::from)
