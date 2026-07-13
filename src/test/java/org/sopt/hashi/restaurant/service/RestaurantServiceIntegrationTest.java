@@ -17,6 +17,7 @@ import org.sopt.hashi.restaurant.domain.RestaurantFoodCategory;
 import org.sopt.hashi.restaurant.domain.RestaurantGenre;
 import org.sopt.hashi.restaurant.domain.RestaurantMenu;
 import org.sopt.hashi.restaurant.domain.RestaurantRepository;
+import org.sopt.hashi.restaurant.dto.RestaurantListResponse;
 import org.sopt.hashi.shared.storage.FileStorage;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.orm.jpa.DataJpaTest;
@@ -43,8 +44,39 @@ class RestaurantServiceIntegrationTest {
     @Autowired
     private RestaurantRepository restaurantRepository;
 
+    @Autowired
+    private RestaurantService restaurantService;
+
     @MockitoBean
     private FileStorage fileStorage;
+
+    @Test
+    void 식당_목록은_음식_분류로_필터링하지_않고_응답에는_음식_분류를_유지한다() {
+        restaurantRepository.saveAllAndFlush(List.of(
+                createRestaurant("음식 분류 초밥 식당", RestaurantFoodCategory.SUSHI),
+                createRestaurant("음식 분류 면류 식당", RestaurantFoodCategory.NOODLE)
+        ));
+
+        RestaurantListResponse response = restaurantService.getRestaurants(
+                null,
+                "sushi",
+                null,
+                null,
+                null,
+                50
+        );
+
+        List<RestaurantListResponse.RestaurantSummaryResponse> testRestaurants = response.content().stream()
+                .filter(restaurant -> restaurant.name().startsWith("음식 분류"))
+                .toList();
+
+        assertThat(testRestaurants)
+                .extracting(RestaurantListResponse.RestaurantSummaryResponse::name)
+                .containsExactlyInAnyOrder("음식 분류 초밥 식당", "음식 분류 면류 식당");
+        assertThat(testRestaurants)
+                .extracting(RestaurantListResponse.RestaurantSummaryResponse::foodCategory)
+                .containsExactlyInAnyOrder("초밥", "면류");
+    }
 
     @Test
     void 관리자_메뉴_수정_응답은_유지된_ID와_신규_ID를_DB_반영_후_반환한다() {
@@ -113,15 +145,19 @@ class RestaurantServiceIntegrationTest {
     }
 
     private Restaurant createRestaurant() {
+        return createRestaurant("메뉴 수정 식당", RestaurantFoodCategory.SUSHI);
+    }
+
+    private Restaurant createRestaurant(String name, RestaurantFoodCategory foodCategory) {
         return Restaurant.create(
-                "메뉴 수정 식당",
+                name,
                 "Menu Update Restaurant",
                 "식당 소개",
                 "식당 상세 설명",
                 "도쿄도 신주쿠구",
                 "도쿄",
                 RestaurantGenre.SUSHI,
-                RestaurantFoodCategory.SUSHI,
+                foodCategory,
                 PriceCurrency.JPY,
                 BigDecimal.valueOf(1_000),
                 BigDecimal.valueOf(3_000)
