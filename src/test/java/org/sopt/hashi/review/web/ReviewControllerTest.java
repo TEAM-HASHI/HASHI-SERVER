@@ -55,6 +55,7 @@ class ReviewControllerTest {
                 List.of(new ReviewSummaryResponse(
                         10L,
                         "하루",
+                        "https://cdn.example.com/users/1/profile.jpg",
                         5,
                         "리뷰 내용입니다.",
                         List.of("친절해요"),
@@ -76,6 +77,10 @@ class ReviewControllerTest {
                 .andExpect(jsonPath("$.code").value("COMMON-200"))
                 .andExpect(jsonPath("$.data.restaurantId").value(1))
                 .andExpect(jsonPath("$.data.content[0].reviewId").value(10))
+                .andExpect(jsonPath("$.data.content[0].reviewerNickname").value("하루"))
+                .andExpect(jsonPath("$.data.content[0].reviewerProfileImageUrl")
+                        .value("https://cdn.example.com/users/1/profile.jpg"))
+                .andExpect(jsonPath("$.data.content[0].writerNickname").doesNotExist())
                 .andExpect(jsonPath("$.data.hasNext").value(false));
     }
 
