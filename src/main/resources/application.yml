@@ -32,6 +32,8 @@ hashi:
   cors:
     # 콤마 구분 목록. 운영은 env CORS_ALLOWED_ORIGINS로 프론트 도메인을 주입한다.
     allowed-origins: ${CORS_ALLOWED_ORIGINS:http://localhost:5173}
+    # 동적 Preview 도메인만 Spring 와일드카드 패턴으로 제한해 허용한다.
+    allowed-origin-patterns: ${CORS_ALLOWED_ORIGIN_PATTERNS:}
   storage:
     region: ${AWS_REGION:ap-northeast-2}
     bucket: ${AWS_S3_BUCKET:hashi-local-uploads}
