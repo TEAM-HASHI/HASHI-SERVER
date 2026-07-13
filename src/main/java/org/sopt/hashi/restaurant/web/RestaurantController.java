@@ -40,20 +40,18 @@ public class RestaurantController {
     /** 식당 목록 조회 — 키워드·장르·정렬·유형 필터(커서 페이지네이션). */
     @ApiException(value = CommonErrorCode.class, codes = {"INVALID_INPUT"})
     @ApiException(value = RestaurantErrorCode.class,
-            codes = {"UNSUPPORTED_GENRE", "UNSUPPORTED_FOOD_CATEGORY", "UNSUPPORTED_SORT",
-                    "UNSUPPORTED_LIST_TYPE"})
+            codes = {"UNSUPPORTED_GENRE", "UNSUPPORTED_SORT", "UNSUPPORTED_LIST_TYPE"})
     @GetMapping
     public SuccessResponse<RestaurantListResponse> getRestaurants(
             @RequestParam(required = false) String keyword,
             @RequestParam(required = false) String genre,
-            @RequestParam(required = false) String foodCategory,
             @RequestParam(required = false) String sort,
             @RequestParam(name = "type", required = false) String type,
             @Size(max = 200) @RequestParam(required = false) String cursor,
             @Min(1) @Max(50) @RequestParam(required = false) Integer size
     ) {
         return SuccessResponse.of(CommonSuccessCode.OK,
-                restaurantService.getRestaurants(keyword, genre, foodCategory, sort, type, cursor, size));
+                restaurantService.getRestaurants(keyword, genre, sort, type, cursor, size));
     }
 
     /** 검색어 자동완성 제안 목록 조회. */
