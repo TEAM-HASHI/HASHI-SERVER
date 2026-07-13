@@ -161,6 +161,16 @@ public class RestaurantService {
         );
     }
 
+    public RestaurantMainResponse getRandomRestaurantRecommendation(Long excludeRestaurantId) {
+        Long restaurantId = restaurantRepository.findRandomRestaurantIdByCurationTypeExcluding(
+                        RestaurantCurationType.TODAY_RESTAURANT.name(),
+                        excludeRestaurantId
+                )
+                .orElseThrow(() -> new BusinessException(RestaurantErrorCode.RECOMMENDATION_NOT_FOUND));
+
+        return getRestaurantSummary(restaurantId);
+    }
+
     public RestaurantMainResponse getRestaurantSummary(Long restaurantId) {
         Restaurant restaurant = restaurantRepository.findActiveByIdWithImages(restaurantId)
                 .orElseThrow(() -> new BusinessException(RestaurantErrorCode.NOT_FOUND));
