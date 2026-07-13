@@ -8,6 +8,7 @@ import java.time.LocalTime;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -334,7 +335,7 @@ public class RestaurantService {
             replaceImagesWithFlush(restaurant, command.imageKeys());
         }
         if (command.menus() != null) {
-            restaurant.replaceMenus(toMenus(command.menus()));
+            synchronizeMenus(restaurant, command.menus());
         }
         if (command.hashtags() != null) {
             restaurant.replaceHashtags(command.hashtags());
@@ -603,10 +604,57 @@ public class RestaurantService {
         if (menus == null) {
             return List.of();
         }
+        if (menus.stream().anyMatch(menu -> menu.menuId() != null)) {
+            throw new BusinessException(CommonErrorCode.INVALID_INPUT);
+        }
         return menus.stream()
                 .map(menu -> RestaurantMenu.create(menu.name(), menu.description(), menu.imageKey(),
                         toPriceCurrency(menu.priceCurrency()), menu.priceAmount(), menu.main()))
                 .toList();
+    }
+
+    private void synchronizeMenus(Restaurant restaurant, List<MenuCommand> commands) {
+        Map<Long, RestaurantMenu> existingMenusById = restaurant.getMenus().stream()
+                .filter(menu -> menu.getId() != null)
+                .collect(Collectors.toMap(RestaurantMenu::getId, Function.identity()));
+        Set<Long> retainedMenuIds = new HashSet<>();
+
+        for (MenuCommand command : commands) {
+            if (command.menuId() == null) {
+                continue;
+            }
+            if (!retainedMenuIds.add(command.menuId())) {
+                throw new BusinessException(CommonErrorCode.INVALID_INPUT);
+            }
+            if (!existingMenusById.containsKey(command.menuId())) {
+                throw new BusinessException(RestaurantErrorCode.MENU_NOT_FOUND);
+            }
+        }
+        commands.forEach(command -> toPriceCurrency(command.priceCurrency()));
+
+        commands.stream()
+                .filter(command -> command.menuId() != null)
+                .forEach(command -> existingMenusById.get(command.menuId()).update(
+                        command.name(),
+                        command.description(),
+                        command.imageKey(),
+                        toPriceCurrency(command.priceCurrency()),
+                        command.priceAmount(),
+                        command.main()
+                ));
+
+        restaurant.removeMenusNotIn(retainedMenuIds);
+        commands.stream()
+                .filter(command -> command.menuId() == null)
+                .map(command -> RestaurantMenu.create(
+                        command.name(),
+                        command.description(),
+                        command.imageKey(),
+                        toPriceCurrency(command.priceCurrency()),
+                        command.priceAmount(),
+                        command.main()
+                ))
+                .forEach(restaurant::addMenu);
     }
 
     private List<RestaurantBusinessHour> toBusinessHours(List<BusinessHourCommand> businessHours) {

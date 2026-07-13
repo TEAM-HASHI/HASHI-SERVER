@@ -32,14 +32,27 @@ public record AdminRestaurantCommand(
         List<String> curationTypes,
         List<BusinessHourCommand> businessHours) {
 
-    /** 메뉴 항목 — 목록 전체 교체 단위라 각 항목은 완전한 값으로 받는다. */
+    /** 메뉴 항목 — 수정 시 기존 메뉴는 menuId를, 신규 메뉴는 null을 전달한다. */
     public record MenuCommand(
+            Long menuId,
             String name,
             String description,
             String imageKey,
             String priceCurrency,
             BigDecimal priceAmount,
             boolean main) {
+
+        /** 식당 등록·개발 데이터처럼 모든 메뉴가 신규인 호출을 위한 생성자. */
+        public MenuCommand(
+                String name,
+                String description,
+                String imageKey,
+                String priceCurrency,
+                BigDecimal priceAmount,
+                boolean main
+        ) {
+            this(null, name, description, imageKey, priceCurrency, priceAmount, main);
+        }
     }
 
     /** 요일별 영업시간 — 휴무일(closed=true)은 시간 없이, 영업일은 open·close 필수(시간 규칙은 restaurant가 검증). */

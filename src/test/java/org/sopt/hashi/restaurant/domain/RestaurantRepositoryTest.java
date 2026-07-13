@@ -6,6 +6,7 @@ import java.math.BigDecimal;
 import java.time.DayOfWeek;
 import java.time.LocalTime;
 import java.util.List;
+import java.util.Set;
 import org.junit.jupiter.api.Test;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -138,6 +139,48 @@ class RestaurantRepositoryTest {
         assertThat(restaurantRepository.findMenuByRestaurantIdAndMenuId(999L, firstMenu.getId())).isEmpty();
         assertThat(restaurantRepository.findMenuByRestaurantIdAndMenuId(deleted.getId(), deletedMenu.getId()))
                 .isEmpty();
+    }
+
+    @Test
+    void 메뉴_동기화는_기존_ID를_유지하고_누락된_메뉴를_삭제한다() {
+        Restaurant restaurant = createRestaurant("메뉴 수정 식당");
+        restaurant.addMenu(createMenu("유지 메뉴"));
+        restaurant.addMenu(createMenu("삭제 메뉴"));
+        restaurantRepository.saveAndFlush(restaurant);
+        Long restaurantId = restaurant.getId();
+        Long retainedMenuId = restaurant.getMenus().getFirst().getId();
+        Long removedMenuId = restaurant.getMenus().getLast().getId();
+        entityManager.clear();
+
+        Restaurant managedRestaurant = restaurantRepository.findById(restaurantId).orElseThrow();
+        RestaurantMenu retainedMenu = managedRestaurant.getMenus().stream()
+                .filter(menu -> menu.getId().equals(retainedMenuId))
+                .findFirst()
+                .orElseThrow();
+        retainedMenu.update("수정 메뉴", "수정 설명", null, PriceCurrency.JPY,
+                BigDecimal.valueOf(1_500), true);
+        managedRestaurant.removeMenusNotIn(Set.of(retainedMenuId));
+        managedRestaurant.addMenu(createMenu("신규 메뉴"));
+        restaurantRepository.flush();
+        entityManager.clear();
+
+        List<RestaurantMenu> menus = restaurantRepository.findMenusByRestaurantId(
+                restaurantId, null, null, PageRequest.of(0, 10));
+
+        assertThat(menus)
+                .extracting(RestaurantMenu::getId)
+                .contains(retainedMenuId)
+                .doesNotContain(removedMenuId);
+        assertThat(menus)
+                .filteredOn(menu -> menu.getId().equals(retainedMenuId))
+                .singleElement()
+                .satisfies(menu -> {
+                    assertThat(menu.getName()).isEqualTo("수정 메뉴");
+                    assertThat(menu.getPriceAmount()).isEqualByComparingTo("1500");
+                });
+        assertThat(menus)
+                .filteredOn(menu -> "신규 메뉴".equals(menu.getName()))
+                .hasSize(1);
     }
 
     private Restaurant saveRestaurant(String name, RestaurantCurationType curationType) {

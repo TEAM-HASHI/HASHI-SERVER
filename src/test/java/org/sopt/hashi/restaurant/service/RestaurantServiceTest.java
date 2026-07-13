@@ -26,6 +26,7 @@ import org.mockito.ArgumentMatchers;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.sopt.hashi.restaurant.AdminRestaurantCommand;
+import org.sopt.hashi.restaurant.AdminRestaurantCommand.MenuCommand;
 import org.sopt.hashi.restaurant.code.RestaurantErrorCode;
 import org.sopt.hashi.restaurant.domain.PriceCurrency;
 import org.sopt.hashi.restaurant.domain.Restaurant;
@@ -201,6 +202,78 @@ class RestaurantServiceTest {
                 .isInstanceOfSatisfying(BusinessException.class, exception ->
                         assertThat(exception.getErrorCode()).isEqualTo(CommonErrorCode.INVALID_INPUT));
         verifyNoInteractions(restaurantRepository);
+    }
+
+    @Test
+    void 어드민_메뉴_수정은_기존_ID를_유지하고_신규와_삭제를_동기화한다() {
+        RestaurantService restaurantService = createRestaurantService();
+        Restaurant restaurant = createRestaurant(1L, 4.8, 100L);
+        RestaurantMenu retainedMenu = createMenu(10L, "기존 메뉴", true);
+        RestaurantMenu removedMenu = createMenu(20L, "삭제 메뉴", false);
+        restaurant.addMenu(retainedMenu);
+        restaurant.addMenu(removedMenu);
+        given(restaurantRepository.findById(1L)).willReturn(Optional.of(restaurant));
+        AdminRestaurantCommand command = updateMenuCommand(List.of(
+                new MenuCommand(10L, "수정 메뉴", "수정 설명", "restaurant-menus/updated.jpg",
+                        "JPY", BigDecimal.valueOf(1_500), false),
+                new MenuCommand(null, "신규 메뉴", "신규 설명", "restaurant-menus/new.jpg",
+                        "JPY", BigDecimal.valueOf(900), true)
+        ));
+
+        restaurantService.updateByAdmin(1L, command);
+
+        assertThat(restaurant.getMenus()).hasSize(2);
+        assertThat(restaurant.getMenus())
+                .filteredOn(menu -> menu.getId() != null)
+                .singleElement()
+                .satisfies(menu -> {
+                    assertThat(menu.getId()).isEqualTo(10L);
+                    assertThat(menu.getName()).isEqualTo("수정 메뉴");
+                    assertThat(menu.getPriceAmount()).isEqualByComparingTo("1500");
+                    assertThat(menu.isMain()).isFalse();
+                });
+        assertThat(restaurant.getMenus())
+                .filteredOn(menu -> menu.getId() == null)
+                .singleElement()
+                .satisfies(menu -> assertThat(menu.getName()).isEqualTo("신규 메뉴"));
+    }
+
+    @Test
+    void 어드민_메뉴_수정은_다른_식당의_메뉴_ID를_거부한다() {
+        RestaurantService restaurantService = createRestaurantService();
+        Restaurant restaurant = createRestaurant(1L, 4.8, 100L);
+        restaurant.addMenu(createMenu(10L, "기존 메뉴", true));
+        given(restaurantRepository.findById(1L)).willReturn(Optional.of(restaurant));
+        AdminRestaurantCommand command = updateMenuCommand(List.of(
+                new MenuCommand(999L, "다른 메뉴", "설명", null,
+                        "JPY", BigDecimal.valueOf(1_000), false)
+        ));
+
+        assertThatThrownBy(() -> restaurantService.updateByAdmin(1L, command))
+                .isInstanceOfSatisfying(BusinessException.class, exception ->
+                        assertThat(exception.getErrorCode()).isEqualTo(RestaurantErrorCode.MENU_NOT_FOUND));
+
+        assertThat(restaurant.getMenus())
+                .extracting(RestaurantMenu::getId)
+                .containsExactly(10L);
+    }
+
+    @Test
+    void 어드민_메뉴_수정은_중복된_메뉴_ID를_거부한다() {
+        RestaurantService restaurantService = createRestaurantService();
+        Restaurant restaurant = createRestaurant(1L, 4.8, 100L);
+        restaurant.addMenu(createMenu(10L, "기존 메뉴", true));
+        given(restaurantRepository.findById(1L)).willReturn(Optional.of(restaurant));
+        AdminRestaurantCommand command = updateMenuCommand(List.of(
+                new MenuCommand(10L, "첫 번째", "설명", null,
+                        "JPY", BigDecimal.valueOf(1_000), false),
+                new MenuCommand(10L, "두 번째", "설명", null,
+                        "JPY", BigDecimal.valueOf(1_200), true)
+        ));
+
+        assertThatThrownBy(() -> restaurantService.updateByAdmin(1L, command))
+                .isInstanceOfSatisfying(BusinessException.class, exception ->
+                        assertThat(exception.getErrorCode()).isEqualTo(CommonErrorCode.INVALID_INPUT));
     }
 
     @Test
@@ -790,6 +863,27 @@ class RestaurantServiceTest {
                 List.of(),
                 hashtags,
                 List.of(),
+                null
+        );
+    }
+
+    private AdminRestaurantCommand updateMenuCommand(List<MenuCommand> menus) {
+        return new AdminRestaurantCommand(
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                menus,
+                null,
+                null,
                 null
         );
     }
