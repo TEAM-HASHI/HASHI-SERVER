@@ -1,0 +1,9 @@
+apiVersion: 1
+
+providers:
+  - name: hashi
+    folder: HASHI
+    type: file
+    disableDeletion: true
+    options:
+      path: /var/lib/grafana/dashboards
