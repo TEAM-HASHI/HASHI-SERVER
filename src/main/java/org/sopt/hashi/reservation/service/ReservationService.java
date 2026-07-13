@@ -161,8 +161,16 @@ public class ReservationService {
         boolean hasNext = rows.size() > pageSize;
         List<Reservation> page = hasNext ? rows.subList(0, pageSize) : rows;
         Long nextCursor = hasNext ? page.getLast().getId() : null;
+        long totalCount = countByFilter(userId, filter);
 
-        return new ReservationListResponse(toResponses(page), nextCursor, hasNext);
+        return new ReservationListResponse(toResponses(page), totalCount, nextCursor, hasNext);
+    }
+
+    /** 필터 조건에 맞는 전체 건수 — 커서(페이지 위치)와 무관한 총 row 수. */
+    private long countByFilter(Long userId, ReservationStatusFilter filter) {
+        return (filter == null)
+                ? reservationRepository.countByUserId(userId)
+                : reservationRepository.countByUserIdAndReservationStatusIn(userId, filter.statuses());
     }
 
     /** 페이지 단위 응답 변환 — STANDARD 식당 요약(이름·대표이미지)은 포트 다건 조회(findSummaries)로 한 번에 enrich한다(N+1 방지, §5-2). */
