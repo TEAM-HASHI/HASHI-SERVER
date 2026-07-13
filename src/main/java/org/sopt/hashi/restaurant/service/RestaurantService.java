@@ -100,7 +100,7 @@ public class RestaurantService {
         RestaurantCursor decodedCursor = RestaurantCursorCodec.decode(cursor, sort);
         int pageSize = normalizeSize(size);
 
-        Specification<Restaurant> specification = RestaurantSpecifications.active()
+        Specification<Restaurant> specification = RestaurantSpecifications.notDeleted()
                 .and(RestaurantSpecifications.cursorAfter(decodedCursor))
                 .and(RestaurantSpecifications.genreEquals(genre))
                 .and(RestaurantSpecifications.foodCategoryEquals(foodCategory))
@@ -200,7 +200,7 @@ public class RestaurantService {
     }
 
     public RestaurantMenuListResponse getRestaurantMenus(Long restaurantId, Long cursor, Integer size) {
-        if (!restaurantRepository.existsByIdAndActiveTrue(restaurantId)) {
+        if (!restaurantRepository.existsByIdAndDeletedFalse(restaurantId)) {
             throw new BusinessException(RestaurantErrorCode.NOT_FOUND);
         }
 
@@ -294,11 +294,11 @@ public class RestaurantService {
         return toAdminInfo(restaurant);
     }
 
-    /** 어드민 식당 삭제 — soft delete(active=false). 예약·리뷰가 참조하는 데이터는 보존한다. */
+    /** 어드민 식당 삭제 — soft delete(deleted=true). 예약·리뷰가 참조하는 데이터는 보존한다. */
     @Transactional
     public void deleteByAdmin(Long restaurantId) {
         Restaurant restaurant = findRestaurantForAdmin(restaurantId);
-        restaurant.deactivate();
+        restaurant.softDelete();
     }
 
     private RestaurantGenre parseGenre(String value) {
@@ -561,7 +561,7 @@ public class RestaurantService {
                 restaurant.getPriceCurrency().value(),
                 restaurant.getMinPrice(),
                 restaurant.getMaxPrice(),
-                restaurant.isActive(),
+                restaurant.isDeleted(),
                 restaurant.getImages().stream()
                         .map(RestaurantImage::getFileKey)
                         .map(fileStorage::resolveFileUrl)

@@ -23,7 +23,7 @@ public record AdminRestaurantInfo(
         String priceCurrency,
         BigDecimal minPrice,
         BigDecimal maxPrice,
-        boolean active,
+        boolean deleted,
         List<String> imageUrls,
         List<AdminRestaurantMenuInfo> menus,
         List<String> hashtags,

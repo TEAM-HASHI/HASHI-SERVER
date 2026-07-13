@@ -21,11 +21,17 @@ import lombok.AccessLevel;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 import org.hibernate.annotations.BatchSize;
+import org.hibernate.annotations.SQLDelete;
 import org.sopt.hashi.BaseTimeEntity;
 
+/**
+ * 삭제는 soft delete(deleted=true). 방문 예약 목록이 삭제된 리뷰를 조회해 DELETED 상태 노출·재작성 차단에
+ * 사용하므로 전역 필터(@SQLRestriction) 없이 조회 쿼리에만 deleted 조건을 명시한다.
+ */
 @Getter
 @Entity
 @Table(name = "review")
+@SQLDelete(sql = "UPDATE review SET deleted = true WHERE id = ?")
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
 public class Review extends BaseTimeEntity {
 
