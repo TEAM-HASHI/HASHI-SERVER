@@ -3,6 +3,7 @@ package org.sopt.hashi.review.service;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.function.Function;
 import java.util.stream.Collectors;
 import org.sopt.hashi.restaurant.RestaurantPort;
 import org.sopt.hashi.review.code.ReviewErrorCode;
@@ -21,8 +22,8 @@ import org.sopt.hashi.review.dto.RestaurantReviewResponse.ReviewSummaryResponse;
 import org.sopt.hashi.shared.error.BusinessException;
 import org.sopt.hashi.shared.error.CommonErrorCode;
 import org.sopt.hashi.shared.storage.FileStorage;
-import org.sopt.hashi.user.UserInfo;
 import org.sopt.hashi.user.UserPort;
+import org.sopt.hashi.user.UserProfileInfo;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -35,7 +36,7 @@ public class ReviewService {
     private static final int DEFAULT_IMAGE_PAGE_SIZE = 20;
     private static final int MAX_PAGE_SIZE = 50;
     private static final int REVIEW_PREVIEW_IMAGE_COUNT = 3;
-    private static final String WITHDRAWN_USER_NICKNAME = "탈퇴한 회원";
+    private static final String WITHDRAWN_REVIEWER_NICKNAME = "탈퇴한 회원";
 
     private final ReviewRepository reviewRepository;
     private final ReviewImageRepository reviewImageRepository;
@@ -74,10 +75,12 @@ public class ReviewService {
                 ? new ArrayList<>(reviews.subList(0, pageSize))
                 : reviews;
         Long nextCursor = hasNext ? pageContent.getLast().getId() : null;
-        Map<Long, String> writerNicknames = pageContent.stream()
+        List<Long> reviewerIds = pageContent.stream()
                 .map(Review::getUserId)
                 .distinct()
-                .collect(Collectors.toMap(userId -> userId, this::writerNickname));
+                .toList();
+        Map<Long, UserProfileInfo> reviewerProfiles = userPort.findProfiles(reviewerIds).stream()
+                .collect(Collectors.toMap(UserProfileInfo::id, Function.identity()));
 
         return new RestaurantReviewResponse(
                 restaurantId,
@@ -85,7 +88,7 @@ public class ReviewService {
                 reviewRepository.countByRestaurantIdAndDeletedFalse(restaurantId),
                 ratingDistribution(restaurantId),
                 pageContent.stream()
-                        .map(review -> toReviewSummaryResponse(review, writerNicknames))
+                        .map(review -> toReviewSummaryResponse(review, reviewerProfiles))
                         .toList(),
                 nextCursor,
                 hasNext
@@ -200,10 +203,15 @@ public class ReviewService {
         );
     }
 
-    private ReviewSummaryResponse toReviewSummaryResponse(Review review, Map<Long, String> writerNicknames) {
+    private ReviewSummaryResponse toReviewSummaryResponse(
+            Review review,
+            Map<Long, UserProfileInfo> reviewerProfiles
+    ) {
+        UserProfileInfo reviewerProfile = reviewerProfiles.get(review.getUserId());
         return new ReviewSummaryResponse(
                 review.getId(),
-                writerNicknames.get(review.getUserId()),
+                reviewerProfile == null ? WITHDRAWN_REVIEWER_NICKNAME : reviewerProfile.nickname(),
+                reviewerProfile == null ? null : reviewerProfile.profileImageUrl(),
                 review.getRating(),
                 review.getContent(),
                 review.getKeywords().stream()
@@ -216,11 +224,5 @@ public class ReviewService {
                 review.getImages().size(),
                 review.getCreatedAt()
         );
-    }
-
-    private String writerNickname(Long writerId) {
-        return userPort.findById(writerId)
-                .map(UserInfo::nickname)
-                .orElse(WITHDRAWN_USER_NICKNAME);
     }
 }

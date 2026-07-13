@@ -119,6 +119,7 @@ class MyReviewServiceTest {
         MyReviewDetailResponse response = myReviewService.getMyReview(REVIEW_ID);
 
         assertThat(response.reviewId()).isEqualTo(REVIEW_ID);
+        assertThat(response.reviewerNickname()).isEqualTo("탈퇴한 회원");
         assertThat(response.imageUrls())
                 .containsExactly("https://cdn.example.com/reviews/20/1.jpg");
     }
