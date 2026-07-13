@@ -53,15 +53,6 @@ public final class RestaurantSpecifications {
         };
     }
 
-    public static Specification<Restaurant> foodCategoryEquals(RestaurantFoodCategory foodCategory) {
-        return (root, query, criteriaBuilder) -> {
-            if (foodCategory == null) {
-                return criteriaBuilder.conjunction();
-            }
-            return criteriaBuilder.equal(root.get("foodCategory"), foodCategory);
-        };
-    }
-
     public static Specification<Restaurant> curationTypeEquals(RestaurantCurationType curationType) {
         return (root, query, criteriaBuilder) -> {
             if (curationType == null) {
