@@ -2,13 +2,13 @@ package org.sopt.hashi.review.service;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 
-import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
@@ -30,8 +30,8 @@ import org.sopt.hashi.review.dto.RestaurantReviewResponse;
 import org.sopt.hashi.shared.error.BusinessException;
 import org.sopt.hashi.shared.error.CommonErrorCode;
 import org.sopt.hashi.shared.storage.FileStorage;
-import org.sopt.hashi.user.UserInfo;
 import org.sopt.hashi.user.UserPort;
+import org.sopt.hashi.user.UserProfileInfo;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.test.util.ReflectionTestUtils;
 
@@ -83,11 +83,12 @@ class ReviewServiceTest {
                 ratingCount(4, 3L),
                 ratingCount(3, 1L)
         ));
-        given(userPort.findById(1L)).willReturn(Optional.of(userInfo(1L, "하루")));
-        given(userPort.findById(2L)).willReturn(Optional.of(userInfo(2L, "소라")));
-        given(userPort.findById(3L)).willReturn(Optional.empty());
-        given(userPort.findById(4L)).willReturn(Optional.of(userInfo(4L, "민")));
-        given(userPort.findById(5L)).willReturn(Optional.of(userInfo(5L, "유나")));
+        given(userPort.findProfiles(List.of(1L, 2L, 3L, 4L, 5L))).willReturn(List.of(
+                userProfile(1L, "하루", "https://cdn.example.com/users/1/profile.jpg"),
+                userProfile(2L, "소라", null),
+                userProfile(4L, "민", "https://cdn.example.com/users/4/profile.jpg"),
+                userProfile(5L, "유나", "https://cdn.example.com/users/5/profile.jpg")
+        ));
         given(fileStorage.resolveFileUrl(anyString()))
                 .willAnswer(invocation -> "https://cdn.example.com/" + invocation.getArgument(0));
 
@@ -107,8 +108,12 @@ class ReviewServiceTest {
         assertThat(response.ratingDistribution().two()).isZero();
         assertThat(response.ratingDistribution().one()).isZero();
         assertThat(response.content()).hasSize(5);
-        assertThat(response.content().getFirst().writerNickname()).isEqualTo("하루");
-        assertThat(response.content().get(2).writerNickname()).isEqualTo("탈퇴한 회원");
+        assertThat(response.content().getFirst().reviewerNickname()).isEqualTo("하루");
+        assertThat(response.content().getFirst().reviewerProfileImageUrl())
+                .isEqualTo("https://cdn.example.com/users/1/profile.jpg");
+        assertThat(response.content().get(1).reviewerProfileImageUrl()).isNull();
+        assertThat(response.content().get(2).reviewerNickname()).isEqualTo("탈퇴한 회원");
+        assertThat(response.content().get(2).reviewerProfileImageUrl()).isNull();
         assertThat(response.content().getFirst().keywords()).containsExactly("친절해요", "음식이 빨리 나와요");
         assertThat(response.content().getFirst().previewImageUrls())
                 .containsExactly(
@@ -118,6 +123,8 @@ class ReviewServiceTest {
         assertThat(response.content().getFirst().imageCount()).isEqualTo(4);
         assertThat(response.nextCursor()).isEqualTo(5L);
         assertThat(response.hasNext()).isTrue();
+        verify(userPort).findProfiles(List.of(1L, 2L, 3L, 4L, 5L));
+        verify(userPort, never()).findById(anyLong());
     }
 
     @Test
@@ -247,8 +254,8 @@ class ReviewServiceTest {
                 PageRequest.of(0, 21));
     }
 
-    private Review createReview(Long id, Long writerId, int rating, LocalDateTime createdAt) {
-        Review review = Review.create(id, RESTAURANT_ID, writerId, rating, "리뷰 내용입니다.");
+    private Review createReview(Long id, Long reviewerId, int rating, LocalDateTime createdAt) {
+        Review review = Review.create(id, RESTAURANT_ID, reviewerId, rating, "리뷰 내용입니다.");
         review.replaceKeywords(List.of("친절해요", "음식이 빨리 나와요"));
         review.replaceImages(List.of(
                 ReviewImage.create("uploads/reviews/%d/1.jpg".formatted(id), 0),
@@ -260,15 +267,8 @@ class ReviewServiceTest {
         return review;
     }
 
-    private UserInfo userInfo(Long id, String nickname) {
-        return new UserInfo(
-                id,
-                nickname,
-                "HASHI USER",
-                LocalDate.of(1998, 5, 12),
-                "010-0000-0000",
-                "hashi@example.com"
-        );
+    private UserProfileInfo userProfile(Long id, String nickname, String profileImageUrl) {
+        return new UserProfileInfo(id, nickname, profileImageUrl);
     }
 
     private RatingCount ratingCount(Integer rating, Long count) {

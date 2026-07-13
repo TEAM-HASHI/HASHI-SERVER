@@ -33,7 +33,7 @@ public class MyReviewService {
 
     private static final int DEFAULT_PAGE_SIZE = 10;
     private static final int MAX_PAGE_SIZE = 50;
-    private static final String WITHDRAWN_USER_NICKNAME = "탈퇴한 회원";
+    private static final String WITHDRAWN_REVIEWER_NICKNAME = "탈퇴한 회원";
 
     private final ReviewRepository reviewRepository;
     private final ReservationPort reservationPort;
@@ -106,9 +106,9 @@ public class MyReviewService {
                 .getReviewInfoByIdAndUserId(review.getReservationId(), userId);
         RestaurantInfo restaurant = restaurantPort.findSummaryById(review.getRestaurantId())
                 .orElseThrow(() -> new BusinessException(ReviewErrorCode.RESTAURANT_NOT_FOUND));
-        String writerNickname = userPort.findById(userId)
+        String reviewerNickname = userPort.findById(userId)
                 .map(UserInfo::nickname)
-                .orElse(WITHDRAWN_USER_NICKNAME);
+                .orElse(WITHDRAWN_REVIEWER_NICKNAME);
 
         return new MyReviewDetailResponse(
                 review.getId(),
@@ -118,7 +118,7 @@ public class MyReviewService {
                 reservation.reservedAt(),
                 reservation.adultCount(),
                 reservation.childCount(),
-                writerNickname,
+                reviewerNickname,
                 review.getRating(),
                 review.getContent(),
                 keywordLabels(review),
