@@ -5,6 +5,8 @@ import org.sopt.hashi.auth.internal.jwt.AuthRoles;
 import org.sopt.hashi.auth.internal.jwt.JwtProvider;
 
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.options;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import jakarta.servlet.http.Cookie;
@@ -41,6 +43,7 @@ import org.springframework.web.bind.annotation.RestController;
         "kakao.client-id=test-client-id",
         "kakao.redirect-uri=https://app.hashi.com/callback",
         "hashi.cors.allowed-origins=https://app.hashi.com",
+        "hashi.cors.allowed-origin-patterns=https://hashi-client-*-gyeongbinmins-projects.vercel.app",
         "springdoc.api-docs.enabled=false",
         "springdoc.swagger-ui.enabled=false"
 })
@@ -48,6 +51,8 @@ class OnboardingAuthorizationTest {
 
     private static final String PROTECTED_PATH = "/api/v1/reviews";
     private static final String ALLOWED_ORIGIN = "https://app.hashi.com";
+    private static final String ALLOWED_PREVIEW_ORIGIN =
+            "https://hashi-client-iqr83xez1-gyeongbinmins-projects.vercel.app";
 
     @Autowired
     MockMvc mvc;
@@ -85,6 +90,26 @@ class OnboardingAuthorizationTest {
         mvc.perform(get(PROTECTED_PATH)
                         .header(HttpHeaders.AUTHORIZATION, "Bearer " + accessToken))
                 .andExpect(status().isOk());
+    }
+
+    @Test
+    @DisplayName("허용 패턴과 일치하는 Preview Origin의 preflight 요청은 통과한다")
+    void Preview_Origin_preflight_통과() throws Exception {
+        mvc.perform(options(PROTECTED_PATH)
+                        .header(HttpHeaders.ORIGIN, ALLOWED_PREVIEW_ORIGIN)
+                        .header(HttpHeaders.ACCESS_CONTROL_REQUEST_METHOD, "GET"))
+                .andExpect(status().isOk())
+                .andExpect(header().string(HttpHeaders.ACCESS_CONTROL_ALLOW_ORIGIN, ALLOWED_PREVIEW_ORIGIN));
+    }
+
+    @Test
+    @DisplayName("허용 패턴과 다른 Vercel Origin의 preflight 요청은 거부한다")
+    void 다른_Vercel_Origin_preflight_거부() throws Exception {
+        mvc.perform(options(PROTECTED_PATH)
+                        .header(HttpHeaders.ORIGIN,
+                                "https://other-project-preview-gyeongbinmins-projects.vercel.app")
+                        .header(HttpHeaders.ACCESS_CONTROL_REQUEST_METHOD, "GET"))
+                .andExpect(status().isForbidden());
     }
 
     @RestController
