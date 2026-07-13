@@ -10,6 +10,7 @@ import org.sopt.hashi.admin.dto.UpdateRestaurantRequest;
 import org.sopt.hashi.admin.service.AdminRestaurantService;
 import org.sopt.hashi.shared.error.CommonErrorCode;
 import org.sopt.hashi.shared.response.SuccessResponse;
+import org.sopt.hashi.shared.swagger.ApiErrorResponse;
 import org.sopt.hashi.shared.swagger.ApiException;
 import org.sopt.hashi.shared.swagger.ApiSuccess;
 import org.springframework.http.HttpStatus;
@@ -115,6 +116,10 @@ public class AdminRestaurantController {
             }
             """)))
     @ApiException(value = CommonErrorCode.class, codes = {"INVALID_INPUT", "UNAUTHORIZED", "FORBIDDEN"})
+    @ApiErrorResponse(status = HttpStatus.NOT_FOUND, code = "RESTAURANT-004",
+            message = "식당을 찾을 수 없습니다.")
+    @ApiErrorResponse(status = HttpStatus.NOT_FOUND, code = "RESTAURANT-009",
+            message = "메뉴를 찾을 수 없습니다.")
     @ApiSuccess(value = AdminSuccessCode.class, codes = {"RESTAURANT_UPDATED"})
     @PatchMapping("/{restaurantId}")
     public SuccessResponse<AdminRestaurantResponse> update(
