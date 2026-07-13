@@ -11,11 +11,16 @@ import java.time.LocalDate;
 import lombok.AccessLevel;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
+import org.hibernate.annotations.SQLDelete;
+import org.hibernate.annotations.SQLRestriction;
 import org.sopt.hashi.BaseTimeEntity;
 
 /**
  * 회원. 소셜 OAuth로 인증하고 온보딩(프로필 입력)으로 가입이 완료된다.
  * 인증 제공자(카카오 등) 식별자는 이 테이블이 아니라 auth 모듈의 auth_account가 보관한다.
+ * 삭제(탈퇴)는 soft delete(deleted=true)이며 삭제된 회원은 전역 필터로 모든 조회에서 제외된다 —
+ * 호출 측은 조회 실패를 "탈퇴한 회원"으로 처리한다. nickname·email·phone 유니크 제약이 남으므로
+ * 탈퇴 기능 구현 시 해당 컬럼 익명화가 함께 필요하다.
  */
 @Getter
 @Entity
@@ -25,6 +30,8 @@ import org.sopt.hashi.BaseTimeEntity;
                 @UniqueConstraint(name = "uk_users_email", columnNames = "email"),
                 @UniqueConstraint(name = "uk_users_phone", columnNames = "phone")
         })
+@SQLDelete(sql = "UPDATE users SET deleted = true WHERE id = ?")
+@SQLRestriction("deleted = false")
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
 public class User extends BaseTimeEntity {
 
@@ -52,6 +59,9 @@ public class User extends BaseTimeEntity {
     @Column(name = "profile_image_key", length = 500)
     private String profileImageKey;
 
+    @Column(name = "deleted", nullable = false)
+    private boolean deleted;
+
     private User(String nickname, String nameEng, LocalDate birthDate,
                  String phone, String email, String profileImageKey) {
         this.nickname = nickname;
@@ -60,6 +70,7 @@ public class User extends BaseTimeEntity {
         this.phone = phone;
         this.email = email;
         this.profileImageKey = profileImageKey;
+        this.deleted = false;
     }
 
     /** 온보딩 완료로 가입한다. */
