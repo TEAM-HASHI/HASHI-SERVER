@@ -111,7 +111,19 @@ AWS_S3_BUCKET
 CLOUDFRONT_DOMAIN
 
 CORS_ALLOWED_ORIGINS
+CORS_ALLOWED_ORIGIN_PATTERNS
 ```
+
+`CORS_ALLOWED_ORIGINS`에는 고정된 프론트엔드 Origin을 콤마로 구분해 입력한다.
+Vercel Preview처럼 배포마다 호스트가 달라지는 경우에만 `CORS_ALLOWED_ORIGIN_PATTERNS`에
+Spring 와일드카드 패턴을 입력한다.
+
+```text
+CORS_ALLOWED_ORIGIN_PATTERNS=https://hashi-client-*-gyeongbinmins-projects.vercel.app
+```
+
+크리덴셜을 포함한 요청을 허용하므로 `https://*.vercel.app`처럼 다른 프로젝트까지 포함하는
+넓은 패턴은 사용하지 않는다.
 
 다음 key는 `.env.dev`에 넣지 않는다.
 
