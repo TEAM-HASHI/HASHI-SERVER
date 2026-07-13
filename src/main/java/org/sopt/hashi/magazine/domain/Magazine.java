@@ -12,8 +12,8 @@ import lombok.NoArgsConstructor;
 import org.sopt.hashi.BaseTimeEntity;
 
 /**
- * 매거진 애그리거트 루트. 매거진 1건당 배너 1개이며, 배너 이미지는 S3 키(bannerKey)만 저장하고
- * 조회 URL 변환은 응답 생성 시 FileStorage가 담당한다(coding-style §4-2).
+ * 매거진 애그리거트 루트. 매거진 1건당 배너 1개·썸네일 1개이며, 이미지는 S3 키(bannerKey·thumbnailKey)만
+ * 저장하고 조회 URL 변환은 응답 생성 시 FileStorage가 담당한다(coding-style §4-2).
  */
 @Getter
 @Entity
@@ -31,26 +31,34 @@ public class Magazine extends BaseTimeEntity {
     @Column(name = "banner_key", length = 500, nullable = false)
     private String bannerKey;
 
+    @Column(name = "thumbnail_key", length = 500, nullable = false)
+    private String thumbnailKey;
+
     @Column(name = "instagram_redirect_url", length = 255, nullable = false)
     private String instagramRedirectUrl;
 
-    private Magazine(String title, String bannerKey, String instagramRedirectUrl) {
+    private Magazine(String title, String bannerKey, String thumbnailKey, String instagramRedirectUrl) {
         this.title = title;
         this.bannerKey = bannerKey;
+        this.thumbnailKey = thumbnailKey;
         this.instagramRedirectUrl = instagramRedirectUrl;
     }
 
-    public static Magazine create(String title, String bannerKey, String instagramRedirectUrl) {
-        return new Magazine(title, bannerKey, instagramRedirectUrl);
+    public static Magazine create(String title, String bannerKey, String thumbnailKey,
+                                  String instagramRedirectUrl) {
+        return new Magazine(title, bannerKey, thumbnailKey, instagramRedirectUrl);
     }
 
     /** 부분 수정(PATCH) — null 필드는 기존 값을 유지한다. */
-    public void update(String title, String bannerKey, String instagramRedirectUrl) {
+    public void update(String title, String bannerKey, String thumbnailKey, String instagramRedirectUrl) {
         if (title != null) {
             this.title = title;
         }
         if (bannerKey != null) {
             this.bannerKey = bannerKey;
+        }
+        if (thumbnailKey != null) {
+            this.thumbnailKey = thumbnailKey;
         }
         if (instagramRedirectUrl != null) {
             this.instagramRedirectUrl = instagramRedirectUrl;

@@ -31,7 +31,7 @@ public class AdminMagazineController {
         this.adminMagazineService = adminMagazineService;
     }
 
-    /** 매거진 등록 — bannerKey는 presigned URL로 업로드를 마친 S3 키. */
+    /** 매거진 등록 — bannerKey·thumbnailKey는 presigned URL로 업로드를 마친 S3 키. */
     @ApiException(value = CommonErrorCode.class, codes = {"INVALID_INPUT", "UNAUTHORIZED", "FORBIDDEN"})
     @ApiSuccess(value = AdminSuccessCode.class, codes = {"MAGAZINE_CREATED"})
     @ResponseStatus(HttpStatus.CREATED)
