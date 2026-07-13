@@ -40,6 +40,7 @@ import org.sopt.hashi.restaurant.dto.RestaurantListResponse;
 import org.sopt.hashi.restaurant.dto.RestaurantListResponse.RestaurantSummaryResponse;
 import org.sopt.hashi.restaurant.dto.RestaurantListResponse.TodayBusinessHourResponse;
 import org.sopt.hashi.restaurant.dto.RestaurantMainResponse;
+import org.sopt.hashi.restaurant.dto.RestaurantMenuDetailResponse;
 import org.sopt.hashi.restaurant.dto.RestaurantMenuListResponse;
 import org.sopt.hashi.restaurant.dto.RestaurantMenuListResponse.RestaurantMenuResponse;
 import org.sopt.hashi.restaurant.dto.RestaurantSearchKeywordRecommendationResponse;
@@ -230,7 +231,12 @@ public class RestaurantService {
         );
     }
 
-    public RestaurantMenuListResponse getRestaurantMenus(Long restaurantId, Long cursor, Integer size) {
+    public RestaurantMenuListResponse getRestaurantMenus(
+            Long restaurantId,
+            Long excludeMenuId,
+            Long cursor,
+            Integer size
+    ) {
         if (!restaurantRepository.existsByIdAndDeletedFalse(restaurantId)) {
             throw new BusinessException(RestaurantErrorCode.NOT_FOUND);
         }
@@ -238,6 +244,7 @@ public class RestaurantService {
         int pageSize = normalizeSize(size);
         List<RestaurantMenu> menus = restaurantRepository.findMenusByRestaurantId(
                 restaurantId,
+                excludeMenuId,
                 cursor,
                 PageRequest.of(0, pageSize + 1)
         );
@@ -254,6 +261,23 @@ public class RestaurantService {
                         .toList(),
                 nextCursor,
                 hasNext
+        );
+    }
+
+    public RestaurantMenuDetailResponse getRestaurantMenu(Long restaurantId, Long menuId) {
+        RestaurantMenu menu = restaurantRepository.findMenuByRestaurantIdAndMenuId(restaurantId, menuId)
+                .orElseThrow(() -> menuNotFoundException(restaurantId));
+        long otherMenuCount = restaurantRepository.countOtherMenusByRestaurantId(restaurantId, menuId);
+
+        return new RestaurantMenuDetailResponse(
+                menu.getId(),
+                menu.getName(),
+                menu.getDescription(),
+                fileStorage.resolveFileUrl(menu.getImageKey()),
+                menu.getPriceCurrency() == null ? null : menu.getPriceCurrency().value(),
+                toWholeAmount(menu.getPriceAmount()),
+                menu.isMain(),
+                otherMenuCount
         );
     }
 
@@ -488,6 +512,13 @@ public class RestaurantService {
                 toWholeAmount(menu.getPriceAmount()),
                 menu.isMain()
         );
+    }
+
+    private BusinessException menuNotFoundException(Long restaurantId) {
+        if (!restaurantRepository.existsByIdAndDeletedFalse(restaurantId)) {
+            return new BusinessException(RestaurantErrorCode.NOT_FOUND);
+        }
+        return new BusinessException(RestaurantErrorCode.MENU_NOT_FOUND);
     }
 
     private Restaurant findRestaurantForAdmin(Long restaurantId) {
