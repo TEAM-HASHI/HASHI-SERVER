@@ -75,14 +75,17 @@ jobs:
           chmod 600 ~/.ssh/hashi-dev.pem
           ssh-keyscan -H "${DEV_EC2_HOST}" >> ~/.ssh/known_hosts
 
-      - name: Upload Docker Compose file
+      - name: Upload Docker Compose and monitoring configs
         env:
           DEV_EC2_HOST: ${{ secrets.DEV_EC2_HOST }}
           DEV_EC2_USER: ${{ secrets.DEV_EC2_USER }}
         run: |
           EC2_USER="${DEV_EC2_USER:-ubuntu}"
           ssh -i ~/.ssh/hashi-dev.pem "${EC2_USER}@${DEV_EC2_HOST}" "mkdir -p ${DEPLOY_DIR}/docker"
-          scp -i ~/.ssh/hashi-dev.pem docker/docker-compose.dev.yml "${EC2_USER}@${DEV_EC2_HOST}:${DEPLOY_DIR}/docker/docker-compose.dev.yml"
+          # 모니터링(prometheus·grafana) 설정 디렉토리도 함께 업로드 — compose가 상대 경로로 마운트한다
+          scp -i ~/.ssh/hashi-dev.pem -r \
+            docker/docker-compose.dev.yml docker/prometheus docker/grafana \
+            "${EC2_USER}@${DEV_EC2_HOST}:${DEPLOY_DIR}/docker/"
 
       - name: Deploy to EC2
         env:
@@ -100,7 +103,8 @@ jobs:
           test -f ../.env.dev
 
           docker compose --env-file ../.env.dev -f docker-compose.dev.yml pull app
-          docker compose --env-file ../.env.dev -f docker-compose.dev.yml up -d --remove-orphans app
+          # app 외 모니터링 서비스(prometheus·grafana)도 함께 기동 — 고정 태그 이미지는 up이 필요 시 pull한다
+          docker compose --env-file ../.env.dev -f docker-compose.dev.yml up -d --remove-orphans
 
           for attempt in $(seq 1 36); do
             if curl -fsS http://127.0.0.1:8080/actuator/health; then
