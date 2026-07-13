@@ -225,6 +225,10 @@ public class Restaurant extends BaseTimeEntity {
         this.menus.add(menu);
     }
 
+    public void removeMenusNotIn(Set<Long> retainedMenuIds) {
+        this.menus.removeIf(menu -> menu.getId() == null || !retainedMenuIds.contains(menu.getId()));
+    }
+
     public void replaceImages(List<RestaurantImage> images) {
         this.images.clear();
         if (images != null) {
