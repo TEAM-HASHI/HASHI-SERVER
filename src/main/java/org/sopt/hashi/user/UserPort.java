@@ -1,5 +1,7 @@
 package org.sopt.hashi.user;
 
+import java.util.Collection;
+import java.util.List;
 import java.util.Optional;
 
 /**
@@ -10,4 +12,7 @@ public interface UserPort {
 
     /** 회원 요약을 조회한다 — 없으면 empty(탈퇴 등). 호출 측이 fallback을 결정한다(§5-2). */
     Optional<UserInfo> findById(Long userId);
+
+    /** 회원 프로필 요약을 한 번에 조회한다. 요청 순서를 유지하고 존재하지 않는 회원은 제외한다. */
+    List<UserProfileInfo> findProfiles(Collection<Long> userIds);
 }
