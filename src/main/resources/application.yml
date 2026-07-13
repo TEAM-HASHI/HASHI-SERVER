@@ -45,8 +45,15 @@ management:
   endpoints:
     web:
       exposure:
-        include: health
+        include: health,prometheus
   endpoint:
     health:
       probes:
         enabled: true
+  metrics:
+    tags:
+      application: ${spring.application.name}
+    distribution:
+      percentiles-histogram:
+        # p95/p99 지연시간을 Grafana에서 histogram_quantile로 계산하기 위한 버킷 노출
+        "[http.server.requests]": true
