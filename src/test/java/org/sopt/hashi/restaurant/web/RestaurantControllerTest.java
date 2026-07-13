@@ -13,6 +13,7 @@ import org.junit.jupiter.api.Test;
 import org.sopt.hashi.auth.internal.onboarding.OnboardingJwtIssuer;
 import org.sopt.hashi.auth.internal.security.JwtAuthenticationFilter;
 import org.sopt.hashi.restaurant.code.RestaurantErrorCode;
+import org.sopt.hashi.restaurant.dto.RestaurantListResponse;
 import org.sopt.hashi.restaurant.dto.RestaurantMainResponse;
 import org.sopt.hashi.restaurant.dto.RestaurantMenuDetailResponse;
 import org.sopt.hashi.restaurant.dto.RestaurantMenuListResponse;
@@ -42,6 +43,27 @@ class RestaurantControllerTest {
 
     @MockitoBean
     private RestaurantService restaurantService;
+
+    @Test
+    void 식당_목록_조회_조건을_서비스에_전달한다() throws Exception {
+        RestaurantListResponse response = new RestaurantListResponse(List.of(), null, false);
+        given(restaurantService.getRestaurants("sushi", "sushi", "popular", "sns-hot", null, 20))
+                .willReturn(response);
+
+        mockMvc.perform(get("/api/v1/restaurants")
+                        .param("keyword", "sushi")
+                        .param("genre", "sushi")
+                        .param("sort", "popular")
+                        .param("type", "sns-hot")
+                        .param("size", "20"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.success").value(true))
+                .andExpect(jsonPath("$.data.content").isArray())
+                .andExpect(jsonPath("$.data.hasNext").value(false));
+
+        verify(restaurantService)
+                .getRestaurants("sushi", "sushi", "popular", "sns-hot", null, 20);
+    }
 
     @Test
     void 랜덤_추천_요청이면_현재_식당을_제외하고_공통_성공_응답을_반환한다() throws Exception {
