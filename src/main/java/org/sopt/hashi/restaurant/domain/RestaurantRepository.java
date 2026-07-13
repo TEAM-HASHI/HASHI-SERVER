@@ -1,5 +1,6 @@
 package org.sopt.hashi.restaurant.domain;
 
+import java.time.DayOfWeek;
 import java.util.List;
 import java.util.Optional;
 import org.springframework.data.domain.Pageable;
@@ -37,6 +38,19 @@ public interface RestaurantRepository extends JpaRepository<Restaurant, Long>, J
     Optional<Long> findRandomRestaurantIdByCurationTypeExcluding(
             @Param("curationType") String curationType,
             @Param("excludeRestaurantId") Long excludeRestaurantId
+    );
+
+    @Query("""
+            select businessHour
+            from RestaurantBusinessHour businessHour
+            join fetch businessHour.restaurant restaurant
+            where restaurant.id in :restaurantIds
+                and restaurant.deleted = false
+                and businessHour.dayOfWeek = :dayOfWeek
+            """)
+    List<RestaurantBusinessHour> findBusinessHoursByRestaurantIdsAndDayOfWeek(
+            @Param("restaurantIds") List<Long> restaurantIds,
+            @Param("dayOfWeek") DayOfWeek dayOfWeek
     );
 
     @Query("""
