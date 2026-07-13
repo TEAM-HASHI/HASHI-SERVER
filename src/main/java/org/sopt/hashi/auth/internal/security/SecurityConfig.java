@@ -88,16 +88,18 @@ public class SecurityConfig {
     }
 
     /**
-     * 리프레시 쿠키(HttpOnly) 전송을 위해 allowCredentials를 켠다 — 오리진은 와일드카드 불가, 정확한 도메인만 나열한다.
-     * 허용 오리진은 환경별로 다르므로 설정(hashi.cors.allowed-origins, env CORS_ALLOWED_ORIGINS)으로 주입한다.
+     * 리프레시 쿠키(HttpOnly) 전송을 위해 allowCredentials를 켠다.
+     * 고정 도메인은 allowed-origins에 정확히 나열하고, 동적 Preview 도메인만 제한된 allowed-origin-patterns로 허용한다.
      */
     @Bean
     public CorsConfigurationSource corsConfigurationSource(
-            @Value("${hashi.cors.allowed-origins}") List<String> allowedOrigins) {
+            @Value("${hashi.cors.allowed-origins}") List<String> allowedOrigins,
+            @Value("${hashi.cors.allowed-origin-patterns:}") List<String> allowedOriginPatterns) {
         CorsConfiguration configuration = new CorsConfiguration();
 
         // 프론트엔드 도메인 허용
         configuration.setAllowedOrigins(allowedOrigins);
+        configuration.setAllowedOriginPatterns(allowedOriginPatterns);
         configuration.setAllowedMethods(List.of("GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"));
         configuration.setAllowedHeaders(List.of("*"));
         // 교차 출처에서 프론트가 응답의 액세스 토큰(Authorization 헤더)을 읽을 수 있게 노출한다.

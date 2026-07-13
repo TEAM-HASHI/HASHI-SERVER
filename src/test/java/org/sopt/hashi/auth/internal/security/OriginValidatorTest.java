@@ -8,7 +8,9 @@ import org.junit.jupiter.api.Test;
 
 class OriginValidatorTest {
 
-    private final OriginValidator validator = new OriginValidator(List.of("https://app.hashi.com"));
+    private final OriginValidator validator = new OriginValidator(
+            List.of("https://app.hashi.com"),
+            List.of("https://hashi-client-*-gyeongbinmins-projects.vercel.app"));
 
     @Test
     @DisplayName("Origin이 없으면(동일 출처·비브라우저) 허용한다")
@@ -20,6 +22,30 @@ class OriginValidatorTest {
     @DisplayName("허용 목록의 Origin은 통과한다")
     void 허용목록_통과() {
         assertThat(validator.isAllowed("https://app.hashi.com")).isTrue();
+    }
+
+    @Test
+    @DisplayName("허용 패턴과 일치하는 Preview Origin은 통과한다")
+    void 허용패턴_통과() {
+        assertThat(validator.isAllowed(
+                "https://hashi-client-iqr83xez1-gyeongbinmins-projects.vercel.app"))
+                .isTrue();
+    }
+
+    @Test
+    @DisplayName("다른 Vercel 프로젝트의 Origin은 거부한다")
+    void 다른_Vercel_프로젝트_거부() {
+        assertThat(validator.isAllowed(
+                "https://other-project-iqr83xez1-gyeongbinmins-projects.vercel.app"))
+                .isFalse();
+    }
+
+    @Test
+    @DisplayName("허용 패턴 뒤에 도메인을 덧붙인 Origin은 거부한다")
+    void 유사_악성_Origin_거부() {
+        assertThat(validator.isAllowed(
+                "https://hashi-client-preview-gyeongbinmins-projects.vercel.app.evil.com"))
+                .isFalse();
     }
 
     @Test
