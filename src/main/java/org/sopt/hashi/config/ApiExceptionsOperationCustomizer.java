@@ -6,6 +6,7 @@ import io.swagger.v3.oas.models.media.Content;
 import io.swagger.v3.oas.models.media.MediaType;
 import io.swagger.v3.oas.models.responses.ApiResponse;
 import io.swagger.v3.oas.models.responses.ApiResponses;
+import java.time.LocalDateTime;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
@@ -14,6 +15,7 @@ import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import org.sopt.hashi.shared.error.ErrorCode;
 import org.sopt.hashi.shared.response.ErrorResponse;
+import org.sopt.hashi.shared.swagger.ApiErrorResponse;
 import org.sopt.hashi.shared.swagger.ApiException;
 import org.springdoc.core.customizers.GlobalOperationCustomizer;
 import org.springframework.web.method.HandlerMethod;
@@ -33,12 +35,18 @@ public class ApiExceptionsOperationCustomizer implements GlobalOperationCustomiz
     @Override
     public Operation customize(Operation operation, HandlerMethod handlerMethod) {
         ApiException[] apiExceptions = handlerMethod.getMethod().getAnnotationsByType(ApiException.class);
-        if (apiExceptions.length == 0) {
+        ApiErrorResponse[] apiErrorResponses =
+                handlerMethod.getMethod().getAnnotationsByType(ApiErrorResponse.class);
+        if (apiExceptions.length == 0 && apiErrorResponses.length == 0) {
             return operation;
         }
 
-        Map<Integer, List<ExampleHolder>> holdersByStatus = Arrays.stream(apiExceptions)
-                .flatMap(this::toExampleHolders)
+        Stream<ExampleHolder> enumErrorExamples = Arrays.stream(apiExceptions)
+                .flatMap(this::toExampleHolders);
+        Stream<ExampleHolder> declaredErrorExamples = Arrays.stream(apiErrorResponses)
+                .map(this::toExampleHolder);
+        Map<Integer, List<ExampleHolder>> holdersByStatus = Stream
+                .concat(enumErrorExamples, declaredErrorExamples)
                 .collect(Collectors.groupingBy(ExampleHolder::status));
 
         addExamples(operation.getResponses(), holdersByStatus);
@@ -80,6 +88,22 @@ public class ApiExceptionsOperationCustomizer implements GlobalOperationCustomiz
                 .description(errorCode.getMessage())
                 .value(ErrorResponse.of(errorCode, EXAMPLE_REQUEST_PATH));
         return new ExampleHolder(errorCode.getStatus().value(), errorCode.getCode(), example);
+    }
+
+    private ExampleHolder toExampleHolder(ApiErrorResponse apiErrorResponse) {
+        ErrorResponse response = new ErrorResponse(
+                false,
+                apiErrorResponse.code(),
+                apiErrorResponse.message(),
+                null,
+                LocalDateTime.now(),
+                EXAMPLE_REQUEST_PATH,
+                null
+        );
+        Example example = new Example()
+                .description(apiErrorResponse.message())
+                .value(response);
+        return new ExampleHolder(apiErrorResponse.status().value(), apiErrorResponse.code(), example);
     }
 
     /** 상태코드별로 묶인 예시들을 각 상태코드의 JSON 응답에 등록한다. 기존 등록된 응답은 유지하고 예시만 병합한다. */

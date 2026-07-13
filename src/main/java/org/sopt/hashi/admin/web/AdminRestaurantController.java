@@ -10,6 +10,7 @@ import org.sopt.hashi.admin.dto.UpdateRestaurantRequest;
 import org.sopt.hashi.admin.service.AdminRestaurantService;
 import org.sopt.hashi.shared.error.CommonErrorCode;
 import org.sopt.hashi.shared.response.SuccessResponse;
+import org.sopt.hashi.shared.swagger.ApiErrorResponse;
 import org.sopt.hashi.shared.swagger.ApiException;
 import org.sopt.hashi.shared.swagger.ApiSuccess;
 import org.springframework.http.HttpStatus;
@@ -92,6 +93,17 @@ public class AdminRestaurantController {
             {
               "name": "야키니쿠 리키마루 이케부쿠로 본점",
               "summary": "리뉴얼한 이케부쿠로 야키니쿠 맛집",
+              "menus": [
+                {
+                  "menuId": 10,
+                  "name": "특선 모둠 야키니쿠",
+                  "description": "엄선한 부위 5종 모둠",
+                  "imageKey": "restaurant-menus/a1b2c3-menu.jpg",
+                  "priceCurrency": "JPY",
+                  "priceAmount": 4500,
+                  "main": true
+                }
+              ],
               "businessHours": [
                 {"dayOfWeek": "MONDAY", "openTime": "11:30", "closeTime": "22:00", "closed": false},
                 {"dayOfWeek": "TUESDAY", "openTime": "11:30", "closeTime": "22:00", "closed": false},
@@ -104,6 +116,10 @@ public class AdminRestaurantController {
             }
             """)))
     @ApiException(value = CommonErrorCode.class, codes = {"INVALID_INPUT", "UNAUTHORIZED", "FORBIDDEN"})
+    @ApiErrorResponse(status = HttpStatus.NOT_FOUND, code = "RESTAURANT-004",
+            message = "식당을 찾을 수 없습니다.")
+    @ApiErrorResponse(status = HttpStatus.NOT_FOUND, code = "RESTAURANT-009",
+            message = "메뉴를 찾을 수 없습니다.")
     @ApiSuccess(value = AdminSuccessCode.class, codes = {"RESTAURANT_UPDATED"})
     @PatchMapping("/{restaurantId}")
     public SuccessResponse<AdminRestaurantResponse> update(

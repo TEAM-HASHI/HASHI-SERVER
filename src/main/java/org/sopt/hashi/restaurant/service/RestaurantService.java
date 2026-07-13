@@ -8,6 +8,7 @@ import java.time.LocalTime;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -40,6 +41,7 @@ import org.sopt.hashi.restaurant.dto.RestaurantListResponse;
 import org.sopt.hashi.restaurant.dto.RestaurantListResponse.RestaurantSummaryResponse;
 import org.sopt.hashi.restaurant.dto.RestaurantListResponse.TodayBusinessHourResponse;
 import org.sopt.hashi.restaurant.dto.RestaurantMainResponse;
+import org.sopt.hashi.restaurant.dto.RestaurantMenuDetailResponse;
 import org.sopt.hashi.restaurant.dto.RestaurantMenuListResponse;
 import org.sopt.hashi.restaurant.dto.RestaurantMenuListResponse.RestaurantMenuResponse;
 import org.sopt.hashi.restaurant.dto.RestaurantSearchKeywordRecommendationResponse;
@@ -230,7 +232,12 @@ public class RestaurantService {
         );
     }
 
-    public RestaurantMenuListResponse getRestaurantMenus(Long restaurantId, Long cursor, Integer size) {
+    public RestaurantMenuListResponse getRestaurantMenus(
+            Long restaurantId,
+            Long excludeMenuId,
+            Long cursor,
+            Integer size
+    ) {
         if (!restaurantRepository.existsByIdAndDeletedFalse(restaurantId)) {
             throw new BusinessException(RestaurantErrorCode.NOT_FOUND);
         }
@@ -238,6 +245,7 @@ public class RestaurantService {
         int pageSize = normalizeSize(size);
         List<RestaurantMenu> menus = restaurantRepository.findMenusByRestaurantId(
                 restaurantId,
+                excludeMenuId,
                 cursor,
                 PageRequest.of(0, pageSize + 1)
         );
@@ -254,6 +262,23 @@ public class RestaurantService {
                         .toList(),
                 nextCursor,
                 hasNext
+        );
+    }
+
+    public RestaurantMenuDetailResponse getRestaurantMenu(Long restaurantId, Long menuId) {
+        RestaurantMenu menu = restaurantRepository.findMenuByRestaurantIdAndMenuId(restaurantId, menuId)
+                .orElseThrow(() -> menuNotFoundException(restaurantId));
+        long otherMenuCount = restaurantRepository.countOtherMenusByRestaurantId(restaurantId, menuId);
+
+        return new RestaurantMenuDetailResponse(
+                menu.getId(),
+                menu.getName(),
+                menu.getDescription(),
+                fileStorage.resolveFileUrl(menu.getImageKey()),
+                menu.getPriceCurrency() == null ? null : menu.getPriceCurrency().value(),
+                toWholeAmount(menu.getPriceAmount()),
+                menu.isMain(),
+                otherMenuCount
         );
     }
 
@@ -310,7 +335,7 @@ public class RestaurantService {
             replaceImagesWithFlush(restaurant, command.imageKeys());
         }
         if (command.menus() != null) {
-            restaurant.replaceMenus(toMenus(command.menus()));
+            synchronizeMenus(restaurant, command.menus());
         }
         if (command.hashtags() != null) {
             restaurant.replaceHashtags(command.hashtags());
@@ -322,6 +347,7 @@ public class RestaurantService {
             replaceBusinessHoursWithFlush(restaurant, command.businessHours());
         }
 
+        restaurantRepository.flush();
         return toAdminInfo(restaurant);
     }
 
@@ -490,6 +516,13 @@ public class RestaurantService {
         );
     }
 
+    private BusinessException menuNotFoundException(Long restaurantId) {
+        if (!restaurantRepository.existsByIdAndDeletedFalse(restaurantId)) {
+            return new BusinessException(RestaurantErrorCode.NOT_FOUND);
+        }
+        return new BusinessException(RestaurantErrorCode.MENU_NOT_FOUND);
+    }
+
     private Restaurant findRestaurantForAdmin(Long restaurantId) {
         return restaurantRepository.findById(restaurantId)
                 .orElseThrow(() -> new BusinessException(RestaurantErrorCode.NOT_FOUND));
@@ -572,10 +605,57 @@ public class RestaurantService {
         if (menus == null) {
             return List.of();
         }
+        if (menus.stream().anyMatch(menu -> menu.menuId() != null)) {
+            throw new BusinessException(CommonErrorCode.INVALID_INPUT);
+        }
         return menus.stream()
                 .map(menu -> RestaurantMenu.create(menu.name(), menu.description(), menu.imageKey(),
                         toPriceCurrency(menu.priceCurrency()), menu.priceAmount(), menu.main()))
                 .toList();
+    }
+
+    private void synchronizeMenus(Restaurant restaurant, List<MenuCommand> commands) {
+        Map<Long, RestaurantMenu> existingMenusById = restaurant.getMenus().stream()
+                .filter(menu -> menu.getId() != null)
+                .collect(Collectors.toMap(RestaurantMenu::getId, Function.identity()));
+        Set<Long> retainedMenuIds = new HashSet<>();
+
+        for (MenuCommand command : commands) {
+            if (command.menuId() == null) {
+                continue;
+            }
+            if (!retainedMenuIds.add(command.menuId())) {
+                throw new BusinessException(CommonErrorCode.INVALID_INPUT);
+            }
+            if (!existingMenusById.containsKey(command.menuId())) {
+                throw new BusinessException(RestaurantErrorCode.MENU_NOT_FOUND);
+            }
+        }
+        commands.forEach(command -> toPriceCurrency(command.priceCurrency()));
+
+        commands.stream()
+                .filter(command -> command.menuId() != null)
+                .forEach(command -> existingMenusById.get(command.menuId()).update(
+                        command.name(),
+                        command.description(),
+                        command.imageKey(),
+                        toPriceCurrency(command.priceCurrency()),
+                        command.priceAmount(),
+                        command.main()
+                ));
+
+        restaurant.removeMenusNotIn(retainedMenuIds);
+        commands.stream()
+                .filter(command -> command.menuId() == null)
+                .map(command -> RestaurantMenu.create(
+                        command.name(),
+                        command.description(),
+                        command.imageKey(),
+                        toPriceCurrency(command.priceCurrency()),
+                        command.priceAmount(),
+                        command.main()
+                ))
+                .forEach(restaurant::addMenu);
     }
 
     private List<RestaurantBusinessHour> toBusinessHours(List<BusinessHourCommand> businessHours) {
