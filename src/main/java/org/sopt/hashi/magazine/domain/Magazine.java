@@ -9,15 +9,20 @@ import jakarta.persistence.Table;
 import lombok.AccessLevel;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
+import org.hibernate.annotations.SQLDelete;
+import org.hibernate.annotations.SQLRestriction;
 import org.sopt.hashi.BaseTimeEntity;
 
 /**
  * 매거진 애그리거트 루트. 매거진 1건당 배너 1개·썸네일 1개이며, 이미지는 S3 키(bannerKey·thumbnailKey)만
  * 저장하고 조회 URL 변환은 응답 생성 시 FileStorage가 담당한다(coding-style §4-2).
+ * 삭제는 soft delete(deleted=true)이며, 삭제된 매거진은 전역 필터로 모든 조회에서 제외된다.
  */
 @Getter
 @Entity
 @Table(name = "magazine")
+@SQLDelete(sql = "UPDATE magazine SET deleted = true WHERE id = ?")
+@SQLRestriction("deleted = false")
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
 public class Magazine extends BaseTimeEntity {
 
@@ -37,11 +42,15 @@ public class Magazine extends BaseTimeEntity {
     @Column(name = "instagram_redirect_url", length = 255, nullable = false)
     private String instagramRedirectUrl;
 
+    @Column(name = "deleted", nullable = false)
+    private boolean deleted;
+
     private Magazine(String title, String bannerKey, String thumbnailKey, String instagramRedirectUrl) {
         this.title = title;
         this.bannerKey = bannerKey;
         this.thumbnailKey = thumbnailKey;
         this.instagramRedirectUrl = instagramRedirectUrl;
+        this.deleted = false;
     }
 
     public static Magazine create(String title, String bannerKey, String thumbnailKey,

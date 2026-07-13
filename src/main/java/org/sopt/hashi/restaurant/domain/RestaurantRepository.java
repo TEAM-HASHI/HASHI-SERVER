@@ -12,22 +12,22 @@ import org.springframework.data.repository.query.Param;
 
 public interface RestaurantRepository extends JpaRepository<Restaurant, Long>, JpaSpecificationExecutor<Restaurant> {
 
-    Optional<Restaurant> findByIdAndActiveTrue(Long id);
+    Optional<Restaurant> findByIdAndDeletedFalse(Long id);
 
-    boolean existsByIdAndActiveTrue(Long id);
+    boolean existsByIdAndDeletedFalse(Long id);
 
     @EntityGraph(attributePaths = "businessHours")
-    @Query("select distinct r from Restaurant r where r.id = :restaurantId and r.active = true")
+    @Query("select distinct r from Restaurant r where r.id = :restaurantId and r.deleted = false")
     Optional<Restaurant> findActiveByIdWithBusinessHours(@Param("restaurantId") Long restaurantId);
 
     @EntityGraph(attributePaths = "images")
-    @Query("select distinct r from Restaurant r where r.id = :restaurantId and r.active = true")
+    @Query("select distinct r from Restaurant r where r.id = :restaurantId and r.deleted = false")
     Optional<Restaurant> findActiveByIdWithImages(@Param("restaurantId") Long restaurantId);
 
     @Query("""
             select m from RestaurantMenu m
             where m.restaurant.id = :restaurantId
-                and m.restaurant.active = true
+                and m.restaurant.deleted = false
                 and (:cursor is null or m.id < :cursor)
             order by m.id desc
             """)
@@ -40,7 +40,7 @@ public interface RestaurantRepository extends JpaRepository<Restaurant, Long>, J
     @Query("""
             select distinct r.name
             from Restaurant r
-            where r.active = true
+            where r.deleted = false
                 and lower(r.name) like lower(concat('%', :keyword, '%'))
             order by r.name asc
             """)
@@ -50,7 +50,7 @@ public interface RestaurantRepository extends JpaRepository<Restaurant, Long>, J
             select distinct m.name
             from Restaurant r
             join r.menus m
-            where r.active = true
+            where r.deleted = false
                 and lower(m.name) like lower(concat('%', :keyword, '%'))
             order by m.name asc
             """)

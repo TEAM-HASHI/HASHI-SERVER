@@ -543,7 +543,7 @@ class RestaurantServiceTest {
                 createMenu(20L, "Salmon Nigiri", false),
                 createMenu(10L, "Tuna Roll", false)
         );
-        given(restaurantRepository.existsByIdAndActiveTrue(1L)).willReturn(true);
+        given(restaurantRepository.existsByIdAndDeletedFalse(1L)).willReturn(true);
         given(restaurantRepository.findMenusByRestaurantId(
                 ArgumentMatchers.eq(1L),
                 ArgumentMatchers.<Long>isNull(),
@@ -566,7 +566,7 @@ class RestaurantServiceTest {
     void getRestaurantDetail_throws_not_found_when_restaurant_is_inactive_or_missing() {
         RestaurantService restaurantService = new RestaurantService(restaurantRepository, fileStorage);
         given(restaurantRepository.findActiveByIdWithImages(404L)).willReturn(Optional.empty());
-        given(restaurantRepository.existsByIdAndActiveTrue(404L)).willReturn(false);
+        given(restaurantRepository.existsByIdAndDeletedFalse(404L)).willReturn(false);
         given(restaurantRepository.findActiveByIdWithBusinessHours(404L)).willReturn(Optional.empty());
 
         assertThatThrownBy(() -> restaurantService.getRestaurantSummary(404L))

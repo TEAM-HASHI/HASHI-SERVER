@@ -38,7 +38,7 @@ public interface RestaurantPort {
     AdminRestaurantInfo updateByAdmin(Long restaurantId, AdminRestaurantCommand command);
 
     /**
-     * 어드민 식당 삭제(soft delete) — active를 내려 사용자 노출만 차단하고, 예약·리뷰가 참조하는
+     * 어드민 식당 삭제(soft delete) — deleted를 올려 사용자 노출만 차단하고, 예약·리뷰가 참조하는
      * 데이터는 보존한다. 식당이 없으면 BusinessException(RESTAURANT-004 NOT_FOUND).
      */
     void deleteByAdmin(Long restaurantId);
