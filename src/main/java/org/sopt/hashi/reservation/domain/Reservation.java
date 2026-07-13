@@ -89,7 +89,7 @@ public class Reservation extends BaseTimeEntity {
     @Column(name = "reservation_status", length = 20, nullable = false)
     private ReservationStatus reservationStatus;
 
-    @Column(name = "request_note", length = 500)
+    @Column(name = "request_note", length = 1000)
     private String requestNote;
 
     @Enumerated(EnumType.STRING)
