@@ -101,14 +101,12 @@ public class RestaurantService {
     public RestaurantListResponse getRestaurants(
             String keyword,
             String genreValue,
-            String foodCategoryValue,
             String sortValue,
             String typeValue,
             String cursor,
             Integer size
     ) {
         RestaurantGenre genre = parseGenre(genreValue);
-        RestaurantFoodCategory foodCategory = parseFoodCategory(foodCategoryValue);
         RestaurantSort sort = parseSort(sortValue);
         RestaurantListType type = parseListType(typeValue);
         RestaurantCursor decodedCursor = RestaurantCursorCodec.decode(cursor, sort);
@@ -117,7 +115,6 @@ public class RestaurantService {
         Specification<Restaurant> specification = RestaurantSpecifications.notDeleted()
                 .and(RestaurantSpecifications.cursorAfter(decodedCursor))
                 .and(RestaurantSpecifications.genreEquals(genre))
-                .and(RestaurantSpecifications.foodCategoryEquals(foodCategory))
                 .and(RestaurantSpecifications.curationTypeEquals(type.curationType()))
                 .and(RestaurantSpecifications.keywordContains(keyword));
 
@@ -372,14 +369,6 @@ public class RestaurantService {
         }
         return RestaurantSort.from(value)
                 .orElseThrow(() -> new BusinessException(RestaurantErrorCode.UNSUPPORTED_SORT));
-    }
-
-    private RestaurantFoodCategory parseFoodCategory(String value) {
-        if (value == null || value.isBlank() || "all".equals(value)) {
-            return null;
-        }
-        return RestaurantFoodCategory.from(value)
-                .orElseThrow(() -> new BusinessException(RestaurantErrorCode.UNSUPPORTED_FOOD_CATEGORY));
     }
 
     private RestaurantListType parseListType(String value) {

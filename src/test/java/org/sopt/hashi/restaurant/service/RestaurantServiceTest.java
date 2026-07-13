@@ -292,7 +292,6 @@ class RestaurantServiceTest {
                 null,
                 null,
                 null,
-                null,
                 null
         );
 
@@ -351,7 +350,6 @@ class RestaurantServiceTest {
                 null,
                 null,
                 null,
-                null,
                 10
         );
 
@@ -378,7 +376,6 @@ class RestaurantServiceTest {
         RestaurantListResponse response = restaurantService.getRestaurants(
                 "스시",
                 "sushi",
-                null,
                 "popular",
                 "sns-hot",
                 cursor,
@@ -405,7 +402,6 @@ class RestaurantServiceTest {
 
         RestaurantListResponse response = restaurantService.getRestaurants(
                 null,
-                "all",
                 "all",
                 "rating",
                 "all",
@@ -434,24 +430,11 @@ class RestaurantServiceTest {
                 null,
                 null,
                 null,
-                null,
                 10
         )).isInstanceOfSatisfying(BusinessException.class, exception ->
                 assertThat(exception.getErrorCode()).isEqualTo(RestaurantErrorCode.UNSUPPORTED_GENRE));
 
         assertThatThrownBy(() -> restaurantService.getRestaurants(
-                null,
-                null,
-                "invalid-category",
-                null,
-                null,
-                null,
-                10
-        )).isInstanceOfSatisfying(BusinessException.class, exception ->
-                assertThat(exception.getErrorCode()).isEqualTo(RestaurantErrorCode.UNSUPPORTED_FOOD_CATEGORY));
-
-        assertThatThrownBy(() -> restaurantService.getRestaurants(
-                null,
                 null,
                 null,
                 "invalid-sort",
@@ -465,7 +448,6 @@ class RestaurantServiceTest {
                 null,
                 null,
                 null,
-                null,
                 "invalid-type",
                 null,
                 10
@@ -473,7 +455,6 @@ class RestaurantServiceTest {
                 assertThat(exception.getErrorCode()).isEqualTo(RestaurantErrorCode.UNSUPPORTED_LIST_TYPE));
 
         assertThatThrownBy(() -> restaurantService.getRestaurants(
-                null,
                 null,
                 null,
                 "popular",
