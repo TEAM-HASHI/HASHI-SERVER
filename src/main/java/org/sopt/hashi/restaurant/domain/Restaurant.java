@@ -25,11 +25,17 @@ import lombok.AccessLevel;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 import org.hibernate.annotations.BatchSize;
+import org.hibernate.annotations.SQLDelete;
 import org.sopt.hashi.BaseTimeEntity;
 
+/**
+ * 삭제는 soft delete(deleted=true). 어드민 목록·예약·리뷰 화면이 삭제된 식당을 계속 조회해야 하므로
+ * 전역 필터(@SQLRestriction) 없이 사용자 노출 쿼리에만 deleted 조건을 명시한다.
+ */
 @Getter
 @Entity
 @Table(name = "restaurant")
+@SQLDelete(sql = "UPDATE restaurant SET deleted = true WHERE id = ?")
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
 public class Restaurant extends BaseTimeEntity {
 
@@ -82,8 +88,8 @@ public class Restaurant extends BaseTimeEntity {
     @Column(name = "rating", precision = 2, scale = 1, nullable = false, updatable = false)
     private BigDecimal rating;
 
-    @Column(name = "active", nullable = false)
-    private boolean active;
+    @Column(name = "deleted", nullable = false)
+    private boolean deleted;
 
     @BatchSize(size = 100)
     @ElementCollection(fetch = FetchType.LAZY)
@@ -128,7 +134,7 @@ public class Restaurant extends BaseTimeEntity {
         this.ratingSum = 0;
         this.reviewCount = 0;
         this.rating = BigDecimal.ZERO.setScale(1);
-        this.active = true;
+        this.deleted = false;
     }
 
     public static Restaurant create(String name, String localName, String summary, String description,
@@ -181,8 +187,8 @@ public class Restaurant extends BaseTimeEntity {
     }
 
     /** 어드민 삭제(soft delete) — 사용자 노출만 차단하고 예약·리뷰가 참조하는 데이터는 보존한다. */
-    public void deactivate() {
-        this.active = false;
+    public void softDelete() {
+        this.deleted = true;
     }
 
     public void replaceHashtags(List<String> hashtags) {

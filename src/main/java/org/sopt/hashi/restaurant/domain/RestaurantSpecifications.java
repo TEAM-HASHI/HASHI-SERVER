@@ -10,8 +10,8 @@ public final class RestaurantSpecifications {
     private RestaurantSpecifications() {
     }
 
-    public static Specification<Restaurant> active() {
-        return (root, query, criteriaBuilder) -> criteriaBuilder.isTrue(root.get("active"));
+    public static Specification<Restaurant> notDeleted() {
+        return (root, query, criteriaBuilder) -> criteriaBuilder.isFalse(root.get("deleted"));
     }
 
     public static Specification<Restaurant> cursorAfter(RestaurantCursor cursor) {
