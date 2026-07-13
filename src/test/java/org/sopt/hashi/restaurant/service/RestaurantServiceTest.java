@@ -235,6 +235,61 @@ class RestaurantServiceTest {
         assertThat(pageable.getPageNumber()).isZero();
         assertThat(pageable.getPageSize()).isEqualTo(11);
         assertSortOrder(pageable, "id");
+        verify(restaurantRepository).findBusinessHoursByRestaurantIdsAndDayOfWeek(
+                LongStream.rangeClosed(1, 10).boxed().toList(),
+                DayOfWeek.MONDAY
+        );
+    }
+
+    @Test
+    void 식당_목록은_일본_현지_오늘의_영업시간과_휴무를_구분해_반환한다() {
+        RestaurantService restaurantService = createRestaurantService();
+        Restaurant openRestaurant = createRestaurant(1L, 4.8, 100L);
+        Restaurant closedRestaurant = createRestaurant(2L, 4.7, 90L);
+        Restaurant missingRestaurant = createRestaurant(3L, 4.6, 80L);
+        RestaurantBusinessHour openBusinessHour = RestaurantBusinessHour.create(
+                DayOfWeek.MONDAY,
+                LocalTime.of(10, 0),
+                LocalTime.of(22, 0),
+                null,
+                null,
+                false
+        );
+        RestaurantBusinessHour closedBusinessHour = RestaurantBusinessHour.create(
+                DayOfWeek.MONDAY,
+                null,
+                null,
+                null,
+                null,
+                true
+        );
+        openRestaurant.addBusinessHour(openBusinessHour);
+        closedRestaurant.addBusinessHour(closedBusinessHour);
+        givenRestaurants(List.of(openRestaurant, closedRestaurant, missingRestaurant));
+        given(restaurantRepository.findBusinessHoursByRestaurantIdsAndDayOfWeek(
+                List.of(1L, 2L, 3L),
+                DayOfWeek.MONDAY
+        )).willReturn(List.of(openBusinessHour, closedBusinessHour));
+
+        RestaurantListResponse response = restaurantService.getRestaurants(
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                10
+        );
+
+        assertThat(response.content().get(0).todayBusinessHour().date()).isEqualTo("2026-07-13");
+        assertThat(response.content().get(0).todayBusinessHour().dayOfWeek()).isEqualTo("MONDAY");
+        assertThat(response.content().get(0).todayBusinessHour().openTime()).isEqualTo("10:00");
+        assertThat(response.content().get(0).todayBusinessHour().closeTime()).isEqualTo("22:00");
+        assertThat(response.content().get(0).todayBusinessHour().closed()).isFalse();
+        assertThat(response.content().get(1).todayBusinessHour().closed()).isTrue();
+        assertThat(response.content().get(1).todayBusinessHour().openTime()).isNull();
+        assertThat(response.content().get(1).todayBusinessHour().closeTime()).isNull();
+        assertThat(response.content().get(2).todayBusinessHour()).isNull();
     }
 
     @Test
@@ -292,6 +347,7 @@ class RestaurantServiceTest {
         assertThat(pageable.getPageSize()).isEqualTo(51);
         assertSortOrder(pageable, "rating");
         assertSortOrder(pageable, "id");
+        verify(restaurantRepository, never()).findBusinessHoursByRestaurantIdsAndDayOfWeek(any(), any());
     }
 
     @Test
