@@ -41,6 +41,9 @@ public class SecurityConfig {
             "/v3/api-docs/**",
             "/actuator/health",
             "/actuator/health/**",
+            // Prometheus 스크레이핑용 — 앱 포트는 호스트 127.0.0.1 바인딩이라 외부 직접 접근이 불가하고
+            // 같은 도커 네트워크의 Prometheus만 수집한다. 리버스 프록시가 /actuator를 라우팅하면 안 된다.
+            "/actuator/prometheus",
             "/api/v1/auth/**",         // 로그인·재발급(후속) — 토큰 없이 접근
             // 비로그인 탐색 화면(#93) — 식당 조회(하위 리뷰 목록 포함)와 매거진 조회는 공개
             "/api/v1/restaurants/**",
