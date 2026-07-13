@@ -1,14 +1,18 @@
 package org.sopt.hashi.restaurant.service;
 
 import java.math.BigDecimal;
+import java.time.Clock;
 import java.time.DayOfWeek;
+import java.time.LocalDate;
 import java.time.LocalTime;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
+import java.util.function.Function;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 import org.sopt.hashi.restaurant.AdminRestaurantCommand;
@@ -34,6 +38,7 @@ import org.sopt.hashi.restaurant.domain.RestaurantSpecifications;
 import org.sopt.hashi.restaurant.domain.PriceCurrency;
 import org.sopt.hashi.restaurant.dto.RestaurantListResponse;
 import org.sopt.hashi.restaurant.dto.RestaurantListResponse.RestaurantSummaryResponse;
+import org.sopt.hashi.restaurant.dto.RestaurantListResponse.TodayBusinessHourResponse;
 import org.sopt.hashi.restaurant.dto.RestaurantMainResponse;
 import org.sopt.hashi.restaurant.dto.RestaurantMenuListResponse;
 import org.sopt.hashi.restaurant.dto.RestaurantMenuListResponse.RestaurantMenuResponse;
@@ -46,6 +51,7 @@ import org.sopt.hashi.restaurant.dto.RestaurantStoreInformationResponse.PriceRan
 import org.sopt.hashi.shared.error.BusinessException;
 import org.sopt.hashi.shared.error.CommonErrorCode;
 import org.sopt.hashi.shared.storage.FileStorage;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Sort;
 import org.springframework.data.jpa.domain.Specification;
@@ -78,10 +84,16 @@ public class RestaurantService {
 
     private final RestaurantRepository restaurantRepository;
     private final FileStorage fileStorage;
+    private final Clock japanClock;
 
-    public RestaurantService(RestaurantRepository restaurantRepository, FileStorage fileStorage) {
+    public RestaurantService(
+            RestaurantRepository restaurantRepository,
+            FileStorage fileStorage,
+            @Qualifier("japanClock") Clock japanClock
+    ) {
         this.restaurantRepository = restaurantRepository;
         this.fileStorage = fileStorage;
+        this.japanClock = japanClock;
     }
 
     public RestaurantListResponse getRestaurants(
@@ -117,10 +129,19 @@ public class RestaurantService {
                 ? new ArrayList<>(restaurants.subList(0, pageSize))
                 : restaurants;
         String nextCursor = hasNext ? RestaurantCursorCodec.encode(pageContent.getLast(), sort) : null;
+        LocalDate businessDate = LocalDate.now(japanClock);
+        Map<Long, RestaurantBusinessHour> businessHours = findBusinessHours(
+                pageContent,
+                businessDate.getDayOfWeek()
+        );
 
         return new RestaurantListResponse(
                 pageContent.stream()
-                        .map(this::toSummaryResponse)
+                        .map(restaurant -> toSummaryResponse(
+                                restaurant,
+                                businessDate,
+                                businessHours.get(restaurant.getId())
+                        ))
                         .toList(),
                 nextCursor,
                 hasNext
@@ -378,7 +399,29 @@ public class RestaurantService {
         };
     }
 
-    private RestaurantSummaryResponse toSummaryResponse(Restaurant restaurant) {
+    private Map<Long, RestaurantBusinessHour> findBusinessHours(
+            List<Restaurant> restaurants,
+            DayOfWeek dayOfWeek
+    ) {
+        if (restaurants.isEmpty()) {
+            return Map.of();
+        }
+
+        List<Long> restaurantIds = restaurants.stream()
+                .map(Restaurant::getId)
+                .toList();
+        return restaurantRepository.findBusinessHoursByRestaurantIdsAndDayOfWeek(restaurantIds, dayOfWeek).stream()
+                .collect(Collectors.toMap(
+                        businessHour -> businessHour.getRestaurant().getId(),
+                        Function.identity()
+                ));
+    }
+
+    private RestaurantSummaryResponse toSummaryResponse(
+            Restaurant restaurant,
+            LocalDate businessDate,
+            RestaurantBusinessHour businessHour
+    ) {
         return new RestaurantSummaryResponse(
                 restaurant.getId(),
                 restaurant.getName(),
@@ -389,7 +432,25 @@ public class RestaurantService {
                 restaurant.getGenre().description(),
                 restaurant.getFoodCategory().description(),
                 restaurant.getSummary(),
-                List.copyOf(restaurant.getHashtags())
+                List.copyOf(restaurant.getHashtags()),
+                toTodayBusinessHourResponse(businessDate, businessHour)
+        );
+    }
+
+    private TodayBusinessHourResponse toTodayBusinessHourResponse(
+            LocalDate businessDate,
+            RestaurantBusinessHour businessHour
+    ) {
+        if (businessHour == null) {
+            return null;
+        }
+
+        return new TodayBusinessHourResponse(
+                businessDate.toString(),
+                businessHour.getDayOfWeek().name(),
+                formatTime(businessHour.getOpenTime()),
+                formatTime(businessHour.getCloseTime()),
+                businessHour.isClosed()
         );
     }
 
