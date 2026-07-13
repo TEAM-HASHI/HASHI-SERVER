@@ -2,6 +2,7 @@ package org.sopt.hashi.review.service;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.Mockito.never;
@@ -122,6 +123,8 @@ class ReviewServiceTest {
         assertThat(response.content().getFirst().imageCount()).isEqualTo(4);
         assertThat(response.nextCursor()).isEqualTo(5L);
         assertThat(response.hasNext()).isTrue();
+        verify(userPort).findProfiles(List.of(1L, 2L, 3L, 4L, 5L));
+        verify(userPort, never()).findById(anyLong());
     }
 
     @Test
