@@ -1,8 +1,7 @@
 package org.sopt.hashi.auth.internal.security;
 
-import java.util.List;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
+import org.springframework.web.cors.CorsConfiguration;
 
 /**
  * 쿠키로 자동 전송되는 크리덴셜(refresh·signup)의 CSRF 방어 — Origin 검증.
@@ -12,13 +11,13 @@ import org.springframework.stereotype.Component;
 @Component
 public class OriginValidator {
 
-    private final List<String> allowedOrigins;
+    private final CorsConfiguration corsConfiguration;
 
-    public OriginValidator(@Value("${hashi.cors.allowed-origins}") List<String> allowedOrigins) {
-        this.allowedOrigins = allowedOrigins;
+    public OriginValidator(CorsProperties corsProperties) {
+        corsConfiguration = corsProperties.createCorsConfiguration();
     }
 
     public boolean isAllowed(String origin) {
-        return origin == null || allowedOrigins.contains(origin);
+        return origin == null || corsConfiguration.checkOrigin(origin) != null;
     }
 }
