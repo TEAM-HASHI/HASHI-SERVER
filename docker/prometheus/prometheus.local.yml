@@ -1,0 +1,10 @@
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+scrape_configs:
+  - job_name: hashi-server
+    metrics_path: /actuator/prometheus
+    static_configs:
+      # 로컬은 앱이 호스트(IDE/gradle)에서 뜨므로 컨테이너에서 호스트로 접근한다
+      - targets: ['host.docker.internal:8080']
