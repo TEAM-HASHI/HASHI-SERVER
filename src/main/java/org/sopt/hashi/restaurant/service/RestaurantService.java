@@ -347,6 +347,7 @@ public class RestaurantService {
             replaceBusinessHoursWithFlush(restaurant, command.businessHours());
         }
 
+        restaurantRepository.flush();
         return toAdminInfo(restaurant);
     }
 
