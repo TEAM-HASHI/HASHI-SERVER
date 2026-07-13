@@ -38,6 +38,7 @@ import org.sopt.hashi.restaurant.domain.RestaurantMenu;
 import org.sopt.hashi.restaurant.domain.RestaurantRepository;
 import org.sopt.hashi.restaurant.domain.RestaurantSort;
 import org.sopt.hashi.restaurant.dto.RestaurantListResponse;
+import org.sopt.hashi.restaurant.dto.RestaurantMenuDetailResponse;
 import org.sopt.hashi.restaurant.dto.RestaurantMenuListResponse;
 import org.sopt.hashi.restaurant.dto.RestaurantSearchKeywordRecommendationResponse;
 import org.sopt.hashi.restaurant.dto.RestaurantSearchSuggestionResponse;
@@ -647,13 +648,14 @@ class RestaurantServiceTest {
         given(restaurantRepository.existsByIdAndDeletedFalse(1L)).willReturn(true);
         given(restaurantRepository.findMenusByRestaurantId(
                 ArgumentMatchers.eq(1L),
+                ArgumentMatchers.eq(99L),
                 ArgumentMatchers.<Long>isNull(),
                 any(Pageable.class)
         )).willReturn(menus);
         given(fileStorage.resolveFileUrl(anyString()))
                 .willAnswer(invocation -> "https://cdn.example.com/" + invocation.getArgument(0));
 
-        RestaurantMenuListResponse response = restaurantService.getRestaurantMenus(1L, null, 2);
+        RestaurantMenuListResponse response = restaurantService.getRestaurantMenus(1L, 99L, null, 2);
 
         assertThat(response.content()).hasSize(2);
         assertThat(response.hasNext()).isTrue();
@@ -661,6 +663,41 @@ class RestaurantServiceTest {
         assertThat(response.content().getFirst().menuId()).isEqualTo(30L);
         assertThat(response.content().getFirst().imageUrl())
                 .isEqualTo("https://cdn.example.com/restaurant-menus/30.jpg");
+    }
+
+    @Test
+    void 메뉴_상세와_다른_메뉴_개수를_조회한다() {
+        RestaurantService restaurantService = createRestaurantService();
+        RestaurantMenu menu = createMenu(10L, "Shio Ramen", true);
+        given(restaurantRepository.findMenuByRestaurantIdAndMenuId(1L, 10L))
+                .willReturn(Optional.of(menu));
+        given(restaurantRepository.countOtherMenusByRestaurantId(1L, 10L)).willReturn(6L);
+        given(fileStorage.resolveFileUrl("restaurant-menus/10.jpg"))
+                .willReturn("https://cdn.example.com/restaurant-menus/10.jpg");
+
+        RestaurantMenuDetailResponse response = restaurantService.getRestaurantMenu(1L, 10L);
+
+        assertThat(response.menuId()).isEqualTo(10L);
+        assertThat(response.name()).isEqualTo("Shio Ramen");
+        assertThat(response.imageUrl()).isEqualTo("https://cdn.example.com/restaurant-menus/10.jpg");
+        assertThat(response.currency()).isEqualTo("JPY");
+        assertThat(response.price()).isEqualTo(1_200L);
+        assertThat(response.main()).isTrue();
+        assertThat(response.otherMenuCount()).isEqualTo(6L);
+        verify(restaurantRepository, never()).existsByIdAndDeletedFalse(any());
+    }
+
+    @Test
+    void 존재하는_식당에서_메뉴를_찾을_수_없으면_메뉴_도메인_에러를_반환한다() {
+        RestaurantService restaurantService = createRestaurantService();
+        given(restaurantRepository.findMenuByRestaurantIdAndMenuId(1L, 999L)).willReturn(Optional.empty());
+        given(restaurantRepository.existsByIdAndDeletedFalse(1L)).willReturn(true);
+
+        assertThatThrownBy(() -> restaurantService.getRestaurantMenu(1L, 999L))
+                .isInstanceOfSatisfying(BusinessException.class, exception ->
+                        assertThat(exception.getErrorCode()).isEqualTo(RestaurantErrorCode.MENU_NOT_FOUND));
+
+        verify(restaurantRepository, never()).countOtherMenusByRestaurantId(any(), any());
     }
 
     @Test
@@ -678,7 +715,12 @@ class RestaurantServiceTest {
                 .isInstanceOfSatisfying(BusinessException.class, exception ->
                         assertThat(exception.getErrorCode()).isEqualTo(RestaurantErrorCode.NOT_FOUND));
 
-        assertThatThrownBy(() -> restaurantService.getRestaurantMenus(404L, null, 10))
+        assertThatThrownBy(() -> restaurantService.getRestaurantMenus(404L, null, null, 10))
+                .isInstanceOfSatisfying(BusinessException.class, exception ->
+                        assertThat(exception.getErrorCode()).isEqualTo(RestaurantErrorCode.NOT_FOUND));
+
+        given(restaurantRepository.findMenuByRestaurantIdAndMenuId(404L, 10L)).willReturn(Optional.empty());
+        assertThatThrownBy(() -> restaurantService.getRestaurantMenu(404L, 10L))
                 .isInstanceOfSatisfying(BusinessException.class, exception ->
                         assertThat(exception.getErrorCode()).isEqualTo(RestaurantErrorCode.NOT_FOUND));
     }
