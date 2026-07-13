@@ -11,6 +11,7 @@ public record RestaurantListResponse(
         boolean hasNext
 ) {
 
+    @JsonInclude(JsonInclude.Include.NON_NULL)
     public record RestaurantSummaryResponse(
             Long restaurantId,
             String name,
@@ -21,7 +22,18 @@ public record RestaurantListResponse(
             String genre,
             String foodCategory,
             String summary,
-            List<String> hashtags
+            List<String> hashtags,
+            TodayBusinessHourResponse todayBusinessHour
+    ) {
+    }
+
+    @JsonInclude(JsonInclude.Include.NON_NULL)
+    public record TodayBusinessHourResponse(
+            String date,
+            String dayOfWeek,
+            String openTime,
+            String closeTime,
+            boolean closed
     ) {
     }
 }
