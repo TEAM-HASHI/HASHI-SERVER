@@ -32,4 +32,10 @@ public interface ReservationRepository extends JpaRepository<Reservation, Long> 
     /** 상태 필터 다음 페이지. */
     List<Reservation> findByUserIdAndReservationStatusInAndIdLessThanOrderByIdDesc(
             Long userId, Collection<ReservationStatus> statuses, Long cursor, Pageable pageable);
+
+    /** 내 예약 전체 건수 — 목록 응답 totalCount용. */
+    long countByUserId(Long userId);
+
+    /** 내 예약 상태 필터 건수 — 목록 응답 totalCount용. */
+    long countByUserIdAndReservationStatusIn(Long userId, Collection<ReservationStatus> statuses);
 }
