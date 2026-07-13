@@ -10,8 +10,11 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 
 import java.math.BigDecimal;
+import java.time.Clock;
 import java.time.DayOfWeek;
+import java.time.Instant;
 import java.time.LocalTime;
+import java.time.ZoneId;
 import java.util.List;
 import java.util.Optional;
 import java.util.stream.LongStream;
@@ -51,15 +54,24 @@ import org.springframework.test.util.ReflectionTestUtils;
 @ExtendWith(MockitoExtension.class)
 class RestaurantServiceTest {
 
+    private static final Clock JAPAN_CLOCK = Clock.fixed(
+            Instant.parse("2026-07-12T15:30:00Z"),
+            ZoneId.of("Asia/Tokyo")
+    );
+
     @Mock
     private RestaurantRepository restaurantRepository;
 
     @Mock
     private FileStorage fileStorage;
 
+    private RestaurantService createRestaurantService() {
+        return new RestaurantService(restaurantRepository, fileStorage, JAPAN_CLOCK);
+    }
+
     @Test
     void 어드민_식당_등록에서_이미지나_해시태그가_비어있으면_거부한다() {
-        RestaurantService restaurantService = new RestaurantService(restaurantRepository, fileStorage);
+        RestaurantService restaurantService = createRestaurantService();
         AdminRestaurantCommand emptyHashtagCommand = createAdminCommand(
                 List.of("restaurants/1/thumbnail.jpg"),
                 List.of()
@@ -80,7 +92,7 @@ class RestaurantServiceTest {
 
     @Test
     void 어드민_식당_등록에서_현지_식당명이_없으면_거부한다() {
-        RestaurantService restaurantService = new RestaurantService(restaurantRepository, fileStorage);
+        RestaurantService restaurantService = createRestaurantService();
         AdminRestaurantCommand command = new AdminRestaurantCommand(
                 "히마와리 스시",
                 null,
@@ -108,7 +120,7 @@ class RestaurantServiceTest {
 
     @Test
     void 어드민_식당_수정에서_해시태그를_빈_목록으로_교체할_수_없다() {
-        RestaurantService restaurantService = new RestaurantService(restaurantRepository, fileStorage);
+        RestaurantService restaurantService = createRestaurantService();
         AdminRestaurantCommand command = new AdminRestaurantCommand(
                 null,
                 null,
@@ -136,7 +148,7 @@ class RestaurantServiceTest {
 
     @Test
     void 어드민_식당_수정에서_이미지를_빈_목록으로_교체할_수_없다() {
-        RestaurantService restaurantService = new RestaurantService(restaurantRepository, fileStorage);
+        RestaurantService restaurantService = createRestaurantService();
         AdminRestaurantCommand command = new AdminRestaurantCommand(
                 null,
                 null,
@@ -164,7 +176,7 @@ class RestaurantServiceTest {
 
     @Test
     void 어드민_식당_수정에서_현지_식당명을_공백으로_바꿀_수_없다() {
-        RestaurantService restaurantService = new RestaurantService(restaurantRepository, fileStorage);
+        RestaurantService restaurantService = createRestaurantService();
         AdminRestaurantCommand command = new AdminRestaurantCommand(
                 null,
                 " ",
@@ -192,7 +204,7 @@ class RestaurantServiceTest {
 
     @Test
     void 기본값으로_식당_목록을_조회하고_다음_커서를_반환한다() {
-        RestaurantService restaurantService = new RestaurantService(restaurantRepository, fileStorage);
+        RestaurantService restaurantService = createRestaurantService();
         List<Restaurant> restaurants = LongStream.rangeClosed(1, 11)
                 .mapToObj(id -> createRestaurant(id, 4.0, id * 10))
                 .toList();
@@ -223,11 +235,66 @@ class RestaurantServiceTest {
         assertThat(pageable.getPageNumber()).isZero();
         assertThat(pageable.getPageSize()).isEqualTo(11);
         assertSortOrder(pageable, "id");
+        verify(restaurantRepository).findBusinessHoursByRestaurantIdsAndDayOfWeek(
+                LongStream.rangeClosed(1, 10).boxed().toList(),
+                DayOfWeek.MONDAY
+        );
+    }
+
+    @Test
+    void 식당_목록은_일본_현지_오늘의_영업시간과_휴무를_구분해_반환한다() {
+        RestaurantService restaurantService = createRestaurantService();
+        Restaurant openRestaurant = createRestaurant(1L, 4.8, 100L);
+        Restaurant closedRestaurant = createRestaurant(2L, 4.7, 90L);
+        Restaurant missingRestaurant = createRestaurant(3L, 4.6, 80L);
+        RestaurantBusinessHour openBusinessHour = RestaurantBusinessHour.create(
+                DayOfWeek.MONDAY,
+                LocalTime.of(10, 0),
+                LocalTime.of(22, 0),
+                null,
+                null,
+                false
+        );
+        RestaurantBusinessHour closedBusinessHour = RestaurantBusinessHour.create(
+                DayOfWeek.MONDAY,
+                null,
+                null,
+                null,
+                null,
+                true
+        );
+        openRestaurant.addBusinessHour(openBusinessHour);
+        closedRestaurant.addBusinessHour(closedBusinessHour);
+        givenRestaurants(List.of(openRestaurant, closedRestaurant, missingRestaurant));
+        given(restaurantRepository.findBusinessHoursByRestaurantIdsAndDayOfWeek(
+                List.of(1L, 2L, 3L),
+                DayOfWeek.MONDAY
+        )).willReturn(List.of(openBusinessHour, closedBusinessHour));
+
+        RestaurantListResponse response = restaurantService.getRestaurants(
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                10
+        );
+
+        assertThat(response.content().get(0).todayBusinessHour().date()).isEqualTo("2026-07-13");
+        assertThat(response.content().get(0).todayBusinessHour().dayOfWeek()).isEqualTo("MONDAY");
+        assertThat(response.content().get(0).todayBusinessHour().openTime()).isEqualTo("10:00");
+        assertThat(response.content().get(0).todayBusinessHour().closeTime()).isEqualTo("22:00");
+        assertThat(response.content().get(0).todayBusinessHour().closed()).isFalse();
+        assertThat(response.content().get(1).todayBusinessHour().closed()).isTrue();
+        assertThat(response.content().get(1).todayBusinessHour().openTime()).isNull();
+        assertThat(response.content().get(1).todayBusinessHour().closeTime()).isNull();
+        assertThat(response.content().get(2).todayBusinessHour()).isNull();
     }
 
     @Test
     void 인기순_커서로_식당_목록을_조회한다() {
-        RestaurantService restaurantService = new RestaurantService(restaurantRepository, fileStorage);
+        RestaurantService restaurantService = createRestaurantService();
         Restaurant cursorBase = createRestaurant(20L, 4.8, 100L);
         String cursor = RestaurantCursorCodec.encode(cursorBase, RestaurantSort.POPULAR);
         givenRestaurants(List.of(createRestaurant(19L, 4.7, 90L)));
@@ -257,7 +324,7 @@ class RestaurantServiceTest {
 
     @Test
     void 별점순_조회에서_페이지_크기를_최대값으로_제한한다() {
-        RestaurantService restaurantService = new RestaurantService(restaurantRepository, fileStorage);
+        RestaurantService restaurantService = createRestaurantService();
         Restaurant cursorBase = createRestaurant(20L, 4.8, 100L);
         String cursor = RestaurantCursorCodec.encode(cursorBase, RestaurantSort.RATING);
         givenRestaurants(List.of());
@@ -280,11 +347,12 @@ class RestaurantServiceTest {
         assertThat(pageable.getPageSize()).isEqualTo(51);
         assertSortOrder(pageable, "rating");
         assertSortOrder(pageable, "id");
+        verify(restaurantRepository, never()).findBusinessHoursByRestaurantIdsAndDayOfWeek(any(), any());
     }
 
     @Test
     void 지원하지_않는_조회_조건이면_예외가_발생한다() {
-        RestaurantService restaurantService = new RestaurantService(restaurantRepository, fileStorage);
+        RestaurantService restaurantService = createRestaurantService();
 
         assertThatThrownBy(() -> restaurantService.getRestaurants(
                 null,
@@ -346,7 +414,7 @@ class RestaurantServiceTest {
 
     @Test
     void 식당명과_메뉴명으로_검색_자동완성을_조회한다() {
-        RestaurantService restaurantService = new RestaurantService(restaurantRepository, fileStorage);
+        RestaurantService restaurantService = createRestaurantService();
         given(restaurantRepository.findRestaurantSuggestionKeywords(anyString(), any(Pageable.class)))
                 .willReturn(List.of("히마와리 스시"));
         given(restaurantRepository.findMenuSuggestionKeywords(anyString(), any(Pageable.class)))
@@ -363,7 +431,7 @@ class RestaurantServiceTest {
 
     @Test
     void 검색_자동완성은_요청_개수만큼만_반환한다() {
-        RestaurantService restaurantService = new RestaurantService(restaurantRepository, fileStorage);
+        RestaurantService restaurantService = createRestaurantService();
         given(restaurantRepository.findRestaurantSuggestionKeywords(anyString(), any(Pageable.class)))
                 .willReturn(List.of("히마와리 스시", "스시 오마카세"));
 
@@ -377,7 +445,7 @@ class RestaurantServiceTest {
 
     @Test
     void 검색어가_비어있으면_자동완성_조회에_실패한다() {
-        RestaurantService restaurantService = new RestaurantService(restaurantRepository, fileStorage);
+        RestaurantService restaurantService = createRestaurantService();
 
         assertThatThrownBy(() -> restaurantService.getSearchSuggestions(" ", 10))
                 .isInstanceOfSatisfying(BusinessException.class, exception ->
@@ -388,7 +456,7 @@ class RestaurantServiceTest {
 
     @Test
     void 추천_검색어를_조회한다() {
-        RestaurantService restaurantService = new RestaurantService(restaurantRepository, fileStorage);
+        RestaurantService restaurantService = createRestaurantService();
 
         RestaurantSearchKeywordRecommendationResponse response =
                 restaurantService.getSearchKeywordRecommendations(3);
@@ -399,7 +467,7 @@ class RestaurantServiceTest {
 
     @Test
     void 검색_보조_기능은_기본_검색_개수를_사용한다() {
-        RestaurantService restaurantService = new RestaurantService(restaurantRepository, fileStorage);
+        RestaurantService restaurantService = createRestaurantService();
         given(restaurantRepository.findRestaurantSuggestionKeywords(anyString(), any(Pageable.class)))
                 .willReturn(List.of());
         given(restaurantRepository.findMenuSuggestionKeywords(anyString(), any(Pageable.class)))
@@ -420,7 +488,7 @@ class RestaurantServiceTest {
 
     @Test
     void 검색_보조_기능은_최대_검색_개수로_제한한다() {
-        RestaurantService restaurantService = new RestaurantService(restaurantRepository, fileStorage);
+        RestaurantService restaurantService = createRestaurantService();
         List<String> restaurantSuggestions = IntStream.rangeClosed(1, 50)
                 .mapToObj(index -> "스시 " + index)
                 .toList();
@@ -444,7 +512,7 @@ class RestaurantServiceTest {
 
     @Test
     void 검색_보조_기능은_검색_개수가_1보다_작으면_실패한다() {
-        RestaurantService restaurantService = new RestaurantService(restaurantRepository, fileStorage);
+        RestaurantService restaurantService = createRestaurantService();
 
         assertThatThrownBy(() -> restaurantService.getSearchSuggestions("스시", 0))
                 .isInstanceOfSatisfying(BusinessException.class, exception ->
@@ -458,7 +526,7 @@ class RestaurantServiceTest {
 
     @Test
     void getRestaurantSummary_returns_main_information() {
-        RestaurantService restaurantService = new RestaurantService(restaurantRepository, fileStorage);
+        RestaurantService restaurantService = createRestaurantService();
         Restaurant restaurant = createRestaurant(1L, 4.8, 100L);
         ReflectionTestUtils.setField(restaurant, "reviewCount", 256L);
         restaurant.replaceImages(List.of(
@@ -487,7 +555,7 @@ class RestaurantServiceTest {
 
     @Test
     void getStoreInformation_returns_business_hours_and_price_range() {
-        RestaurantService restaurantService = new RestaurantService(restaurantRepository, fileStorage);
+        RestaurantService restaurantService = createRestaurantService();
         Restaurant restaurant = createRestaurant(1L, 4.8, 100L);
         restaurant.replaceBusinessHours(List.of(
                 RestaurantBusinessHour.create(DayOfWeek.TUESDAY, LocalTime.of(11, 0),
@@ -513,7 +581,7 @@ class RestaurantServiceTest {
 
     @Test
     void getStoreInformation_returns_description() {
-        RestaurantService restaurantService = new RestaurantService(restaurantRepository, fileStorage);
+        RestaurantService restaurantService = createRestaurantService();
         Restaurant restaurant = Restaurant.create(
                 "Himawari Sushi",
                 "Himawari Sushi",
@@ -537,7 +605,7 @@ class RestaurantServiceTest {
 
     @Test
     void getRestaurantMenus_returns_cursor_page() {
-        RestaurantService restaurantService = new RestaurantService(restaurantRepository, fileStorage);
+        RestaurantService restaurantService = createRestaurantService();
         List<RestaurantMenu> menus = List.of(
                 createMenu(30L, "Omakase Sushi", true),
                 createMenu(20L, "Salmon Nigiri", false),
@@ -564,7 +632,7 @@ class RestaurantServiceTest {
 
     @Test
     void getRestaurantDetail_throws_not_found_when_restaurant_is_inactive_or_missing() {
-        RestaurantService restaurantService = new RestaurantService(restaurantRepository, fileStorage);
+        RestaurantService restaurantService = createRestaurantService();
         given(restaurantRepository.findActiveByIdWithImages(404L)).willReturn(Optional.empty());
         given(restaurantRepository.existsByIdAndDeletedFalse(404L)).willReturn(false);
         given(restaurantRepository.findActiveByIdWithBusinessHours(404L)).willReturn(Optional.empty());
