@@ -24,9 +24,11 @@ public record RestaurantReviewResponse(
     ) {
     }
 
+    @JsonInclude(JsonInclude.Include.NON_NULL)
     public record ReviewSummaryResponse(
             Long reviewId,
-            String writerNickname,
+            String reviewerNickname,
+            String reviewerProfileImageUrl,
             int rating,
             String content,
             List<String> keywords,

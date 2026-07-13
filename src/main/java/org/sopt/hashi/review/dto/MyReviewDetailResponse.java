@@ -13,7 +13,7 @@ public record MyReviewDetailResponse(
         LocalDateTime visitedAt,
         Integer adultCount,
         Integer childCount,
-        String writerNickname,
+        String reviewerNickname,
         int rating,
         String content,
         List<String> keywords,
