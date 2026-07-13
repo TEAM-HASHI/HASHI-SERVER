@@ -8,9 +8,9 @@ import org.junit.jupiter.api.Test;
 
 class OriginValidatorTest {
 
-    private final OriginValidator validator = new OriginValidator(
+    private final OriginValidator validator = new OriginValidator(new CorsProperties(
             List.of("https://app.hashi.com"),
-            List.of("https://hashi-client-*-example-team.vercel.app"));
+            List.of("https://hashi-client-*-example-team.vercel.app")));
 
     @Test
     @DisplayName("Origin이 없으면(동일 출처·비브라우저) 허용한다")

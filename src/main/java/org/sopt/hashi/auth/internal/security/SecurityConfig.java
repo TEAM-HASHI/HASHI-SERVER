@@ -3,7 +3,6 @@ import org.sopt.hashi.auth.internal.kakao.KakaoProperties;
 import org.sopt.hashi.auth.internal.jwt.JwtProperties;
 
 import java.util.List;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -27,7 +26,7 @@ import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
  */
 @Configuration
 @EnableWebSecurity
-@EnableConfigurationProperties({JwtProperties.class, KakaoProperties.class})
+@EnableConfigurationProperties({JwtProperties.class, KakaoProperties.class, CorsProperties.class})
 public class SecurityConfig {
 
     private static final String ONBOARDING_PATH = "/api/v1/users/onboarding";
@@ -92,14 +91,10 @@ public class SecurityConfig {
      * 고정 도메인은 allowed-origins에 정확히 나열하고, 동적 Preview 도메인만 제한된 allowed-origin-patterns로 허용한다.
      */
     @Bean
-    public CorsConfigurationSource corsConfigurationSource(
-            @Value("${hashi.cors.allowed-origins}") List<String> allowedOrigins,
-            @Value("${hashi.cors.allowed-origin-patterns:}") List<String> allowedOriginPatterns) {
-        CorsConfiguration configuration = new CorsConfiguration();
+    public CorsConfigurationSource corsConfigurationSource(CorsProperties corsProperties) {
+        CorsConfiguration configuration = corsProperties.createCorsConfiguration();
 
         // 프론트엔드 도메인 허용
-        configuration.setAllowedOrigins(allowedOrigins);
-        configuration.setAllowedOriginPatterns(allowedOriginPatterns);
         configuration.setAllowedMethods(List.of("GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"));
         configuration.setAllowedHeaders(List.of("*"));
         // 교차 출처에서 프론트가 응답의 액세스 토큰(Authorization 헤더)을 읽을 수 있게 노출한다.

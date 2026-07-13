@@ -1,7 +1,5 @@
 package org.sopt.hashi.auth.internal.security;
 
-import java.util.List;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 import org.springframework.web.cors.CorsConfiguration;
 
@@ -15,12 +13,8 @@ public class OriginValidator {
 
     private final CorsConfiguration corsConfiguration;
 
-    public OriginValidator(
-            @Value("${hashi.cors.allowed-origins}") List<String> allowedOrigins,
-            @Value("${hashi.cors.allowed-origin-patterns:}") List<String> allowedOriginPatterns) {
-        corsConfiguration = new CorsConfiguration();
-        corsConfiguration.setAllowedOrigins(allowedOrigins);
-        corsConfiguration.setAllowedOriginPatterns(allowedOriginPatterns);
+    public OriginValidator(CorsProperties corsProperties) {
+        corsConfiguration = corsProperties.createCorsConfiguration();
     }
 
     public boolean isAllowed(String origin) {
