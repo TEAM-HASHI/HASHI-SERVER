@@ -14,14 +14,15 @@ class MagazinePortImpl implements MagazinePort {
     }
 
     @Override
-    public MagazineInfo createByAdmin(String title, String bannerKey, String instagramRedirectUrl) {
-        return magazineService.create(title, bannerKey, instagramRedirectUrl);
+    public MagazineInfo createByAdmin(String title, String bannerKey, String thumbnailKey,
+                                      String instagramRedirectUrl) {
+        return magazineService.create(title, bannerKey, thumbnailKey, instagramRedirectUrl);
     }
 
     @Override
-    public MagazineInfo updateByAdmin(Long magazineId, String title, String bannerKey,
+    public MagazineInfo updateByAdmin(Long magazineId, String title, String bannerKey, String thumbnailKey,
                                       String instagramRedirectUrl) {
-        return magazineService.update(magazineId, title, bannerKey, instagramRedirectUrl);
+        return magazineService.update(magazineId, title, bannerKey, thumbnailKey, instagramRedirectUrl);
     }
 
     @Override

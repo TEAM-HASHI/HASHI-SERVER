@@ -21,12 +21,13 @@ public class AdminMagazineService {
 
     public AdminMagazineResponse create(CreateMagazineRequest request) {
         return AdminMagazineResponse.from(magazinePort.createByAdmin(
-                request.title(), request.bannerKey(), request.instagramRedirectUrl()));
+                request.title(), request.bannerKey(), request.thumbnailKey(), request.instagramRedirectUrl()));
     }
 
     public AdminMagazineResponse update(Long magazineId, UpdateMagazineRequest request) {
         return AdminMagazineResponse.from(magazinePort.updateByAdmin(
-                magazineId, request.title(), request.bannerKey(), request.instagramRedirectUrl()));
+                magazineId, request.title(), request.bannerKey(), request.thumbnailKey(),
+                request.instagramRedirectUrl()));
     }
 
     public void delete(Long magazineId) {
