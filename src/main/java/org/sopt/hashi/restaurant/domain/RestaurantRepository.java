@@ -25,6 +25,21 @@ public interface RestaurantRepository extends JpaRepository<Restaurant, Long>, J
     @Query("select distinct r from Restaurant r where r.id = :restaurantId and r.deleted = false")
     Optional<Restaurant> findActiveByIdWithImages(@Param("restaurantId") Long restaurantId);
 
+    @Query(value = """
+            select r.id
+            from restaurant r
+            join restaurant_curation_type rct on rct.restaurant_id = r.id
+            where r.deleted = false
+                and rct.curation_type = :curationType
+                and (:excludeRestaurantId is null or r.id <> :excludeRestaurantId)
+            order by rand()
+            limit 1
+            """, nativeQuery = true)
+    Optional<Long> findRandomRestaurantIdByCurationTypeExcluding(
+            @Param("curationType") String curationType,
+            @Param("excludeRestaurantId") Long excludeRestaurantId
+    );
+
     @Query("""
             select businessHour
             from RestaurantBusinessHour businessHour
