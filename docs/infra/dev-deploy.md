@@ -119,7 +119,7 @@ Vercel Preview처럼 배포마다 호스트가 달라지는 경우에만 `CORS_A
 Spring 와일드카드 패턴을 입력한다.
 
 ```text
-CORS_ALLOWED_ORIGIN_PATTERNS=https://hashi-client-*-gyeongbinmins-projects.vercel.app
+CORS_ALLOWED_ORIGIN_PATTERNS=https://hashi-client-*-<vercel-team-slug>.vercel.app
 ```
 
 크리덴셜을 포함한 요청을 허용하므로 `https://*.vercel.app`처럼 다른 프로젝트까지 포함하는

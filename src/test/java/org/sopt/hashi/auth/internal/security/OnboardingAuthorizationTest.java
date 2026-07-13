@@ -43,7 +43,7 @@ import org.springframework.web.bind.annotation.RestController;
         "kakao.client-id=test-client-id",
         "kakao.redirect-uri=https://app.hashi.com/callback",
         "hashi.cors.allowed-origins=https://app.hashi.com",
-        "hashi.cors.allowed-origin-patterns=https://hashi-client-*-gyeongbinmins-projects.vercel.app",
+        "hashi.cors.allowed-origin-patterns=https://hashi-client-*-example-team.vercel.app",
         "springdoc.api-docs.enabled=false",
         "springdoc.swagger-ui.enabled=false"
 })
@@ -52,7 +52,7 @@ class OnboardingAuthorizationTest {
     private static final String PROTECTED_PATH = "/api/v1/reviews";
     private static final String ALLOWED_ORIGIN = "https://app.hashi.com";
     private static final String ALLOWED_PREVIEW_ORIGIN =
-            "https://hashi-client-iqr83xez1-gyeongbinmins-projects.vercel.app";
+            "https://hashi-client-preview-hash-example-team.vercel.app";
 
     @Autowired
     MockMvc mvc;
@@ -107,7 +107,7 @@ class OnboardingAuthorizationTest {
     void 다른_Vercel_Origin_preflight_거부() throws Exception {
         mvc.perform(options(PROTECTED_PATH)
                         .header(HttpHeaders.ORIGIN,
-                                "https://other-project-preview-gyeongbinmins-projects.vercel.app")
+                                "https://other-project-preview-example-team.vercel.app")
                         .header(HttpHeaders.ACCESS_CONTROL_REQUEST_METHOD, "GET"))
                 .andExpect(status().isForbidden());
     }
