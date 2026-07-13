@@ -10,7 +10,7 @@ class OriginValidatorTest {
 
     private final OriginValidator validator = new OriginValidator(
             List.of("https://app.hashi.com"),
-            List.of("https://hashi-client-*-gyeongbinmins-projects.vercel.app"));
+            List.of("https://hashi-client-*-example-team.vercel.app"));
 
     @Test
     @DisplayName("Origin이 없으면(동일 출처·비브라우저) 허용한다")
@@ -28,7 +28,7 @@ class OriginValidatorTest {
     @DisplayName("허용 패턴과 일치하는 Preview Origin은 통과한다")
     void 허용패턴_통과() {
         assertThat(validator.isAllowed(
-                "https://hashi-client-iqr83xez1-gyeongbinmins-projects.vercel.app"))
+                "https://hashi-client-preview-hash-example-team.vercel.app"))
                 .isTrue();
     }
 
@@ -36,7 +36,7 @@ class OriginValidatorTest {
     @DisplayName("다른 Vercel 프로젝트의 Origin은 거부한다")
     void 다른_Vercel_프로젝트_거부() {
         assertThat(validator.isAllowed(
-                "https://other-project-iqr83xez1-gyeongbinmins-projects.vercel.app"))
+                "https://other-project-preview-hash-example-team.vercel.app"))
                 .isFalse();
     }
 
@@ -44,7 +44,7 @@ class OriginValidatorTest {
     @DisplayName("허용 패턴 뒤에 도메인을 덧붙인 Origin은 거부한다")
     void 유사_악성_Origin_거부() {
         assertThat(validator.isAllowed(
-                "https://hashi-client-preview-gyeongbinmins-projects.vercel.app.evil.com"))
+                "https://hashi-client-preview-example-team.vercel.app.evil.com"))
                 .isFalse();
     }
 
