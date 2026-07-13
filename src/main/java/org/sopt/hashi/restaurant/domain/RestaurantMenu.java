@@ -65,6 +65,16 @@ public class RestaurantMenu extends BaseTimeEntity {
         return new RestaurantMenu(name, description, imageKey, priceCurrency, priceAmount, main);
     }
 
+    public void update(String name, String description, String imageKey,
+                       PriceCurrency priceCurrency, BigDecimal priceAmount, boolean main) {
+        this.name = name;
+        this.description = description;
+        this.imageKey = imageKey;
+        this.priceCurrency = priceCurrency;
+        this.priceAmount = priceAmount;
+        this.main = main;
+    }
+
     void assignRestaurant(Restaurant restaurant) {
         this.restaurant = restaurant;
     }

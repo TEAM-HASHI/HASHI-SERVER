@@ -8,6 +8,7 @@ import jakarta.validation.constraints.Size;
 import org.sopt.hashi.restaurant.code.RestaurantErrorCode;
 import org.sopt.hashi.restaurant.dto.RestaurantListResponse;
 import org.sopt.hashi.restaurant.dto.RestaurantMainResponse;
+import org.sopt.hashi.restaurant.dto.RestaurantMenuDetailResponse;
 import org.sopt.hashi.restaurant.dto.RestaurantMenuListResponse;
 import org.sopt.hashi.restaurant.dto.RestaurantSearchKeywordRecommendationResponse;
 import org.sopt.hashi.restaurant.dto.RestaurantSearchSuggestionResponse;
@@ -113,10 +114,23 @@ public class RestaurantController {
     @GetMapping("/{restaurantId}/menus")
     public SuccessResponse<RestaurantMenuListResponse> getRestaurantMenus(
             @Positive @PathVariable Long restaurantId,
+            @Positive @RequestParam(required = false) Long excludeMenuId,
             @Positive @RequestParam(required = false) Long cursor,
             @Min(1) @Max(50) @RequestParam(required = false) Integer size
     ) {
         return SuccessResponse.of(CommonSuccessCode.OK,
-                restaurantService.getRestaurantMenus(restaurantId, cursor, size));
+                restaurantService.getRestaurantMenus(restaurantId, excludeMenuId, cursor, size));
+    }
+
+    /** 식당 메뉴 상세 조회. */
+    @ApiException(value = CommonErrorCode.class, codes = {"INVALID_INPUT"})
+    @ApiException(value = RestaurantErrorCode.class, codes = {"NOT_FOUND", "MENU_NOT_FOUND"})
+    @GetMapping("/{restaurantId}/menus/{menuId}")
+    public SuccessResponse<RestaurantMenuDetailResponse> getRestaurantMenu(
+            @Positive @PathVariable Long restaurantId,
+            @Positive @PathVariable Long menuId
+    ) {
+        return SuccessResponse.of(CommonSuccessCode.OK,
+                restaurantService.getRestaurantMenu(restaurantId, menuId));
     }
 }

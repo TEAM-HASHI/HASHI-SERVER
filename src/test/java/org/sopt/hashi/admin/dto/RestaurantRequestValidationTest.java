@@ -106,6 +106,42 @@ class RestaurantRequestValidationTest {
                 .containsExactly("localName");
     }
 
+    @Test
+    void 식당_수정의_기존_메뉴_ID는_양수여야_한다() {
+        UpdateRestaurantRequest request = new UpdateRestaurantRequest(
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                List.of(new UpdateRestaurantRequest.MenuRequest(
+                        0L,
+                        "시오라멘",
+                        "메뉴 설명",
+                        null,
+                        "JPY",
+                        BigDecimal.valueOf(1_000),
+                        true
+                )),
+                null,
+                null,
+                null
+        );
+
+        Set<ConstraintViolation<UpdateRestaurantRequest>> violations = validator.validate(request);
+
+        assertThat(violations)
+                .extracting(violation -> violation.getPropertyPath().toString())
+                .containsExactly("menus[0].menuId");
+    }
+
     private static List<CreateRestaurantRequest.BusinessHourRequest> createBusinessHours() {
         return Arrays.stream(DayOfWeek.values())
                 .map(day -> new CreateRestaurantRequest.BusinessHourRequest(
