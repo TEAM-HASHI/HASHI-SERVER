@@ -9,6 +9,7 @@ import java.util.List;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.orm.jpa.DataJpaTest;
+import org.springframework.boot.test.autoconfigure.orm.jpa.TestEntityManager;
 import org.springframework.test.context.TestPropertySource;
 
 @DataJpaTest
@@ -21,6 +22,51 @@ class RestaurantRepositoryTest {
 
     @Autowired
     private RestaurantRepository restaurantRepository;
+
+    @Autowired
+    private TestEntityManager entityManager;
+
+    @Test
+    void 랜덤_추천은_현재_식당과_삭제된_식당과_다른_큐레이션을_제외한다() {
+        Restaurant current = saveRestaurant("현재 식당", RestaurantCurationType.TODAY_RESTAURANT);
+        Restaurant recommendation = saveRestaurant("추천 식당", RestaurantCurationType.TODAY_RESTAURANT);
+        saveRestaurant("하시픽 식당", RestaurantCurationType.HASHI_PICK);
+        Restaurant deleted = saveRestaurant("삭제된 식당", RestaurantCurationType.TODAY_RESTAURANT);
+        deleted.softDelete();
+        entityManager.flush();
+        entityManager.clear();
+
+        var result = restaurantRepository.findRandomRestaurantIdByCurationTypeExcluding(
+                RestaurantCurationType.TODAY_RESTAURANT.name(),
+                current.getId()
+        );
+
+        assertThat(result).contains(recommendation.getId());
+    }
+
+    @Test
+    void 최초_랜덤_추천은_제외할_식당_없이_조회한다() {
+        Restaurant recommendation = saveRestaurant("추천 식당", RestaurantCurationType.TODAY_RESTAURANT);
+
+        var result = restaurantRepository.findRandomRestaurantIdByCurationTypeExcluding(
+                RestaurantCurationType.TODAY_RESTAURANT.name(),
+                null
+        );
+
+        assertThat(result).contains(recommendation.getId());
+    }
+
+    @Test
+    void 현재_식당을_제외한_추천_후보가_없으면_빈_결과를_반환한다() {
+        Restaurant current = saveRestaurant("현재 식당", RestaurantCurationType.TODAY_RESTAURANT);
+
+        var result = restaurantRepository.findRandomRestaurantIdByCurationTypeExcluding(
+                RestaurantCurationType.TODAY_RESTAURANT.name(),
+                current.getId()
+        );
+
+        assertThat(result).isEmpty();
+    }
 
     @Test
     void 요청한_식당의_해당_요일_영업시간만_조회한다() {
@@ -50,6 +96,13 @@ class RestaurantRepositoryTest {
                 .containsOnly(DayOfWeek.MONDAY);
     }
 
+    private Restaurant saveRestaurant(String name, RestaurantCurationType curationType) {
+        Restaurant restaurant = createRestaurant(name);
+        restaurant.replaceCurationTypes(List.of(curationType));
+        entityManager.persistAndFlush(restaurant);
+        return restaurant;
+    }
+
     private Restaurant createRestaurant(String name) {
         return Restaurant.create(
                 name,
@@ -61,8 +114,8 @@ class RestaurantRepositoryTest {
                 RestaurantGenre.SUSHI,
                 RestaurantFoodCategory.SUSHI,
                 PriceCurrency.JPY,
-                BigDecimal.valueOf(1000),
-                BigDecimal.valueOf(3000)
+                BigDecimal.valueOf(1_000),
+                BigDecimal.valueOf(3_000)
         );
     }
 

@@ -76,6 +76,17 @@ public class RestaurantController {
                 restaurantService.getSearchKeywordRecommendations(size));
     }
 
+    /** 오늘의 식당 중 현재 식당을 제외한 랜덤 추천 조회. */
+    @ApiException(value = CommonErrorCode.class, codes = {"INVALID_INPUT"})
+    @ApiException(value = RestaurantErrorCode.class, codes = {"RECOMMENDATION_NOT_FOUND"})
+    @GetMapping("/recommendations/random")
+    public SuccessResponse<RestaurantMainResponse> getRandomRestaurantRecommendation(
+            @Positive @RequestParam(required = false) Long excludeRestaurantId
+    ) {
+        return SuccessResponse.of(CommonSuccessCode.OK,
+                restaurantService.getRandomRestaurantRecommendation(excludeRestaurantId));
+    }
+
     /** 식당 상세 요약 조회. */
     @ApiException(value = CommonErrorCode.class, codes = {"INVALID_INPUT"})
     @ApiException(value = RestaurantErrorCode.class, codes = {"NOT_FOUND"})
