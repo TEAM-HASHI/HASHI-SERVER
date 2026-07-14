@@ -8,6 +8,7 @@ import org.sopt.hashi.reservation.ReservationType;
 /**
  * 예약 상세 응답. 식당 정보는 STANDARD면 실시간 조회 값, ANYWHERE면 저장된 값(일본어명·이미지 null).
  * receivedAt은 접수(생성) 시각, confirmExpectedAt은 접수 + 2일이다.
+ * 결제 정보는 생성 시점에 확정된 값 — amount = 기본 수수료({@value Reservation#BASE_FEE}) − usedPoint.
  */
 public record ReservationDetailResponse(
         Long reservationId,
@@ -25,7 +26,9 @@ public record ReservationDetailResponse(
         int childCount,
         String requestNote,
         LocalDateTime receivedAt,
-        LocalDateTime confirmExpectedAt) {
+        LocalDateTime confirmExpectedAt,
+        long usedPoint,
+        long amount) {
 
     /** 엔티티 + 유형별로 해석된 식당 표시 정보(name·nameJa·address·imageUrl)로 상세 응답을 만든다. */
     public static ReservationDetailResponse of(Reservation reservation, String restaurantName,
@@ -47,6 +50,8 @@ public record ReservationDetailResponse(
                 reservation.getChildCount(),
                 reservation.getRequestNote(),
                 reservation.getCreatedAt(),
-                reservation.confirmExpectedAt());
+                reservation.confirmExpectedAt(),
+                reservation.getUsedPoint(),
+                reservation.getAmount().longValueExact());
     }
 }
