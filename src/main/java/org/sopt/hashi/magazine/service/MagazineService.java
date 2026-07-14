@@ -1,6 +1,7 @@
 package org.sopt.hashi.magazine.service;
 
 import java.util.List;
+import lombok.extern.slf4j.Slf4j;
 import org.sopt.hashi.magazine.MagazineInfo;
 import org.sopt.hashi.magazine.code.MagazineErrorCode;
 import org.sopt.hashi.magazine.domain.Magazine;
@@ -16,6 +17,7 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+@Slf4j
 @Service
 @Transactional(readOnly = true)
 public class MagazineService {
@@ -63,6 +65,8 @@ public class MagazineService {
     public MagazineInfo create(String title, String bannerKey, String thumbnailKey, String instagramRedirectUrl) {
         Magazine magazine = magazineRepository.save(
                 Magazine.create(title, bannerKey, thumbnailKey, instagramRedirectUrl));
+        // 생성된 id는 응답 body에만 있어 로그로 남겨야 추적 가능하다 (adminId는 MDC)
+        log.info("어드민 매거진 등록. magazineId={}", magazine.getId());
         return toInfo(magazine);
     }
 
@@ -80,6 +84,8 @@ public class MagazineService {
     public void delete(Long magazineId) {
         Magazine magazine = findMagazine(magazineId);
         magazineRepository.delete(magazine);
+        // hard delete라 사후 추적 수단이 로그뿐이다 (adminId는 MDC)
+        log.info("어드민 매거진 삭제. magazineId={}", magazineId);
     }
 
     private Magazine findMagazine(Long magazineId) {
