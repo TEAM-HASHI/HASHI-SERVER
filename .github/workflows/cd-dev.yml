@@ -84,7 +84,7 @@ jobs:
           ssh -i ~/.ssh/hashi-dev.pem "${EC2_USER}@${DEV_EC2_HOST}" "mkdir -p ${DEPLOY_DIR}/docker"
           # 모니터링(prometheus·grafana) 설정 디렉토리도 함께 업로드 — compose가 상대 경로로 마운트한다
           scp -i ~/.ssh/hashi-dev.pem -r \
-            docker/docker-compose.dev.yml docker/prometheus docker/grafana \
+            docker/docker-compose.dev.yml docker/prometheus docker/grafana docker/promtail docker/loki \
             "${EC2_USER}@${DEV_EC2_HOST}:${DEPLOY_DIR}/docker/"
 
       - name: Deploy to EC2
