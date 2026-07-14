@@ -1,5 +1,6 @@
 package org.sopt.hashi.user.service;
 
+import lombok.extern.slf4j.Slf4j;
 import org.sopt.hashi.auth.AuthAccountPort;
 import org.sopt.hashi.shared.error.BusinessException;
 import org.sopt.hashi.user.code.UserErrorCode;
@@ -11,6 +12,7 @@ import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+@Slf4j
 @Service
 public class OnboardingService {
 
@@ -31,6 +33,8 @@ public class OnboardingService {
         validateNotDuplicated(request);
         User user = saveUser(request);
         authAccountPort.linkOnboardingAccount(user.getId());
+        // 회원 생성 시점 기록 — 프로필 값은 개인정보라 ID만 남긴다
+        log.info("온보딩 가입 완료. userId={}", user.getId());
         return new OnboardingResponse(user.getId());
     }
 
