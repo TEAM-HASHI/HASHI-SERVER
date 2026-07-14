@@ -33,9 +33,8 @@ import org.springframework.transaction.annotation.Transactional;
 public class ReviewService {
 
     private static final int DEFAULT_PAGE_SIZE = 5;
-    private static final int DEFAULT_IMAGE_PAGE_SIZE = 20;
+    // private static final int DEFAULT_IMAGE_PAGE_SIZE = 20;
     private static final int MAX_PAGE_SIZE = 50;
-    private static final int REVIEW_PREVIEW_IMAGE_COUNT = 3;
     private static final String WITHDRAWN_REVIEWER_NICKNAME = "탈퇴한 회원";
 
     private final ReviewRepository reviewRepository;
@@ -95,43 +94,43 @@ public class ReviewService {
         );
     }
 
-    public RestaurantReviewImageListResponse getRestaurantReviewImages(
-            Long restaurantId,
-            Long cursor,
-            Integer size
-    ) {
-        validateRestaurantExists(restaurantId);
-        int pageSize = size == null ? DEFAULT_IMAGE_PAGE_SIZE : normalizeSize(size);
-        Long validatedCursor = findImageCursor(restaurantId, cursor);
-        List<ReviewImage> images = reviewImageRepository.findPageByRestaurantId(
-                restaurantId,
-                validatedCursor,
-                PageRequest.of(0, pageSize + 1));
-        boolean hasNext = images.size() > pageSize;
-        List<ReviewImage> content = hasNext
-                ? new ArrayList<>(images.subList(0, pageSize))
-                : images;
-        Long nextCursor = hasNext ? content.getLast().getId() : null;
-
-        return new RestaurantReviewImageListResponse(
-                content.stream()
-                        .map(image -> new RestaurantReviewImageResponse(
-                                image.getId(),
-                                image.getReview().getId(),
-                                fileStorage.resolveFileUrl(image.getFileKey())))
-                        .toList(),
-                nextCursor,
-                hasNext);
-    }
-
-    private Long findImageCursor(Long restaurantId, Long cursor) {
-        if (cursor == null) {
-            return null;
-        }
-        return reviewImageRepository.findActiveByIdAndRestaurantId(cursor, restaurantId)
-                .map(ReviewImage::getId)
-                .orElseThrow(() -> new BusinessException(CommonErrorCode.INVALID_INPUT));
-    }
+    // public RestaurantReviewImageListResponse getRestaurantReviewImages(
+    //         Long restaurantId,
+    //         Long cursor,
+    //         Integer size
+    // ) {
+    //     validateRestaurantExists(restaurantId);
+    //     int pageSize = size == null ? DEFAULT_IMAGE_PAGE_SIZE : normalizeSize(size);
+    //     Long validatedCursor = findImageCursor(restaurantId, cursor);
+    //     List<ReviewImage> images = reviewImageRepository.findPageByRestaurantId(
+    //             restaurantId,
+    //             validatedCursor,
+    //             PageRequest.of(0, pageSize + 1));
+    //     boolean hasNext = images.size() > pageSize;
+    //     List<ReviewImage> content = hasNext
+    //             ? new ArrayList<>(images.subList(0, pageSize))
+    //             : images;
+    //     Long nextCursor = hasNext ? content.getLast().getId() : null;
+    //
+    //     return new RestaurantReviewImageListResponse(
+    //             content.stream()
+    //                     .map(image -> new RestaurantReviewImageResponse(
+    //                             image.getId(),
+    //                             image.getReview().getId(),
+    //                             fileStorage.resolveFileUrl(image.getFileKey())))
+    //                     .toList(),
+    //             nextCursor,
+    //             hasNext);
+    // }
+    //
+    // private Long findImageCursor(Long restaurantId, Long cursor) {
+    //     if (cursor == null) {
+    //         return null;
+    //     }
+    //     return reviewImageRepository.findActiveByIdAndRestaurantId(cursor, restaurantId)
+    //             .map(ReviewImage::getId)
+    //             .orElseThrow(() -> new BusinessException(CommonErrorCode.INVALID_INPUT));
+    // }
 
     private void validateRestaurantExists(Long restaurantId) {
         if (!restaurantPort.existsById(restaurantId)) {
@@ -218,7 +217,6 @@ public class ReviewService {
                         .map(ReviewKeyword::labelOfStoredValue)
                         .toList(),
                 review.getImages().stream()
-                        .limit(REVIEW_PREVIEW_IMAGE_COUNT)
                         .map(image -> fileStorage.resolveFileUrl(image.getFileKey()))
                         .toList(),
                 review.getImages().size(),
