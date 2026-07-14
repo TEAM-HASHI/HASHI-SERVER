@@ -50,6 +50,20 @@ public class DevReviewDataGenerator {
         return reviewIds;
     }
 
+    /**
+     * 작성 후 삭제된(soft delete) 더미 리뷰 1건을 생성하고 reviewId를 반환한다.
+     * 실제 흐름은 작성 시 통계 증가·삭제 시 차감으로 합이 0이므로 통계 반영을 생략한다.
+     */
+    @Transactional
+    public Long createDeletedReview(Long restaurantId, DummyReviewTarget target) {
+        int rating = ThreadLocalRandom.current().nextInt(3, 6);
+        Review review = Review.create(
+                target.reservationId(), restaurantId, target.userId(), rating, randomContent());
+        review.replaceKeywords(randomKeywords());
+        review.softDelete();
+        return reviewRepository.save(review).getId();
+    }
+
     private String randomContent() {
         return CONTENTS.get(ThreadLocalRandom.current().nextInt(CONTENTS.size()));
     }
