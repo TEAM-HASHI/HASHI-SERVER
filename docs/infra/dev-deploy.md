@@ -16,7 +16,7 @@
 3. GitHub Actions가 Docker 이미지를 빌드하고 Docker Hub에 push한다.
 4. GitHub Actions가 SSH로 개발 EC2에 접속한다.
 5. GitHub Actions가 compose 파일과 Prometheus/Grafana 설정을 EC2 배포 디렉터리에 업로드한다.
-6. EC2가 최신 Docker 이미지를 pull하고 애플리케이션 및 모니터링 컨테이너를 재시작한다.
+6. EC2가 최신 Docker 이미지를 pull하고 애플리케이션 및 모니터링 컨테이너를 기동하며, 변경된 서비스를 재생성한다.
 7. GitHub Actions가 `/actuator/health`로 배포 상태를 확인한다.
 
 ---
@@ -37,7 +37,7 @@
 - 개발 API 도메인이 EC2로 연결되어 있다.
 - 개발 API 도메인에 HTTPS 인증서가 적용되어 있다.
 - `.env.dev`에 Grafana 관리자 비밀번호가 설정되어 있다.
-- Grafana 3000 포트는 신뢰할 수 있는 IP에서만 접근할 수 있다.
+- Grafana 3000 포트의 접근 범위가 개발 환경 운영 정책에 맞게 설정되어 있다.
 - Nginx가 `/actuator/prometheus` 외부 요청을 차단한다.
 
 ---
@@ -116,8 +116,13 @@ CLOUDFRONT_DOMAIN
 CORS_ALLOWED_ORIGINS
 CORS_ALLOWED_ORIGIN_PATTERNS
 
-GRAFANA_ADMIN_USER
 GRAFANA_ADMIN_PASSWORD
+```
+
+선택 key는 다음과 같다.
+
+```text
+GRAFANA_ADMIN_USER
 ```
 
 `GRAFANA_ADMIN_USER`를 생략하면 `admin`을 기본값으로 사용한다.
@@ -249,7 +254,7 @@ sudo systemctl reload nginx
 - HTTP는 HTTPS 리다이렉트와 인증서 갱신 검증을 위해 허용한다.
 - HTTPS는 외부 애플리케이션 접근을 위해 허용한다.
 - SSH는 현재 GitHub Actions 배포를 위해 사용한다.
-- Grafana 3000 포트는 개발 모니터링이 필요한 신뢰할 수 있는 공인 IP의 `/32`만 허용한다.
+- Grafana 3000 포트는 개발 단계의 팀 접근이 필요한 경우에만 외부 접근을 허용한다.
 - RDS MySQL은 애플리케이션 서버 보안 그룹에서만 접근 가능해야 한다.
 - ElastiCache Redis는 애플리케이션 서버 보안 그룹에서만 접근 가능해야 한다.
 - RDS와 Redis는 public IPv4 범위에 노출하지 않는다.
@@ -262,9 +267,9 @@ SSH를 전체 IPv4 범위에 여는 설정은 개발 배포를 위한 임시 설
 - VPC 내부 self-hosted runner
 - 접근 범위가 제한된 bastion host
 
-Grafana 3000 포트를 `0.0.0.0/0` 또는 넓은 네트워크 대역에 공개하지 않는다.
-팀원이 추가되면 각 사용자의 신뢰할 수 있는 공인 IP를 개별 `/32` 규칙으로 등록한다.
-운영 환경에서는 3000 포트를 직접 공개하지 않고 SSM, VPN 또는 HTTPS reverse proxy 등 제한된 접근 경로를 사용한다.
+개발 환경에서 Grafana를 외부에 공개하는 경우 개발 데이터만 사용하고, 관리자 비밀번호를 `.env.dev`에서 명시적으로 주입한다.
+운영 환경에서는 강한 관리자 비밀번호를 secret으로 관리하고, 3000 포트를 직접 공개하지 않는다.
+운영 Grafana는 SSM, VPN 또는 HTTPS reverse proxy 등 제한된 접근 경로를 사용한다.
 
 ---
 
@@ -299,7 +304,7 @@ Grafana -> Prometheus -> app:8080/actuator/prometheus
 - Prometheus는 호스트 포트를 공개하지 않고 Docker 내부 네트워크에서 애플리케이션 메트릭을 수집한다.
 - Grafana는 동일한 Docker 내부 네트워크의 Prometheus data source를 조회한다.
 - Grafana 회원가입은 비활성화하고 관리자 계정만 사용한다.
-- Grafana 3000 포트의 외부 접근 범위는 EC2 보안 그룹에서 제한한다.
+- Grafana 3000 포트의 외부 접근 범위는 개발 환경 운영 정책에 따라 EC2 보안 그룹에서 관리한다.
 - `/actuator/prometheus`는 Spring Security에서 내부 수집을 위해 허용하되 Nginx에서 외부 접근을 차단한다.
 
 Grafana 관리자 환경변수는 `grafana-data` volume이 처음 생성될 때 관리자 계정 초기화에 사용된다.
@@ -321,7 +326,7 @@ unset GRAFANA_PASSWORD
 cd /home/ubuntu/hashi-dev/docker
 docker compose --env-file ../.env.dev -f docker-compose.dev.yml ps
 curl -fsS http://127.0.0.1:3000/api/health
-docker exec hashi-dev-prometheus promtool query instant http://localhost:9090 'up{job="hashi-app"}'
+docker exec hashi-dev-prometheus promtool query instant http://localhost:9090 'up{job="hashi-server"}'
 ```
 
 외부 API 도메인에서 Prometheus 메트릭이 차단되는지 확인한다.
