@@ -5,6 +5,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.function.Function;
 import java.util.stream.Collectors;
+import lombok.extern.slf4j.Slf4j;
 import org.sopt.hashi.auth.CurrentUserProvider;
 import org.sopt.hashi.reservation.ReservationPort;
 import org.sopt.hashi.reservation.ReservationReviewInfo;
@@ -27,6 +28,7 @@ import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+@Slf4j
 @Service
 @Transactional(readOnly = true)
 public class MyReviewService {
@@ -141,6 +143,8 @@ public class MyReviewService {
             throw new BusinessException(ReviewErrorCode.NOT_FOUND);
         }
         restaurantPort.decreaseReviewStatistics(review.getRestaurantId(), review.getRating());
+        // 삭제는 식당 통계 감소에 연쇄되고, 재작성 시 보상 미지급 판정의 근거가 되는 전이라 남긴다
+        log.info("리뷰 삭제. reviewId={}, restaurantId={}", reviewId, review.getRestaurantId());
     }
 
     private Review getOwnedActiveReview(Long reviewId, Long userId) {
