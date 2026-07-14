@@ -13,8 +13,6 @@ import org.junit.jupiter.api.Test;
 import org.sopt.hashi.auth.internal.onboarding.OnboardingJwtIssuer;
 import org.sopt.hashi.auth.internal.security.JwtAuthenticationFilter;
 import org.sopt.hashi.review.code.ReviewErrorCode;
-import org.sopt.hashi.review.dto.RestaurantReviewImageListResponse;
-import org.sopt.hashi.review.dto.RestaurantReviewImageListResponse.RestaurantReviewImageResponse;
 import org.sopt.hashi.review.dto.RestaurantReviewResponse;
 import org.sopt.hashi.review.dto.RestaurantReviewResponse.RatingDistributionResponse;
 import org.sopt.hashi.review.dto.RestaurantReviewResponse.ReviewSummaryResponse;
@@ -94,55 +92,6 @@ class ReviewControllerTest {
 
         verifyNoInteractions(reviewService);
     }
-
-    // @Test
-    // void 식당_리뷰_이미지_목록_조회_요청이면_공통_성공_응답을_반환한다() throws Exception {
-    //     RestaurantReviewImageListResponse response = new RestaurantReviewImageListResponse(
-    //             List.of(new RestaurantReviewImageResponse(
-    //                     20L,
-    //                     10L,
-    //                     "https://cdn.example.com/uploads/reviews/a1b2c3-1.jpg")),
-    //             null,
-    //             false);
-    //     given(reviewService.getRestaurantReviewImages(1L, null, 20))
-    //             .willReturn(response);
-    //
-    //     mockMvc.perform(get("/api/v1/restaurants/{restaurantId}/reviews/images", 1L)
-    //                     .param("size", "20"))
-    //             .andExpect(status().isOk())
-    //             .andExpect(jsonPath("$.success").value(true))
-    //             .andExpect(jsonPath("$.code").value("COMMON-200"))
-    //             .andExpect(jsonPath("$.data.content[0].imageId").value(20))
-    //             .andExpect(jsonPath("$.data.content[0].reviewId").value(10))
-    //             .andExpect(jsonPath("$.data.nextCursor").doesNotExist())
-    //             .andExpect(jsonPath("$.data.hasNext").value(false));
-    //
-    //     verify(reviewService).getRestaurantReviewImages(1L, null, 20);
-    // }
-    //
-    // @Test
-    // void 식당_리뷰_이미지_커서가_양수가_아니면_공통_검증_에러를_반환한다() throws Exception {
-    //     mockMvc.perform(get("/api/v1/restaurants/{restaurantId}/reviews/images", 1L)
-    //                     .param("cursor", "0"))
-    //             .andExpect(status().isBadRequest())
-    //             .andExpect(jsonPath("$.success").value(false))
-    //             .andExpect(jsonPath("$.code").value("COMMON-400"))
-    //             .andExpect(jsonPath("$.data").isEmpty());
-    //
-    //     verifyNoInteractions(reviewService);
-    // }
-    //
-    // @Test
-    // void 식당_리뷰_이미지_페이지_크기가_최댓값을_넘으면_공통_검증_에러를_반환한다() throws Exception {
-    //     mockMvc.perform(get("/api/v1/restaurants/{restaurantId}/reviews/images", 1L)
-    //                     .param("size", "51"))
-    //             .andExpect(status().isBadRequest())
-    //             .andExpect(jsonPath("$.success").value(false))
-    //             .andExpect(jsonPath("$.code").value("COMMON-400"))
-    //             .andExpect(jsonPath("$.data").isEmpty());
-    //
-    //     verifyNoInteractions(reviewService);
-    // }
 
     @Test
     void 페이지_크기가_최댓값을_넘으면_공통_검증_에러를_반환한다() throws Exception {
