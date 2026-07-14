@@ -312,13 +312,21 @@ Grafana 관리자 환경변수는 `grafana-data` volume이 처음 생성될 때 
 기존 volume의 비밀번호를 변경할 때는 `.env.dev`를 같은 값으로 갱신한 뒤 다음과 같이 안전하게 재설정한다.
 
 ```bash
+set +x
 IFS= read -r -s -p "New Grafana password: " GRAFANA_PASSWORD
 echo
-docker exec hashi-dev-grafana grafana cli --homepath /usr/share/grafana admin reset-admin-password "$GRAFANA_PASSWORD"
-unset GRAFANA_PASSWORD
+if printf '%s\n' "$GRAFANA_PASSWORD" \
+  | docker exec -i hashi-dev-grafana grafana cli --homepath /usr/share/grafana \
+    admin reset-admin-password --password-from-stdin; then
+  unset GRAFANA_PASSWORD
+else
+  unset GRAFANA_PASSWORD
+  false
+fi
 ```
 
-비밀번호를 명령 인수에 직접 작성해 shell history에 남기지 않는다.
+비밀번호를 명령 인수에 직접 작성하지 않고 표준입력으로 전달해 shell history와 프로세스 인수에 남기지 않는다.
+`set +x`로 shell trace를 비활성화하며, 재설정이 실패해도 비밀번호 변수는 해제하고 명령 블록은 실패 상태를 반환한다.
 
 모니터링 컨테이너 상태를 확인한다.
 
@@ -332,7 +340,8 @@ docker exec hashi-dev-prometheus promtool query instant http://localhost:9090 'u
 외부 API 도메인에서 Prometheus 메트릭이 차단되는지 확인한다.
 
 ```bash
-curl -I https://dev-api.hashi.kr/actuator/prometheus
+status="$(curl -sS -o /dev/null -w '%{http_code}' https://dev-api.hashi.kr/actuator/prometheus)" &&
+  test "$status" = "404"
 ```
 
 응답은 `404 Not Found`여야 한다.
