@@ -42,13 +42,14 @@ public class RequestLoggingFilter extends OncePerRequestFilter {
         String requestId = UUID.randomUUID().toString();
         MDC.put(REQUEST_ID_KEY, requestId);
         response.setHeader(REQUEST_ID_HEADER, requestId);
-        long startMillis = System.currentTimeMillis();
+        // 소요 시간은 wall-clock(NTP 보정 시 역행 가능)이 아닌 단조 증가 시계로 측정한다
+        long startNanos = System.nanoTime();
         try {
             filterChain.doFilter(request, response);
         } finally {
             log.info("요청 처리 완료. method={} uri={} status={} duration={}ms",
                     request.getMethod(), request.getRequestURI(), response.getStatus(),
-                    System.currentTimeMillis() - startMillis);
+                    (System.nanoTime() - startNanos) / 1_000_000);
             // 톰캣이 스레드를 재사용하므로 비우지 않으면 다음 요청 로그에 이전 요청의 값이 붙는다
             MDC.clear();
         }
