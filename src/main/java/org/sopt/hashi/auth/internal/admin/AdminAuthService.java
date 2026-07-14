@@ -1,6 +1,7 @@
 package org.sopt.hashi.auth.internal.admin;
 
 import java.util.Optional;
+import lombok.extern.slf4j.Slf4j;
 import org.sopt.hashi.auth.code.AuthErrorCode;
 import org.sopt.hashi.auth.internal.UserAuthService.TokenPair;
 import org.sopt.hashi.auth.internal.jwt.AuthRoles;
@@ -14,6 +15,7 @@ import org.springframework.stereotype.Service;
  * 어드민 인증 — ID/PW 로그인(ROLE_ADMIN 토큰 발급)과 로그아웃(리프레시 무효화).
  * 재발급(회전)은 유저와 공용 /api/v1/auth/reissue를 그대로 쓴다(role 보존·키 네임스페이스 분리).
  */
+@Slf4j
 @Service
 public class AdminAuthService {
 
@@ -50,6 +52,8 @@ public class AdminAuthService {
         String accessToken = jwtProvider.createAccessToken(adminId, AuthRoles.ADMIN);
         String refreshToken = jwtProvider.createRefreshToken(adminId, AuthRoles.ADMIN);
         refreshTokenStore.save(AuthRoles.ADMIN, adminId, refreshToken);
+        // 로그인 요청은 토큰 없이 와서 MDC가 비어 있다 — 어드민 접속 기록은 이 로그가 유일하다 (loginId는 계정 정보라 제외)
+        log.info("어드민 로그인 성공. adminId={}", adminId);
         return new TokenPair(accessToken, refreshToken);
     }
 

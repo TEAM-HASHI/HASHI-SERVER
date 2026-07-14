@@ -2,6 +2,7 @@ package org.sopt.hashi.auth.internal.kakao;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
 import java.time.Duration;
+import lombok.extern.slf4j.Slf4j;
 import org.sopt.hashi.auth.code.AuthErrorCode;
 import org.sopt.hashi.shared.error.BusinessException;
 import org.springframework.http.HttpHeaders;
@@ -20,6 +21,7 @@ import org.springframework.web.client.RestClientException;
  * 카카오 OAuth 연동. 인가코드를 카카오 토큰으로 교환한 뒤 사용자 kakaoId를 조회한다.
  * 카카오 4xx(만료·위조된 code)는 KAKAO_AUTH_FAILED(401), 5xx·통신 실패는 KAKAO_SERVER_ERROR(502)로 구분한다.
  */
+@Slf4j
 @Component
 public class KakaoOAuthClient {
 
@@ -65,12 +67,16 @@ public class KakaoOAuthClient {
         } catch (HttpClientErrorException e) {
             // 429(레이트리밋)는 인증 실패가 아니라 카카오 측 일시적 사정 — 서버 오류(502)로 구분한다.
             if (e.getStatusCode().value() == HttpStatus.TOO_MANY_REQUESTS.value()) {
+                // 카카오 측 실패는 응답 코드(AUTH-xxx)만으로 원인을 알 수 없어 카카오가 준 상태를 남긴다
+                // (4xx 인가 코드 오류는 클라 실수라 GlobalExceptionHandler의 기록으로 충분)
+                log.warn("카카오 API 레이트리밋. status={}", e.getStatusCode().value());
                 throw new BusinessException(AuthErrorCode.KAKAO_SERVER_ERROR, e);
             }
             // 그 외 4xx — 인가 코드가 잘못됐거나 만료됨
             throw new BusinessException(AuthErrorCode.KAKAO_AUTH_FAILED, e);
         } catch (RestClientException e) {
             // 5xx·타임아웃·연결 실패 등 카카오 측 문제 — 통신 불가(502)로 구분한다
+            log.warn("카카오 API 통신 실패. cause={}", e.getMessage());
             throw new BusinessException(AuthErrorCode.KAKAO_SERVER_ERROR, e);
         }
     }

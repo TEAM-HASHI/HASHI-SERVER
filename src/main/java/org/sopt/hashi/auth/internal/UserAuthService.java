@@ -7,6 +7,7 @@ import org.sopt.hashi.auth.internal.jwt.AuthRoles;
 import org.sopt.hashi.auth.internal.account.AuthProvider;
 import org.sopt.hashi.auth.internal.account.AuthAccountService;
 
+import lombok.extern.slf4j.Slf4j;
 import org.sopt.hashi.auth.code.AuthErrorCode;
 import org.sopt.hashi.shared.error.BusinessException;
 import org.springframework.stereotype.Service;
@@ -14,6 +15,7 @@ import org.springframework.stereotype.Service;
 /**
  * 유저 인증 오케스트레이션 — 카카오 로그인(가입 여부 판정·토큰 발급)과 재발급(회전).
  */
+@Slf4j
 @Service
 public class UserAuthService {
 
@@ -59,6 +61,8 @@ public class UserAuthService {
         String accessToken = jwtProvider.createAccessToken(userId, AuthRoles.USER);
         String refreshToken = jwtProvider.createRefreshToken(userId, AuthRoles.USER);
         refreshTokenStore.save(AuthRoles.USER, userId, refreshToken);
+        // 로그인 요청은 토큰 없이 와서 MDC userId가 없다 — 로그인 주체는 이 로그가 유일한 기록이다
+        log.info("카카오 로그인 성공. userId={}", userId);
         return KakaoLoginResult.member(new TokenPair(accessToken, refreshToken));
     }
 
