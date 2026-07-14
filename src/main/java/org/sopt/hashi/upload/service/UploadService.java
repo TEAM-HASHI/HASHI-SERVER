@@ -5,6 +5,7 @@ import java.time.format.DateTimeFormatter;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import lombok.extern.slf4j.Slf4j;
 import org.sopt.hashi.shared.error.BusinessException;
 import org.sopt.hashi.shared.storage.FileStorage;
 import org.sopt.hashi.shared.storage.PresignedUploadInfo;
@@ -15,6 +16,7 @@ import org.sopt.hashi.upload.dto.PresignedUrlResponse;
 import org.sopt.hashi.upload.dto.PresignedUrlsResponse;
 import org.springframework.stereotype.Service;
 
+@Slf4j
 @Service
 public class UploadService {
 
@@ -43,6 +45,8 @@ public class UploadService {
         List<PresignedUrlResponse> uploads = validatedFiles.stream()
                 .map(file -> issuePresignedUrl(usage, file))
                 .toList();
+        // S3 업로드 자격 발급 기록 — 남용(대량 발급) 관측용. URL·키는 자격 정보라 남기지 않는다
+        log.info("presigned URL 발급. usage={}, count={}", usage, uploads.size());
         return new PresignedUrlsResponse(uploads);
     }
 
