@@ -42,16 +42,16 @@ public class ReviewController {
                 reviewService.getRestaurantReviews(restaurantId, sort, cursor, size));
     }
 
-    @ApiException(value = CommonErrorCode.class, codes = {"INVALID_INPUT"})
-    @ApiException(value = ReviewErrorCode.class, codes = {"RESTAURANT_NOT_FOUND"})
-    @GetMapping("/images")
-    public SuccessResponse<RestaurantReviewImageListResponse> getRestaurantReviewImages(
-            @Positive @PathVariable Long restaurantId,
-            @Positive @RequestParam(required = false) Long cursor,
-            @Min(1) @Max(50) @RequestParam(required = false) Integer size
-    ) {
-        return SuccessResponse.of(
-                CommonSuccessCode.OK,
-                reviewService.getRestaurantReviewImages(restaurantId, cursor, size));
-    }
+    // @ApiException(value = CommonErrorCode.class, codes = {"INVALID_INPUT"})
+    // @ApiException(value = ReviewErrorCode.class, codes = {"RESTAURANT_NOT_FOUND"})
+    // @GetMapping("/images")
+    // public SuccessResponse<RestaurantReviewImageListResponse> getRestaurantReviewImages(
+    //         @Positive @PathVariable Long restaurantId,
+    //         @Positive @RequestParam(required = false) Long cursor,
+    //         @Min(1) @Max(50) @RequestParam(required = false) Integer size
+    // ) {
+    //     return SuccessResponse.of(
+    //             CommonSuccessCode.OK,
+    //             reviewService.getRestaurantReviewImages(restaurantId, cursor, size));
+    // }
 }
