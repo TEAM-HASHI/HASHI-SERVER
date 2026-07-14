@@ -35,6 +35,9 @@ public class GlobalExceptionHandler {
             BusinessException e,
             HttpServletRequest request) {
         ErrorCode code = e.getErrorCode();
+        // 예상된 흐름(4xx)이라 스택트레이스는 남기지 않는다 — 에러코드별 발생 빈도·패턴 관측용
+        log.warn("Business exception. code={} status={} uri={}",
+                code.getCode(), code.getStatus().value(), request.getRequestURI());
         return ResponseEntity.status(code.getStatus())
                 .body(ErrorResponse.of(code, request.getRequestURI()));
     }

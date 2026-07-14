@@ -1,0 +1,17 @@
+server:
+  http_listen_port: 9080
+
+positions:
+  filename: /tmp/positions.yaml
+
+clients:
+  - url: http://loki:3100/loki/api/v1/push
+
+scrape_configs:
+  # 로컬은 앱이 호스트에서 뜨므로 logback FILE_JSON 어펜더가 남긴 파일(logs/app.json)을 tail한다
+  - job_name: hashi-local
+    static_configs:
+      - targets: [localhost]
+        labels:
+          container: hashi-app
+          __path__: /hashi-logs/app.json

@@ -27,6 +27,8 @@ dependencies {
     implementation 'org.springframework.boot:spring-boot-starter-web'
     implementation 'org.springframework.boot:spring-boot-starter-actuator'
     runtimeOnly 'io.micrometer:micrometer-registry-prometheus'
+    // 로그 JSON 인코딩(Loki 수집용) — logback-spring.xml에서 사용
+    implementation 'net.logstash.logback:logstash-logback-encoder:8.0'
     implementation 'org.springdoc:springdoc-openapi-starter-webmvc-ui:2.8.16'
     // 컨트롤러·DTO javadoc을 Swagger description으로 자동 반영(@Operation 선언 불필요)
     implementation 'com.github.therapi:therapi-runtime-javadoc:0.15.0'
