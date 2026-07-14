@@ -312,7 +312,7 @@ Grafana 관리자 환경변수는 `grafana-data` volume이 처음 생성될 때 
 기존 volume의 비밀번호를 변경할 때는 `.env.dev`를 같은 값으로 갱신한 뒤 다음과 같이 안전하게 재설정한다.
 
 ```bash
-read -s -p "New Grafana password: " GRAFANA_PASSWORD
+IFS= read -r -s -p "New Grafana password: " GRAFANA_PASSWORD
 echo
 docker exec hashi-dev-grafana grafana cli --homepath /usr/share/grafana admin reset-admin-password "$GRAFANA_PASSWORD"
 unset GRAFANA_PASSWORD
