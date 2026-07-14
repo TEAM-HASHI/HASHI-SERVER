@@ -11,9 +11,11 @@ import jakarta.servlet.http.HttpServletResponse;
 import java.io.IOException;
 import java.util.List;
 import java.util.Optional;
+import org.slf4j.MDC;
 import org.sopt.hashi.auth.code.AuthErrorCode;
 import org.sopt.hashi.shared.error.BusinessException;
 import org.sopt.hashi.shared.error.CommonErrorCode;
+import org.sopt.hashi.shared.logging.RequestLoggingFilter;
 import org.springframework.http.HttpHeaders;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
@@ -94,6 +96,11 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
             UsernamePasswordAuthenticationToken authentication = new UsernamePasswordAuthenticationToken(
                     principal, null, List.of(new SimpleGrantedAuthority(claims.role())));
             SecurityContextHolder.getContext().setAuthentication(authentication);
+            if (claims.isAccessToken()) {
+                // 사용자 단위 로그 추적용 — 요청 종료 시 RequestLoggingFilter가 MDC를 clear한다.
+                // 온보딩 토큰의 subjectId는 kakaoId라 userId로 오인되지 않게 심지 않는다.
+                MDC.put(RequestLoggingFilter.USER_ID_KEY, String.valueOf(claims.subjectId()));
+            }
         } catch (BusinessException e) {
             SecurityContextHolder.clearContext();
             request.setAttribute(AUTH_ERROR_ATTRIBUTE, e.getErrorCode());
