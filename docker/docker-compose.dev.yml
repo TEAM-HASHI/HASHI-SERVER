@@ -63,11 +63,11 @@ services:
     restart: unless-stopped
     logging: *default-logging
     ports:
-      - "3000:3000"   # 팀 접속용 — EC2 보안 그룹에서 허용 IP를 제한한다
+      - "3000:3000"   # 개발 팀 접속용 — 운영 환경에서는 직접 노출하지 않는다
     environment:
-      # 기본값은 로컬 편의용 — dev 서버는 .env.dev에 GRAFANA_ADMIN_PASSWORD를 반드시 넣는다
+      # 사용자명은 admin을 기본값으로 사용하고, 비밀번호는 .env.dev에서 반드시 주입한다.
       GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:-admin}
-      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-admin}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:?GRAFANA_ADMIN_PASSWORD is required}
       GF_USERS_ALLOW_SIGN_UP: "false"
     volumes:
       - ./grafana/provisioning:/etc/grafana/provisioning:ro
