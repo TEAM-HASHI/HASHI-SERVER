@@ -3,6 +3,7 @@ package org.sopt.hashi.review.service;
 import java.util.HashSet;
 import java.util.List;
 import java.util.stream.IntStream;
+import lombok.extern.slf4j.Slf4j;
 import org.sopt.hashi.auth.CurrentUserProvider;
 import org.sopt.hashi.point.PointPort;
 import org.sopt.hashi.reservation.ReservationPort;
@@ -22,6 +23,7 @@ import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+@Slf4j
 @Service
 public class ReviewWriteService {
 
@@ -73,6 +75,9 @@ public class ReviewWriteService {
         Review savedReview = save(review);
         restaurantPort.increaseReviewStatistics(reservation.restaurantId(), request.rating());
         long earnedPoint = pointPort.earnReviewReward(userId, reservation.id());
+        // 리뷰는 식당 통계·포인트 보상에 연쇄되는 상태 전이 — 보상 지급 여부(재작성이면 0)까지 남긴다
+        log.info("리뷰 작성. reviewId={}, reservationId={}, restaurantId={}, rating={}, earnedPoint={}",
+                savedReview.getId(), reservation.id(), reservation.restaurantId(), request.rating(), earnedPoint);
         return new CreateReviewResponse(savedReview.getId(), earnedPoint);
     }
 
