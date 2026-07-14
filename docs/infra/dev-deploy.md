@@ -127,6 +127,13 @@ GRAFANA_ADMIN_USER
 
 `GRAFANA_ADMIN_USER`를 생략하면 `admin`을 기본값으로 사용한다.
 `GRAFANA_ADMIN_PASSWORD`는 기본값이 없으며, 누락하거나 빈 값으로 두면 Docker Compose 실행이 실패한다.
+비밀번호에 `$` 등 Docker Compose가 해석하는 문자가 포함될 수 있으므로 실제 값은 작은따옴표로 감싸 입력한다.
+
+```text
+GRAFANA_ADMIN_PASSWORD='실제 비밀번호'
+```
+
+비밀번호 자체에 작은따옴표가 포함되면 `\'`로 이스케이프한다.
 실제 관리자 비밀번호는 repository, 이슈, PR, 문서에 기록하지 않는다.
 
 `CORS_ALLOWED_ORIGINS`에는 고정된 프론트엔드 Origin을 콤마로 구분해 입력한다.
