@@ -16,6 +16,7 @@ import java.util.Set;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
+import lombok.extern.slf4j.Slf4j;
 import org.sopt.hashi.restaurant.AdminRestaurantCommand;
 import org.sopt.hashi.restaurant.AdminRestaurantCommand.BusinessHourCommand;
 import org.sopt.hashi.restaurant.AdminRestaurantCommand.MenuCommand;
@@ -60,6 +61,7 @@ import org.springframework.data.jpa.domain.Specification;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+@Slf4j
 @Service
 @Transactional(readOnly = true)
 public class RestaurantService {
@@ -303,7 +305,10 @@ public class RestaurantService {
         restaurant.replaceBusinessHours(toBusinessHours(command.businessHours()));
         validatePriceRange(restaurant);
 
-        return toAdminInfo(restaurantRepository.save(restaurant));
+        Restaurant saved = restaurantRepository.save(restaurant);
+        // 생성된 id는 응답 body에만 있어 로그로 남겨야 추적 가능하다 (adminId는 MDC)
+        log.info("어드민 식당 등록. restaurantId={}", saved.getId());
+        return toAdminInfo(saved);
     }
 
     /** 어드민 식당 수정 — 부분 수정(PATCH). null 필드는 유지하고, 컬렉션은 전체 교체한다. */
@@ -353,6 +358,8 @@ public class RestaurantService {
     public void deleteByAdmin(Long restaurantId) {
         Restaurant restaurant = findRestaurantForAdmin(restaurantId);
         restaurant.softDelete();
+        // 노출 종료 전이 — 예약·리뷰가 계속 참조하므로 언제 내려갔는지 기록이 필요하다 (adminId는 MDC)
+        log.info("어드민 식당 삭제(soft). restaurantId={}", restaurantId);
     }
 
     private RestaurantGenre parseGenre(String value) {
