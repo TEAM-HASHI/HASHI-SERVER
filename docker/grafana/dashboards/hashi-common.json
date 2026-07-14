@@ -106,6 +106,24 @@
       ]
     },
     {
+      "type": "logs",
+      "title": "에러·경고 로그 (Loki)",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 24 },
+      "datasource": { "type": "loki", "uid": "loki" },
+      "options": {
+        "showTime": true,
+        "sortOrder": "Descending",
+        "wrapLogMessage": true,
+        "enableLogDetails": true
+      },
+      "targets": [
+        {
+          "expr": "{container=~\"hashi.*app\"} | json | level=~\"WARN|ERROR\"",
+          "datasource": { "type": "loki", "uid": "loki" }
+        }
+      ]
+    },
+    {
       "type": "timeseries",
       "title": "CPU 사용률",
       "gridPos": { "h": 8, "w": 12, "x": 0, "y": 24 },
