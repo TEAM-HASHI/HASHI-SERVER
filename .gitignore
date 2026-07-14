@@ -47,3 +47,9 @@ build/
 # OS files 
 .DS_Store
 Thumbs.db
+
+# 로컬 logback FILE_JSON 어펜더 출력 (Promtail 검증용)
+logs/
+
+# Claude Code 로컬 실행 설정 (개인 PC 절대 경로 포함)
+.claude/launch.json
