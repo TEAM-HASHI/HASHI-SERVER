@@ -139,6 +139,20 @@
           "legendFormat": "시스템 전체"
         }
       ]
+    },
+    {
+      "type": "timeseries",
+      "title": "HTTP 응답시간 URI별 p99",
+      "description": "병목 엔드포인트 식별용 — 전체 p99(위 패널)는 트래픽 많은 빠른 URI에 희석되므로 여기서 URI 단위로 본다",
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 32 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": { "defaults": { "unit": "s" }, "overrides": [] },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.99, sum by (le, uri) (rate(http_server_requests_seconds_bucket{uri!~\"/actuator.*\"}[5m])))",
+          "legendFormat": "{{uri}}"
+        }
+      ]
     }
   ]
 }
