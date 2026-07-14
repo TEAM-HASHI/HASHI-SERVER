@@ -26,9 +26,11 @@ public class DevDataController {
     }
 
     /**
-     * 더미 시나리오 생성 — 호출 1번에 식당 1곳·회원 10명·방문 완료 예약 10건·리뷰 10건을 넣는다.
-     * 공개 경로라 토큰 없이 호출할 수 있고, 응답의 sampleUser.accessToken을 Authorize에 붙이면
-     * 해당 더미 회원으로 예약·리뷰 API를 곧장 시험할 수 있다.
+     * 더미 시나리오 생성 — 호출 1번에 식당 1곳·회원 10명을 넣고, 대표(첫 번째) 회원에게는 예약의
+     * 모든 상태 케이스(진행중·확정·취소·방문 완료 × 리뷰 미작성/작성/삭제 × 등록/어디든)를 1건씩,
+     * 나머지 회원에게는 방문 완료 예약·리뷰를 1건씩 생성한다. 공개 경로라 토큰 없이 호출할 수 있고,
+     * 응답의 sampleUser.accessToken을 Authorize에 붙이면 해당 더미 회원으로 예약·리뷰 API를 곧장
+     * 시험할 수 있다(케이스별 예약은 sampleUserReservations 참고).
      */
     @ApiSuccess(value = CommonSuccessCode.class, codes = {"CREATED"})
     @ResponseStatus(HttpStatus.CREATED)
