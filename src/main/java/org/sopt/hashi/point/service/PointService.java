@@ -3,6 +3,7 @@ package org.sopt.hashi.point.service;
 import java.util.Collection;
 import java.util.Map;
 import java.util.stream.Collectors;
+import lombok.extern.slf4j.Slf4j;
 import org.sopt.hashi.auth.CurrentUserProvider;
 import org.sopt.hashi.point.PointSourceType;
 import org.sopt.hashi.point.code.PointErrorCode;
@@ -21,6 +22,7 @@ import org.springframework.transaction.annotation.Transactional;
  * 포인트 계정·원장 로직. 모든 변동은 잔액 갱신과 원장 기록을 한 트랜잭션에서 함께 수행한다.
  * 변동 메서드는 호출자(예약 생성 등)의 트랜잭션에 참여해 함께 커밋/롤백된다(§8).
  */
+@Slf4j
 @Service
 public class PointService {
 
@@ -46,6 +48,9 @@ public class PointService {
         PointAccount account = getOrCreateAccount(userId);
         account.earn(amount);
         pointTransactionRepository.save(PointTransaction.earn(account.getId(), amount, reason, sourceType, sourceId));
+        // 잔액 변동 3종(적립·차감·복원)은 문의 대응·이상 거래 추적의 기준 기록 — 대상 userId를 명시한다
+        // (어드민 경유 등 요청 주체와 대상이 다를 수 있어 MDC userId에 의존하지 않는다)
+        log.info("포인트 적립. userId={}, amount={}, sourceType={}, sourceId={}", userId, amount, sourceType, sourceId);
     }
 
     /** 예약 단위 최초 리뷰에만 정액 보상을 적립한다. 삭제 후 재작성에는 0을 반환한다. */
@@ -89,6 +94,7 @@ public class PointService {
         PointAccount account = getOrCreateAccount(userId);
         account.use(amount);
         pointTransactionRepository.save(PointTransaction.use(account.getId(), amount, reason, sourceType, sourceId));
+        log.info("포인트 차감. userId={}, amount={}, sourceType={}, sourceId={}", userId, amount, sourceType, sourceId);
     }
 
     /**
@@ -115,6 +121,8 @@ public class PointService {
             // exists 체크와 save 사이에 동시 복원이 먼저 커밋된 경우 — uk_point_tx_type_source가 막아준 것이므로 중복 복원으로 응답한다
             throw new BusinessException(PointErrorCode.ALREADY_RESTORED, e);
         }
+        log.info("포인트 복원. userId={}, amount={}, sourceType={}, sourceId={}",
+                userId, useTransaction.getAmount(), sourceType, sourceId);
     }
 
     /** 해당 출처의 차감이 이미 복원되었는지 — 재취소(취소→되살림→재취소) 시 중복 복원 방지용. */
