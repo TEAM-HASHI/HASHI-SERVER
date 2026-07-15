@@ -1,0 +1,118 @@
+# 컨테이너 로그(도커 json-file) 로테이션 — 서비스당 최대 100MB(20m×5).
+# 로그 보관은 Loki(90일)가 담당하고, 도커 쪽 파일은 Promtail 중단 시 따라잡기용 버퍼다.
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "20m"
+    max-file: "5"
+
+services:
+  app:
+    image: ${DOCKER_USERNAME}/hashi-server:prod
+    container_name: hashi-prod-app
+    env_file:
+      - ../.env.prod
+    restart: unless-stopped
+    logging: *default-logging
+    # 호스트 루프백에만 바인딩 — 외부 접근은 리버스 프록시(HTTPS)를 통해서만.
+    # permitAll인 /actuator/prometheus가 이 바인딩과 "프록시가 /actuator를 라우팅하지 않는다"는 전제로 보호된다.
+    ports:
+      - "127.0.0.1:8080:8080"
+    environment:
+      SPRING_PROFILES_ACTIVE: prod
+      TZ: Asia/Seoul
+
+      DB_HOST: ${DB_HOST}
+      DB_PORT: ${DB_PORT}
+      DB_NAME: ${DB_NAME}
+      DB_USERNAME: ${DB_USERNAME}
+      DB_PASSWORD: ${DB_PASSWORD}
+
+      SPRING_DATASOURCE_URL: jdbc:mysql://${DB_HOST}:${DB_PORT}/${DB_NAME}?useSSL=true&serverTimezone=Asia/Seoul&characterEncoding=UTF-8
+      SPRING_DATASOURCE_USERNAME: ${DB_USERNAME}
+      SPRING_DATASOURCE_PASSWORD: ${DB_PASSWORD}
+
+      REDIS_HOST: ${REDIS_HOST}
+      REDIS_PORT: ${REDIS_PORT}
+      SPRING_DATA_REDIS_HOST: ${REDIS_HOST}
+      SPRING_DATA_REDIS_PORT: ${REDIS_PORT}
+
+      JWT_SECRET: ${JWT_SECRET}
+
+      KAKAO_CLIENT_ID: ${KAKAO_CLIENT_ID}
+      KAKAO_CLIENT_SECRET: ${KAKAO_CLIENT_SECRET}
+      KAKAO_REDIRECT_URI: ${KAKAO_REDIRECT_URI}
+
+      AWS_REGION: ${AWS_REGION}
+      AWS_S3_BUCKET: ${AWS_S3_BUCKET}
+      CLOUDFRONT_DOMAIN: ${CLOUDFRONT_DOMAIN}
+      CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS}
+      CORS_ALLOWED_ORIGIN_PATTERNS: ${CORS_ALLOWED_ORIGIN_PATTERNS:-}
+
+      # 운영은 API 문서를 노출하지 않는다 (springdoc.api-docs.enabled / springdoc.swagger-ui.enabled)
+      SPRINGDOC_API_DOCS_ENABLED: "false"
+      SPRINGDOC_SWAGGER_UI_ENABLED: "false"
+
+  prometheus:
+    image: prom/prometheus:v2.53.1
+    container_name: hashi-prod-prometheus
+    restart: unless-stopped
+    logging: *default-logging
+    # command를 지정하면 이미지 기본 인자가 통째로 대체되므로 기본 인자까지 전부 명시한다.
+    # 메트릭 보존은 15일 — 기본값(15d)과 같지만 의도를 드러내기 위해 명시.
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      - --storage.tsdb.retention.time=15d
+      - --web.console.libraries=/usr/share/prometheus/console_libraries
+      - --web.console.templates=/usr/share/prometheus/consoles
+    # 호스트 포트를 열지 않는다 — app 스크레이핑과 Grafana 조회 모두 도커 내부 네트워크로 처리
+    volumes:
+      - ./prometheus/prometheus.prod.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data:/prometheus
+
+  grafana:
+    image: grafana/grafana:11.2.0
+    container_name: hashi-prod-grafana
+    restart: unless-stopped
+    logging: *default-logging
+    # 운영은 외부 직접 노출 금지 — 루프백 바인딩으로 SSH 터널을 통해서만 접속한다
+    ports:
+      - "127.0.0.1:3000:3000"
+    environment:
+      # 사용자명은 admin을 기본값으로 사용하고, 비밀번호는 .env.prod에서 반드시 주입한다.
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:-admin}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:?GRAFANA_ADMIN_PASSWORD is required}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+    volumes:
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - grafana-data:/var/lib/grafana
+
+  loki:
+    image: grafana/loki:3.1.1
+    container_name: hashi-prod-loki
+    restart: unless-stopped
+    logging: *default-logging
+    # prod 전용 설정(90일 보존) — Grafana·Promtail만 내부 네트워크로 접근, 호스트 포트 미개방
+    volumes:
+      - ./loki/loki.prod.yml:/etc/loki/local-config.yaml:ro
+      - loki-data:/loki
+
+  promtail:
+    image: grafana/promtail:3.1.1
+    container_name: hashi-prod-promtail
+    restart: unless-stopped
+    logging: *default-logging
+    volumes:
+      - ./promtail/promtail.prod.yml:/etc/promtail/config.yml:ro
+      # 도커 API로 컨테이너 로그를 수집하기 위한 소켓 (읽기 전용)
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - promtail-positions:/positions
+    command: -config.file=/etc/promtail/config.yml
+
+volumes:
+  prometheus-data:
+  grafana-data:
+  loki-data:
+  promtail-positions:

@@ -1,0 +1,45 @@
+# prod 전용 Loki 설정 — dev·local 공용(loki.yml)과 보존 기간만 다르다(90일).
+# 주의: Loki는 용량 상한 개념이 없어 시간 기준으로만 삭제한다 — EC2 디스크 사용량을 주기적으로 확인할 것.
+auth_enabled: false
+
+server:
+  http_listen_port: 3100
+
+common:
+  instance_addr: 127.0.0.1
+  path_prefix: /loki
+  storage:
+    filesystem:
+      chunks_directory: /loki/chunks
+      rules_directory: /loki/rules
+  replication_factor: 1
+  ring:
+    kvstore:
+      store: inmemory
+
+query_range:
+  results_cache:
+    cache:
+      embedded_cache:
+        enabled: true
+        max_size_mb: 100
+
+schema_config:
+  configs:
+    - from: 2020-10-24
+      store: tsdb
+      object_store: filesystem
+      schema: v13
+      index:
+        prefix: index_
+        period: 24h
+
+# 90일 지난 로그는 compactor가 삭제한다(10분 주기 검사, 삭제 표시 후 2시간 유예)
+limits_config:
+  retention_period: 2160h
+
+compactor:
+  working_directory: /loki/compactor
+  retention_enabled: true
+  retention_delete_delay: 2h
+  delete_request_store: filesystem
