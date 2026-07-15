@@ -14,7 +14,7 @@ import java.util.List;
 
 /**
  * 어드민 식당 등록 요청. imageKeys·메뉴 imageKey는 presigned URL로 업로드 완료된 S3 object key다.
- * genre·foodCategory·curationTypes는 사용자 API와 같은 소문자 케밥 값이다.
+ * genre·curationTypes는 사용자 API와 같은 소문자 케밥 값이고, foodCategory는 카드 표시용 자유 텍스트다(#145).
  * businessHours는 7개 요일(MONDAY~SUNDAY)을 중복 없이 모두 포함해야 한다(시간은 "HH:mm").
  */
 public record CreateRestaurantRequest(
@@ -38,8 +38,9 @@ public record CreateRestaurantRequest(
         @Size(max = 20, message = "지역은 20자 이내입니다") String area,
         @Schema(description = "장르(소문자 케밥)", example = "sushi")
         @NotBlank(message = "장르는 필수입니다") String genre,
-        @Schema(description = "음식 카테고리(소문자 케밥)", example = "sushi")
-        @NotBlank(message = "음식 카테고리는 필수입니다") String foodCategory,
+        @Schema(description = "음식 카테고리(카드 표시용 자유 텍스트)", example = "야키니쿠")
+        @NotBlank(message = "음식 카테고리는 필수입니다")
+        @Size(max = 20, message = "음식 카테고리는 20자 이내입니다") String foodCategory,
         @Schema(description = "통화 코드", example = "JPY")
         @NotBlank(message = "통화는 필수입니다")
         @Size(min = 3, max = 3, message = "통화는 3자리 코드여야 합니다") String priceCurrency,
