@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <configuration>
-    <!-- dev: 콘솔 JSON — 도커 로그로 남아 Promtail이 수집한다. MDC(requestId·userId)가 JSON 필드로 포함된다 -->
-    <springProfile name="dev">
+    <!-- dev·prod: 콘솔 JSON — 도커 로그로 남아 Promtail이 수집한다. MDC(requestId·userId)가 JSON 필드로 포함된다 -->
+    <springProfile name="dev | prod">
         <appender name="CONSOLE_JSON" class="ch.qos.logback.core.ConsoleAppender">
             <encoder class="net.logstash.logback.encoder.LogstashEncoder"/>
         </appender>
@@ -32,7 +32,7 @@
     </springProfile>
 
     <!-- 그 외(test 등): 파일을 남기지 않는 기본 콘솔 -->
-    <springProfile name="!dev &amp; !local">
+    <springProfile name="!dev &amp; !prod &amp; !local">
         <appender name="CONSOLE_PLAIN" class="ch.qos.logback.core.ConsoleAppender">
             <encoder>
                 <pattern>%d{HH:mm:ss.SSS} %-5level [%thread] %logger{36} - %msg%n</pattern>
