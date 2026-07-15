@@ -28,7 +28,6 @@ import org.sopt.hashi.restaurant.domain.Restaurant;
 import org.sopt.hashi.restaurant.domain.RestaurantCurationType;
 import org.sopt.hashi.restaurant.domain.RestaurantBusinessHour;
 import org.sopt.hashi.restaurant.domain.RestaurantCursor;
-import org.sopt.hashi.restaurant.domain.RestaurantFoodCategory;
 import org.sopt.hashi.restaurant.domain.RestaurantGenre;
 import org.sopt.hashi.restaurant.domain.RestaurantImage;
 import org.sopt.hashi.restaurant.domain.RestaurantListType;
@@ -204,7 +203,7 @@ public class RestaurantService {
                 restaurant.getRating(),
                 restaurant.getReviewCount(),
                 restaurant.getSummary(),
-                restaurant.getFoodCategory().description(),
+                restaurant.getFoodCategory(),
                 restaurant.getAddress(),
                 fileStorage.resolveFileUrl(restaurant.getThumbnailFileKey()),
                 toImageUrls(restaurant),
@@ -294,7 +293,7 @@ public class RestaurantService {
                 command.address(),
                 command.area(),
                 toGenre(command.genre()),
-                toFoodCategory(command.foodCategory()),
+                command.foodCategory(),
                 toPriceCurrency(command.priceCurrency()),
                 command.minPrice(),
                 command.maxPrice());
@@ -315,6 +314,8 @@ public class RestaurantService {
     @Transactional
     public AdminRestaurantInfo updateByAdmin(Long restaurantId, AdminRestaurantCommand command) {
         validateNonBlankIfPresent(command.localName());
+        // 자유 텍스트 전환(#145) 후에도 값 비우기 불가 정책 유지 — enum 시절엔 빈 값이 변환 단계에서 거부됐다
+        validateNonBlankIfPresent(command.foodCategory());
         validateNonEmptyIfPresent(command.imageKeys());
         validateNonEmptyIfPresent(command.hashtags());
         Restaurant restaurant = findRestaurantForAdmin(restaurantId);
@@ -327,7 +328,7 @@ public class RestaurantService {
                 command.address(),
                 command.area(),
                 command.genre() == null ? null : toGenre(command.genre()),
-                command.foodCategory() == null ? null : toFoodCategory(command.foodCategory()),
+                command.foodCategory(),
                 command.priceCurrency() == null ? null : toPriceCurrency(command.priceCurrency()),
                 command.minPrice(),
                 command.maxPrice());
@@ -452,7 +453,7 @@ public class RestaurantService {
                 toImageUrls(restaurant, 3),
                 restaurant.getArea(),
                 restaurant.getGenre().description(),
-                restaurant.getFoodCategory().description(),
+                restaurant.getFoodCategory(),
                 restaurant.getSummary(),
                 List.copyOf(restaurant.getHashtags()),
                 toTodayBusinessHourResponse(businessDate, businessHour)
@@ -528,7 +529,8 @@ public class RestaurantService {
         boolean missingRequired = command.name() == null || command.localName() == null || command.localName().isBlank()
                 || command.address() == null
                 || command.summary() == null || command.description() == null
-                || command.area() == null || command.genre() == null || command.foodCategory() == null
+                || command.area() == null || command.genre() == null
+                || command.foodCategory() == null || command.foodCategory().isBlank()
                 || command.priceCurrency() == null || command.minPrice() == null || command.maxPrice() == null
                 || command.imageKeys() == null || command.imageKeys().isEmpty()
                 || command.hashtags() == null || command.hashtags().isEmpty();
@@ -576,11 +578,6 @@ public class RestaurantService {
     private RestaurantGenre toGenre(String value) {
         return RestaurantGenre.from(value)
                 .orElseThrow(() -> new BusinessException(RestaurantErrorCode.UNSUPPORTED_GENRE));
-    }
-
-    private RestaurantFoodCategory toFoodCategory(String value) {
-        return RestaurantFoodCategory.from(value)
-                .orElseThrow(() -> new BusinessException(RestaurantErrorCode.UNSUPPORTED_FOOD_CATEGORY));
     }
 
     private PriceCurrency toPriceCurrency(String value) {
@@ -703,7 +700,7 @@ public class RestaurantService {
                 restaurant.getAddress(),
                 restaurant.getArea(),
                 restaurant.getGenre().value(),
-                restaurant.getFoodCategory().value(),
+                restaurant.getFoodCategory(),
                 fileStorage.resolveFileUrl(restaurant.getThumbnailFileKey()),
                 restaurant.getPriceCurrency().value(),
                 restaurant.getMinPrice(),
