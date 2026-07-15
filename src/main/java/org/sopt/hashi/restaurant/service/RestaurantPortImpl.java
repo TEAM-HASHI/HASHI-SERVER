@@ -1,0 +1,138 @@
+package org.sopt.hashi.restaurant.service;
+
+import java.util.Collection;
+import java.util.LinkedHashSet;
+import java.util.List;
+import java.util.Map;
+import java.util.Objects;
+import java.util.Optional;
+import java.util.function.Function;
+import java.util.stream.Collectors;
+import org.sopt.hashi.restaurant.AdminRestaurantCommand;
+import org.sopt.hashi.restaurant.AdminRestaurantInfo;
+import org.sopt.hashi.restaurant.RestaurantDetailInfo;
+import org.sopt.hashi.restaurant.RestaurantInfo;
+import org.sopt.hashi.restaurant.RestaurantPort;
+import org.sopt.hashi.restaurant.domain.Restaurant;
+import org.sopt.hashi.restaurant.domain.RestaurantRepository;
+import org.sopt.hashi.shared.storage.FileStorage;
+import org.springframework.stereotype.Component;
+import org.springframework.transaction.annotation.Transactional;
+
+@Component
+@Transactional(readOnly = true)
+class RestaurantPortImpl implements RestaurantPort {
+
+    private final RestaurantRepository restaurantRepository;
+    private final RestaurantService restaurantService;
+    private final FileStorage fileStorage;
+
+    RestaurantPortImpl(RestaurantRepository restaurantRepository, RestaurantService restaurantService,
+                       FileStorage fileStorage) {
+        this.restaurantRepository = restaurantRepository;
+        this.restaurantService = restaurantService;
+        this.fileStorage = fileStorage;
+    }
+
+    @Override
+    public boolean existsById(Long restaurantId) {
+        return restaurantId != null && restaurantRepository.existsById(restaurantId);
+    }
+
+    @Override
+    public Optional<RestaurantInfo> findSummaryById(Long restaurantId) {
+        if (restaurantId == null) {
+            return Optional.empty();
+        }
+        return restaurantRepository.findById(restaurantId)
+                .map(this::toInfo);
+    }
+
+    @Override
+    public List<RestaurantInfo> findSummaries(Collection<Long> restaurantIds) {
+        if (restaurantIds == null || restaurantIds.isEmpty()) {
+            return List.of();
+        }
+
+        List<Long> ids = restaurantIds.stream()
+                .filter(Objects::nonNull)
+                .collect(Collectors.collectingAndThen(
+                        Collectors.toCollection(LinkedHashSet::new),
+                        List::copyOf
+                ));
+        if (ids.isEmpty()) {
+            return List.of();
+        }
+
+        Map<Long, RestaurantInfo> summariesById = restaurantRepository.findAllById(ids).stream()
+                .map(this::toInfo)
+                .collect(Collectors.toMap(RestaurantInfo::id, Function.identity()));
+
+        return ids.stream()
+                .map(summariesById::get)
+                .filter(Objects::nonNull)
+                .toList();
+    }
+
+    @Override
+    public Optional<RestaurantDetailInfo> findDetailById(Long restaurantId) {
+        if (restaurantId == null) {
+            return Optional.empty();
+        }
+        return restaurantRepository.findById(restaurantId)
+                .map(this::toDetailInfo);
+    }
+
+    @Override
+    @Transactional
+    public void increaseReviewStatistics(Long restaurantId, int rating) {
+        if (restaurantRepository.increaseReviewStatistics(restaurantId, rating) == 0) {
+            throw new IllegalStateException("리뷰 통계를 갱신할 식당을 찾을 수 없습니다.");
+        }
+    }
+
+    @Override
+    @Transactional
+    public void decreaseReviewStatistics(Long restaurantId, int rating) {
+        if (restaurantRepository.decreaseReviewStatistics(restaurantId, rating) == 0) {
+            throw new IllegalStateException("차감할 식당 리뷰 통계가 올바르지 않습니다.");
+        }
+    }
+
+    @Override
+    @Transactional
+    public AdminRestaurantInfo createByAdmin(AdminRestaurantCommand command) {
+        return restaurantService.createByAdmin(command);
+    }
+
+    @Override
+    @Transactional
+    public AdminRestaurantInfo updateByAdmin(Long restaurantId, AdminRestaurantCommand command) {
+        return restaurantService.updateByAdmin(restaurantId, command);
+    }
+
+    @Override
+    @Transactional
+    public void deleteByAdmin(Long restaurantId) {
+        restaurantService.deleteByAdmin(restaurantId);
+    }
+
+    private RestaurantInfo toInfo(Restaurant restaurant) {
+        return new RestaurantInfo(
+                restaurant.getId(),
+                restaurant.getName(),
+                restaurant.getAddress(),
+                fileStorage.resolveFileUrl(restaurant.getThumbnailFileKey())
+        );
+    }
+
+    private RestaurantDetailInfo toDetailInfo(Restaurant restaurant) {
+        return new RestaurantDetailInfo(
+                restaurant.getId(),
+                restaurant.getName(),
+                restaurant.getLocalName(),
+                restaurant.getAddress(),
+                fileStorage.resolveFileUrl(restaurant.getThumbnailFileKey())
+        );
+    }
+}

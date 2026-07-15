@@ -1,0 +1,76 @@
+package org.sopt.hashi.config;
+
+import io.swagger.v3.oas.models.Components;
+import io.swagger.v3.oas.models.OpenAPI;
+import io.swagger.v3.oas.models.info.Info;
+import io.swagger.v3.oas.models.security.SecurityScheme;
+import org.springdoc.core.customizers.GlobalOperationCustomizer;
+import org.springdoc.core.models.GroupedOpenApi;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
+
+/**
+ * SpringDoc/Swagger 배선. API 메타 정보와 JWT Bearer 인증(Authorize 버튼)을 문서에 노출한다.
+ */
+@Configuration
+public class SwaggerConfig {
+
+    private static final String BEARER_SCHEME_NAME = "bearerAuth";
+    private static final String API_BASE_PATH = "/api/v1/**";
+    private static final String ADMIN_BASE_PATH = "/api/v1/admin/**";
+    /** 어드민 인증(로그인·로그아웃)은 permitAll 정책상 /api/v1/auth 아래에 있지만 문서는 admin 그룹에 속한다. */
+    private static final String ADMIN_AUTH_BASE_PATH = "/api/v1/auth/admin/**";
+
+    /**
+     * API 메타 정보와 JWT Bearer 인증 스킴(Authorize 버튼)을 정의한다.
+     * 전역 인증 요구는 걸지 않는다 — 오퍼레이션별 자물쇠는 auth의 SwaggerAuthorizationCustomizer가
+     * SecurityConfig 공개 경로 규칙과 같은 소스로 자동 부여한다(공개 API는 자물쇠 미표시).
+     */
+    @Bean
+    public OpenAPI openAPI() {
+        SecurityScheme bearerScheme = new SecurityScheme()
+                .type(SecurityScheme.Type.HTTP)
+                .scheme("bearer")
+                .bearerFormat("JWT")
+                .in(SecurityScheme.In.HEADER)
+                .name("Authorization");
+
+        return new OpenAPI()
+                .info(new Info()
+                        .title("HASHI API")
+                        .description("HASHI API 문서")
+                        .version("v1"))
+                .components(new Components().addSecuritySchemes(BEARER_SCHEME_NAME, bearerScheme));
+    }
+
+    /** @ApiException 기반 에러 응답 예시 자동 문서화. 그룹 문서에도 적용되도록 Global 타입으로 등록한다. */
+    @Bean
+    public GlobalOperationCustomizer apiExceptionsOperationCustomizer() {
+        return new ApiExceptionsOperationCustomizer();
+    }
+
+    /** @ApiSuccess 기반 성공 응답 예시 자동 문서화(어노테이션 없으면 200에 OK 기본). */
+    @Bean
+    public GlobalOperationCustomizer apiSuccessOperationCustomizer() {
+        return new ApiSuccessOperationCustomizer();
+    }
+
+    /** 사용자 API 문서 그룹(/api/v1/** 중 admin·어드민 인증 제외). */
+    @Bean
+    public GroupedOpenApi userApi() {
+        return GroupedOpenApi.builder()
+                .group("user")
+                .pathsToMatch(API_BASE_PATH)
+                .pathsToExclude(ADMIN_BASE_PATH, ADMIN_AUTH_BASE_PATH)
+                .build();
+    }
+
+    /** 어드민 API 문서 그룹(/api/v1/admin/** + 어드민 인증). */
+    @Bean
+    public GroupedOpenApi adminApi() {
+        return GroupedOpenApi.builder()
+                .group("admin")
+                .pathsToMatch(ADMIN_BASE_PATH, ADMIN_AUTH_BASE_PATH)
+                .build();
+    }
+}

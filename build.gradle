@@ -18,12 +18,75 @@ repositories {
     mavenCentral()
 }
 
+ext {
+    set('springModulithVersion', '1.4.3')
+}
+
 dependencies {
+    // web / docs
     implementation 'org.springframework.boot:spring-boot-starter-web'
+    implementation 'org.springframework.boot:spring-boot-starter-actuator'
+    runtimeOnly 'io.micrometer:micrometer-registry-prometheus'
+    // 로그 JSON 인코딩(Loki 수집용) — logback-spring.xml에서 사용
+    implementation 'net.logstash.logback:logstash-logback-encoder:8.0'
     implementation 'org.springdoc:springdoc-openapi-starter-webmvc-ui:2.8.16'
+    // 컨트롤러·DTO javadoc을 Swagger description으로 자동 반영(@Operation 선언 불필요)
+    implementation 'com.github.therapi:therapi-runtime-javadoc:0.15.0'
+    annotationProcessor 'com.github.therapi:therapi-runtime-javadoc-scribe:0.15.0'
+
+    // persistence
+    implementation 'org.springframework.boot:spring-boot-starter-data-jpa'
+    implementation 'org.flywaydb:flyway-core'
     runtimeOnly 'com.mysql:mysql-connector-j'
+    runtimeOnly 'org.flywaydb:flyway-mysql'
+
+    // security
+    implementation 'org.springframework.boot:spring-boot-starter-security'
+
+    // jwt
+    implementation 'io.jsonwebtoken:jjwt-api:0.12.6'
+    runtimeOnly 'io.jsonwebtoken:jjwt-impl:0.12.6'
+    runtimeOnly 'io.jsonwebtoken:jjwt-jackson:0.12.6'
+
+    // redis
+    implementation 'org.springframework.boot:spring-boot-starter-data-redis'
+
+    // aws
+    implementation 'software.amazon.awssdk:s3:2.25.60'
+
+    // validation
+    implementation 'org.springframework.boot:spring-boot-starter-validation'
+
+    // spring modulith (모듈 모델 + JPA 이벤트 발행 레지스트리)
+    implementation 'org.springframework.modulith:spring-modulith-starter-core'
+    implementation 'org.springframework.modulith:spring-modulith-starter-jpa'
+
+    // lombok
+    compileOnly 'org.projectlombok:lombok'
+    annotationProcessor 'org.projectlombok:lombok'
+
+    // test
     testImplementation 'org.springframework.boot:spring-boot-starter-test'
+    testImplementation 'org.springframework.modulith:spring-modulith-starter-test'
+    testImplementation 'com.tngtech.archunit:archunit-junit5:1.4.0'
+    testCompileOnly 'org.projectlombok:lombok'
+    testAnnotationProcessor 'org.projectlombok:lombok'
+    testRuntimeOnly 'com.h2database:h2'
     testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
+}
+
+dependencyManagement {
+    imports {
+        mavenBom "org.springframework.modulith:spring-modulith-bom:${springModulithVersion}"
+    }
+}
+
+tasks.named('bootJar') {
+    archiveFileName = 'app.jar'
+}
+
+tasks.named('jar') {
+    enabled = false
 }
 
 tasks.named('test') {

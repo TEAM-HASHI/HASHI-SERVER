@@ -1,0 +1,44 @@
+# 로컬 모니터링 스택 — 앱은 호스트(IDE/gradle)에서 띄우고 이 compose만 올려서 검증한다.
+#   docker compose -f docker-compose.monitoring.local.yml up -d
+# Grafana: http://localhost:3000 (admin/admin), Prometheus: http://localhost:9090
+services:
+  prometheus:
+    image: prom/prometheus:v2.53.1
+    container_name: hashi-local-prometheus
+    ports:
+      - "127.0.0.1:9090:9090"
+    volumes:
+      - ./prometheus/prometheus.local.yml:/etc/prometheus/prometheus.yml:ro
+    extra_hosts:
+      # 리눅스에서도 host.docker.internal로 호스트의 앱(8080)에 접근 가능하게 한다
+      - "host.docker.internal:host-gateway"
+
+  loki:
+    image: grafana/loki:3.1.1
+    container_name: hashi-local-loki
+    ports:
+      - "127.0.0.1:3100:3100"   # 로컬 검증용 쿼리 API
+    volumes:
+      - ./loki/loki.yml:/etc/loki/local-config.yaml:ro   # 30일 보존 설정 (dev와 동일)
+
+  promtail:
+    image: grafana/promtail:3.1.1
+    container_name: hashi-local-promtail
+    volumes:
+      - ./promtail/promtail.local.yml:/etc/promtail/config.yml:ro
+      # 호스트 앱의 logback FILE_JSON 어펜더가 남기는 파일을 tail한다
+      - ../logs:/hashi-logs:ro
+    command: -config.file=/etc/promtail/config.yml
+
+  grafana:
+    image: grafana/grafana:11.2.0
+    container_name: hashi-local-grafana
+    ports:
+      - "127.0.0.1:3000:3000"
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: admin
+      GF_USERS_ALLOW_SIGN_UP: "false"
+    volumes:
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./grafana/dashboards:/var/lib/grafana/dashboards:ro

@@ -1,41 +1,55 @@
-.gradle
-build/
+# Compiled class file
+*.class
+
+# Log file
+*.log
+
+# BlueJ files
+*.ctxt
+
+# Spring Boot config — 구조는 커밋, 시크릿만 제외
+src/main/resources/application-local.yml
+src/main/resources/application-secret.yml
+src/main/resources/application-*-secret.yml
+
+# Mobile Tools for Java (J2ME)
+.mtj.tmp/
+
+# Package Files #
+*.jar
 !gradle/wrapper/gradle-wrapper.jar
-!**/src/main/**/build/
-!**/src/test/**/build/
+*.war
+*.nar
+*.ear
+*.zip
+*.tar.gz
+*.rar
 
-### IntelliJ IDEA ###
+# Docker
+.env
+.env.*
+!.env.example
+!.env.*.example
+docker-compose.override.yml
+
+# virtual machine crash logs
+hs_err_pid*
+replay_pid*
+
+# Gradle
+.gradle/
+build/
+
+# IntelliJ IDEA 
 .idea/
-*.iws
 *.iml
-*.ipr
-out/
-!**/src/main/**/out/
-!**/src/test/**/out/
 
-### Eclipse ###
-.apt_generated
-.classpath
-.factorypath
-.project
-.settings
-.springBeans
-.sts4-cache
-bin/
-!**/src/main/**/bin/
-!**/src/test/**/bin/
-
-### NetBeans ###
-/nbproject/private/
-/nbbuild/
-/dist/
-/nbdist/
-/.nb-gradle/
-
-### VS Code ###
-.vscode/
-
-### Mac OS ###
+# OS files 
 .DS_Store
+Thumbs.db
 
-application.yml
+# 로컬 logback FILE_JSON 어펜더 출력 (Promtail 검증용)
+logs/
+
+# Claude Code 로컬 실행 설정 (개인 PC 절대 경로 포함)
+.claude/launch.json

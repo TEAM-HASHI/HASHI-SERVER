@@ -1,0 +1,144 @@
+package org.sopt.hashi.shared.exception;
+
+import jakarta.servlet.http.HttpServletRequest;
+import jakarta.validation.ConstraintViolationException;
+import java.util.List;
+import java.util.Set;
+import lombok.extern.slf4j.Slf4j;
+import org.sopt.hashi.shared.error.BusinessException;
+import org.sopt.hashi.shared.error.CommonErrorCode;
+import org.sopt.hashi.shared.error.ErrorCode;
+import org.sopt.hashi.shared.response.ErrorResponse;
+import org.springframework.dao.OptimisticLockingFailureException;
+import org.springframework.http.HttpMethod;
+import org.springframework.http.ResponseEntity;
+import org.springframework.http.converter.HttpMessageNotReadableException;
+import org.springframework.web.HttpMediaTypeNotSupportedException;
+import org.springframework.web.HttpRequestMethodNotSupportedException;
+import org.springframework.web.bind.MethodArgumentNotValidException;
+import org.springframework.web.bind.MissingServletRequestParameterException;
+import org.springframework.web.bind.annotation.ExceptionHandler;
+import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.method.annotation.HandlerMethodValidationException;
+import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
+import org.springframework.web.servlet.resource.NoResourceFoundException;
+
+/**
+ * 전역 예외 변환 전담. 컨트롤러/서비스는 에러 응답을 직접 만들지 않고 여기서 {@link ErrorResponse}로 변환한다.
+ */
+@Slf4j
+@RestControllerAdvice
+public class GlobalExceptionHandler {
+    // BusinessException 에러
+    @ExceptionHandler(BusinessException.class)
+    public ResponseEntity<ErrorResponse> handleBusinessException(
+            BusinessException e,
+            HttpServletRequest request) {
+        ErrorCode code = e.getErrorCode();
+        // 예상된 흐름(4xx)이라 스택트레이스는 남기지 않는다 — 에러코드별 발생 빈도·패턴 관측용
+        log.warn("Business exception. code={} status={} uri={}",
+                code.getCode(), code.getStatus().value(), request.getRequestURI());
+        return ResponseEntity.status(code.getStatus())
+                .body(ErrorResponse.of(code, request.getRequestURI()));
+    }
+    // Validation 검증 에러
+    @ExceptionHandler(MethodArgumentNotValidException.class)
+    public ResponseEntity<ErrorResponse> handleValidationException(MethodArgumentNotValidException e,
+                                                                   HttpServletRequest request) {
+        List<ErrorResponse.FieldError> errors = e.getBindingResult().getFieldErrors().stream()
+                .map(fieldError -> new ErrorResponse.FieldError(
+                        fieldError.getField(),
+                        fieldError.getRejectedValue(),
+                        fieldError.getDefaultMessage()))
+                .toList();
+        return ResponseEntity.status(CommonErrorCode.INVALID_INPUT.getStatus())
+                .body(ErrorResponse.of(CommonErrorCode.INVALID_INPUT, request.getRequestURI(), errors));
+    }
+    // 존재하지 않는 경로 (404) — 프레임워크 예외라 클라 실수, 스택트레이스 로깅 불필요
+    @ExceptionHandler(NoResourceFoundException.class)
+    public ResponseEntity<ErrorResponse> handleNoResourceFound(
+            NoResourceFoundException e,
+            HttpServletRequest request) {
+        return ResponseEntity.status(CommonErrorCode.NOT_FOUND.getStatus())
+                .body(ErrorResponse.of(CommonErrorCode.NOT_FOUND, request.getRequestURI()));
+    }
+    // 요청 바디 파싱 실패 — 깨진 JSON 등 (400). 파서 원본 메시지는 내부 구조 노출 방지를 위해 응답에 담지 않는다
+    @ExceptionHandler(HttpMessageNotReadableException.class)
+    public ResponseEntity<ErrorResponse> handleHttpMessageNotReadable(
+            HttpMessageNotReadableException e,
+            HttpServletRequest request) {
+        return ResponseEntity.status(CommonErrorCode.INVALID_INPUT.getStatus())
+                .body(ErrorResponse.of(CommonErrorCode.INVALID_INPUT, request.getRequestURI()));
+    }
+    // 지원하지 않는 HTTP 메서드 (405) — RFC 7231에 따라 허용 메서드를 Allow 헤더로 알린다
+    @ExceptionHandler(HttpRequestMethodNotSupportedException.class)
+    public ResponseEntity<ErrorResponse> handleMethodNotSupported(
+            HttpRequestMethodNotSupportedException e,
+            HttpServletRequest request) {
+        ResponseEntity.BodyBuilder builder = ResponseEntity.status(CommonErrorCode.METHOD_NOT_ALLOWED.getStatus());
+        Set<HttpMethod> supportedMethods = e.getSupportedHttpMethods();
+        if (supportedMethods != null && !supportedMethods.isEmpty()) {
+            builder.allow(supportedMethods.toArray(HttpMethod[]::new));
+        }
+        return builder.body(ErrorResponse.of(CommonErrorCode.METHOD_NOT_ALLOWED, request.getRequestURI()));
+    }
+    // 경로/쿼리 파라미터 타입 불일치 — 예: /restaurants/abc (400)
+    @ExceptionHandler(MethodArgumentTypeMismatchException.class)
+    public ResponseEntity<ErrorResponse> handleTypeMismatch(
+            MethodArgumentTypeMismatchException e,
+            HttpServletRequest request) {
+        return ResponseEntity.status(CommonErrorCode.INVALID_INPUT.getStatus())
+                .body(ErrorResponse.of(CommonErrorCode.INVALID_INPUT, request.getRequestURI()));
+    }
+    // 필수 요청 파라미터 누락 (400)
+    @ExceptionHandler(MissingServletRequestParameterException.class)
+    public ResponseEntity<ErrorResponse> handleMissingParameter(
+            MissingServletRequestParameterException e,
+            HttpServletRequest request) {
+        return ResponseEntity.status(CommonErrorCode.INVALID_INPUT.getStatus())
+                .body(ErrorResponse.of(CommonErrorCode.INVALID_INPUT, request.getRequestURI()));
+    }
+    // 지원하지 않는 Content-Type (415) — 예: JSON 엔드포인트에 text/plain 전송
+    @ExceptionHandler(HttpMediaTypeNotSupportedException.class)
+    public ResponseEntity<ErrorResponse> handleMediaTypeNotSupported(
+            HttpMediaTypeNotSupportedException e,
+            HttpServletRequest request) {
+        return ResponseEntity.status(CommonErrorCode.UNSUPPORTED_MEDIA_TYPE.getStatus())
+                .body(ErrorResponse.of(CommonErrorCode.UNSUPPORTED_MEDIA_TYPE, request.getRequestURI()));
+    }
+    // @RequestParam/@PathVariable에 직접 선언한 제약 위반 (400) — DTO @Valid와 별개 경로(Spring 6.1+)
+    @ExceptionHandler(HandlerMethodValidationException.class)
+    public ResponseEntity<ErrorResponse> handleHandlerMethodValidation(
+            HandlerMethodValidationException e,
+            HttpServletRequest request) {
+        return ResponseEntity.status(CommonErrorCode.INVALID_INPUT.getStatus())
+                .body(ErrorResponse.of(CommonErrorCode.INVALID_INPUT, request.getRequestURI()));
+    }
+    // @Validated 기반 컨트롤러 메서드 파라미터 제약 위반 (400) — 예: @Positive PathVariable
+    @ExceptionHandler(ConstraintViolationException.class)
+    public ResponseEntity<ErrorResponse> handleConstraintViolation(
+            ConstraintViolationException e,
+            HttpServletRequest request) {
+        return ResponseEntity.status(CommonErrorCode.INVALID_INPUT.getStatus())
+                .body(ErrorResponse.of(CommonErrorCode.INVALID_INPUT, request.getRequestURI()));
+    }
+    // 낙관적 락 충돌 (409) — 같은 데이터(포인트 잔액 등)를 동시에 갱신해 한쪽이 밀린 경우. 재시도하면 해소된다.
+    // 충돌 빈도가 비정상적으로 높아지는 상황을 관측할 수 있도록 경고 로그를 남긴다
+    @ExceptionHandler(OptimisticLockingFailureException.class)
+    public ResponseEntity<ErrorResponse> handleOptimisticLockConflict(
+            OptimisticLockingFailureException e,
+            HttpServletRequest request) {
+        log.warn("Optimistic lock conflict at {}", request.getRequestURI(), e);
+        return ResponseEntity.status(CommonErrorCode.CONFLICT.getStatus())
+                .body(ErrorResponse.of(CommonErrorCode.CONFLICT, request.getRequestURI()));
+    }
+    // 예상치 못한 서버 내부 에러
+    @ExceptionHandler(Exception.class)
+    public ResponseEntity<ErrorResponse> handleException(
+            Exception e,
+            HttpServletRequest request) {
+        log.error("Unhandled exception at {}", request.getRequestURI(), e);
+        return ResponseEntity.status(CommonErrorCode.INTERNAL.getStatus())
+                .body(ErrorResponse.of(CommonErrorCode.INTERNAL, request.getRequestURI()));
+    }
+}
