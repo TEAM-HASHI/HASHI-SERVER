@@ -81,13 +81,16 @@ public record UpdateRestaurantRequest(
             @NotNull(message = "대표 메뉴 여부는 필수입니다") Boolean main) {
     }
 
-    /** 요일별 영업시간 — 휴무일(closed=true)은 시간 없이 보내고, 영업일은 openTime·closeTime이 필수다. */
+    /**
+     * 요일별 영업시간 — 휴무일(closed=true)은 시간 없이 보내고, 영업일은 openTime·closeTime이 필수다.
+     * 마감 시각이 오픈 시각보다 이르면 익일 마감(자정 넘김), 같으면 24시간 영업으로 해석한다.
+     */
     public record BusinessHourRequest(
             @Schema(description = "요일", example = "MONDAY")
             @NotNull(message = "요일은 필수입니다") DayOfWeek dayOfWeek,
             @Schema(description = "오픈 시각(HH:mm)", example = "11:00")
             LocalTime openTime,
-            @Schema(description = "마감 시각(HH:mm)", example = "22:00")
+            @Schema(description = "마감 시각(HH:mm) — 오픈 시각보다 이르면 익일 마감, 같으면 24시간 영업", example = "22:00")
             LocalTime closeTime,
             @Schema(description = "브레이크타임 시작 시각(HH:mm, 선택)", example = "15:00")
             LocalTime breakStart,
