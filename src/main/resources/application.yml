@@ -1,5 +1,7 @@
 server:
   forward-headers-strategy: native
+  # 재배포(SIGTERM) 시 처리 중인 요청을 마치고 종료한다 — 예약·결제성 요청이 중간에 끊기지 않게
+  shutdown: graceful
 
 spring:
   application:
@@ -19,7 +21,7 @@ spring:
 
 jwt:
   secret: ${JWT_SECRET}
-  access-token-ttl: 7d
+  access-token-ttl: 30m
   refresh-token-ttl: 14d
   onboarding-token-ttl: 30m
 
