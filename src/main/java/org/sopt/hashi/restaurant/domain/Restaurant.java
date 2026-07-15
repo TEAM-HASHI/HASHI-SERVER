@@ -65,9 +65,9 @@ public class Restaurant extends BaseTimeEntity {
     @Column(name = "genre", length = 20, nullable = false)
     private RestaurantGenre genre;
 
-    @Enumerated(EnumType.STRING)
+    /** 카드 표시용 음식 카테고리(자유 텍스트, #145). 필터 축은 genre가 전담한다. */
     @Column(name = "food_category", length = 20, nullable = false)
-    private RestaurantFoodCategory foodCategory;
+    private String foodCategory;
 
     @Enumerated(EnumType.STRING)
     @Column(name = "price_currency", length = 3, nullable = false)
@@ -118,7 +118,7 @@ public class Restaurant extends BaseTimeEntity {
     private List<RestaurantBusinessHour> businessHours = new ArrayList<>();
 
     private Restaurant(String name, String localName, String summary, String description, String address,
-                       String area, RestaurantGenre genre, RestaurantFoodCategory foodCategory,
+                       String area, RestaurantGenre genre, String foodCategory,
                        PriceCurrency priceCurrency, BigDecimal minPrice, BigDecimal maxPrice) {
         this.name = name;
         this.localName = localName;
@@ -139,7 +139,7 @@ public class Restaurant extends BaseTimeEntity {
 
     public static Restaurant create(String name, String localName, String summary, String description,
                                     String address, String area, RestaurantGenre genre,
-                                    RestaurantFoodCategory foodCategory, PriceCurrency priceCurrency,
+                                    String foodCategory, PriceCurrency priceCurrency,
                                     BigDecimal minPrice,
                                     BigDecimal maxPrice) {
         return new Restaurant(name, localName, summary, description, address, area, genre, foodCategory,
@@ -149,7 +149,7 @@ public class Restaurant extends BaseTimeEntity {
     /** 부분 수정(PATCH) — null 필드는 기존 값을 유지한다(값 비우기 불가, magazine과 동일 정책). */
     public void updateBasicInfo(String name, String localName, String summary, String description,
                                 String address, String area, RestaurantGenre genre,
-                                RestaurantFoodCategory foodCategory, PriceCurrency priceCurrency,
+                                String foodCategory, PriceCurrency priceCurrency,
                                 BigDecimal minPrice, BigDecimal maxPrice) {
         if (name != null) {
             this.name = name;

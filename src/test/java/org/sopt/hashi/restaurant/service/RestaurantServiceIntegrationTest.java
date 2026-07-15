@@ -13,7 +13,6 @@ import org.sopt.hashi.restaurant.AdminRestaurantInfo.AdminRestaurantMenuInfo;
 import org.sopt.hashi.restaurant.RestaurantPort;
 import org.sopt.hashi.restaurant.domain.PriceCurrency;
 import org.sopt.hashi.restaurant.domain.Restaurant;
-import org.sopt.hashi.restaurant.domain.RestaurantFoodCategory;
 import org.sopt.hashi.restaurant.domain.RestaurantGenre;
 import org.sopt.hashi.restaurant.domain.RestaurantMenu;
 import org.sopt.hashi.restaurant.domain.RestaurantRepository;
@@ -53,8 +52,8 @@ class RestaurantServiceIntegrationTest {
     @Test
     void 식당_목록은_음식_분류로_필터링하지_않고_응답에는_음식_분류를_유지한다() {
         restaurantRepository.saveAllAndFlush(List.of(
-                createRestaurant("음식 분류 초밥 식당", RestaurantFoodCategory.SUSHI),
-                createRestaurant("음식 분류 면류 식당", RestaurantFoodCategory.NOODLE)
+                createRestaurant("음식 분류 초밥 식당", "초밥"),
+                createRestaurant("음식 분류 면류 식당", "면류")
         ));
 
         RestaurantListResponse response = restaurantService.getRestaurants(
@@ -145,10 +144,10 @@ class RestaurantServiceIntegrationTest {
     }
 
     private Restaurant createRestaurant() {
-        return createRestaurant("메뉴 수정 식당", RestaurantFoodCategory.SUSHI);
+        return createRestaurant("메뉴 수정 식당", "초밥");
     }
 
-    private Restaurant createRestaurant(String name, RestaurantFoodCategory foodCategory) {
+    private Restaurant createRestaurant(String name, String foodCategory) {
         return Restaurant.create(
                 name,
                 "Menu Update Restaurant",
