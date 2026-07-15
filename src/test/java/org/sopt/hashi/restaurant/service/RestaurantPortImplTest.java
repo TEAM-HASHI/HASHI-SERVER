@@ -17,7 +17,6 @@ import org.sopt.hashi.restaurant.RestaurantDetailInfo;
 import org.sopt.hashi.restaurant.RestaurantInfo;
 import org.sopt.hashi.restaurant.domain.PriceCurrency;
 import org.sopt.hashi.restaurant.domain.Restaurant;
-import org.sopt.hashi.restaurant.domain.RestaurantFoodCategory;
 import org.sopt.hashi.restaurant.domain.RestaurantGenre;
 import org.sopt.hashi.restaurant.domain.RestaurantImage;
 import org.sopt.hashi.restaurant.domain.RestaurantRepository;
@@ -119,7 +118,7 @@ class RestaurantPortImplTest {
                 "도쿄도 신주쿠구",
                 "도쿄",
                 RestaurantGenre.SUSHI,
-                RestaurantFoodCategory.SUSHI,
+                "초밥",
                 PriceCurrency.JPY,
                 BigDecimal.valueOf(1000),
                 BigDecimal.valueOf(3000)

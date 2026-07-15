@@ -47,7 +47,7 @@ public class AdminRestaurantController {
               "address": "도쿄도 도시마구 히가시이케부쿠로 1-1-1",
               "area": "이케부쿠로",
               "genre": "grill",
-              "foodCategory": "grill",
+              "foodCategory": "야키니쿠",
               "priceCurrency": "JPY",
               "minPrice": 3000,
               "maxPrice": 8000,

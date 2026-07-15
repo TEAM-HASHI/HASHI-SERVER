@@ -32,7 +32,6 @@ import org.sopt.hashi.restaurant.domain.PriceCurrency;
 import org.sopt.hashi.restaurant.domain.Restaurant;
 import org.sopt.hashi.restaurant.domain.RestaurantBusinessHour;
 import org.sopt.hashi.restaurant.domain.RestaurantCursor;
-import org.sopt.hashi.restaurant.domain.RestaurantFoodCategory;
 import org.sopt.hashi.restaurant.domain.RestaurantGenre;
 import org.sopt.hashi.restaurant.domain.RestaurantImage;
 import org.sopt.hashi.restaurant.domain.RestaurantMenu;
@@ -678,7 +677,7 @@ class RestaurantServiceTest {
                 "Tokyo",
                 "Tokyo",
                 RestaurantGenre.SUSHI,
-                RestaurantFoodCategory.SUSHI,
+                "초밥",
                 PriceCurrency.JPY,
                 BigDecimal.valueOf(1000),
                 BigDecimal.valueOf(3000)
@@ -810,7 +809,7 @@ class RestaurantServiceTest {
                 "도쿄도 신주쿠구",
                 "도쿄",
                 RestaurantGenre.SUSHI,
-                RestaurantFoodCategory.SUSHI,
+                "초밥",
                 PriceCurrency.JPY,
                 BigDecimal.valueOf(1000),
                 BigDecimal.valueOf(3000)
