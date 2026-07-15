@@ -75,7 +75,7 @@ public class RestaurantController {
                 restaurantService.getSearchKeywordRecommendations(size));
     }
 
-    /** 오늘의 식당 중 현재 식당을 제외한 랜덤 추천 조회. */
+    /** 전체 식당 중 현재 식당을 제외한 랜덤 추천 조회. */
     @ApiException(value = CommonErrorCode.class, codes = {"INVALID_INPUT"})
     @ApiException(value = RestaurantErrorCode.class, codes = {"RECOMMENDATION_NOT_FOUND"})
     @GetMapping("/recommendations/random")

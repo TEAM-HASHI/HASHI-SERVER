@@ -183,10 +183,7 @@ public class RestaurantService {
     }
 
     public RestaurantMainResponse getRandomRestaurantRecommendation(Long excludeRestaurantId) {
-        Long restaurantId = restaurantRepository.findRandomRestaurantIdByCurationTypeExcluding(
-                        RestaurantCurationType.TODAY_RESTAURANT.name(),
-                        excludeRestaurantId
-                )
+        Long restaurantId = restaurantRepository.findRandomRestaurantIdExcluding(excludeRestaurantId)
                 .orElseThrow(() -> new BusinessException(RestaurantErrorCode.RECOMMENDATION_NOT_FOUND));
 
         return getRestaurantSummary(restaurantId);

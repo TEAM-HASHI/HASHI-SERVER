@@ -7,8 +7,8 @@ public enum RestaurantCurationType {
 
     SNS_HOT("sns-hot"),
     POPULAR("popular"),
-    HASHI_PICK("hashi-pick"),
-    TODAY_RESTAURANT("today-restaurant");
+    // TODAY_RESTAURANT은 랜덤 추천이 전체 식당 대상으로 바뀌며 폐기(#154)
+    HASHI_PICK("hashi-pick");
 
     private final String value;
 

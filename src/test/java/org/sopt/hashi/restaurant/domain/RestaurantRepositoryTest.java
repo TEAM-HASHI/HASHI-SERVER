@@ -29,43 +29,34 @@ class RestaurantRepositoryTest {
     private TestEntityManager entityManager;
 
     @Test
-    void 랜덤_추천은_현재_식당과_삭제된_식당과_다른_큐레이션을_제외한다() {
-        Restaurant current = saveRestaurant("현재 식당", RestaurantCurationType.TODAY_RESTAURANT);
-        Restaurant recommendation = saveRestaurant("추천 식당", RestaurantCurationType.TODAY_RESTAURANT);
-        saveRestaurant("하시픽 식당", RestaurantCurationType.HASHI_PICK);
-        Restaurant deleted = saveRestaurant("삭제된 식당", RestaurantCurationType.TODAY_RESTAURANT);
+    void 랜덤_추천은_현재_식당과_삭제된_식당을_제외한_전체_식당에서_뽑는다() {
+        Restaurant current = saveRestaurant("현재 식당", RestaurantCurationType.HASHI_PICK);
+        // 큐레이션이 전혀 없는 식당도 추천 대상임을 함께 검증한다(#154)
+        Restaurant recommendation = saveRestaurant("추천 식당");
+        Restaurant deleted = saveRestaurant("삭제된 식당");
         deleted.softDelete();
         entityManager.flush();
         entityManager.clear();
 
-        var result = restaurantRepository.findRandomRestaurantIdByCurationTypeExcluding(
-                RestaurantCurationType.TODAY_RESTAURANT.name(),
-                current.getId()
-        );
+        var result = restaurantRepository.findRandomRestaurantIdExcluding(current.getId());
 
         assertThat(result).contains(recommendation.getId());
     }
 
     @Test
     void 최초_랜덤_추천은_제외할_식당_없이_조회한다() {
-        Restaurant recommendation = saveRestaurant("추천 식당", RestaurantCurationType.TODAY_RESTAURANT);
+        Restaurant recommendation = saveRestaurant("추천 식당");
 
-        var result = restaurantRepository.findRandomRestaurantIdByCurationTypeExcluding(
-                RestaurantCurationType.TODAY_RESTAURANT.name(),
-                null
-        );
+        var result = restaurantRepository.findRandomRestaurantIdExcluding(null);
 
         assertThat(result).contains(recommendation.getId());
     }
 
     @Test
     void 현재_식당을_제외한_추천_후보가_없으면_빈_결과를_반환한다() {
-        Restaurant current = saveRestaurant("현재 식당", RestaurantCurationType.TODAY_RESTAURANT);
+        Restaurant current = saveRestaurant("현재 식당");
 
-        var result = restaurantRepository.findRandomRestaurantIdByCurationTypeExcluding(
-                RestaurantCurationType.TODAY_RESTAURANT.name(),
-                current.getId()
-        );
+        var result = restaurantRepository.findRandomRestaurantIdExcluding(current.getId());
 
         assertThat(result).isEmpty();
     }
@@ -181,6 +172,12 @@ class RestaurantRepositoryTest {
         assertThat(menus)
                 .filteredOn(menu -> "신규 메뉴".equals(menu.getName()))
                 .hasSize(1);
+    }
+
+    private Restaurant saveRestaurant(String name) {
+        Restaurant restaurant = createRestaurant(name);
+        entityManager.persistAndFlush(restaurant);
+        return restaurant;
     }
 
     private Restaurant saveRestaurant(String name, RestaurantCurationType curationType) {
