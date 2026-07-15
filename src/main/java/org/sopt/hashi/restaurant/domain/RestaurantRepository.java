@@ -25,20 +25,16 @@ public interface RestaurantRepository extends JpaRepository<Restaurant, Long>, J
     @Query("select distinct r from Restaurant r where r.id = :restaurantId and r.deleted = false")
     Optional<Restaurant> findActiveByIdWithImages(@Param("restaurantId") Long restaurantId);
 
+    // 랜덤 추천 — 큐레이션 조건 없이 전체 활성 식당에서 뽑는다(#154). rand() 정렬은 식당 수가 적은 규모를 전제로 한다.
     @Query(value = """
             select r.id
             from restaurant r
-            join restaurant_curation_type rct on rct.restaurant_id = r.id
             where r.deleted = false
-                and rct.curation_type = :curationType
                 and (:excludeRestaurantId is null or r.id <> :excludeRestaurantId)
             order by rand()
             limit 1
             """, nativeQuery = true)
-    Optional<Long> findRandomRestaurantIdByCurationTypeExcluding(
-            @Param("curationType") String curationType,
-            @Param("excludeRestaurantId") Long excludeRestaurantId
-    );
+    Optional<Long> findRandomRestaurantIdExcluding(@Param("excludeRestaurantId") Long excludeRestaurantId);
 
     @Query("""
             select businessHour

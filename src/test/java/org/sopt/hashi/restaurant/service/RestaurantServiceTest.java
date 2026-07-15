@@ -608,11 +608,10 @@ class RestaurantServiceTest {
     }
 
     @Test
-    void 오늘의_식당_랜덤_추천은_현재_식당을_제외하고_메인_정보를_반환한다() {
+    void 랜덤_추천은_현재_식당을_제외하고_메인_정보를_반환한다() {
         RestaurantService restaurantService = createRestaurantService();
         Restaurant restaurant = createRestaurant(2L, 4.8, 100L);
-        given(restaurantRepository.findRandomRestaurantIdByCurationTypeExcluding(
-                "TODAY_RESTAURANT", 1L)).willReturn(Optional.of(2L));
+        given(restaurantRepository.findRandomRestaurantIdExcluding(1L)).willReturn(Optional.of(2L));
         given(restaurantRepository.findActiveByIdWithImages(2L)).willReturn(Optional.of(restaurant));
         given(fileStorage.resolveFileUrl("restaurants/2/thumbnail.jpg"))
                 .willReturn("https://cdn.example.com/restaurants/2/thumbnail.jpg");
@@ -621,16 +620,14 @@ class RestaurantServiceTest {
 
         assertThat(response.restaurantId()).isEqualTo(2L);
         assertThat(response.thumbnailUrl()).isEqualTo("https://cdn.example.com/restaurants/2/thumbnail.jpg");
-        verify(restaurantRepository).findRandomRestaurantIdByCurationTypeExcluding(
-                "TODAY_RESTAURANT", 1L);
+        verify(restaurantRepository).findRandomRestaurantIdExcluding(1L);
         verify(restaurantRepository).findActiveByIdWithImages(2L);
     }
 
     @Test
-    void 오늘의_식당_추천_후보가_없으면_도메인_예외가_발생한다() {
+    void 랜덤_추천_후보가_없으면_도메인_예외가_발생한다() {
         RestaurantService restaurantService = createRestaurantService();
-        given(restaurantRepository.findRandomRestaurantIdByCurationTypeExcluding(
-                "TODAY_RESTAURANT", 1L)).willReturn(Optional.empty());
+        given(restaurantRepository.findRandomRestaurantIdExcluding(1L)).willReturn(Optional.empty());
 
         assertThatThrownBy(() -> restaurantService.getRandomRestaurantRecommendation(1L))
                 .isInstanceOfSatisfying(BusinessException.class, exception ->
