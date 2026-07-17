@@ -1,8 +1,12 @@
 package org.sopt.hashi.user.domain;
 
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 
 public interface UserRepository extends JpaRepository<User, Long> {
+
+    Page<User> findByNicknameContaining(String nickname, Pageable pageable);
 
     boolean existsByNickname(String nickname);
 

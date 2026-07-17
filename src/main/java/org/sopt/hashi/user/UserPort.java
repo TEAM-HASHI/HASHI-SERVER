@@ -3,6 +3,7 @@ package org.sopt.hashi.user;
 import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
+import org.springframework.data.domain.Page;
 
 /**
  * user 모듈의 공개 포트 — 타 도메인(reservation·review 등)이 회원을 참조할 때 쓰는 최소 계약.
@@ -15,4 +16,7 @@ public interface UserPort {
 
     /** 회원 프로필 요약을 한 번에 조회한다. 요청 순서를 유지하고 존재하지 않는 회원은 제외한다. */
     List<UserProfileInfo> findProfiles(Collection<Long> userIds);
+
+    /** [어드민] 회원 목록 — offset 페이지네이션. nicknameKeyword가 있으면 닉네임 부분 일치로 검색한다. */
+    Page<AdminUserInfo> findPageByAdmin(AdminUserSortType sortType, String nicknameKeyword, int page, int size);
 }
