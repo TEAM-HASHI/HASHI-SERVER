@@ -102,7 +102,7 @@ class RestaurantRepositoryTest {
         RestaurantMenu detail = restaurantRepository.findMenuByRestaurantIdAndMenuId(
                 restaurant.getId(), selectedMenuId).orElseThrow();
         List<RestaurantMenu> otherMenus = restaurantRepository.findMenusByRestaurantId(
-                restaurant.getId(), selectedMenuId, null, PageRequest.of(0, 10));
+                restaurant.getId(), selectedMenuId, null, null, null, PageRequest.of(0, 10));
         long otherMenuCount = restaurantRepository.countOtherMenusByRestaurantId(
                 restaurant.getId(), selectedMenuId);
 
@@ -156,7 +156,7 @@ class RestaurantRepositoryTest {
         entityManager.clear();
 
         List<RestaurantMenu> menus = restaurantRepository.findMenusByRestaurantId(
-                restaurantId, null, null, PageRequest.of(0, 10));
+                restaurantId, null, null, null, null, PageRequest.of(0, 10));
 
         assertThat(menus)
                 .extracting(RestaurantMenu::getId)
