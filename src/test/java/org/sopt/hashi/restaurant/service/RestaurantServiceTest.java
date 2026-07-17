@@ -718,6 +718,49 @@ class RestaurantServiceTest {
     }
 
     @Test
+    void 메뉴_목록_커서_ID에서_복합_정렬_기준을_복원한다() {
+        RestaurantService restaurantService = createRestaurantService();
+        RestaurantMenu cursorMenu = createMenu(20L, "나 대표 메뉴", true);
+        RestaurantMenu nextMenu = createMenu(10L, "일반 메뉴", false);
+        given(restaurantRepository.existsByIdAndDeletedFalse(1L)).willReturn(true);
+        given(restaurantRepository.findMenuByRestaurantIdAndMenuId(1L, 20L))
+                .willReturn(Optional.of(cursorMenu));
+        given(restaurantRepository.findMenusByRestaurantId(
+                ArgumentMatchers.eq(1L),
+                ArgumentMatchers.isNull(),
+                ArgumentMatchers.eq(true),
+                ArgumentMatchers.eq("나 대표 메뉴"),
+                ArgumentMatchers.eq(20L),
+                any(Pageable.class)
+        )).willReturn(List.of(nextMenu));
+        given(fileStorage.resolveFileUrl(anyString()))
+                .willAnswer(invocation -> "https://cdn.example.com/" + invocation.getArgument(0));
+
+        RestaurantMenuListResponse response = restaurantService.getRestaurantMenus(1L, null, 20L, 2);
+
+        assertThat(response.content())
+                .extracting(RestaurantMenuListResponse.RestaurantMenuResponse::menuId)
+                .containsExactly(10L);
+        assertThat(response.hasNext()).isFalse();
+        assertThat(response.nextCursor()).isNull();
+    }
+
+    @Test
+    void 다른_식당의_메뉴_ID를_커서로_사용하면_잘못된_요청을_반환한다() {
+        RestaurantService restaurantService = createRestaurantService();
+        given(restaurantRepository.existsByIdAndDeletedFalse(1L)).willReturn(true);
+        given(restaurantRepository.findMenuByRestaurantIdAndMenuId(1L, 999L))
+                .willReturn(Optional.empty());
+
+        assertThatThrownBy(() -> restaurantService.getRestaurantMenus(1L, null, 999L, 2))
+                .isInstanceOfSatisfying(BusinessException.class, exception ->
+                        assertThat(exception.getErrorCode()).isEqualTo(CommonErrorCode.INVALID_INPUT));
+
+        verify(restaurantRepository, never()).findMenusByRestaurantId(
+                any(), any(), any(), any(), any(), any());
+    }
+
+    @Test
     void 메뉴_상세와_다른_메뉴_개수를_조회한다() {
         RestaurantService restaurantService = createRestaurantService();
         RestaurantMenu menu = createMenu(10L, "Shio Ramen", true);
