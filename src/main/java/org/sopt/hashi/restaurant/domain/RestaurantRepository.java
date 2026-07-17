@@ -54,13 +54,38 @@ public interface RestaurantRepository extends JpaRepository<Restaurant, Long>, J
             where m.restaurant.id = :restaurantId
                 and m.restaurant.deleted = false
                 and (:excludeMenuId is null or m.id <> :excludeMenuId)
-                and (:cursor is null or m.id < :cursor)
-            order by m.id desc
+                and (
+                    :cursorId is null
+                    or (
+                        :cursorMain = true
+                        and (
+                            m.main = false
+                            or (
+                                m.main = true
+                                and (
+                                    m.name > :cursorName
+                                    or (m.name = :cursorName and m.id < :cursorId)
+                                )
+                            )
+                        )
+                    )
+                    or (
+                        :cursorMain = false
+                        and m.main = false
+                        and m.id < :cursorId
+                    )
+                )
+            order by
+                case when m.main = true then 0 else 1 end asc,
+                case when m.main = true then m.name else '' end asc,
+                m.id desc
             """)
     List<RestaurantMenu> findMenusByRestaurantId(
             @Param("restaurantId") Long restaurantId,
             @Param("excludeMenuId") Long excludeMenuId,
-            @Param("cursor") Long cursor,
+            @Param("cursorMain") Boolean cursorMain,
+            @Param("cursorName") String cursorName,
+            @Param("cursorId") Long cursorId,
             Pageable pageable
     );
 

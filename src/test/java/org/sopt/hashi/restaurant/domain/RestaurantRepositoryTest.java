@@ -102,7 +102,7 @@ class RestaurantRepositoryTest {
         RestaurantMenu detail = restaurantRepository.findMenuByRestaurantIdAndMenuId(
                 restaurant.getId(), selectedMenuId).orElseThrow();
         List<RestaurantMenu> otherMenus = restaurantRepository.findMenusByRestaurantId(
-                restaurant.getId(), selectedMenuId, null, PageRequest.of(0, 10));
+                restaurant.getId(), selectedMenuId, null, null, null, PageRequest.of(0, 10));
         long otherMenuCount = restaurantRepository.countOtherMenusByRestaurantId(
                 restaurant.getId(), selectedMenuId);
 
@@ -112,6 +112,44 @@ class RestaurantRepositoryTest {
                 .doesNotContain(selectedMenuId)
                 .hasSize(2);
         assertThat(otherMenuCount).isEqualTo(2L);
+    }
+
+    @Test
+    void 대표_메뉴를_가나다순으로_먼저_조회하고_복합_커서로_다음_페이지를_조회한다() {
+        Restaurant restaurant = createRestaurant("메뉴 정렬 식당");
+        restaurant.addMenu(createMenu("일반 메뉴 먼저", false));
+        restaurant.addMenu(createMenu("나 대표 메뉴", true));
+        restaurant.addMenu(createMenu("가 대표 메뉴", true));
+        restaurant.addMenu(createMenu("나 대표 메뉴", true));
+        restaurant.addMenu(createMenu("일반 메뉴 나중", false));
+        restaurantRepository.saveAndFlush(restaurant);
+        entityManager.clear();
+
+        List<RestaurantMenu> firstPage = restaurantRepository.findMenusByRestaurantId(
+                restaurant.getId(), null, null, null, null, PageRequest.of(0, 2));
+        RestaurantMenu cursorMenu = firstPage.getLast();
+        List<RestaurantMenu> secondPage = restaurantRepository.findMenusByRestaurantId(
+                restaurant.getId(), null, cursorMenu.isMain(), cursorMenu.getName(), cursorMenu.getId(),
+                PageRequest.of(0, 10));
+        RestaurantMenu generalCursorMenu = secondPage.stream()
+                .filter(menu -> !menu.isMain())
+                .findFirst()
+                .orElseThrow();
+        List<RestaurantMenu> thirdPage = restaurantRepository.findMenusByRestaurantId(
+                restaurant.getId(), null, generalCursorMenu.isMain(), generalCursorMenu.getName(),
+                generalCursorMenu.getId(), PageRequest.of(0, 10));
+
+        assertThat(firstPage)
+                .extracting(RestaurantMenu::getName)
+                .containsExactly("가 대표 메뉴", "나 대표 메뉴");
+        assertThat(firstPage.getLast().getId())
+                .isGreaterThan(restaurant.getMenus().get(1).getId());
+        assertThat(secondPage)
+                .extracting(RestaurantMenu::getName)
+                .containsExactly("나 대표 메뉴", "일반 메뉴 나중", "일반 메뉴 먼저");
+        assertThat(thirdPage)
+                .extracting(RestaurantMenu::getName)
+                .containsExactly("일반 메뉴 먼저");
     }
 
     @Test
@@ -156,7 +194,7 @@ class RestaurantRepositoryTest {
         entityManager.clear();
 
         List<RestaurantMenu> menus = restaurantRepository.findMenusByRestaurantId(
-                restaurantId, null, null, PageRequest.of(0, 10));
+                restaurantId, null, null, null, null, PageRequest.of(0, 10));
 
         assertThat(menus)
                 .extracting(RestaurantMenu::getId)
@@ -215,13 +253,17 @@ class RestaurantRepositoryTest {
     }
 
     private RestaurantMenu createMenu(String name) {
+        return createMenu(name, false);
+    }
+
+    private RestaurantMenu createMenu(String name, boolean main) {
         return RestaurantMenu.create(
                 name,
                 "메뉴 설명",
                 "restaurant-menus/%s.jpg".formatted(name),
                 PriceCurrency.JPY,
                 BigDecimal.valueOf(1_000),
-                false
+                main
         );
     }
 }
