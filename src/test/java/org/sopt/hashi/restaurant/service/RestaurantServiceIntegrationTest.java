@@ -113,7 +113,7 @@ class RestaurantServiceIntegrationTest {
                 .doesNotContain(removedMenuId);
 
         List<RestaurantMenu> persistedMenus = restaurantRepository.findMenusByRestaurantId(
-                restaurantId, null, null, PageRequest.of(0, 10));
+                restaurantId, null, null, null, null, PageRequest.of(0, 10));
         assertThat(persistedMenus)
                 .extracting(RestaurantMenu::getId)
                 .containsExactlyInAnyOrder(retainedMenuId, newMenu.menuId())
