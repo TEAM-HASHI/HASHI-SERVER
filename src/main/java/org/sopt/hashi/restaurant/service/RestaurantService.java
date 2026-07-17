@@ -238,10 +238,13 @@ public class RestaurantService {
         }
 
         int pageSize = normalizeSize(size);
+        RestaurantMenu cursorMenu = resolveMenuCursor(restaurantId, cursor);
         List<RestaurantMenu> menus = restaurantRepository.findMenusByRestaurantId(
                 restaurantId,
                 excludeMenuId,
-                cursor,
+                cursorMenu == null ? null : cursorMenu.isMain(),
+                cursorMenu == null ? null : cursorMenu.getName(),
+                cursorMenu == null ? null : cursorMenu.getId(),
                 PageRequest.of(0, pageSize + 1)
         );
 
@@ -382,6 +385,14 @@ public class RestaurantService {
         }
         return RestaurantListType.from(value)
                 .orElseThrow(() -> new BusinessException(RestaurantErrorCode.UNSUPPORTED_LIST_TYPE));
+    }
+
+    private RestaurantMenu resolveMenuCursor(Long restaurantId, Long cursor) {
+        if (cursor == null) {
+            return null;
+        }
+        return restaurantRepository.findMenuByRestaurantIdAndMenuId(restaurantId, cursor)
+                .orElseThrow(() -> new BusinessException(CommonErrorCode.INVALID_INPUT));
     }
 
     private int normalizeSize(Integer size) {

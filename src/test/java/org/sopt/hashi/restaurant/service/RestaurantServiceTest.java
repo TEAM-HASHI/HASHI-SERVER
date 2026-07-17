@@ -699,6 +699,8 @@ class RestaurantServiceTest {
         given(restaurantRepository.findMenusByRestaurantId(
                 ArgumentMatchers.eq(1L),
                 ArgumentMatchers.eq(99L),
+                ArgumentMatchers.<Boolean>isNull(),
+                ArgumentMatchers.<String>isNull(),
                 ArgumentMatchers.<Long>isNull(),
                 any(Pageable.class)
         )).willReturn(menus);
