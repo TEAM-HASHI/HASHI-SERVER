@@ -9,11 +9,16 @@ import java.util.Optional;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 import org.sopt.hashi.shared.storage.FileStorage;
+import org.sopt.hashi.user.AdminUserInfo;
+import org.sopt.hashi.user.AdminUserSortType;
 import org.sopt.hashi.user.UserInfo;
 import org.sopt.hashi.user.UserPort;
 import org.sopt.hashi.user.UserProfileInfo;
 import org.sopt.hashi.user.domain.User;
 import org.sopt.hashi.user.domain.UserRepository;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -23,6 +28,9 @@ import org.springframework.transaction.annotation.Transactional;
 @Component
 @Transactional(readOnly = true)
 class UserPortImpl implements UserPort {
+
+    private static final int DEFAULT_PAGE_SIZE = 20;
+    private static final int MAX_PAGE_SIZE = 100;
 
     private final UserRepository userRepository;
     private final FileStorage fileStorage;
@@ -64,6 +72,16 @@ class UserPortImpl implements UserPort {
                 .toList();
     }
 
+    @Override
+    public Page<AdminUserInfo> findPageByAdmin(AdminUserSortType sortType, String nicknameKeyword,
+                                               int page, int size) {
+        Pageable pageable = PageRequest.of(Math.max(page, 0), normalizeSize(size), sortType.toSort());
+        Page<User> users = hasKeyword(nicknameKeyword)
+                ? userRepository.findByNicknameContaining(nicknameKeyword.trim(), pageable)
+                : userRepository.findAll(pageable);
+        return users.map(this::toAdminInfo);
+    }
+
     private UserInfo toUserInfo(User user) {
         return new UserInfo(
                 user.getId(),
@@ -79,6 +97,29 @@ class UserPortImpl implements UserPort {
                 user.getId(),
                 user.getNickname(),
                 resolveProfileImageUrl(user.getProfileImageKey()));
+    }
+
+    private AdminUserInfo toAdminInfo(User user) {
+        return new AdminUserInfo(
+                user.getId(),
+                user.getNickname(),
+                user.getNameEng(),
+                user.getBirthDate(),
+                user.getPhone(),
+                user.getEmail(),
+                resolveProfileImageUrl(user.getProfileImageKey()),
+                user.getCreatedAt());
+    }
+
+    private boolean hasKeyword(String keyword) {
+        return keyword != null && !keyword.isBlank();
+    }
+
+    private int normalizeSize(int size) {
+        if (size < 1) {
+            return DEFAULT_PAGE_SIZE;
+        }
+        return Math.min(size, MAX_PAGE_SIZE);
     }
 
     private String resolveProfileImageUrl(String profileImageKey) {
