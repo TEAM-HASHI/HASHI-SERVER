@@ -1,6 +1,10 @@
 <div align="center">
 
+<img src="docs/assets/readme/hashi-logo.png" width="140" alt="HASHI 로고" />
+
 # HASHI Server
+
+**발견부터 예약까지, 포기 없이**
 
 **취향에 맞는 일식당을 발견하고, 예약과 방문 리뷰까지 연결하는 HASHI의 백엔드 서버입니다.**
 
@@ -10,7 +14,7 @@
 ![MySQL](https://img.shields.io/badge/MySQL-8.x-4479A1?style=flat-square&logo=mysql&logoColor=white)
 ![Redis](https://img.shields.io/badge/Redis-7.x-DC382D?style=flat-square&logo=redis&logoColor=white)
 
-[서비스](https://hashi.kr) · [개발 API](https://dev-api.hashi.kr) · [Swagger](https://dev-api.hashi.kr/swagger-ui/index.html) · [개발 컨벤션](docs/conventions/00-index.md)
+[서비스](https://hashi.kr) · [클라이언트 저장소](https://github.com/TEAM-HASHI/HASHI-CLIENT) · [개발 API](https://dev-api.hashi.kr) · [Swagger](https://dev-api.hashi.kr/swagger-ui/index.html) · [개발 컨벤션](docs/conventions/00-index.md)
 
 </div>
 
