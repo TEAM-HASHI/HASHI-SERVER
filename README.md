@@ -89,7 +89,7 @@ HASHI는 사용자의 취향과 방문 목적에 맞는 일식당을 탐색하�
 ## System Architecture
 
 <p align="center">
-  <img width="1535" height="1024" alt="image" src="https://github.com/user-attachments/assets/bd2f1426-035b-4724-a4d1-bd83200834e5" />
+  <img width="1535" height="1056" alt="HASHI-architecture-docker-compose" src="https://github.com/user-attachments/assets/2b20b0ce-3c4e-47ac-8bd0-c76ea54f5d38" />
 </p>
 
 ## Modular Monolith
