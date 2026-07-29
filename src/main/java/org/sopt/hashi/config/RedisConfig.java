@@ -11,6 +11,7 @@ import io.lettuce.core.event.connection.ConnectedEvent;
 import io.lettuce.core.event.connection.DisconnectedEvent;
 import io.lettuce.core.event.connection.ReconnectFailedEvent;
 import io.lettuce.core.resource.ClientResources;
+import io.lettuce.core.resource.EpollProvider;
 import java.time.Duration;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.InitializingBean;
@@ -73,19 +74,32 @@ public class RedisConfig {
     /**
      * Lettuce 연결 생애 이벤트 로깅 — 연결 단절·재연결 실패 시각이 로그(Loki)에 남아,
      * half-open 장애 재발 시 앱 관점의 타임라인을 소급 확인할 수 있다.
+     * 단절(DisconnectedEvent)은 graceful shutdown·재배포 등 정상 종료에도 발생하고 이 시점엔
+     * 정상/비정상을 구분할 정보가 없으므로 INFO로만 기록하고, 비정상임이 확정되는
+     * 재연결 실패만 WARN으로 남긴다.
      */
     @Bean
     public InitializingBean lettuceConnectionEventLogger(ClientResources clientResources) {
-        return () -> clientResources.eventBus().get().subscribe(event -> {
-            if (event instanceof ConnectedEvent connected) {
-                log.info("Lettuce 연결 수립. remote={}", connected.remoteAddress());
-            } else if (event instanceof DisconnectedEvent disconnected) {
-                log.warn("Lettuce 연결 끊김. remote={}", disconnected.remoteAddress());
-            } else if (event instanceof ReconnectFailedEvent failed) {
-                log.warn("Lettuce 재연결 실패. remote={}, attempt={}",
-                        failed.remoteAddress(), failed.getAttempt());
+        return () -> {
+            // 배포 아키텍처·베이스 이미지 변경으로 epoll이 조용히 빠지면 TCP_USER_TIMEOUT이
+            // 무효가 되므로, 부팅 시점에 로드 여부를 명시적으로 남긴다
+            if (EpollProvider.isAvailable()) {
+                log.info("Lettuce epoll 네이티브 전송 활성 — TCP_USER_TIMEOUT 적용");
+            } else {
+                log.warn("Lettuce epoll 미활성(NIO fallback) — TCP_USER_TIMEOUT 미적용. "
+                        + "플랫폼 아키텍처와 netty native 의존성을 확인할 것");
             }
-        });
+            clientResources.eventBus().get().subscribe(event -> {
+                if (event instanceof ConnectedEvent connected) {
+                    log.info("Lettuce 연결 수립. remote={}", connected.remoteAddress());
+                } else if (event instanceof DisconnectedEvent disconnected) {
+                    log.info("Lettuce 연결 종료. remote={}", disconnected.remoteAddress());
+                } else if (event instanceof ReconnectFailedEvent failed) {
+                    log.warn("Lettuce 재연결 실패. remote={}, attempt={}",
+                            failed.remoteAddress(), failed.getAttempt());
+                }
+            });
+        };
     }
 
     // 템플릿·캐시가 공유하는 단일 값 직렬화기(내부 ObjectMapper도 1개만 생성).

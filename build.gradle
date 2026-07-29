@@ -50,8 +50,11 @@ dependencies {
 
     // redis
     implementation 'org.springframework.boot:spring-boot-starter-data-redis'
-    // TCP_USER_TIMEOUT(리눅스 전용 소켓 옵션) 적용용 netty 네이티브 전송
+    // TCP_USER_TIMEOUT(리눅스 전용 소켓 옵션) 적용용 netty 네이티브 전송.
+    // 운영 아키텍처 변경(예: ARM 이전)에도 epoll이 유지되도록 두 아키텍처를 모두 싣고,
+    // 로드 성공 여부는 부팅 시 RedisConfig가 로그로 남긴다(조용한 NIO fallback 방지).
     runtimeOnly 'io.netty:netty-transport-native-epoll::linux-x86_64'
+    runtimeOnly 'io.netty:netty-transport-native-epoll::linux-aarch_64'
 
     // aws
     implementation 'software.amazon.awssdk:s3:2.25.60'
