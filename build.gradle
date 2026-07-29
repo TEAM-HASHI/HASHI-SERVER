@@ -50,6 +50,8 @@ dependencies {
 
     // redis
     implementation 'org.springframework.boot:spring-boot-starter-data-redis'
+    // TCP_USER_TIMEOUT(리눅스 전용 소켓 옵션) 적용용 netty 네이티브 전송
+    runtimeOnly 'io.netty:netty-transport-native-epoll::linux-x86_64'
 
     // aws
     implementation 'software.amazon.awssdk:s3:2.25.60'
