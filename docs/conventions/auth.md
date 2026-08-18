@@ -11,14 +11,15 @@
 - **MUST**: 인증 **강제**(요청 차단)는 Spring Security **필터 체인**이 담당한다. 도메인 모듈은 인증 로직을 갖지 않는다.
 - **MUST NOT**: 도메인 모듈이 `auth`의 `internal`(JWT·OAuth·필터 등)을 import하지 않는다.
 - **MUST**: 도메인에서 "현재 로그인 사용자"가 필요하면 **`CurrentUserProvider`** 로 읽는다.
-- 의존 방향: **도메인 → auth** (auth는 depended-upon 위치). auth는 인증이라는 generic subdomain·횡단 모듈로 잘 변하지 않아, 불안정한 도메인이 안정적인 auth로 의존을 모은다(SDP·ADP). 도메인은 `auth.internal`에 의존하지 않고, auth가 **공개한 지점**(`CurrentUserProvider`·`AuthAccountPort`)으로만 auth를 참조한다.
+- **MUST**: USER, ADMIN, ONBOARDING 유형까지 구분해야 하는 제한된 기능은 **`CurrentActorProvider`** 로 읽는다. 일반 사용자 도메인은 이를 현재 사용자 조회 대용으로 사용하지 않는다.
+- 의존 방향: **도메인 → auth** (auth는 depended-upon 위치). auth는 인증이라는 generic subdomain·횡단 모듈로 잘 변하지 않아, 불안정한 도메인이 안정적인 auth로 의존을 모은다(SDP·ADP). 도메인은 `auth.internal`에 의존하지 않고, auth가 **공개한 지점**(`CurrentUserProvider`, `CurrentActorProvider`, `AuthAccountPort`)으로만 auth를 참조한다.
 - **MUST**: **`auth`는 어떤 도메인 모듈도 되참조하지 않는다**(순환 방지·안정성 유지). `shared`라서 순환 검사가 면제되는 게 아니라, auth가 도메인을 되참조하지 않아 무순환이 유지된다 — auth가 도메인을 관찰해야 하면 **이벤트**로 붙인다.
 
 ---
 
 ## 2. 현재 사용자 조회
 
-`auth`가 노출하는 공개 지점은 `CurrentUserProvider`(현재 사용자 조회)와 `AuthAccountPort`(온보딩 계정 연결) 둘뿐이다. 현재 사용자 조회는 `CurrentUserProvider`를 쓴다.
+`auth`가 노출하는 공개 지점은 `CurrentUserProvider`(현재 사용자 조회), `CurrentActorProvider`(역할 단위 actor 조회)와 `AuthAccountPort`(온보딩 계정 연결)다. 일반적인 현재 사용자 조회는 `CurrentUserProvider`를 쓴다.
 
 ```java
 // auth/CurrentUserProvider.java  (auth가 공개)
@@ -39,6 +40,23 @@ public ReviewResponse write(CreateReviewRequest req) {
 - **MUST NOT**: 컨트롤러 파라미터로 `userId`를 받아 **신뢰**하지 않는다(위변조 가능). 항상 `CurrentUserProvider`(또는 `@AuthenticationPrincipal`)에서 얻는다.
 - **MUST NOT**: 도메인이 `SecurityContextHolder`를 직접 뒤지지 않는다. `CurrentUserProvider` 뒤로 숨긴다.
 
+### 2-1. 역할 단위 actor 조회
+
+이미지 업로드처럼 USER, ADMIN, ONBOARDING을 모두 받으면서 유형별 권한과 소유권을
+구분해야 하는 기능은 `CurrentActorProvider`를 사용한다.
+
+```java
+// auth가 공개할 목표 계약. 실제 타입은 구현 이슈에서 확정한다.
+public interface CurrentActorProvider {
+    CurrentActor currentActor();
+}
+```
+
+- **MUST**: actor 유형과 식별자를 함께 비교한다. USER 1과 ADMIN 1을 같은 소유자로 취급하지 않는다.
+- **MUST NOT**: ONBOARDING의 내부 subject를 API 응답이나 로그에 노출하지 않는다.
+- **MUST NOT**: 요청 DTO의 actor 유형이나 소유자 ID를 신뢰하지 않는다.
+- **MUST**: 역할 구분이 필요 없는 사용자 도메인은 기존 `CurrentUserProvider`를 유지한다.
+
 ---
 
 ## 3. auth 모듈 내부 (요약)
@@ -48,6 +66,7 @@ public ReviewResponse write(CreateReviewRequest req) {
 ```text
 auth/
 ├─ CurrentUserProvider          # 공개 지점 (현재 사용자 조회)
+├─ CurrentActorProvider         # 공개 지점 (역할 단위 actor 조회, media 등 제한된 기능)
 ├─ AuthAccountPort              # 공개 지점 (온보딩 소셜 계정 연결 — user가 원자적 커밋 위해 호출)
 ├─ code/  AuthErrorCode · AuthSuccessCode
 ├─ event/ UserWithdrawnListener  # 탈퇴 이벤트 구독 → 토큰 무효화·블랙리스트
@@ -106,6 +125,7 @@ Review review = reviewRepository.findById(reviewId)
 
 - [ ] 도메인이 `auth.internal`을 import하지 않는가
 - [ ] 현재 사용자를 `CurrentUserProvider`로 얻는가 (요청 파라미터 userId 신뢰 금지)
+- [ ] 역할 단위 소유권이 필요한 기능만 `CurrentActorProvider`를 사용하고 actor 유형과 식별자를 함께 검증하는가
 - [ ] 어드민 API에 `ROLE_ADMIN`을 요구하는가
 - [ ] 본인 리소스 접근을 소유자 검증으로 막는가 (검증 실패는 403이 아니라 404로 존재를 숨기는가)
 - [ ] (가입) 온보딩이 임시 토큰으로 인증되고, 소셜 계정 연결만 `AuthAccountPort`로(원자적 커밋) 하며 그 외 auth 내부는 참조하지 않는가 (SMS 인증은 ⚠️ MVP 제외)

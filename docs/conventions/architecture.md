@@ -14,6 +14,7 @@
 - [ ] 모듈 간 **순환 의존**이 없는가
 - [ ] 모듈 간 **DB 조인 / FK** 로 묶지 않았는가 (ID 참조만)
 - [ ] 도메인 에러/성공 코드가 **각 모듈 `code/`** 에 있는가 (shared에 두지 않음)
+- [ ] 이미지 소속과 순서는 콘텐츠 Aggregate가, 원본과 파생본 상태는 `media`가 소유하는가
 
 ---
 
@@ -25,7 +26,7 @@
 - **MUST**: 자식 엔티티(메뉴·사진·카드 등)는 별도 모듈이 아니라 애그리거트 루트가 소유하는 자식으로 둔다.
 
 도메인 컨텍스트(7): `restaurant` · `review` · `reservation` · `point` · `magazine` · `user` · `support`
-횡단: `auth` / 진입점: `admin` / 지원: `upload`(파일 업로드 자격 발급) / 공유 커널: `shared`
+횡단: `auth` / 진입점: `admin` / 지원: `upload`(legacy 업로드 자격 발급), `media`(이미지 asset과 파생본) / 공유 커널: `shared`
 
 ---
 
@@ -155,16 +156,21 @@
 
 ---
 
-## 9. auth / admin / upload (비도메인 모듈)
+## 9. auth / admin / 지원 모듈
 
 - **MUST**: `auth`는 `@Modulithic(sharedModules = "auth")`로 등록한다(횡단 관심사).
-- **MUST**: 인증 **강제**는 Spring Security 필터 체인이 담당한다. 도메인 모듈은 `auth.internal`을 import하지 않고, `auth`가 공개한 `CurrentUserProvider`로 현재 사용자를 읽는다(`SecurityContextHolder` 직접 접근 금지).
-- **MUST**: 의존 방향은 **도메인 → auth**(공개 지점 `CurrentUserProvider`·`AuthAccountPort`만)이며, **`auth`는 어떤 도메인 모듈도 되참조하지 않는다**(순환 방지). auth가 도메인을 관찰해야 하면 **이벤트**로 붙인다. 상세는 `auth.md` §1 참조.
+- **MUST**: 인증 **강제**는 Spring Security 필터 체인이 담당한다. 도메인 모듈은 `auth.internal`을 import하지 않고, `auth`가 공개한 `CurrentUserProvider`로 현재 사용자를 읽는다(`SecurityContextHolder` 직접 접근 금지). actor 유형까지 필요한 제한된 기능은 `CurrentActorProvider`를 사용한다.
+- **MUST**: 의존 방향은 **도메인 → auth**(공개 지점 `CurrentUserProvider`, `CurrentActorProvider`, `AuthAccountPort`만)이며, **`auth`는 어떤 도메인 모듈도 되참조하지 않는다**(순환 방지). auth가 도메인을 관찰해야 하면 **이벤트**로 붙인다. 상세는 `auth.md` §1 참조.
 - **MUST NOT**: 도메인 모듈이 인증 로직을 직접 구현하지 않는다.
 - **MUST**: `admin`은 진입점 모듈로, **도메인 로직을 두지 않는다.** 각 컨텍스트의 `Port`로 위임만 한다.
 - **MUST NOT**: `admin`이 타 모듈의 `internal`/Repository/엔티티에 직접 접근하지 않는다.
 - **MUST**: `upload`은 파일 업로드 자격(presigned URL) 발급만 하는 **상태 없는 지원 모듈**이다. `domain/`·`Port` 없이 `web`·`service`·`dto`·`code`만 두고, `shared/storage`의 `FileStorage`에만 의존한다(어떤 도메인 모듈도 알지 않는다).
 - **MUST**: `upload` 컨트롤러는 클라이언트가 직접 호출한다(`POST /api/v1/uploads/presigned-urls`). 도메인 모듈은 `upload`를 호출하지 않는다(업로드는 클라→S3 직행, 저장은 각 도메인이 받은 object key로).
+- **MUST**: 신규 최적화 이미지는 상태를 가진 지원 도메인 `media`가 관리한다. `ImageAsset`은 Aggregate Root, `ImageRendition`은 그 자식이다.
+- **MUST**: 콘텐츠 도메인은 asset 식별자 값만 보관하고 일반 요청 경로에서는 공개 `MediaPort`로 검증, claim, bulk 조회한다. association을 소유한 도메인의 migration 전용 backfill runner만 `MediaBackfillPort`를 사용할 수 있으며 Controller와 일반 Service에서는 사용하지 않는다. media 테이블과 JPA 관계, 모듈 간 FK, DB join을 만들지 않는다.
+- **MUST**: 이미지의 콘텐츠 소속과 표시 순서는 기존 콘텐츠 Aggregate가 계속 소유한다. media는 콘텐츠 도메인을 되참조하지 않는다.
+- **MUST**: 원본 확인, 변환과 삭제 같은 S3 작업은 DB 트랜잭션 안에서 실행하지 않는다. 외부 변환 요청은 commit 이후 재시도 가능한 event publication 또는 outbox로 전달한다.
+- 상세 결정과 외부 계약은 [`ADR 0001`](../adr/0001-media-module-and-image-pipeline.md)과 [`Image Delivery Contract v1`](../media/image-delivery-contract-v1.md)을 따른다.
 
 ---
 
@@ -179,13 +185,16 @@
 ## 부록 — 의존 방향 (비순환)
 
 ```text
-모든 도메인 → auth (공개 지점 CurrentUserProvider·AuthAccountPort만; auth는 도메인 되참조 금지)
+모든 도메인 → auth (공개 지점 CurrentUserProvider, CurrentActorProvider, AuthAccountPort만; auth는 도메인 되참조 금지)
 review → restaurant, reservation, point, user   (작성자 닉네임·프사 enrich; 탈퇴 시 UserPort 빈 값 → "탈퇴한 회원" fallback)
 reservation → restaurant, user, point
 magazine → restaurant                (관련 식당 큐레이션, 매핑 테이블 + RestaurantPort)
 user → restaurant, magazine          (찜/bookmark, 매핑 테이블 + 각 Port)
 admin → restaurant, magazine, reservation, user
 upload → shared (FileStorage)         (지원 모듈; 도메인 모듈 의존 없음)
+콘텐츠 도메인 → media (MediaPort)    (일반 요청의 asset 검증, claim, role별 bulk 조회)
+도메인 backfill runner → media (MediaBackfillPort) (migration 전용 READY asset 연결)
+media → auth, shared                  (actor 조회와 인프라 공통 계약; 콘텐츠 도메인 되참조 금지)
 모든 도메인 → shared (OPEN)
 user ⇢ reservation, point, auth      (UserWithdrawnEvent 구독; auth=토큰 무효화·블랙리스트)
 ```
