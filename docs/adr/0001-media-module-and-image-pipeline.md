@@ -1,6 +1,6 @@
 # ADR 0001: media 모듈과 이미지 변환 파이프라인
 
-- 상태: 제안
+- 효력: PR #181이 `develop`에 병합된 커밋부터 채택
 - 결정일: 2026-08-18
 - 관련 이슈: #180
 - 외부 계약: [`image-delivery-contract-v1.md`](../media/image-delivery-contract-v1.md)
@@ -159,6 +159,13 @@ v1 변환 요청의 유일한 업무 trigger는 업로드 완료 확인 API다. 
   않게 한다.
 - `@ApplicationModuleListener`는 listener 자체에 새 transaction을 부여하므로 SQS publisher에
   사용하지 않는다.
+- media 구현은 `@EnableAsync`와 `@EnableScheduling`으로 async와 scheduling을 명시적으로
+  활성화한다. SQS publisher는 이름이 고정된 bounded 전용 executor를 사용하고 공용 executor
+  고갈이 API 처리로 번지지 않게 한다. 정상 종료 때 진행 중 작업을 제한 시간 동안 기다리며,
+  완료되지 않은 publication은 EPR에 남겨 다음 instance가 재전송한다.
+- scheduler는 오래된 incomplete publication을 찾아 재전송을 요청할 뿐 SQS I/O를 scheduler
+  thread나 DB transaction 안에서 직접 수행하지 않는다. executor 크기, queue 용량, shutdown
+  대기와 재발행 주기는 운영 값 확인 뒤 확정한다.
 - SQS 발행 실패는 incomplete publication으로 남긴다. 애플리케이션 시작 시 미완료 건을
   재전송하고, 실행 중에도 기준 시간보다 오래된 미완료 건을 주기적으로 재전송한다.
 - 여러 Spring instance가 동시에 재전송하면 중복 SQS 메시지가 생길 수 있음을 허용하고

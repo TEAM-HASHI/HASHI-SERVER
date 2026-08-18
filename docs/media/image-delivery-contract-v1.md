@@ -1,6 +1,6 @@
 # Image Delivery Contract v1
 
-> 상태: 제안. 이 문서가 `develop`에 병합되면 이미지 최적화 v1 구현 계약으로 사용한다.
+> 효력: PR #181이 `develop`에 병합된 커밋부터 이미지 최적화 v1 구현 계약으로 사용한다.
 >
 > 범위: HASHI-SERVER의 업로드, 처리 상태, 응답, 호환성 계약. 클라이언트 구현과 실제 AWS
 > 리소스 값은 이 문서의 범위가 아니다.
@@ -49,7 +49,7 @@ WebP 단일 제공은 합의된 최소 지원 환경인 Safari와 iOS 16.4 이�
 
 | 용어 | 의미 |
 | --- | --- |
-| asset | 사용자가 업로드한 원본 하나와 그 처리 상태 |
+| asset | 사용자 업로드 또는 legacy backfill로 생성한 원본 하나와 그 처리 상태 |
 | rendition | asset에서 생성된 특정 role, 크기, 포맷의 파생 이미지 |
 | purpose | 업로드할 때 선언하는 업무 목적과 권한 경계 |
 | role | API가 이미지를 사용하는 화면 용도와 변환 규격 |
@@ -397,6 +397,19 @@ GET /api/v1/media/assets?assetIds={assetId1},{assetId2}
 | `MEDIA_INVALID_STATE` | 409 | 현재 상태에서 요청한 전이를 수행할 수 없음 |
 | `MEDIA_ALREADY_BOUND` | 409 | single-use asset이 이미 연결됐거나 RETIRED임 |
 | `MEDIA_DUPLICATE_ASSET` | 400 | 한 요청에 같은 asset ID가 중복됨 |
+
+### 7.5 요청 남용 방지
+
+stateful media API와 변환 job은 저장, queue와 Lambda 비용을 발생시키므로 public write 활성화
+전에 actor와 purpose 기준 제한을 적용한다.
+
+- asset 생성 횟수와 선언한 총 byte 수
+- 동시에 유지할 수 있는 PENDING_UPLOAD와 PROCESSING asset 수
+- 완료 API와 상태 polling 호출 빈도
+- 인증 실패, 만료와 반복 실패 요청 지표
+
+동일 완료 요청의 멱등 재호출은 새 job이나 사용량을 중복 생성하지 않는다. 실제 window와
+상한, 제한 응답 코드는 운영 트래픽과 기존 error code를 확인한 구현 이슈에서 확정한다.
 
 ## 8. 콘텐츠 연결 정책
 
@@ -1045,3 +1058,5 @@ publisher가 event를 재처리할 때 asset의 currentJobId가 event jobId와 �
 - WebP quality, 최대 픽셀 수, worker 제한 시간
 - 일반 삭제, 회원 탈퇴, 신고 이미지의 물리 삭제 보존 기간
 - 운영 backfill 대상 수, 누락 object 수, 예상 비용
+- actor와 purpose별 asset 생성, byte, 동시 처리와 polling 제한 값
+- media event publisher 전용 executor의 pool, queue, shutdown 대기 값과 재발행 주기

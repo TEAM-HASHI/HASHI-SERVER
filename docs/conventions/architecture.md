@@ -129,9 +129,15 @@
 
 ## 6. 이벤트
 
-- **MUST**: 이벤트 구독은 `@ApplicationModuleListener`로 처리한다.
+- **MUST**: 일반적인 모듈 이벤트 구독은 `@ApplicationModuleListener`로 처리한다.
+- **MUST**: 외부 broker publisher처럼 DB commit 뒤 listener transaction 밖에서 network I/O를
+  수행해야 하는 adapter는 관련 ADR에 근거를 남긴 경우에만 예외로 고정 ID의 `@Async`
+  `@TransactionalEventListener`를 사용한다. 이 listener에는 `@Transactional`을 붙이지 않고,
+  Event Publication Registry 재전송과 downstream 멱등성을 함께 구현한다.
 - **MUST**: 이벤트 핸들러는 **멱등(idempotent)** 하게 작성한다(재처리/중복 수신 대비).
-- **MUST**: 이벤트는 발행 모듈이 `@NamedInterface`로 노출하고, 구독 모듈은 그 이벤트 타입만 의존한다.
+- **MUST**: 모듈 간 이벤트는 발행 모듈이 `@NamedInterface`로 노출하고, 구독 모듈은 그 이벤트
+  타입만 의존한다. 같은 모듈 안에서 application service와 outbound adapter를 연결하는 내부
+  이벤트는 공개하지 않는다.
 - **MUST NOT**: 이벤트 발행자가 구독자를 직접 알거나 호출하지 않는다.
 - 이벤트 신뢰성은 Event Publication Registry(JPA, MySQL)로 보장한다(트랜잭셔널 아웃박스).
 
@@ -159,8 +165,8 @@
 ## 9. auth / admin / 지원 모듈
 
 - **MUST**: `auth`는 `@Modulithic(sharedModules = "auth")`로 등록한다(횡단 관심사).
-- **MUST**: 인증 **강제**는 Spring Security 필터 체인이 담당한다. 도메인 모듈은 `auth.internal`을 import하지 않고, `auth`가 공개한 `CurrentUserProvider`로 현재 사용자를 읽는다(`SecurityContextHolder` 직접 접근 금지). actor 유형까지 필요한 제한된 기능은 `CurrentActorProvider`를 사용한다.
-- **MUST**: 의존 방향은 **도메인 → auth**(공개 지점 `CurrentUserProvider`, `CurrentActorProvider`, `AuthAccountPort`만)이며, **`auth`는 어떤 도메인 모듈도 되참조하지 않는다**(순환 방지). auth가 도메인을 관찰해야 하면 **이벤트**로 붙인다. 상세는 `auth.md` §1 참조.
+- **MUST**: 인증 **강제**는 Spring Security 필터 체인이 담당한다. 도메인 모듈은 `auth.internal`을 import하지 않고, `auth`가 현재 공개한 `CurrentUserProvider`로 현재 사용자를 읽는다(`SecurityContextHolder` 직접 접근 금지). actor 유형까지 필요한 media 구현에서는 목표 공개 지점 `CurrentActorProvider`를 먼저 추가한 뒤 사용한다.
+- **MUST**: 의존 방향은 **도메인 → auth**다. 현재 공개 지점은 `CurrentUserProvider`, `AuthAccountPort`이며 media 구현에서 `CurrentActorProvider`를 추가한다. **`auth`는 어떤 도메인 모듈도 되참조하지 않는다**(순환 방지). auth가 도메인을 관찰해야 하면 **이벤트**로 붙인다. 상세는 `auth.md` §1 참조.
 - **MUST NOT**: 도메인 모듈이 인증 로직을 직접 구현하지 않는다.
 - **MUST**: `admin`은 진입점 모듈로, **도메인 로직을 두지 않는다.** 각 컨텍스트의 `Port`로 위임만 한다.
 - **MUST NOT**: `admin`이 타 모듈의 `internal`/Repository/엔티티에 직접 접근하지 않는다.
@@ -185,7 +191,7 @@
 ## 부록 — 의존 방향 (비순환)
 
 ```text
-모든 도메인 → auth (공개 지점 CurrentUserProvider, CurrentActorProvider, AuthAccountPort만; auth는 도메인 되참조 금지)
+모든 도메인 → auth (현재 CurrentUserProvider, AuthAccountPort; media 구현 시 CurrentActorProvider 추가; auth는 도메인 되참조 금지)
 review → restaurant, reservation, point, user   (작성자 닉네임·프사 enrich; 탈퇴 시 UserPort 빈 값 → "탈퇴한 회원" fallback)
 reservation → restaurant, user, point
 magazine → restaurant                (관련 식당 큐레이션, 매핑 테이블 + RestaurantPort)
