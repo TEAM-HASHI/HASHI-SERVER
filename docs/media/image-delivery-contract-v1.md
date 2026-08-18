@@ -534,8 +534,21 @@ wrapper 안에 둔다. 식당 이미지는 다음 형태를 사용한다.
 식당 association wrapper다. 리뷰의 `previewImages`와 상세 `images` 원소는 stable
 `reviewImageId`를 가진 리뷰 association wrapper다.
 
-교차 모듈 Port는 URL 대신 asset ID를 전달하고, 최종 응답을 소유한 Service가 asset ID와
-role을 모아 한 번에 bulk 조회한다. entity나 응답 item마다 MediaPort를 호출하지 않는다.
+교차 모듈 Port의 전환기 이미지 값은 `ImageReference(assetId, legacyUrl)` 형태로 전달한다.
+기존 key를 소유한 모듈이 현재 방식으로 계산한 `legacyUrl`을 제공하며, object key 자체는 다른
+모듈에 공개하지 않는다.
+
+| 전환 상태 | `assetId` | `legacyUrl` |
+| --- | --- | --- |
+| 아직 backfill되지 않은 legacy 이미지 | `null` | 기존 CloudFront URL |
+| READY backfill 이미지 | public asset ID | 전환 기간 기존 CloudFront URL |
+| 신규 media 이미지 | public asset ID | `null` |
+| 이미지 없음 | `null` | `null` |
+
+최종 응답을 소유한 Service는 non-null asset ID와 role을 모아 `MediaPort`를 한 번만 bulk
+조회한다. asset ID가 있으면 media 상태와 결과를 기준으로 응답하며 PROCESSING, FAILED 또는
+조회 불일치에 `legacyUrl`로 우회하지 않는다. asset ID가 없고 `legacyUrl`만 있을 때에만
+전환용 legacy URL을 사용한다. entity나 응답 item마다 `MediaPort`를 호출하지 않는다.
 
 ### 9.3 기존 URL 필드 compatibility projection
 
@@ -648,8 +661,12 @@ crop, 후보 폭, quality처럼 출력 bytes를 바꾸는 변경은 `specVersion
 ### 12.2 파생본
 
 - 기존 delivery bucket과 CloudFront를 사용한다.
-- delivery bucket도 public access를 차단하고 CloudFront OAC를 통해 rendition prefix만
-  조회하도록 구성한다.
+- delivery bucket도 public access를 차단하고 CloudFront OAC를 사용한다.
+- 전환 기간에는 기존 CloudFront와 OAC가 현재 legacy delivery prefix를 계속 조회할 수 있게
+  유지하고 `media/renditions/*` 읽기 권한을 추가한다. 신규 media original prefix는 허용하지
+  않는다.
+- 전체 backfill, 신규 클라이언트 전환, legacy fallback 사용량 0과 별도 운영 승인을 모두
+  확인한 뒤에만 후속 배포에서 legacy prefix 읽기 권한을 축소한다.
 - key 예시:
 
 ```text
@@ -778,7 +795,7 @@ media image가 READY
 신규 media image가 PROCESSING 또는 FAILED
     -> 신규 상태 사용, raw original fallback 금지
 
-media image 자체가 없고 legacy key가 존재
+public asset ID가 없고 legacy key가 존재
     -> 기존 CloudFront URL 사용
 
 둘 다 없음
@@ -799,6 +816,11 @@ media image 자체가 없고 legacy key가 존재
 7. 기존 데이터를 private original copy와 WebP 생성으로 별도 backfill한다.
 8. legacy fallback 사용량과 실패를 확인한다.
 9. 기존 key와 URL 제거는 별도 버전에서만 논의한다.
+
+전체 legacy backfill 완료는 신규 계약 사용의 선행 조건이 아니다. 신규 업로드와 준비된
+backfill 항목부터 점진적으로 전환하고, 미전환 항목은 `assetId=null`과 기존 URL로 계속
+서비스한다. 따라서 한 번의 backfill 실패가 신규 업로드 활성화나 다른 항목의 전환을 막지
+않는다.
 
 필요한 schema 불변식은 다음과 같다.
 
