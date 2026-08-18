@@ -30,6 +30,10 @@ URL로 바꿔 반환한다. 업로드 완료, 실제 이미지 검증, 소유권
 - 일반 요청 경로의 콘텐츠 Service는 공개 `MediaPort`만 호출한다. association을 소유한
   도메인의 migration 전용 backfill runner만 공개 `MediaBackfillPort`를 호출할 수 있다.
   Controller와 일반 Service는 `MediaBackfillPort`를 사용하지 않는다.
+- `MediaBackfillPort` 예외는 legacy backfill rollout 동안만 유지한다. 전체 backfill은 신규 media
+  활성화의 선행 조건이 아니다. 지원 도메인의 backfill runner 사용 종료, legacy fallback 사용량 0,
+  별도 version의 legacy write와 key 제거, rollback window 종료가 모두 확인되고 별도 승인된 뒤
+  runner와 Port를 함께 제거한다. 이후 migration 예외가 다시 필요하면 새 ADR로 결정한다.
 - media는 식당, 리뷰, 메뉴, 사용자, 매거진 모듈을 참조하지 않는다.
 - original storage, rendition storage와 transform queue는 media 내부 outbound port로 정의한다.
   media 전용 method를 기존 `shared/storage/FileStorage`에 추가하지 않는다.
