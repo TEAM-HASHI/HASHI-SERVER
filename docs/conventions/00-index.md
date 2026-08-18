@@ -31,7 +31,7 @@ HASHI(Spring Modulith 모듈러 모놀리스 · Java 21) 프로젝트의 컨벤�
 
 - `common`/`core`/`util` 같은 잡동사니 공통 모듈을 만들지 않는다.
 - 모듈 경계는 **애그리거트**(비즈니스 능력 + 트랜잭션 일관성) 기준.
-- 모듈 간 **동기** 호출은 상대의 `internal`/Repository가 아니라 **`<Context>Port`** 로만. 역방향과 팬아웃은 일반적으로 **이벤트**(`@ApplicationModuleListener`, 멱등)로 처리하며 외부 broker publisher 예외는 `architecture.md` §6을 따른다.
+- 일반 도메인의 모듈 간 **동기** 호출은 상대의 `internal`이나 Repository가 아니라 **`<Context>Port`** 로 통합한다. 지원 모듈의 안정 공개 capability와 migration-only Port 예외는 `architecture.md` §2-2와 §9 및 관련 ADR을 따른다. 역방향과 팬아웃은 일반적으로 **이벤트**(`@ApplicationModuleListener`, 멱등)로 처리하며 외부 broker publisher 예외는 `architecture.md` §6을 따른다.
 - 모듈 간 **순환 의존·FK·조인 금지**. 타 도메인은 ID로만 참조. 의존 방향은 단방향(도메인 → `shared`).
 - `shared`에는 **도메인 지식 없는 틀·계약·VO만** 둔다.
 
