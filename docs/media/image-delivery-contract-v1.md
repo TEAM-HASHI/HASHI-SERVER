@@ -565,6 +565,8 @@ media는 현재 ONBOARDING actor가 발급한 PROFILE purpose, READY, UNBOUND as
 - 향후 JPEG, PNG, AVIF가 필요하면 `sourceSets`에 다른 MIME 그룹을 추가한다. 구형 환경용
   fallback을 도입할 때는 `defaultSource`를 최적화 JPEG 또는 PNG로 두고 WebP 후보는
   `sourceSets`에 유지해 `<picture>`의 `<img>` fallback으로 사용할 수 있다.
+- 이 절의 JSON 예시는 원본에서 crop 가능한 최대 width가 `defaultSource.width`와 같다고 가정해
+  확대가 필요한 더 큰 표준 후보는 생략한다.
 
 PROCESSING과 FAILED 응답은 다음 불변식을 지킨다.
 
@@ -589,8 +591,29 @@ wrapper 안에 둔다. 식당 이미지는 다음 형태를 사용한다.
     "assetId": "a3af06f1-4ef2-46f8-a489-2347fb840447",
     "role": "RESTAURANT_HERO",
     "status": "READY",
-    "defaultSource": {},
-    "sourceSets": []
+    "defaultSource": {
+      "url": "https://cdn.example.com/media/renditions/a3af.../v1/restaurant-hero/860.webp",
+      "width": 860,
+      "height": 512,
+      "mimeType": "image/webp"
+    },
+    "sourceSets": [
+      {
+        "mimeType": "image/webp",
+        "candidates": [
+          {
+            "url": "https://cdn.example.com/media/renditions/a3af.../v1/restaurant-hero/430.webp",
+            "width": 430,
+            "height": 256
+          },
+          {
+            "url": "https://cdn.example.com/media/renditions/a3af.../v1/restaurant-hero/860.webp",
+            "width": 860,
+            "height": 512
+          }
+        ]
+      }
+    ]
   }
 }
 ```
@@ -690,8 +713,29 @@ wrapper 안에 둔다. 식당 이미지는 다음 형태를 사용한다.
     "assetId": "a3af06f1-4ef2-46f8-a489-2347fb840447",
     "role": "REVIEW_PREVIEW",
     "status": "READY",
-    "defaultSource": {},
-    "sourceSets": []
+    "defaultSource": {
+      "url": "https://cdn.example.com/media/renditions/a3af.../v1/review-preview/270.webp",
+      "width": 270,
+      "height": 270,
+      "mimeType": "image/webp"
+    },
+    "sourceSets": [
+      {
+        "mimeType": "image/webp",
+        "candidates": [
+          {
+            "url": "https://cdn.example.com/media/renditions/a3af.../v1/review-preview/135.webp",
+            "width": 135,
+            "height": 135
+          },
+          {
+            "url": "https://cdn.example.com/media/renditions/a3af.../v1/review-preview/270.webp",
+            "width": 270,
+            "height": 270
+          }
+        ]
+      }
+    ]
   }
 }
 ```
@@ -895,9 +939,10 @@ worker는 선언값을 신뢰하지 않고 다음을 검증한다.
 - magic bytes와 실제 MIME
 - 실제 decode 성공
 - 파일 byte 크기
-- 가로, 세로, 총 픽셀 수
+- 가로, 세로, frame별 픽셀 수와 전체 decode 픽셀 수
 - 손상 파일
-- animation 여부, v1은 animated WebP를 거부
+- frame과 page 수, v1은 APNG와 animated WebP를 포함해 format과 무관하게 animated 또는
+  multi-page 입력을 거부
 - EXIF orientation 보정
 - GPS를 포함한 metadata 제거
 - sRGB 변환
@@ -1038,8 +1083,9 @@ publisher가 event를 재처리할 때 asset의 currentJobId가 event jobId와 �
   displayOrder, unique 제약과 stable ID를 지키는지 테스트한다.
 - Java publisher와 Node worker가 같은 JSON Schema 또는 golden fixture를 읽는 계약 테스트를
   둔다.
-- MIME 위조, 손상 파일, animation, 과도한 픽셀, EXIF 회전, metadata 제거, 투명 배경과
-  원본보다 작은 이미지 fixture를 worker에서 검증한다.
+- MIME 위조, 손상 파일, APNG와 animated WebP를 포함한 multi-frame 입력, 과도한 frame별 픽셀과
+  전체 decode 픽셀, EXIF 회전, metadata 제거, 투명 배경과 원본보다 작은 이미지 fixture를
+  worker에서 검증한다.
 - MySQL Testcontainers로 migration, representation check, unique 제약과 row lock 경쟁을
   검증한다.
 - legacy URL projection, private original copy, source ETag 변경과 backfill 재실행 안전성을
