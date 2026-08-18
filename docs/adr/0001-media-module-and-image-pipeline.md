@@ -94,8 +94,10 @@ public interface CurrentActorProvider {
 bytes와 object key를 소유한다. `(asset_id, role, spec_version, format, width)`를 unique로
 보호한다.
 
-최초 처리는 active version 없이 target v1을 생성하고, 전체 성공 transaction에서 v1을
-active로 전환한다. 기존 READY asset의 규격을 올릴 때는 active version과 공개 READY 상태를
+최초 처리는 active version 없이 processing job 발급 시점의 current pipeline spec을 target으로
+생성한다. v1 최초 배포에서는 그 값이 1이며, 이후 신규 asset은 current registry version을
+사용한다. 전체 성공
+transaction에서 target을 active로 전환한다. 기존 READY asset의 규격을 올릴 때는 active version과 공개 READY 상태를
 유지한 채 target version을 별도로 처리한다. target 필수 manifest 전체를 검증한 transaction에서
 active version만 원자 전환하며, target 실패나 늦은 결과는 기존 active version을 내리지 않는다.
 동시에 하나의 target job만 허용한다. `specVersion`은 role과 resize 설정뿐 아니라 Sharp와

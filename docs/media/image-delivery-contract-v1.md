@@ -264,10 +264,12 @@ UNBOUND -> BOUND -> RETIRED
 | 안정된 READY | 존재 | 모두 `null` | READY |
 | 새 규격 생성 중 | 기존 version | 모두 존재하고 target은 PROCESSING | READY |
 
-- 최초 처리에서는 `activeSpecVersion=null`, `targetSpecVersion=1`로 시작한다. target이 성공하면
-  필수 manifest 저장과 같은 transaction에서 active를 1로 바꾸고 `targetSpecVersion`,
-  `targetProcessingStatus`, `currentJobId`를 비운다. target을 발급할 때 target version을
-  `lastIssuedSpecVersion`에도 기록하고 성공이나 실패 뒤에도 낮추지 않는다.
+- 최초 처리에서는 `activeSpecVersion=null`, `targetSpecVersion=currentPipelineSpecVersion`으로
+  시작한다. v1 최초 배포의 current version은 1이지만, 이후 생성하는 신규 asset은 processing job
+  발급 시점의 current registry version을 사용한다. target이 성공하면 필수 manifest 저장과 같은 transaction에서
+  해당 version을 active로 바꾸고 `targetSpecVersion`, `targetProcessingStatus`, `currentJobId`를
+  비운다. target을 발급할 때 target version을 `lastIssuedSpecVersion`에도 기록하고 성공이나 실패
+  뒤에도 낮추지 않는다.
 - 최초 target이 영구 실패하면 공개 상태는 FAILED다. active rendition이 없으므로 source를
   반환하지 않는다. 마지막 실패 규격과 failure code를 기록하고 현재 target 필드는
   비운다. 최초 FAILED asset은 다시 PROCESSING으로 되돌리지 않으며 새 원본은 새 asset으로
@@ -1025,6 +1027,8 @@ publisher가 event를 재처리할 때 asset의 currentJobId가 event jobId와 �
 - terminal v2 뒤 같은 asset의 v2 재사용과 하향 active 전환을 거부하고 v3 이상의 target만
   허용하는지 테스트한다. 동일 v2 job의 EPR 재발행과 DLQ redrive는 같은 job ID와 bytes로
   멱등 처리되는지 테스트한다.
+- current registry가 v5일 때 신규 asset의 최초 target, lastIssuedSpecVersion, job ID와 object key가
+  모두 v5를 사용하고 obsolete v1을 요청하지 않는지 테스트한다.
 - admin A가 연결한 asset을 권한 있는 admin B가 교체하는 경우, USER와 ADMIN이 각 도메인
   권한으로 SYSTEM_BACKFILL association을 제거하는 경우, 현재 association에 없는 임의 asset
   retire 거부와 transaction rollback을 테스트한다.
