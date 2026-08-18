@@ -464,6 +464,10 @@ media는 현재 ONBOARDING actor가 발급한 PROFILE purpose, READY, UNBOUND as
 
 - `defaultSource`는 오류 이미지가 아니라 일반 `<img src>`에 사용할 기본 후보다.
 - 후보의 width와 height는 실제 저장 파일의 픽셀 값이다.
+- `sourceSets[].candidates`는 width 오름차순으로 정렬하고 같은 width를 중복하지 않는다.
+- `defaultSource`는 해당 MIME 그룹에 실제 생성된 candidate 중 하나여야 한다. v1은 역할 표의
+  기본 width를 선택하고, 원본보다 커서 생성되지 않았다면 생성된 candidate 중 가장 큰 값을
+  선택한다.
 - 클라이언트가 URL 문자열을 수정하거나 확장자를 바꿔 다른 후보를 추측하지 않는다.
 - v1은 WebP만 제공한다.
 - 향후 JPEG, PNG, AVIF가 필요하면 `sourceSets`에 다른 MIME 그룹을 추가한다. 구형 환경용
@@ -613,18 +617,18 @@ GET /api/v1/restaurants/{restaurantId}/reviews/{reviewId}/images
 
 현재 UI의 표시 비율을 유지한다. 원본보다 큰 rendition은 만들지 않는다.
 
-| role | 비율과 처리 | 후보 width |
-| --- | --- | --- |
-| `PROFILE_AVATAR` | 1:1 중앙 cover | 48, 96, 192, 288 |
-| `RESTAURANT_THUMBNAIL` | 1:1 중앙 cover | 96, 192, 288 |
-| `RESTAURANT_CARD` | 1:1 중앙 cover | 135, 270, 405 |
-| `RESTAURANT_HERO` | 393:234 중앙 cover | 430, 860, 1290 |
-| `MENU_LIST` | 1:1 중앙 cover | 100, 200, 300 |
-| `MENU_DETAIL` | 393:234 중앙 cover | 430, 860, 1290 |
-| `REVIEW_PREVIEW` | 1:1 중앙 cover | 135, 270, 405 |
-| `REVIEW_DETAIL` | 393:574 중앙 cover | 430, 860, 1290 |
-| `MAGAZINE_BANNER` | 353:160 중앙 cover | 390, 780, 1170 |
-| `MAGAZINE_THUMBNAIL` | 156:88 중앙 cover | 156, 312, 468 |
+| role | 비율과 처리 | 후보 width | 기본 width |
+| --- | --- | --- | --- |
+| `PROFILE_AVATAR` | 1:1 중앙 cover | 48, 96, 192, 288 | 96 |
+| `RESTAURANT_THUMBNAIL` | 1:1 중앙 cover | 96, 192, 288 | 192 |
+| `RESTAURANT_CARD` | 1:1 중앙 cover | 135, 270, 405 | 270 |
+| `RESTAURANT_HERO` | 393:234 중앙 cover | 430, 860, 1290 | 860 |
+| `MENU_LIST` | 1:1 중앙 cover | 100, 200, 300 | 200 |
+| `MENU_DETAIL` | 393:234 중앙 cover | 430, 860, 1290 | 860 |
+| `REVIEW_PREVIEW` | 1:1 중앙 cover | 135, 270, 405 | 270 |
+| `REVIEW_DETAIL` | 393:574 중앙 cover | 430, 860, 1290 | 860 |
+| `MAGAZINE_BANNER` | 353:160 중앙 cover | 390, 780, 1170 | 780 |
+| `MAGAZINE_THUMBNAIL` | 156:88 중앙 cover | 156, 312, 468 | 312 |
 
 WebP quality와 worker 제한 시간은 대표 운영 이미지 benchmark 후 구현 이슈에서 확정한다.
 crop, 후보 폭, quality처럼 출력 bytes를 바꾸는 변경은 `specVersion`을 올리고 기존 object를
@@ -710,7 +714,13 @@ media/renditions/{assetId}/v{specVersion}/{role}/{width}.webp
   "status": "SUCCEEDED",
   "sourceVersionId": "3Lg...",
   "sourceETag": "etag-value",
-  "sourceChecksumSha256": "base64-sha256",
+  "verifiedSource": {
+    "mimeType": "image/jpeg",
+    "byteSize": 1048576,
+    "width": 3024,
+    "height": 4032,
+    "checksumSha256": "base64-sha256"
+  },
   "renditions": [
     {
       "role": "REVIEW_PREVIEW",
@@ -726,6 +736,13 @@ media/renditions/{assetId}/v{specVersion}/{role}/{width}.webp
 
 성공 예시는 형식 설명을 위해 rendition 한 개만 표시한다. 실제 성공 결과에는 현재 job의
 필수 role과 생성 가능한 모든 width manifest가 포함돼야 한다.
+
+`verifiedSource`는 worker가 고정된 source version을 실제 decode해 검증한 결과다.
+
+- `mimeType`은 선언값이나 확장자가 아니라 magic bytes와 decoder로 확인한 실제 IANA MIME이다.
+- `byteSize`와 `checksumSha256`은 worker가 읽은 원본 object bytes 기준이다.
+- `width`와 `height`는 EXIF orientation을 적용한 뒤 사용자가 보게 되는 방향의 픽셀 크기다.
+- Spring consumer는 job의 source identity를 다시 확인한 뒤 이 값을 `image_asset`에 저장한다.
 
 ### 13.3 실패 결과
 
@@ -761,7 +778,8 @@ failure message에는 사용자 파일명, URL, stack trace와 원본 metadata�
 - worker는 originalKey가 assetId와 허용 prefix에 맞는지 검증하고, 지정한 S3 version ID와
   `If-Match: sourceETag` 조건으로 원본을 읽는다.
 - Spring consumer는 현재 job ID, sourceVersionId, ETag, specVersion이 모두 일치하는 결과만
-  반영한다. 예상 purpose와 role, width, format, deterministic object key도 검증한다.
+  반영한다. 예상 purpose와 role, width, format, deterministic object key, `verifiedSource`의
+  필수 값과 범위도 검증한다.
 - Spring은 DB commit 성공 후에만 result message를 ack한다.
 - batch를 사용하면 실패한 item만 재시도한다.
 

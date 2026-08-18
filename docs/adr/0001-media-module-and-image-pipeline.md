@@ -93,6 +93,10 @@ public interface CurrentActorProvider {
 bytes와 object key를 소유한다. `(asset_id, role, spec_version, format, width)`를 unique로
 보호한다.
 
+원본의 실제 MIME, bytes, width, height와 checksum은 presigned 요청의 선언값이 아니라 worker
+성공 결과의 `verifiedSource`에서만 반영한다. width와 height는 EXIF orientation 보정 후 표시
+방향, bytes와 checksum은 고정된 원본 object bytes 기준이다.
+
 media는 연결된 콘텐츠 type이나 콘텐츠 ID를 저장하지 않는다. 콘텐츠 소속은 각 도메인이
 public asset ID로 소유하고, media는 single-use binding 상태만 관리한다.
 
