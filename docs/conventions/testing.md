@@ -54,7 +54,11 @@ class SharedKernelTest {
 - **MUST**: 콘텐츠 모듈의 일반 요청 테스트는 media 구현을 직접 부트스트랩하지 않고
   `MediaPort`를 모킹한다. migration 전용 backfill runner 테스트만 `MediaBackfillPort`를
   모킹하며 Controller와 일반 Service 테스트에서는 이 Port를 사용하지 않는다.
-- **MUST**: Java publisher와 Node worker는 같은 JSON Schema 또는 golden fixture로 queue message 계약을 검증한다.
+- **MUST**: Java publisher와 Node worker는 같은 request, success result와 failure result JSON
+  Schema 또는 golden fixture로 specDigest를 포함한 queue wire 계약을 검증한다.
+- **MUST**: Java publisher와 Node worker는 append-only canonical spec manifest와 같은 manifest
+  JSON Schema를 사용하고 version, SHA-256 digest와 exact 산출 규격을 동일하게 해석하는지
+  검증한다.
 - **MUST**: 목록의 asset 수가 늘어도 `MediaPort` bulk 호출과 rendition 조회 query 수가 고정되는지
   query-count 회귀 테스트를 둔다. 응답 item별 media 조회는 실패로 처리한다.
 
