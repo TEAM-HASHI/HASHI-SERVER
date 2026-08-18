@@ -81,11 +81,11 @@ public interface CurrentActorProvider {
 
 - 내부 숫자 PK와 외부 UUID public ID
 - purpose, nullable activeSpecVersion, nullable targetSpecVersion, targetProcessingStatus,
-  attemptGeneration
+  lastIssuedSpecVersion
 - creationOrigin, creator와 current owner의 actor type, 내부 subject. 일반 업로드는 인증
   actor를 기록하고 backfill은 `SYSTEM_BACKFILL` origin과 owner, null subject를 기록한다.
 - original object key, S3 version ID, ETag, 실제 MIME, bytes, width, height, checksum
-- processingStatus, bindingStatus, current job ID, 마지막 실패 spec, attempt와 안전한 failure code
+- processingStatus, bindingStatus, current job ID, 마지막 실패 spec과 안전한 failure code
 - legacy backfill 재실행용 nullable unique `backfillIdentityHash`
 - `cleanupStatus`, nullable `purgeToken`, `purgeStartedAt`, `objectsPurgedAt`
 - 낙관적 version과 생성, 수정 시각
@@ -98,12 +98,15 @@ bytes와 object key를 소유한다. `(asset_id, role, spec_version, format, wid
 active로 전환한다. 기존 READY asset의 규격을 올릴 때는 active version과 공개 READY 상태를
 유지한 채 target version을 별도로 처리한다. target 필수 manifest 전체를 검증한 transaction에서
 active version만 원자 전환하며, target 실패나 늦은 결과는 기존 active version을 내리지 않는다.
-동시에 하나의 target job만 허용한다. 동일 attempt의 재발행과 redrive는 같은 job ID를 쓰고,
-active version이 있는 upgrade target을 운영자가 같은 source와 spec으로 새로 재시도할 때만
-attemptGeneration을 증가시켜 이전 attempt의 늦은 결과와 구분한다. 최초 FAILED asset은
-PROCESSING으로 되돌리지 않고 새 원본을 새 asset으로 업로드한다. terminal target 실패는 마지막
-실패 정보만 남기고 현재 target 필드를 비워 partial rendition이 유예 기간 뒤 정리될 수 있게
-한다.
+동시에 하나의 target job만 허용한다. `specVersion`은 role과 resize 설정뿐 아니라 Sharp와
+encoder, format, metadata와 색상 처리처럼 output bytes에 영향을 주는 전체 pipeline의 전역 단조
+증가 버전이다. target을 발급할 때 `lastIssuedSpecVersion`을 함께 올리며, 성공이나 실패 여부와
+무관하게 발급한 version은 낮추거나 재사용하지 않는다. terminal 실패나
+obsolete 처리된 spec은 같은 asset에서 다시 target이나 active로 사용하지 않는다. 재처리와
+rollback은 더 높은 spec으로만 수행한다. 동일 spec의 EPR 재발행과 DLQ redrive는 같은 job ID를
+사용한다. 최초 FAILED asset은 PROCESSING으로 되돌리지 않고 새 원본을 새 asset으로 업로드한다.
+terminal target 실패는 마지막 실패 정보만 남기고 현재 target 필드를 비워 partial rendition이
+유예 기간 뒤 정리될 수 있게 한다.
 
 원본의 실제 MIME, bytes, width, height와 checksum은 presigned 요청의 선언값이 아니라 worker
 성공 결과의 `verifiedSource`에서만 반영한다. width와 height는 EXIF orientation 보정 후 표시
@@ -190,12 +193,12 @@ SQS 전송 뒤 publication 완료 처리 전에 process가 중단되면 같은 �
 ### 3.3 상태와 멱등성
 
 - request와 result SQS는 Standard queue와 DLQ를 사용하며 중복과 순서 역전을 전제로 한다.
-- request와 result에 contractVersion, jobId, assetId, sourceVersionId, sourceETag,
-  specVersion, attemptGeneration을 포함한다.
-- jobId는 assetId, sourceVersionId, specVersion, attemptGeneration으로 결정한다. 같은 attempt의
-  EPR 재발행과 DLQ redrive는 같은 jobId를 사용하고, active version이 있는 terminal upgrade를
-  새로 시도할 때만 generation을 증가시킨다. 파생 object key는 같은 source와 spec에 대해
-  결정적이다.
+- request와 result에 contractVersion, jobId, assetId, sourceVersionId, sourceETag와
+  specVersion을 포함한다.
+- jobId는 assetId, sourceVersionId와 specVersion으로 결정한다. 동일 job의 EPR 재발행과 DLQ
+  redrive는 같은 jobId를 사용한다. terminal 또는 obsolete spec은 같은 asset에서 재사용하지
+  않으며 파생 object key와 output bytes는 같은 source와 spec에 대해 결정적이다. 기존 object의
+  checksum이 다르면 immutable key 불변식 위반으로 덮어쓰지 않는다.
 - DB는 `(asset_id, role, spec_version, format, width)` unique 제약을 둔다.
 - READY가 된 asset은 늦은 이전 job의 FAILED 결과로 내려가지 않는다.
 - 일시 오류는 SQS와 DLQ로 재시도하고 asset을 PROCESSING으로 유지한다. 영구 파일 검증
@@ -256,17 +259,21 @@ Gradle과 Spring runtime dependency에는 포함하지 않고 worker 변경에�
 - backfill source version ID 또는 ETag가 바뀌면 새 identity로 다시 처리할 수 있다. 같은
   identity는 자동 재처리하지 않는다. 원인 해결을 확인한 운영 runbook이 UNBOUND FAILED와
   object 정리 완료를 검증하고 기존 tombstone row를 삭제한 뒤, 다음 scan이 같은 identity의
-  새 asset과 새 attempt를 생성한다. 기존 FAILED asset을 PROCESSING으로 되돌리지 않는다.
-- original과 rendition prefix를 주기적으로 reconciliation한다. DB asset, rendition manifest
-  또는 현재 target PROCESSING job에 대응하지 않는 object는 grace period 뒤 삭제한다. 최초
-  processingStatus 또는 targetProcessingStatus가 PROCESSING인 asset은 cleanup 대상으로
-  선택하지 않는다.
-- cleanup은 S3 delete 전에 짧은 transaction에서 현재 상태와 보존 기간을 다시 확인하고
-  `cleanupStatus`를 ACTIVE에서 PURGING으로 바꾸며 고유 purgeToken을 기록한다. complete,
-  content claim과 backfill claim은 PURGING asset을 거부한다.
-- S3 삭제는 transaction 밖에서 purgeToken 기준으로 멱등 실행하고, 별도 transaction에서
-  PURGED tombstone 또는 row 삭제로 마무리한다. 중간에 process가 중단되면 오래된 PURGING을
-  같은 token으로 재개한다. DB lock을 S3 호출 동안 유지하지 않는다.
+  새 asset과 새 processing job을 생성한다. 기존 FAILED asset을 PROCESSING으로 되돌리지 않는다.
+- original과 rendition prefix를 주기적으로 reconciliation한다. asset 전체 정리는 S3 delete 전
+  짧은 transaction에서 현재 상태와 보존 기간을 다시 확인하고 `cleanupStatus`를 ACTIVE에서
+  PURGING으로 바꾸며 고유 purgeToken을 기록한다. complete, content claim과 backfill claim은
+  PURGING asset을 거부한다. S3 삭제는 transaction 밖에서 purgeToken 기준으로 멱등 실행하고,
+  별도 transaction에서 PURGED tombstone 또는 row 삭제로 마무리한다. 중단된 PURGING은 같은
+  token으로 재개하며 DB lock을 S3 호출 동안 유지하지 않는다.
+- terminal FAILED target의 partial object는 asset cleanupStatus를 바꾸지 않는 object-only
+  reconciliation으로 정리한다. target 전체 성공 transaction만 rendition manifest와 active
+  pointer를 함께 저장하므로 실패 target의 partial object는 manifest가 없는 orphan이다. 삭제
+  직전 asset을 잠가 ACTIVE cleanup, grace period, `spec != active`, `spec != current target`,
+  `spec <= lastIssuedSpecVersion`을 다시 확인한다. 같은 asset에서 spec 재사용과 하향 rollback을
+  금지하므로 확인 뒤 삭제 대상 spec이 다시 공개될 수 없다. 늦은 stale write와 중복 delete는
+  다음 reconciliation에서 멱등하게 수렴한다. active, current target과 한 번 active였던 rendition
+  manifest는 v1에서 자동 삭제하지 않는다.
 - original bucket은 CloudFront origin으로 연결하지 않는다.
 - 기존 S3 bucket은 WebP 파생본 delivery에 사용한다.
 - 기존 CloudFront distribution을 유지한다.
