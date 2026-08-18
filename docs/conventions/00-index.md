@@ -24,6 +24,7 @@ HASHI(Spring Modulith 모듈러 모놀리스 · Java 21) 프로젝트의 컨벤�
 - "DB 테이블/컬럼을 바꿔야 해" → `database.md` (Flyway migration 규칙)
 - "공통으로 쓸 것 같은데 어디 두지" → `architecture.md` §3·§4 (`common` 금지, `shared`는 도메인 무관 틀만)
 - "모듈 테스트/구조 검증 짜야 해" → `testing.md`
+- "이미지 최적화와 media 모듈을 구현해" → [`Image Delivery Contract v1`](../media/image-delivery-contract-v1.md) → [`ADR 0001`](../adr/0001-media-module-and-image-pipeline.md)
 - "커밋 메시지/브랜치/PR 어떻게 쓰지" → `git-convention.md`
 
 ## 절대 원칙 (모든 작업 공통)

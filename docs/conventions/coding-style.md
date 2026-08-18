@@ -101,7 +101,9 @@ public class ReservationService {
 - **MUST**: 응답은 DTO(`<Context>Response`)로 반환하고 **엔티티를 직접 노출하지 않는다.**
 - **MUST**: 응답은 `SuccessResponse`로 감싼다(상세 `error-handling.md`).
 - **MUST**: 목록 페이지네이션은 **사용자향 피드=커서(cursor)**, **어드민 목록=offset(`page`/`size` + 총건수)**로 한다.
-- **MUST**: 이미지 파일은 DB에 **S3 object key만 저장**하고, 응답 생성 시 `shared/storage`의 `FileStorage` 정책에 따라 조회 가능한 URL로 변환해 내린다. 현재 조회 URL은 **CloudFront HTTPS URL**을 사용한다. 저장 값에 presigned URL이나 CloudFront URL 전체를 넣지 않는다.
+- **MUST**: 저장 값에 presigned URL이나 CloudFront URL 전체를 넣지 않는다.
+- **MUST**: 기존 key 기반 이미지는 전환 기간 동안 DB에 **S3 object key만 저장**하고, 응답 생성 시 `shared/storage`의 `FileStorage` 정책으로 CloudFront HTTPS URL을 만든다.
+- **MUST**: 신규 최적화 이미지는 콘텐츠 도메인에 asset 식별자 값만 저장한다. `MediaPort`를 통해 role별 후보를 bulk 조회하며 media 엔티티, Repository, S3 key를 직접 참조하지 않는다.
 - **MUST**: 시각은 DB에 `DATETIME`으로 저장하고 응답은 **ISO-8601 문자열**로 내린다. 표시 포맷(`6월 22일` 등)은 클라이언트가 담당한다.
 
 #### 4-2-1. Action 서브리소스 예외 (동사 명사화가 어색한 경우)
@@ -217,7 +219,8 @@ if (isDiscountTarget) applyDiscount();
 - [ ] Controller에 비즈니스 로직이 없는가
 - [ ] URL이 `/api/v1`로 시작하고, 동사 없이 명사·복수·케밥인가 (단, 상태 전이 액션은 `/동사` action 서브리소스 예외 사용, POST 고정)
 - [ ] 목록이 사용자=커서 / 어드민=offset 페이지네이션 규칙을 따르는가
-- [ ] 이미지 파일은 key만 저장하고 응답 시 조회 URL로 변환하며, 시각을 ISO-8601로 내리는가
+- [ ] legacy 이미지는 key만, 신규 media 이미지는 asset 식별자만 저장하고 URL 전체를 저장하지 않는가
+- [ ] 이미지 응답은 반복 단건 조회 대신 asset 식별자와 role을 모아 bulk 조회하는가
 - [ ] 복합 조건을 설명 변수/메서드로 추출했는가
 
 ---
