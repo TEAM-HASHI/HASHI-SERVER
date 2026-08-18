@@ -137,6 +137,6 @@ void 포인트는_음수가_될_수_없다() {
 - [ ] 모듈 테스트가 `@ApplicationModuleTest` + 타 모듈 포트 모킹으로 격리됐는가
 - [ ] 이벤트 핸들러의 멱등성을 테스트했는가
 - [ ] 외부 broker publisher 예외의 EPR 재전송과 terminal no-op 완료를 테스트했는가
-- [ ] 도메인 규칙·VO를 순수 단위 테스트로 고정했는가
+- [ ] 도메인 규칙과 VO를 순수 단위 테스트로 고정했는가
 - [ ] media의 상태 경쟁, queue 중복과 MySQL migration을 실제 계약에 맞게 검증했는가
 - [ ] media bulk 조회의 query 수가 응답 item 수에 따라 증가하지 않는가
