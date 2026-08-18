@@ -311,10 +311,12 @@ version 보존과 권한 분리를 구조적으로 보장하는 이점이 운영
 - 이미지 제거와 교체는 콘텐츠 변경과 같은 transaction에서 `MediaPort.retireAssets()`를
   호출한다. RETIRED single-use asset은 다시 claim할 수 없다.
 - retire용 web API는 두지 않는다. association 소유 Aggregate Service가 도메인 권한을 검증하고
-  root를 write lock한 뒤 현재 저장된 association에서 제거 asset을 구한다. media는 BOUND와
-  ACTIVE cleanup 상태를 잠금 후 확인해 retire하며 creator 일치는 요구하지 않는다. 다른
-  관리자가 만든 asset과 SYSTEM_BACKFILL asset도 이 경로로 제거할 수 있지만, 현재 association에
-  없는 요청 asset을 임의로 retire할 수 없다.
+  root를 write lock한 뒤 현재 저장된 association에서 제거 asset을 구한다. media는 BOUND를 잠금
+  후 확인하고 `cleanupStatus=PURGING`은 충돌로 거부해 호출 transaction을 롤백한다. ACTIVE와
+  object 정리가 끝난 terminal FAILED tombstone의 PURGED는 retire할 수 있으며, PURGED에서는 S3
+  작업 없이 binding만 RETIRED로 바꾼다. creator 일치는 요구하지 않는다. 다른 관리자가 만든
+  asset과 SYSTEM_BACKFILL asset도 이 경로로 제거할 수 있지만, 현재 association에 없는 요청
+  asset을 임의로 retire할 수 없다.
 - collection 전체 교체는 도메인 Aggregate를 write lock한 뒤 저장된 association과 요청을
   비교한다. 유지 항목은 그대로 두고 추가 항목만 claim하며 제거 또는 교체 항목만 retire한다.
   scalar에 같은 asset을 다시 보내는 요청은 no-op이다.
