@@ -153,7 +153,7 @@ public class ReservationController {
 ### 4-4. 계층 책임
 
 - **MUST**: Controller는 입력 검증·DTO 변환·service 호출만. 비즈니스 로직 금지.
-- **MUST**: Service에 비즈니스 로직. 다른 모듈이 필요하면 그 모듈의 `<Context>Port`만 호출.
+- **MUST**: Service에 비즈니스 로직을 둔다. 다른 모듈이 필요하면 `architecture.md` §2-2와 §9에서 승인한 공개 지점만 호출하며, 일반 도메인 간 협력은 `<Context>Port` 하나로 통합한다.
 - **MUST**: Repository는 자기 모듈 엔티티만 다룬다(타 모듈 테이블 조인 금지).
 
 ---
