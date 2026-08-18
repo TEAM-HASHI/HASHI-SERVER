@@ -237,6 +237,9 @@ Gradle과 Spring runtime dependency에는 포함하지 않고 worker 변경에�
 - original bucket은 CloudFront origin으로 연결하지 않는다.
 - 기존 S3 bucket은 WebP 파생본 delivery에 사용한다.
 - 기존 CloudFront distribution을 유지한다.
+- 전환 기간에는 기존 CloudFront OAC의 legacy delivery prefix 읽기 권한을 유지하고
+  `media/renditions/*`를 추가 허용한다. backfill, 클라이언트 전환과 legacy fallback 사용량 0을
+  확인하고 별도 운영 승인을 받은 뒤에만 legacy prefix 권한을 축소한다.
 - 원본과 파생본 prefix를 분리한다. 변환 요청은 완료 확인 API에서 기록한 durable event만
   사용하며 v1에는 S3 ObjectCreated notification을 구성하지 않는다.
 - 파생 object key에 assetId, specVersion, role, width와 format을 포함한다.
@@ -258,6 +261,10 @@ version 보존과 권한 분리를 구조적으로 보장하는 이점이 운영
 - 기존 이미지 교체는 새 asset이 READY된 뒤 연결하고 그전에는 기존 READY 이미지를 유지한다.
 - 신규 raw original은 공개 fallback으로 제공하지 않는다.
 - 기존 `assetId`가 없는 legacy 데이터만 전환 기간에 기존 URL을 사용할 수 있다.
+- 교차 모듈 Port는 전환 기간에 `ImageReference(assetId, legacyUrl)`을 전달한다. legacy URL은
+  key 소유 모듈이 계산하고 object key는 공개하지 않는다. 최종 응답 Service는 asset ID를 role과
+  함께 bulk 조회하며, asset ID가 없고 legacy URL만 있는 경우에만 legacy fallback을 사용한다.
+  asset ID가 있으면 PROCESSING, FAILED 또는 조회 불일치에도 legacy URL로 우회하지 않는다.
 - 처리 상태와 별도로 `UNBOUND -> BOUND -> RETIRED` binding lifecycle을 둔다.
 - 이미지 제거와 교체는 콘텐츠 변경과 같은 transaction에서 `MediaPort.retireAssets()`를
   호출한다. RETIRED single-use asset은 다시 claim할 수 없다.
@@ -325,6 +332,8 @@ raw original을 PROCESSING fallback으로 사용하면 큰 원본과 WebP를 연
   연결하지 않는다. 누락 원인은 backfill 결과와 운영 지표에 기록하며 전체 batch의 다른
   항목은 계속 처리한다.
 - 모든 화면 전환과 fallback 사용량 확인 전에는 기존 URL과 key를 제거하지 않는다.
+- 전체 backfill은 신규 media 계약 활성화의 선행 조건이 아니다. 신규 업로드와 READY backfill
+  association부터 점진 전환하고, 미전환 legacy association은 asset ID 없이 기존 URL을 유지한다.
 
 현재 `event_publication`의 255자 컬럼은 media event 저장에 안전하지 않다. 신규 migration은
 Spring Modulith 1.4 MySQL schema에 맞춰 `serialized_event`를 4000자, `listener_id`와
