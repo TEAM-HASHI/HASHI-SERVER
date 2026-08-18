@@ -41,7 +41,7 @@
 
 ```text
 <context>/
-├─ <Context>Port          # 모듈 간 공개 포트 (통합 1개)
+├─ <Context>Port          # 일반 런타임 모듈 간 공개 포트 (통합 1개)
 ├─ <Context>Info          # 모듈 간 전달 DTO (포트로 노출, 필요 시)
 ├─ code/                  # 도메인 에러/성공 코드 (ErrorCode/SuccessCode 구현)
 ├─ domain/                # 엔티티 · Repository (애그리거트)
@@ -51,9 +51,18 @@
 └─ event/                 # 이벤트 리스너 (필요 시)
 ```
 
-- **MUST**: 외부에 공개하는 것은 `<Context>Port` / `<Context>Info` / **발행 이벤트**뿐이다. 그 외(`domain`·`service`·`dto`·`web`)는 모듈 내부 구현으로 취급한다.
+- **MUST**: 외부에 공개하는 것은 `<Context>Port`, `<Context>Info`, **발행 이벤트**, 이 문서의 지원
+  모듈 규칙 또는 ADR에서 승인한 좁은 공개 지점뿐이다. 그 외 `domain`, `service`, `dto`, `web`은
+  모듈 내부 구현으로 취급한다.
+- **MUST**: 일반 도메인의 런타임 협력 facade는 `<Context>Port` 하나로 통합한다. 추가 공개 지점은
+  이 문서의 지원 모듈 규칙 또는 ADR이 목적과 호출 주체를 명시한 경우만 허용한다. 임시 또는
+  migration 예외는 종료 조건도 반드시 명시한다. §9의 auth 공개 지점은 장기 지원 capability이고,
+  현재 migration 예외는 association 소유 도메인의 runner만 사용하는 `MediaBackfillPort`다.
+  Controller와 일반 Service는 `MediaBackfillPort`를 사용할 수 없다.
 - **MUST**: **발행 이벤트**(예: `UserWithdrawnEvent`)는 모듈 루트에 공개(Port와 같은 위치)하고, `event/` 에는 **구독 리스너**(예: `UserWithdrawnListener`)만 둔다.
-- **SHOULD**: 복합 컨텍스트는 하위 도메인 패키지를 둘 수 있다(예: `user/bookmark/`, `support/inquiry/`·`support/notice/`). 이 경우에도 모듈 공개 지점은 `<Context>Port`로 단일화한다.
+- **SHOULD**: 복합 컨텍스트는 하위 도메인 패키지를 둘 수 있다(예: `user/bookmark/`,
+  `support/inquiry/`, `support/notice/`). 이 경우에도 일반 런타임 공개 지점은 `<Context>Port`로
+  단일화한다.
 
 ---
 
@@ -173,7 +182,7 @@
 - **MUST**: `upload`은 파일 업로드 자격(presigned URL) 발급만 하는 **상태 없는 지원 모듈**이다. `domain/`·`Port` 없이 `web`·`service`·`dto`·`code`만 두고, `shared/storage`의 `FileStorage`에만 의존한다(어떤 도메인 모듈도 알지 않는다).
 - **MUST**: `upload` 컨트롤러는 클라이언트가 직접 호출한다(`POST /api/v1/uploads/presigned-urls`). 도메인 모듈은 `upload`를 호출하지 않는다(업로드는 클라→S3 직행, 저장은 각 도메인이 받은 object key로).
 - **MUST**: 신규 최적화 이미지는 상태를 가진 지원 도메인 `media`가 관리한다. `ImageAsset`은 Aggregate Root, `ImageRendition`은 그 자식이다.
-- **MUST**: 콘텐츠 도메인은 asset 식별자 값만 보관하고 일반 요청 경로에서는 공개 `MediaPort`로 검증, claim, bulk 조회한다. association을 소유한 도메인의 migration 전용 backfill runner만 `MediaBackfillPort`를 사용할 수 있으며 Controller와 일반 Service에서는 사용하지 않는다. media 테이블과 JPA 관계, 모듈 간 FK, DB join을 만들지 않는다.
+- **MUST**: 콘텐츠 도메인은 asset 식별자 값만 보관하고 일반 요청 경로에서는 공개 `MediaPort`로 검증, claim, bulk 조회한다. §2-2 통합 Port 원칙의 명시적 migration-only 예외로 association을 소유한 도메인의 backfill runner만 `MediaBackfillPort`를 사용할 수 있으며 Controller와 일반 Service에서는 사용하지 않는다. media 테이블과 JPA 관계, 모듈 간 FK, DB join을 만들지 않는다.
 - **MUST**: 이미지의 콘텐츠 소속과 표시 순서는 기존 콘텐츠 Aggregate가 계속 소유한다. media는 콘텐츠 도메인을 되참조하지 않는다.
 - **MUST**: 원본 확인, 변환과 삭제 같은 S3 작업은 DB 트랜잭션 안에서 실행하지 않는다. 외부 변환 요청은 commit 이후 재시도 가능한 event publication 또는 outbox로 전달한다.
 - 상세 결정과 외부 계약은 [`ADR 0001`](../adr/0001-media-module-and-image-pipeline.md)과 [`Image Delivery Contract v1`](../media/image-delivery-contract-v1.md)을 따른다.
