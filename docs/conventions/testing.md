@@ -49,7 +49,7 @@ class SharedKernelTest {
 
 - **MUST**: `media` 모듈 통합 테스트는 `@ApplicationModuleTest`로 격리하고 외부 storage와 queue adapter를 모킹한다.
 - **MUST**: Aggregate 상태 전이, 중복 result, 순서가 뒤바뀐 result, active와 target spec 전환,
-  attempt가 다른 늦은 결과를 테스트한다.
+  sourceVersionId, specVersion 또는 currentJobId가 다른 늦은 결과를 테스트한다.
 - **MUST**: 실제 MySQL 전용 migration과 unique 제약은 Testcontainers MySQL로 검증한다. H2 `create-drop` 결과만으로 통과 처리하지 않는다.
 - **MUST**: 콘텐츠 모듈의 일반 요청 테스트는 media 구현을 직접 부트스트랩하지 않고
   `MediaPort`를 모킹한다. migration 전용 backfill runner 테스트만 `MediaBackfillPort`를
