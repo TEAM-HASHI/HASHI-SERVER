@@ -52,6 +52,10 @@ key 기반 요청과 응답을 한 번에 깨뜨리지 않고 additive하게 전
 media는 USER, ADMIN, ONBOARDING을 구분해 업로드 목적별 권한과 소유권을 검사해야 한다.
 기존 `CurrentUserProvider`는 사용자 ID 조회용이므로 이 요구를 표현할 수 없다.
 
+media 구현 PR은 SecurityConfig에서 `/api/v1/media/**`를 USER, ADMIN, ONBOARDING 중 하나로 인증된
+actor에게 허용한다. filter는 actor 유형만 확인하고 purpose별 세부 권한, 소유권과 상태는 media
+Service가 강제한다. 미인증 요청은 기존 401 계약을 유지한다.
+
 auth가 공개하는 좁은 `CurrentActorProvider` 계약을 추가한다.
 
 ```java
@@ -80,8 +84,8 @@ public interface CurrentActorProvider {
 `image_asset`은 다음 범주의 값을 소유한다.
 
 - 내부 숫자 PK와 외부 UUID public ID
-- purpose, nullable activeSpecVersion, nullable targetSpecVersion, targetProcessingStatus,
-  lastIssuedSpecVersion
+- purpose, nullable activeSpecVersion과 activeSpecDigest, nullable targetSpecVersion과
+  targetSpecDigest, targetProcessingStatus, lastIssuedSpecVersion
 - creationOrigin, creator와 current owner의 actor type, 내부 subject. 일반 업로드는 인증
   actor를 기록하고 backfill은 `SYSTEM_BACKFILL` origin과 owner, null subject를 기록한다.
 - original object key, S3 version ID, ETag, 실제 MIME, bytes, width, height, checksum
@@ -94,10 +98,38 @@ public interface CurrentActorProvider {
 bytes와 object key를 소유한다. `(asset_id, role, spec_version, format, width)`를 unique로
 보호한다.
 
-최초 처리는 active version 없이 processing job 발급 시점의 current pipeline spec을 target으로
-생성한다. v1 최초 배포에서는 그 값이 1이며, 이후 신규 asset은 current registry version을
-사용한다. 전체 성공
-transaction에서 target을 active로 전환한다. 기존 READY asset의 규격을 올릴 때는 active version과 공개 READY 상태를
+`media_pipeline_config`는 fixed PK `id=1`과 DB check로 singleton을 강제한다. current spec version과
+digest, `issuanceEnabled`, optimistic lock version과 updatedAt을 소유한다. 첫 migration은 packaged
+v1 manifest와 같은 version과 digest, issuance false로 seed한다. processing job 발급 transaction이
+이 snapshot을 읽어 target에 기록한다. 최초 rollout은 같은 v1 version과 digest에서 issuance를
+false에서 true로 compare-and-set한다. 일반 spec upgrade는 old version과 digest, issuance true를
+vN version과 digest, issuance true로 compare-and-set하고 spec version 증가만 허용한다. 운영
+pause와 resume은 같은 version과 digest에서 issuance flag만 compare-and-set한다. 활성화와 job
+발급이 경합하면 old 또는 new snapshot 하나를 원자적으로 사용하며 둘 다 worker가 지원한다.
+public web 변경 API는 두지 않는다.
+
+job 발급과 gated create, PENDING_UPLOAD complete, backfill과 upgrade transaction은 config row를
+shared lock으로 먼저 읽고 commit까지 유지한다. config 활성화, pause와 resume CAS는 exclusive
+lock으로 직렬화한다. pause commit이 반환될 때 이전 true snapshot의 transaction은 모두 끝났으므로
+drain 뒤 old job이 새로 나타나지 않는다. 전체 DB lock 순서는 config 다음 내부 asset ID 오름차순이며
+S3와 SQS I/O를 잠금 transaction 안에서 실행하지 않는다.
+
+config row 누락, 중복 또는 packaged manifest와의 version과 digest 불일치는 media job 발급을
+fail-closed로 막고 별도 media issuance capability indicator 또는 metric을 `DEGRADED`로 노출해 운영
+알람을 보낸다. global liveness와 read-serving readiness는 유지한다. issuance false는 신규 media
+create와 PENDING_UPLOAD complete, backfill과 upgrade job 발급만 일시 중지한다. 이미 PROCESSING 또는
+READY인 complete 멱등 재호출, 기존 EPR publish, result consume, redrive와 drain, READY read와
+legacy flow는 계속 동작한다.
+
+cleanup candidate와 장기 PROCESSING 복구 scan은 OFFSET이 아니라 `(기준시각, id)` keyset batch를
+사용한다. 실제 repository predicate를 확정한 구현 PR에서 cleanupStatus, processing 또는 binding
+상태, 기준시각과 id를 포함하는 선택적 composite index를 설계하고 MySQL EXPLAIN으로 full scan이
+아닌지 검증한다.
+
+최초 처리는 active version 없이 processing job 발급 시점에 `media_pipeline_config`가 가리키는
+canonical manifest version과 digest를 target으로 생성한다. v1 최초 배포에서는 version이 1이다.
+전체 성공 transaction에서 target version과 digest를 active로 전환한다. 기존 READY asset의
+규격을 올릴 때는 active version과 공개 READY 상태를
 유지한 채 target version을 별도로 처리한다. target 필수 manifest 전체를 검증한 transaction에서
 active version만 원자 전환하며, target 실패나 늦은 결과는 기존 active version을 내리지 않는다.
 동시에 하나의 target job만 허용한다. `specVersion`은 role과 resize 설정뿐 아니라 Sharp와
@@ -143,6 +175,15 @@ S3 ObjectCreated 이벤트만 사용하면 클라이언트가 업로드 직후 �
 클라이언트가 PUT 성공 후 멱등 완료 API를 호출하고, 서버가 S3 HEAD로 발급한 key와
 metadata를 확인한 다음 PROCESSING으로 전이한다. 이 API가 사용자 요청 기준의 완료
 경계다. worker는 실제 MIME, decode와 픽셀을 별도로 검증한다.
+
+발급 시 선언한 fileSize는 presigned PUT의 signed `Content-Length`로 고정한다. 브라우저가 실제
+body 길이로 이 header를 자동 설정하므로 응답에는 `expectedContentLength`를 별도로 제공하고,
+클라이언트가 직접 설정할 `requiredHeaders`에는 `Content-Type`과 `If-None-Match: *`만 노출한다.
+presigner는 original PUT에 `If-None-Match: *`도 서명하고 bucket CORS가 이 header를 허용해야 한다.
+첫 PUT만 성공하고 presigned URL의 순차 또는 동시 재사용은 412나 409로 거부한다. 412는 complete로
+수렴하고, 409는 complete 확인 뒤 source가 없을 때 새 asset을 발급한다. presigner가
+content-length, content-type과 if-none-match를 모두 서명하지 못하면 URL을 발급하지 않으며
+complete HEAD에서도 고정 source version의 크기를 다시 검증한다.
 
 v1 변환 요청의 유일한 업무 trigger는 업로드 완료 확인 API다. S3 ObjectCreated notification은
 사용하지 않는다.
@@ -195,8 +236,8 @@ SQS 전송 뒤 publication 완료 처리 전에 process가 중단되면 같은 �
 ### 3.3 상태와 멱등성
 
 - request와 result SQS는 Standard queue와 DLQ를 사용하며 중복과 순서 역전을 전제로 한다.
-- request와 result에 contractVersion, jobId, assetId, sourceVersionId, sourceETag와
-  specVersion을 포함한다.
+- request와 result에 contractVersion, jobId, assetId, sourceVersionId, sourceETag,
+  specVersion과 specDigest를 포함한다.
 - jobId는 assetId, sourceVersionId와 specVersion으로 결정한다. 동일 job의 EPR 재발행과 DLQ
   redrive는 같은 jobId를 사용한다. terminal 또는 obsolete spec은 같은 asset에서 재사용하지
   않으며 파생 object key와 output bytes는 같은 source와 spec에 대해 결정적이다. 기존 object의
@@ -226,6 +267,35 @@ worker source는 HASHI-SERVER 저장소 안의 별도 디렉터리와 독립 Nod
 Gradle과 Spring runtime dependency에는 포함하지 않고 worker 변경에만 별도 CI와 배포를
 실행한다. 팀과 배포 주기가 실제로 분리될 때 별도 저장소 이전을 검토한다.
 
+role과 purpose별 role 집합, exact width와 height, default width, no-upscale와 rounding, crop,
+format, quality, metadata, color 처리와 processor revision은 저장소의 append-only
+`media-specs/v{specVersion}.json` manifest를 단일 원본으로 관리한다. Java와 Node artifact가 같은
+manifest를 포함하고 version과 SHA-256 specDigest를 검증한다. unknown version과 digest mismatch는
+사용자 이미지 FAILED가 아니라 retry, DLQ와 운영 알람 대상이다.
+
+queue request는 asset purpose를 전달하고 role 집합은 전달하지 않는다. worker는 해당 purpose의
+필수 role을 canonical manifest에서만 결정한다. purpose가 manifest에 없거나 asset snapshot과
+다르면 contract mismatch로 retry, DLQ와 운영 알람에 남긴다.
+
+새 spec 배포는 기존 spec과 vN을 함께 지원하는 Lambda를 먼저 배포하고 capability와 digest를
+확인한 뒤, 같은 manifest를 포함한 Spring을 기존 current version으로 모든 serving instance에
+배포한다. API, EPR publisher와 result consumer의 구 instance가 0이고 새 release readiness를
+확인한 다음 `media_pipeline_config` 단일 row의 version과 digest를 atomic compare-and-set으로 vN에
+올린다. 일반 upgrade는 `(oldVersion, oldDigest, true)`에서 `(vN, vNDigest, true)`로 전환한다.
+최초 rollout은 v1 호환성 확인 뒤 `(v1, v1Digest, false)`에서 `(v1, v1Digest, true)`로 전환한다.
+instance별 environment 값으로 활성화하지 않으며 current version은 rollback에서도 낮추지 않는다.
+canonical manifest는 active API 해석에도 필요하므로 v1에서 삭제하지 않는다. 구 processor
+실행 지원은 target, current job, EPR, request와 result queue, DLQ 참조가 모두 0이고
+보존 기간이 지난 뒤에만 제거한다. worker rollback은 outstanding spec을 모두 지원하는 artifact로만
+허용한다. vN active data가 생긴 뒤 vN manifest가 없는 과거 Spring binary로 단순 rollback하지
+않고 manifest를 포함한 forward fix 또는 hotfix를 사용한다.
+
+구 processor와 vN을 한 artifact에서 함께 지원할 수 없는 native dependency 변경은 config의
+issuance를 false로 바꾸고 기존 target, EPR, queue와 DLQ를 drain한 뒤 worker와 Spring을 교체하고
+vN compatibility를 확인한다. config의 `(oldVersion, oldDigest, false)`를
+`(vN, vNDigest, true)`로 한 번에 compare-and-set하며, 실패하면 old pointer와 false를 유지하는
+별도 운영 runbook으로 처리한다.
+
 다음 조건이 생기면 Lambda container 또는 ECS worker로 전환할 수 있다.
 
 - ZIP 크기 제한을 넘는다.
@@ -240,10 +310,12 @@ Gradle과 Spring runtime dependency에는 포함하지 않고 worker 변경에�
 - 신규 원본은 별도 private original bucket에 저장한다.
 - original bucket은 versioning을 활성화한다. 완료 확인 시점의 version ID와 ETag를 job에
   고정하고 worker는 해당 version만 읽는다.
-- `media/originals/*`에는 무조건적인 `NoncurrentVersionExpiration`을 설정하지 않는다. 완료
-  뒤 같은 presigned PUT으로 새 version이 생기면 job이 고정한 canonical source가
-  noncurrent가 될 수 있기 때문이다. bucket lifecycle은 미완료 multipart upload 중단만
-  담당한다.
+- 신규 presigned PUT은 서명된 `If-None-Match: *`로 첫 write만 허용한다. 동일 URL의 두 번째
+  write는 412나 409로 거부된다.
+- `media/originals/*`에는 무조건적인 `NoncurrentVersionExpiration`을 설정하지 않는다. backfill
+  copy crash 또는 race, v1 이전 object와 IAM 또는 설정 오류로 canonical source가 noncurrent가
+  될 가능성을 방어적으로 다뤄야 하기 때문이다. bucket lifecycle은 미완료 multipart upload
+  중단만 담당한다.
 - application cleanup이 object version 목록과 DB의 고정 `sourceVersionId`를 대조한다. current
   여부와 무관하게 PROCESSING, READY와 복구 가능한 asset이 참조하는 canonical source를
   보존하고, 어떤 asset도 참조하지 않는 version만 유예 기간 뒤 삭제한다.

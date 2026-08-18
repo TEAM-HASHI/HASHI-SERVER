@@ -103,6 +103,11 @@ URL이다. USER, ADMIN, ONBOARDING이 모두 이 API를 호출할 수 있고 usa
 | `MAGAZINE_BANNER` | ADMIN | `MAGAZINE_BANNER` |
 | `MAGAZINE_THUMBNAIL` | ADMIN | `MAGAZINE_THUMBNAIL` |
 
+현재 SecurityConfig는 일반 `/api/v1/**`를 USER 중심으로 제한하므로 media 구현 PR에서
+`/api/v1/media/**`를 USER, ADMIN, ONBOARDING 중 하나로 인증된 actor에게 열어야 한다. Security
+filter는 actor 유형만 확인하고 위 purpose별 세부 허용, 소유권과 상태 검증은 media Service가
+강제한다. 인증되지 않은 요청은 기존 401 계약을 유지한다.
+
 서버는 현재 인증 actor의 유형과 식별자를 기록한다. USER와 ADMIN의 숫자 ID가 같더라도
 같은 소유자로 취급하지 않는다. ONBOARDING의 내부 식별자는 API 응답과 로그에 노출하지
 않는다.
@@ -248,9 +253,9 @@ UNBOUND -> BOUND -> RETIRED
 
 ### 6.4 specVersion 활성화
 
-`image_asset`은 공개 중인 `activeSpecVersion`과 생성 중인 `targetSpecVersion`을 분리한다.
-동시에 하나의 target job만 허용하며 `targetProcessingStatus`, `currentJobId`와
-`lastIssuedSpecVersion`으로 추적한다.
+`image_asset`은 공개 중인 `activeSpecVersion`, `activeSpecDigest`와 생성 중인
+`targetSpecVersion`, `targetSpecDigest`를 분리한다. 동시에 하나의 target job만 허용하며
+`targetProcessingStatus`, `currentJobId`와 `lastIssuedSpecVersion`으로 추적한다.
 
 `specVersion`은 crop, role, 후보 폭과 품질뿐 아니라 Sharp와 encoder, format, metadata 제거,
 색상 처리처럼 출력 bytes에 영향을 주는 전체 pipeline의 전역 단조 증가 버전이다. 출력이 달라질
@@ -264,12 +269,12 @@ UNBOUND -> BOUND -> RETIRED
 | 안정된 READY | 존재 | 모두 `null` | READY |
 | 새 규격 생성 중 | 기존 version | 모두 존재하고 target은 PROCESSING | READY |
 
-- 최초 처리에서는 `activeSpecVersion=null`, `targetSpecVersion=currentPipelineSpecVersion`으로
-  시작한다. v1 최초 배포의 current version은 1이지만, 이후 생성하는 신규 asset은 processing job
-  발급 시점의 current registry version을 사용한다. target이 성공하면 필수 manifest 저장과 같은 transaction에서
-  해당 version을 active로 바꾸고 `targetSpecVersion`, `targetProcessingStatus`, `currentJobId`를
-  비운다. target을 발급할 때 target version을 `lastIssuedSpecVersion`에도 기록하고 성공이나 실패
-  뒤에도 낮추지 않는다.
+- 최초 처리에서는 `activeSpecVersion=null`이며 processing job 발급 시점에
+  `media_pipeline_config`가 가리키는 canonical manifest version과 digest를 target으로 사용한다.
+  v1 최초 배포의 current version은 1이다. target이 성공하면 필수 manifest 저장과 같은
+  transaction에서 해당 version과 digest를 active로 바꾸고 `targetSpecVersion`,
+  `targetSpecDigest`, `targetProcessingStatus`, `currentJobId`를 비운다. target을 발급할 때 target
+  version을 `lastIssuedSpecVersion`에도 기록하고 성공이나 실패 뒤에도 낮추지 않는다.
 - 최초 target이 영구 실패하면 공개 상태는 FAILED다. active rendition이 없으므로 source를
   반환하지 않는다. 마지막 실패 규격과 failure code를 기록하고 현재 target 필드는
   비운다. 최초 FAILED asset은 다시 PROCESSING으로 되돌리지 않으며 새 원본은 새 asset으로
@@ -277,28 +282,30 @@ UNBOUND -> BOUND -> RETIRED
 - READY v1 asset을 v2로 재처리할 때는 active v1과 공개 READY 상태를 유지한 채 target v2만
   PROCESSING으로 둔다. v2의 일부 rendition은 공개하지 않는다.
 - v2의 필수 manifest를 모두 검증한 성공 transaction에서만 active를 v2로 원자적으로 바꾸고
-  `targetSpecVersion`, `targetProcessingStatus`, `currentJobId`를 비운다.
+  target digest도 active digest로 옮긴다. `targetSpecVersion`, `targetSpecDigest`,
+  `targetProcessingStatus`, `currentJobId`를 비운다.
   API와 기존 URL compatibility projection은 항상 active version만 읽는다.
 - v2가 일시 실패하거나 DLQ로 이동하면 active v1을 계속 제공한다. 영구 실패도 target만
   실패 처리하고 active v1과 공개 READY 상태를 유지한다. 마지막 실패 규격과 failure
   code를 기록한 뒤 현재 target 필드는 비운다. 해당 실패 target의 partial rendition은 유예 기간
   뒤 cleanup할 수 있다.
-- target 발급 transaction은 asset을 잠근 뒤 새 version이 `lastIssuedSpecVersion`보다 큰지
-  검증하고 target, currentJobId와 `lastIssuedSpecVersion`을 함께 기록한다. 성공, terminal 실패
+- target 발급 transaction은 asset을 잠근 뒤 새 version이 `lastIssuedSpecVersion`보다 큰지와
+  `media_pipeline_config`가 가리키는 canonical manifest의 version과 digest가 일치하는지 검증하고
+  target version, target digest, currentJobId와 `lastIssuedSpecVersion`을 함께 기록한다. 성공,
+  terminal 실패
   또는 supersede 여부와 무관하게 한 번 발급한 spec은 같은 asset에서 다시 사용하지 않는다.
   terminal 실패하거나 obsolete가 된 spec은 같은 asset에서 다시 target이나 active로 사용하지
   않는다. v2가 terminal 실패하면
   재처리는 v3 이상으로만 시작하고, 이전 정책으로 rollback해야 해도 그 정책을 복제한 더 높은
   version을 만든다. 일시 오류, EPR 재발행과 DLQ redrive만 동일 spec과 job ID를 유지한다.
-- 결과 consumer는 source identity, currentJobId, targetSpecVersion,
+- 결과 consumer는 source identity, currentJobId, targetSpecVersion, targetSpecDigest,
   `targetProcessingStatus=PROCESSING`과 cleanup ACTIVE를 모두 만족하는 target 결과만 반영한다.
   이전 target의 늦은 성공과 실패 결과는 무시한다.
 - 한 번 active였던 rendition과 DB manifest는 v1에서 자동 삭제하지 않는다. 외부에 발급한
   immutable URL의 최대 수명과 운영 승인 절차를 정한 뒤 후속 범위에서 정리한다. object-only
   reconciliation은 active, 현재 PROCESSING target과 DB manifest가 있는 과거 active spec을
   보존하고 terminal FAILED target의 manifest 없는 partial object만 실패 보존 기간 뒤 정리한다.
-  outstanding target, EPR과 SQS/DLQ 메시지가 참조하는 과거 spec registry 정의는 모두 종료될
-  때까지 코드에 유지한다. 실패 보존 기간은 운영 배포 전에 확정한다.
+  canonical spec manifest는 append-only로 유지한다. 실패 보존 기간은 운영 배포 전에 확정한다.
 
 ## 7. 업로드 API
 
@@ -331,8 +338,10 @@ POST /api/v1/media/assets
       "status": "PENDING_UPLOAD",
       "uploadUrl": "https://example-presigned-put-url",
       "requiredHeaders": {
-        "Content-Type": "image/jpeg"
+        "Content-Type": "image/jpeg",
+        "If-None-Match": "*"
       },
+      "expectedContentLength": 1048576,
       "expiresInSeconds": 300,
       "uploadMethod": "PUT"
     }
@@ -342,6 +351,17 @@ POST /api/v1/media/assets
 
 - 파일 수와 크기 제한은 기존 계약과 같이 1개부터 10개, 파일당 최대 5MB다.
 - 허용 선언 MIME은 `image/jpeg`, `image/png`, `image/webp`다.
+- 서버는 선언한 `fileSize`를 presigned PUT의 서명된 `Content-Length`로 고정한다. 브라우저가 실제
+  body 길이로 이 header를 자동 설정하므로 클라이언트는 직접 설정하지 않고, 전송 직전
+  `file.size`가 `expectedContentLength`와 같은 동일 파일인지 확인한다. presigner가
+  `content-length`, `content-type`과 `if-none-match`를 signed headers에 포함하지 못하면 URL을
+  발급하지 않는다.
+  `requiredHeaders`에는 브라우저가 직접 설정해야 하는 `Content-Type`과 `If-None-Match`만 제공한다.
+- 신규 original PUT은 서명된 `If-None-Match: *` 조건을 사용하고 original bucket CORS도 이 header를
+  허용한다. 같은 key의 첫 업로드만 200으로 성공하고 이후 또는 동시 재사용은 412나 409로
+  거부한다. 412를 받은 클라이언트는 object가 이미 저장된 것으로 보고 complete를 호출한다.
+  409는 complete로 object 존재를 확인한 뒤 고정할 source가 없을 때만 새 asset을 발급받는다.
+  같은 presigned URL로 무조건 재업로드하지 않는다.
 - 서버가 original object key를 생성하며 사용자 파일명을 포함하지 않는다.
 - 응답에 original URL, object key, CloudFront URL을 포함하지 않는다.
 - `assetId`는 외부에 노출하는 추측하기 어려운 식별자다.
@@ -426,6 +446,15 @@ GET /api/v1/media/assets?assetIds={assetId1},{assetId2}
 | `MEDIA_INVALID_STATE` | 409 | 현재 상태에서 요청한 전이를 수행할 수 없음 |
 | `MEDIA_ALREADY_BOUND` | 409 | single-use asset이 이미 연결됐거나 RETIRED임 |
 | `MEDIA_DUPLICATE_ASSET` | 400 | 한 요청에 같은 asset ID가 중복됨 |
+| `MEDIA_PIPELINE_UNAVAILABLE` | 503 | config fail-closed 또는 운영 pause로 신규 asset 발급이나 PENDING_UPLOAD 완료 전이가 일시 중지됨 |
+
+asset 생성은 `issuance_enabled=false` 또는 config 검증 실패 때
+`MEDIA_PIPELINE_UNAVAILABLE`을 반환한다. 완료 요청은 PENDING_UPLOAD를 PROCESSING으로 바꿔 새 job을
+발급해야 하는 asset이 하나라도 있으면 전체 요청을 같은 503으로 거부하고 어떤 상태도 바꾸지
+않는다. 모든 asset이 이미 PROCESSING이나 READY여서 새 job이 필요 없는 멱등 재호출은 pause 중에도
+현재 상태를 반환하며 FAILED와 EXPIRED는 기존 error 규칙을 유지한다. 중지 시간을 미리 알 수 없으므로
+v1은 `Retry-After` 값을 임의로 약속하지 않고, 클라이언트는 짧은 반복 호출 대신 제한된 지수
+backoff와 사용자 재시도를 사용한다.
 
 ### 7.5 요청 남용 방지
 
@@ -770,7 +799,8 @@ WebP quality와 worker 제한 시간은 대표 운영 이미지 benchmark 후 �
 crop, 후보 폭, quality처럼 출력 bytes를 바꾸는 변경은 target `specVersion`을 올리고 기존
 active object를 덮어쓰지 않는다.
 
-- role 규격은 임의 DB 설정이 아니라 versioned `RenditionSpecRegistry` 코드로 관리한다.
+- role 규격은 임의 DB 설정이나 Java와 Node의 중복 코드가 아니라 저장소의
+  `media-specs/v{specVersion}.json` immutable manifest를 단일 원본으로 관리한다.
 - 원본에서 crop 가능한 width보다 작은 표준 후보만 생성한다.
 - 생성 가능한 표준 후보가 하나도 없으면 원본에서 가능한 최대 width의 WebP 하나를
   생성하며 확대하지 않는다.
@@ -778,6 +808,79 @@ active object를 덮어쓰지 않는다.
   `defaultSource`가 모두 DB에 반영된 상태다.
 - API와 queue의 role enum은 대문자 snake case, S3 key의 role segment는 소문자 kebab case를
   canonical form으로 사용한다.
+
+### 11.1 canonical spec manifest
+
+manifest에는 다음 값을 모두 명시한다.
+
+- manifest schema version과 전역 pipeline specVersion
+- purpose별 필수 role 집합
+- role별 aspect ratio, crop 방식과 기준점
+- 후보의 exact width와 height 쌍, default width
+- no-upscale fallback width와 height의 선택 및 정수 rounding 규칙
+- format, quality, encoder 옵션, metadata와 color 처리
+- 해당 출력을 만들 수 있는 processor revision
+
+`specDigest`는 repository가 LF로 고정한 committed manifest 파일의 정확한 UTF-8 bytes를
+SHA-256으로 계산한 lowercase hex 값이다. 기존 version 파일의 수정과 삭제, 같은 version의
+재발급은 CI에서 거부하고 새 version 파일만 추가한다. Java와 Node build는 같은 파일과 JSON
+Schema를 artifact에 포함하며, 양쪽 contract test가 version, digest, purpose, role과 산출 규격을
+대조한다.
+
+첫 media 구현 PR은 `.gitattributes`에 `media-specs/*.json text eol=lf`를 추가하고 CI가 artifact에
+포함된 bytes의 digest를 다시 계산하도록 한다.
+
+Spring은 processing job을 발급할 때 `media_pipeline_config`가 가리키는 canonical manifest의
+version과 digest를 asset의 target snapshot과 queue request에 기록한다. worker는 packaged
+manifest의 version과 digest가 request와 일치할 때만 변환하고 result에도 같은 digest를 반환한다.
+Spring consumer도 target digest와 result digest를 대조한다. unknown version과 digest mismatch는
+사용자 이미지의 terminal FAILED가 아니라 retry, DLQ와 운영 알람 대상으로 처리한다.
+
+공개된 canonical manifest는 기존 active asset의 `defaultSource`와 후보 검증에도 사용하므로
+append-only로 유지하며 v1에서는 제거하지 않는다. processor 실행 지원은 해당 version을 참조하는
+target, currentJobId, 미완료 EPR, request와 result queue, DLQ가 모두 0인 것을 확인한 후속 배포에서만
+제거할 수 있다.
+
+새 spec은 다음 순서로 배포한다.
+
+1. 기존 spec과 vN을 함께 지원하는 worker를 새 Lambda version 또는 alias로 먼저 배포한다.
+2. 배포 artifact의 supported version과 digest를 compatibility check로 확인한다.
+3. 같은 manifest를 포함한 Spring을 배포하되 current version은 기존 값으로 유지한다. 모든 serving
+   API, EPR publisher와 result consumer instance가 vN version과 digest를 지원하는 release로
+   교체되고 readiness와 compatibility check를 통과했으며 구 instance가 0임을 확인한다.
+4. media 내부 단일 row `media_pipeline_config`의 current spec version과 digest를 atomic
+   compare-and-set으로 vN에 올린다. 일반 upgrade는 `(oldVersion, oldDigest, true)`에서
+   `(vN, vNDigest, true)`로 전환한다. instance별 environment 값으로 따로 활성화하지 않는다.
+   spec version은 증가만 허용하며 한번 활성화한 current version은 낮추지 않고 rollback도 current
+   vN을 유지한다.
+5. 이전 target, currentJobId, EPR, request와 result queue, DLQ가 모두 소진되고 보존 기간이
+   지났는지 확인한 뒤에만 구 processor 실행 지원을 제거한다.
+
+worker rollback은 outstanding spec을 모두 지원하는 artifact로만 허용한다. vN active data가 생긴
+뒤 vN manifest가 없는 과거 Spring binary로 단순 rollback하지 않고, append-only manifest를 포함한
+forward fix 또는 hotfix를 사용한다.
+
+Sharp native version 변경처럼 한 worker artifact에서 구 processor와 vN을 함께 지원할 수 없으면
+`media_pipeline_config.issuance_enabled`를 false로 바꿔 새 processing job 발급을 먼저 중지하고
+기존 target, EPR, request와 result queue, DLQ를 모두 drain한 뒤 worker와 Spring을 교체하고
+새 fleet의 vN compatibility를 확인한다. 이후 config tuple을 `(oldVersion, oldDigest, false)`에서
+`(vN, vNDigest, true)`로 한 번의 compare-and-set으로 전환한다. CAS가 실패하면 old pointer와
+issuance false를 유지해 vN-only worker에 old spec job을 발급하지 않는다. 이 절차는 운영
+runbook과 복구 검증을 통과한 경우에만 사용한다.
+
+최초 rollout은 migration이 seed한 `(v1, v1Digest, false)`를 그대로 두고 worker와 모든 Spring
+instance의 v1 compatibility를 확인한 뒤 `(v1, v1Digest, true)`로 flag만 compare-and-set한다.
+동일 spec의 운영 pause와 resume도 version과 digest를 바꾸지 않고 flag만 compare-and-set한다.
+따라서 증가만 허용하는 대상은 spec version이고 `issuance_enabled`는 승인된 운영 절차에서만
+false와 true 사이를 전환할 수 있다.
+
+job 발급과 이를 허용하는 create, PENDING_UPLOAD complete, backfill과 upgrade transaction은
+`media_pipeline_config` row를 shared lock으로 먼저 읽고 commit까지 유지한 뒤 asset을 잠근다.
+config의 활성화, pause와 resume CAS는 같은 row의 exclusive lock과 조건 update로 직렬화한다.
+따라서 pause CAS가 commit돼 반환될 때는 이전 true snapshot으로 시작한 transaction이 모두 끝났고,
+그 이후 요청은 false를 보므로 drain 완료 뒤 old job이 새로 나타나지 않는다. S3와 SQS I/O는 이
+잠금 transaction 안에서 실행하지 않으며 전체 lock 순서는 config row 다음 내부 asset ID
+오름차순으로 통일한다.
 
 ## 12. S3 key와 공개 범위
 
@@ -791,12 +894,12 @@ active object를 덮어쓰지 않는다.
 - CloudFront가 original bucket을 origin으로 사용하지 않는다.
 - API와 큐 결과가 original URL을 노출하지 않는다.
 - key 예시: `media/originals/{assetId}/original`
-- 완료 뒤 같은 presigned URL로 새 version이 업로드돼도 현재 job은 고정된 version만 읽는다.
-  다른 원본으로 다시 시도하려면 새 asset을 생성한다.
-- 같은 presigned PUT 재사용으로 생성된 version은 application cleanup 대상이다. S3
-  noncurrent lifecycle을 사용하지 않고 모든 version을 DB의 sourceVersionId와 비교한다.
-  예를 들어 complete가 A를 고정한 뒤 B가 업로드되면 current인 B가 미참조여도 유예 기간 뒤
-  삭제하고 noncurrent인 A는 보존한다.
+- 서명된 `If-None-Match: *` 조건 때문에 같은 presigned URL의 두 번째 PUT은 412나 409로
+  거부된다. 다른 원본으로 다시 시도하려면 새 asset을 생성한다.
+- version reconciliation은 backfill copy의 crash 또는 race, v1 이전 object와 IAM 또는 설정
+  오류로 생긴 DB 미참조 version을 방어적으로 정리한다. S3 noncurrent lifecycle을 사용하지 않고
+  모든 version을 DB의 sourceVersionId와 비교해 canonical source는 current 여부와 무관하게
+  보존한다.
 
 ### 12.2 파생본
 
@@ -830,16 +933,19 @@ media/renditions/{assetId}/v{specVersion}/{role}/{width}.webp
   "assetId": "a3af06f1-4ef2-46f8-a489-2347fb840447",
   "purpose": "REVIEW",
   "specVersion": 1,
+  "specDigest": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
   "originalKey": "media/originals/a3af.../original",
   "sourceVersionId": "3Lg...",
   "sourceETag": "etag-value",
   "declaredContentType": "image/jpeg",
-  "declaredByteSize": 1048576,
-  "roles": ["REVIEW_PREVIEW", "REVIEW_DETAIL"]
+  "declaredByteSize": 1048576
 }
 ```
 
-요청의 `specVersion`은 image_asset의 현재 `targetSpecVersion`이다.
+요청의 `specVersion`과 `specDigest`는 image_asset의 현재 target snapshot과 일치해야 한다.
+worker가 만들 필수 role 집합은 request의 `purpose`와 canonical manifest만으로 결정한다. queue
+request는 `roles`를 중복 전달하지 않는다. purpose가 manifest에 없거나 asset snapshot과 다르면
+사용자 이미지 FAILED가 아니라 contract mismatch로 retry, DLQ와 운영 알람에 남긴다.
 
 ### 13.2 성공 결과
 
@@ -849,6 +955,7 @@ media/renditions/{assetId}/v{specVersion}/{role}/{width}.webp
   "jobId": "f57dbf16-f7ca-46ec-8d80-8142be93d12a",
   "assetId": "a3af06f1-4ef2-46f8-a489-2347fb840447",
   "specVersion": 1,
+  "specDigest": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
   "status": "SUCCEEDED",
   "sourceVersionId": "3Lg...",
   "sourceETag": "etag-value",
@@ -890,6 +997,7 @@ media/renditions/{assetId}/v{specVersion}/{role}/{width}.webp
   "jobId": "f57dbf16-f7ca-46ec-8d80-8142be93d12a",
   "assetId": "a3af06f1-4ef2-46f8-a489-2347fb840447",
   "specVersion": 1,
+  "specDigest": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
   "status": "FAILED",
   "sourceVersionId": "3Lg...",
   "sourceETag": "etag-value",
@@ -900,6 +1008,8 @@ media/renditions/{assetId}/v{specVersion}/{role}/{width}.webp
 failure message에는 사용자 파일명, URL, stack trace와 원본 metadata를 넣지 않는다. worker는
 실제 MIME 불일치, decode 실패, 픽셀 제한 초과처럼 재시도로 해결되지 않는 오류에만 FAILED
 결과를 보낸다. 일시적인 storage, network, timeout 오류는 실패를 반환해 SQS가 재시도하게 한다.
+unknown specVersion과 specDigest mismatch도 FAILED 결과로 확정하지 않고 invocation을 실패시켜
+재시도와 DLQ로 보낸 뒤 운영 알람을 발생시킨다.
 
 ### 13.4 멱등성
 
@@ -923,11 +1033,15 @@ failure message에는 사용자 파일명, URL, stack trace와 원본 metadata�
 - ETag는 보안 checksum이 아니라 source version marker로만 사용한다.
 - worker는 originalKey가 assetId와 허용 prefix에 맞는지 검증하고, 지정한 S3 version ID와
   `If-Match: sourceETag` 조건으로 원본을 읽는다.
-- Spring consumer는 currentJobId, sourceVersionId, ETag, targetSpecVersion이 모두 일치하고
+- Spring consumer는 currentJobId, sourceVersionId, ETag, targetSpecVersion과 targetSpecDigest가
+  모두 일치하고
   `targetProcessingStatus=PROCESSING`,
   `cleanupStatus=ACTIVE`인 결과만
   반영한다. 예상 purpose와 role, width, format, deterministic object key, `verifiedSource`의
   필수 값과 범위도 검증한다.
+- consumer는 currentJobId, source identity와 target 일치를 manifest lookup보다 먼저 확인한다.
+  stale 또는 superseded result는 spec을 해석하지 않고 ack와 no-op으로 끝낸다. 현재 target의
+  unknown version 또는 digest mismatch만 retry, result DLQ와 운영 알람으로 보낸다.
 - Spring은 DB commit 성공 후에만 result message를 ack한다.
 - batch를 사용하면 실패한 item만 재시도한다.
 
@@ -991,6 +1105,29 @@ backfill 항목부터 점진적으로 전환하고, 미전환 항목은 `assetId
 
 필요한 schema 불변식은 다음과 같다.
 
+- `media_pipeline_config`는 fixed PK `id=1`과 DB check로 singleton을 강제한다. row는
+  `current_spec_version`, `current_spec_digest`, `issuance_enabled`, optimistic `lock_version`과
+  `updated_at`을 가진다. 첫 migration은 packaged v1 manifest와 같은 version과 digest,
+  `issuance_enabled=false`로 seed한다.
+- job 발급은 같은 DB transaction에서 config snapshot을 읽는다. 활성화는 이전 version과 digest를
+  조건으로 한 compare-and-set이고 version 감소를 거부한다. 최초 활성화는 같은 v1 version과
+  digest에서 issuance false를 true로 바꾸고, 일반 upgrade는 old version과 digest, issuance true를
+  vN version과 digest, issuance true로 바꾼다. 운영 pause와 resume은 같은 version과 digest에서
+  flag만 바꾼다. 활성화와 job 발급이 경합하면 job은 원자적인 old 또는 new snapshot 하나를
+  사용하며 둘 다 지원 중이므로 유효하다. public web 변경 API는 두지 않는다.
+- job 발급과 gated create, complete, backfill, upgrade는 config row를 shared lock으로 먼저 읽고
+  commit까지 유지한다. config CAS는 exclusive lock으로 직렬화하며 lock 순서는 config 다음 내부
+  asset ID 오름차순이다. pause CAS가 commit된 뒤에는 이전 true snapshot의 transaction이 남지 않아
+  drain 중 old job이 뒤늦게 추가되지 않는다.
+- config row가 없거나 중복됐거나 packaged manifest의 version과 digest와 일치하지 않으면 media
+  job 발급을 fail-closed로 차단하고 별도 media issuance capability indicator 또는 metric을
+  `DEGRADED`로 노출해 운영 알람을 보낸다. global liveness와 read-serving readiness는 유지해 기존
+  result 처리, READY와 legacy 요청을 계속 제공하고 media write만 503으로 차단한다. 값은 worker,
+  Spring과 클라이언트 compatibility 확인 뒤 승인된 운영 절차에서만 true로 전환한다.
+- `issuance_enabled=false`는 신규 media asset create, PENDING_UPLOAD complete, backfill과 spec
+  upgrade의 새 job 발급을 서비스 일시 불가로 차단한다. 새 job이 필요 없는 PROCESSING 또는 READY
+  complete 멱등 재호출, 이미 발급된 job의 EPR publish, result consume, redrive와 drain, READY 이미지
+  조회, legacy upload와 legacy read는 계속 동작한다.
 - `restaurant_image.file_key`, `review_image.file_key`, `magazine.banner_key`,
   `magazine.thumbnail_key`는 media-backed write를 위해 nullable로 완화한다.
 - restaurant image와 review image의 각 row는 legacy key 또는 public asset ID 중 최소 하나를
@@ -1002,6 +1139,9 @@ backfill 항목부터 점진적으로 전환하고, 미전환 항목은 `assetId
 - `image_asset.backfill_identity_hash`는 일반 업로드에서 null이고 backfill에서만 사용하는
   nullable unique 값이다.
 - dummy key, private original key와 rendition key를 legacy key column에 저장하지 않는다.
+- cleanup candidate와 장기 PROCESSING 복구는 `(기준시각, id)` keyset batch로 조회한다. 실제
+  query predicate에 맞춰 cleanupStatus, processing 또는 binding 상태, 기준시각과 id를 포함하는
+  composite index를 구현 PR에서 확정한다.
 
 전환 중 허용되는 저장 형태는 다음과 같다.
 
@@ -1056,7 +1196,8 @@ publisher가 event를 재처리할 때 asset의 currentJobId가 event jobId와 �
 
 ## 16. 검증 계약
 
-- purpose별 USER, ADMIN, ONBOARDING 권한과 소유권을 테스트한다.
+- Security filter에서 `/api/v1/media/**`의 USER, ADMIN, ONBOARDING 인증을 모두 허용하되, media
+  Service가 purpose별 허용과 거부, 소유권을 강제하고 미인증 요청은 401인지 통합 테스트한다.
 - public API가 `SYSTEM_BACKFILL` asset의 생성, 조회와 claim을 허용하지 않고, trusted
   `MediaBackfillPort`만 source identity, purpose, system origin, READY, UNBOUND와 ACTIVE cleanup
   상태를 모두 만족한 asset을 연결하는지 테스트한다.
@@ -1072,8 +1213,9 @@ publisher가 event를 재처리할 때 asset의 currentJobId가 event jobId와 �
 - terminal v2 뒤 같은 asset의 v2 재사용과 하향 active 전환을 거부하고 v3 이상의 target만
   허용하는지 테스트한다. 동일 v2 job의 EPR 재발행과 DLQ redrive는 같은 job ID와 bytes로
   멱등 처리되는지 테스트한다.
-- current registry가 v5일 때 신규 asset의 최초 target, lastIssuedSpecVersion, job ID와 object key가
-  모두 v5를 사용하고 obsolete v1을 요청하지 않는지 테스트한다.
+- `media_pipeline_config`가 v5 manifest를 가리킬 때 신규 asset의 최초 target,
+  lastIssuedSpecVersion, job ID와 object key가 모두 v5를 사용하고 obsolete v1을 요청하지 않는지
+  테스트한다.
 - admin A가 연결한 asset을 권한 있는 admin B가 교체하는 경우, USER와 ADMIN이 각 도메인
   권한으로 SYSTEM_BACKFILL association을 제거하는 경우, 현재 association에 없는 임의 asset
   retire 거부와 transaction rollback을 테스트한다.
@@ -1081,21 +1223,47 @@ publisher가 event를 재처리할 때 asset의 currentJobId가 event jobId와 �
   재전송이 stable association ID와 asset binding을 보존하는지 테스트한다.
 - restaurant association 두 개의 순서 교환과 중복 legacy key의 multiset 매칭이 1-based
   displayOrder, unique 제약과 stable ID를 지키는지 테스트한다.
-- Java publisher와 Node worker가 같은 JSON Schema 또는 golden fixture를 읽는 계약 테스트를
-  둔다.
+- Java publisher와 Node worker가 request, success result와 failure result의 같은 JSON Schema 또는
+  golden fixture를 읽고 specDigest를 포함한 queue wire 계약을 동일하게 해석하는 테스트를 둔다.
+- Java publisher와 Node worker가 모든 append-only spec manifest와 같은 manifest JSON Schema를
+  읽고 version, digest, purpose별 role, exact 산출 규격을 동일하게 해석하는 계약 테스트를 둔다.
+- 기존 manifest 수정과 삭제는 CI가 거부하는지, current v5 request와 result의 digest가 target과
+  일치하는지 테스트한다.
+- unknown version과 digest mismatch가 asset을 FAILED로 바꾸지 않고 retry와 DLQ로 이동한 뒤
+  compatible worker 배포 후 redrive되는지 테스트한다.
+- config singleton과 false seed, row 누락과 packaged digest mismatch의 fail-closed media issuance
+  `DEGRADED` indicator, global liveness와 read-serving readiness 유지,
+  최초 `(v1, digest, false)`에서 `(v1, digest, true)` 활성화, 일반
+  `(oldVersion, oldDigest, true)`에서 `(vN, vNDigest, true)` upgrade, 동일 spec pause와 resume,
+  spec version 감소 거부를 테스트한다.
+- issuance disabled가 신규 media create와 PENDING_UPLOAD complete, backfill과 upgrade 발급만 막고
+  PROCESSING 또는 READY complete 멱등 재호출, 기존 publish, result consume, redrive, READY와 legacy
+  read를 막지 않는지 테스트한다.
+- incompatible processor 교체는 old tuple과 issuance false에서 drain한 뒤 vN tuple과 true로 한
+  번에 CAS되며, CAS 실패 시 old tuple과 false가 유지돼 old spec job을 vN-only worker에 발급하지
+  않는지 테스트한다.
+- MySQL latch 기반 동시성 테스트에서 true config shared lock을 가진 발급 transaction이 끝날 때까지
+  pause CAS가 대기하고, pause commit 뒤 시작한 요청은 503이며 drain 확인 뒤 old job이 추가되지
+  않는지 검증한다. config 다음 asset 순서를 어기는 lock 획득이 없는지도 검증한다.
+- old active v1의 defaultSource와 후보가 v2와 v5 manifest 추가 뒤에도 같고, drain 전 구 processor
+  지원 제거와 outstanding spec을 지원하지 않는 worker 또는 Spring rollback을 차단하는지 검증한다.
 - MIME 위조, 손상 파일, APNG와 animated WebP를 포함한 multi-frame 입력, 과도한 frame별 픽셀과
   전체 decode 픽셀, EXIF 회전, metadata 제거, 투명 배경과 원본보다 작은 이미지 fixture를
   worker에서 검증한다.
 - MySQL Testcontainers로 migration, representation check, unique 제약과 row lock 경쟁을
   검증한다.
+- cleanup과 장기 PROCESSING scan은 데이터가 늘어도 OFFSET이나 full table scan을 사용하지 않고
+  composite index와 keyset pagination을 타는지 MySQL EXPLAIN과 batch 경계 테스트로 검증한다.
 - legacy URL projection, private original copy, source ETag 변경과 backfill 재실행 안전성을
   테스트한다.
 - backfill identity 동시 생성, `CopySourceIfMatch` 412, copy 직전과 직후 process 중단,
   destination version 재사용과 READY 이후 원자적인 claim을 테스트한다.
 - PENDING_UPLOAD, EXPIRED, 장기 UNBOUND와 DB 미참조 version cleanup이 BOUND 여부와 current
   여부가 다른 canonical version을 삭제하지 않는지 테스트한다.
-- complete가 version A를 고정한 뒤 B가 재업로드된 경우 cleanup이 A를 보존하고 미참조 B만
-  삭제한 뒤 A로 redrive와 rendition 재생성이 가능한지 테스트한다.
+- version A의 첫 PUT이 성공한 뒤 같은 URL의 B PUT은 412나 409로 거부되고, complete와 redrive가
+  A를 canonical source로 계속 사용하는지 테스트한다.
+- backfill copy crash 또는 race, v1 이전 data와 설정 오류 fixture로 주입한 DB 미참조 version만
+  cleanup이 삭제하고, current 여부가 다른 canonical source는 보존하는지 테스트한다.
 - FAILED BOUND는 object만 정리하고 tombstone과 리뷰 슬롯을 유지하며, 일반 업로드 FAILED
   UNBOUND는 object와 asset row를 정리하는지 테스트한다.
 - FAILED BOUND object가 PURGED된 뒤 현재 association에서 제거하면 RETIRED로 바뀌고,
@@ -1112,6 +1280,15 @@ publisher가 event를 재처리할 때 asset의 currentJobId가 event jobId와 �
   lease가 정상 asset 삭제를 막고 같은 token 재시도가 수렴하는지 테스트한다.
 - result consumer가 PURGING asset과 현재 target이 아닌 늦은 결과를 거부하는지 테스트한다.
 - presigned PUT부터 READY 응답까지 E2E와 request, result DLQ redrive를 검증한다.
+- presigner가 선언 MIME과 `expectedContentLength`를 signed headers에 포함하는지 단위 테스트하고,
+  같은 길이의 PUT은 성공하지만 다른 길이는 S3 signature 검증에서 거부되는지 통합 테스트한다.
+  complete API도 고정된 source version의 HEAD 크기를 다시 검증한다.
+- `If-None-Match: *`가 presigned signed headers와 응답 requiredHeaders에 포함되고 CORS preflight를
+  통과하는지, 첫 PUT만 성공하며 동일 URL의 순차 또는 동시 재사용이 412나 409로 거부되고
+  complete 또는 새 asset 발급으로 수렴하는지 실제 S3 통합 테스트로 검증한다.
+- issuance pause와 config fail-closed 때 asset 생성과 새 job이 필요한 PENDING_UPLOAD 완료 요청은
+  같은 retryable 503과 no-transition으로 끝나지만, 전부 PROCESSING 또는 READY인 완료 재호출은 현재
+  상태를 반환하고 기존 result 처리와 READY 및 legacy read도 계속 동작하는지 검증한다.
 
 ## 17. 관측과 완료 기준
 
