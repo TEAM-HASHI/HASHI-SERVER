@@ -80,11 +80,12 @@ public interface CurrentActorProvider {
 `image_asset`은 다음 범주의 값을 소유한다.
 
 - 내부 숫자 PK와 외부 UUID public ID
-- purpose, specVersion
+- purpose, nullable activeSpecVersion, nullable targetSpecVersion, targetProcessingStatus,
+  attemptGeneration
 - creationOrigin, creator와 current owner의 actor type, 내부 subject. 일반 업로드는 인증
   actor를 기록하고 backfill은 `SYSTEM_BACKFILL` origin과 owner, null subject를 기록한다.
 - original object key, S3 version ID, ETag, 실제 MIME, bytes, width, height, checksum
-- processingStatus, bindingStatus, current job ID, 안전한 failure code
+- processingStatus, bindingStatus, current job ID, 마지막 실패 spec, attempt와 안전한 failure code
 - legacy backfill 재실행용 nullable unique `backfillIdentityHash`
 - `cleanupStatus`, nullable `purgeToken`, `purgeStartedAt`, `objectsPurgedAt`
 - 낙관적 version과 생성, 수정 시각
@@ -92,6 +93,17 @@ public interface CurrentActorProvider {
 `image_rendition`은 media 내부 asset FK, role, specVersion, format, 실제 width와 height,
 bytes와 object key를 소유한다. `(asset_id, role, spec_version, format, width)`를 unique로
 보호한다.
+
+최초 처리는 active version 없이 target v1을 생성하고, 전체 성공 transaction에서 v1을
+active로 전환한다. 기존 READY asset의 규격을 올릴 때는 active version과 공개 READY 상태를
+유지한 채 target version을 별도로 처리한다. target 필수 manifest 전체를 검증한 transaction에서
+active version만 원자 전환하며, target 실패나 늦은 결과는 기존 active version을 내리지 않는다.
+동시에 하나의 target job만 허용한다. 동일 attempt의 재발행과 redrive는 같은 job ID를 쓰고,
+active version이 있는 upgrade target을 운영자가 같은 source와 spec으로 새로 재시도할 때만
+attemptGeneration을 증가시켜 이전 attempt의 늦은 결과와 구분한다. 최초 FAILED asset은
+PROCESSING으로 되돌리지 않고 새 원본을 새 asset으로 업로드한다. terminal target 실패는 마지막
+실패 정보만 남기고 현재 target 필드를 비워 partial rendition이 유예 기간 뒤 정리될 수 있게
+한다.
 
 원본의 실제 MIME, bytes, width, height와 checksum은 presigned 요청의 선언값이 아니라 worker
 성공 결과의 `verifiedSource`에서만 반영한다. width와 height는 EXIF orientation 보정 후 표시
@@ -164,12 +176,19 @@ SQS 전송 뒤 publication 완료 처리 전에 process가 중단되면 같은 �
 통합 테스트한다. 동작 근거는 [Spring Modulith Event Publication Registry](https://docs.spring.io/spring-modulith/reference/1.4/events.html#events.event-publication-registry)를
 따른다.
 
+미완료 publication 재처리 시 event jobId가 asset의 currentJobId와 다르거나 현재 target이
+없으면 이미 terminal 또는 superseded된 job이므로 SQS를 보내지 않고 정상 반환해 publication을
+완료한다. currentJobId가 같고 target이 PROCESSING일 때만 DB snapshot으로 SQS payload를 만든다.
+
 ### 3.3 상태와 멱등성
 
 - request와 result SQS는 Standard queue와 DLQ를 사용하며 중복과 순서 역전을 전제로 한다.
 - request와 result에 contractVersion, jobId, assetId, sourceVersionId, sourceETag,
-  specVersion을 포함한다.
-- jobId와 파생 object key는 같은 입력에 대해 결정적이다.
+  specVersion, attemptGeneration을 포함한다.
+- jobId는 assetId, sourceVersionId, specVersion, attemptGeneration으로 결정한다. 같은 attempt의
+  EPR 재발행과 DLQ redrive는 같은 jobId를 사용하고, active version이 있는 terminal upgrade를
+  새로 시도할 때만 generation을 증가시킨다. 파생 object key는 같은 source와 spec에 대해
+  결정적이다.
 - DB는 `(asset_id, role, spec_version, format, width)` unique 제약을 둔다.
 - READY가 된 asset은 늦은 이전 job의 FAILED 결과로 내려가지 않는다.
 - 일시 오류는 SQS와 DLQ로 재시도하고 asset을 PROCESSING으로 유지한다. 영구 파일 검증
@@ -228,10 +247,13 @@ Gradle과 Spring runtime dependency에는 포함하지 않고 worker 변경에�
   `objectsPurgedAt` tombstone을 유지해 같은 source를 자동으로 반복 처리하지 않는다. 리뷰에
   연결된 BOUND FAILED도 상태와 슬롯 tombstone을 유지한다.
 - backfill source version ID 또는 ETag가 바뀌면 새 identity로 다시 처리할 수 있다. 같은
-  identity의 재처리는 원인 해결을 확인한 운영자가 기존 failure tombstone을 명시적으로
-  해제하는 runbook으로만 허용한다.
+  identity는 자동 재처리하지 않는다. 원인 해결을 확인한 운영 runbook이 UNBOUND FAILED와
+  object 정리 완료를 검증하고 기존 tombstone row를 삭제한 뒤, 다음 scan이 같은 identity의
+  새 asset과 새 attempt를 생성한다. 기존 FAILED asset을 PROCESSING으로 되돌리지 않는다.
 - original과 rendition prefix를 주기적으로 reconciliation한다. DB asset, rendition manifest
-  또는 현재 PROCESSING job에 대응하지 않는 object는 grace period 뒤 삭제한다.
+  또는 현재 target PROCESSING job에 대응하지 않는 object는 grace period 뒤 삭제한다. 최초
+  processingStatus 또는 targetProcessingStatus가 PROCESSING인 asset은 cleanup 대상으로
+  선택하지 않는다.
 - cleanup은 S3 delete 전에 짧은 transaction에서 현재 상태와 보존 기간을 다시 확인하고
   `cleanupStatus`를 ACTIVE에서 PURGING으로 바꾸며 고유 purgeToken을 기록한다. complete,
   content claim과 backfill claim은 PURGING asset을 거부한다.
@@ -272,12 +294,21 @@ version 보존과 권한 분리를 구조적으로 보장하는 이점이 운영
 - 처리 상태와 별도로 `UNBOUND -> BOUND -> RETIRED` binding lifecycle을 둔다.
 - 이미지 제거와 교체는 콘텐츠 변경과 같은 transaction에서 `MediaPort.retireAssets()`를
   호출한다. RETIRED single-use asset은 다시 claim할 수 없다.
+- retire용 web API는 두지 않는다. association 소유 Aggregate Service가 도메인 권한을 검증하고
+  root를 write lock한 뒤 현재 저장된 association에서 제거 asset을 구한다. media는 BOUND와
+  ACTIVE cleanup 상태를 잠금 후 확인해 retire하며 creator 일치는 요구하지 않는다. 다른
+  관리자가 만든 asset과 SYSTEM_BACKFILL asset도 이 경로로 제거할 수 있지만, 현재 association에
+  없는 요청 asset을 임의로 retire할 수 없다.
 - collection 전체 교체는 도메인 Aggregate를 write lock한 뒤 저장된 association과 요청을
   비교한다. 유지 항목은 그대로 두고 추가 항목만 claim하며 제거 또는 교체 항목만 retire한다.
   scalar에 같은 asset을 다시 보내는 요청은 no-op이다.
 - claim과 retire 대상 asset의 합집합을 media 내부 숫자 ID 오름차순으로 잠근다. 도메인 변경과
   binding 전이는 같은 로컬 DB transaction에서 커밋해 참조되지 않는 BOUND asset을 남기지
   않는다.
+- active spec과 target spec을 분리한다. READY v1을 제공하면서 v2를 생성하고, target의 필수
+  manifest가 모두 준비된 transaction에서만 active를 v2로 바꾼다. target 실패 시 v1을 유지하며
+  API와 compatibility projection은 항상 active spec만 사용한다. cleanup과 result consumer는
+  active, 현재 target과 `cleanupStatus`를 재검증한다.
 - backfill로 legacy key와 public asset ID를 모두 가진 association에 같은 legacy key가 다시
   전달되면 기존 association과 asset ID를 보존한다.
 - restaurant image는 현재와 같이 1부터 시작하는 displayOrder를 사용한다. stable association

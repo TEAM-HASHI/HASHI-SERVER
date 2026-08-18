@@ -120,7 +120,7 @@ legacy backfill은 인증 사용자의 업로드가 아니므로 임의의 ADMIN
 - backfill asset은 콘텐츠에 연결된 뒤에도 인증 사용자의 소유로 위장하지 않는다. 콘텐츠
   association과 BOUND 상태가 사용처를 표현하고, 생성 origin은 감사 정보로 보존한다.
 
-asset 연결 시 다음을 모두 검증한다.
+신규 asset claim 시 다음을 모두 검증한다.
 
 - actor와 발급자가 일치한다.
 - domain이 요구한 purpose와 asset purpose가 일치한다.
@@ -145,7 +145,7 @@ PENDING_UPLOAD
 | --- | --- |
 | `PENDING_UPLOAD` | presigned URL을 발급했지만 서버가 object 업로드 완료를 확인하지 않음 |
 | `PROCESSING` | object 확인을 마쳤고 필수 rendition을 생성하는 중 |
-| `READY` | 현재 specVersion의 필수 rendition이 모두 저장되고 DB에 반영됨 |
+| `READY` | activeSpecVersion의 필수 rendition이 모두 저장되고 DB에 반영됨 |
 | `FAILED` | 동일 원본으로 재시도해도 성공할 수 없는 영구 이미지 검증 실패 |
 | `EXPIRED` | 제한 시간 안에 업로드 완료 확인이 되지 않음 |
 
@@ -182,6 +182,13 @@ UNBOUND -> BOUND -> RETIRED
 | `RETIRED` | 이미지 제거 또는 교체로 연결이 끝났으며 다시 claim할 수 없음 |
 
 - 이미지 제거와 교체는 도메인 변경과 같은 로컬 DB 트랜잭션에서 `MediaPort`로 retire한다.
+- retire용 public web API는 두지 않는다. association을 소유한 Aggregate Service가 도메인
+  권한을 먼저 검증하고 Aggregate를 write lock한 뒤, 요청값이 아니라 현재 저장된 association에서
+  제거 대상 asset ID를 구한다.
+- media는 제거 대상이 BOUND이고 `cleanupStatus=ACTIVE`인지 잠금 후 재검증해 RETIRED로 바꾼다.
+  retire는 creator 일치를 요구하지 않는다. 따라서 다른 관리자가 등록한 운영 이미지와
+  `SYSTEM_BACKFILL` 이미지도 권한 있는 콘텐츠 Service가 현재 association을 제거할 때 retire할
+  수 있다. 현재 association에 없는 임의 asset ID는 retire 대상으로 사용할 수 없다.
 - 콘텐츠 soft delete와 복구 가능 기간에는 기존 연결을 유지한다.
 - 일반 S3 물리 삭제 자동화는 v1에서 제외하지만 논리적인 RETIRED 전이는 v1에 포함한다.
 - backfill asset은 필수 rendition이 READY될 때까지 UNBOUND로 둔다. domain별 backfill runner가
@@ -205,11 +212,14 @@ UNBOUND -> BOUND -> RETIRED
   `objectsPurgedAt` tombstone을 유지해 같은 source를 자동으로 반복 처리하지 않는다. 리뷰에
   연결된 BOUND FAILED도 상태와 슬롯 tombstone을 유지한다.
 - backfill source version ID 또는 ETag가 바뀌면 새 identity로 처리한다. 같은 identity의
-  failure tombstone은 자동 scan이 재처리하지 않으며, 원인 해결 뒤 승인된 운영 runbook이
-  tombstone을 명시적으로 해제한 경우에만 재시도한다.
-- current 여부와 무관하게 PROCESSING, READY와 복구 가능한 asset이 참조하는 canonical
-  sourceVersionId는 보존한다. DB asset, rendition manifest 또는 현재 PROCESSING job에 없는
-  original과 rendition object는 reconciliation이 grace period 뒤 정리한다.
+  failure tombstone은 자동 scan이 재처리하지 않는다. 원인 해결 뒤 승인된 운영 runbook은
+  UNBOUND FAILED와 object 정리 완료를 다시 검증하고 기존 tombstone row를 삭제한다. 다음 scan은
+  같은 identity로 새 asset과 새 attempt를 생성하며 기존 FAILED asset을 PROCESSING으로
+  되돌리지 않는다.
+- current 여부와 무관하게 최초 processingStatus 또는 targetProcessingStatus가 PROCESSING인
+  asset은 cleanup 대상으로 선택하지 않는다. READY와 복구 가능한 asset이 참조하는 canonical
+  sourceVersionId도 보존한다. DB asset, rendition manifest 또는 현재 target job에 없는 original과
+  rendition object만 reconciliation이 grace period 뒤 정리한다.
 - cleanup은 S3 delete 전에 짧은 transaction에서 상태와 보존 기간을 재확인하고
   `cleanupStatus: ACTIVE -> PURGING`과 고유 purgeToken을 기록한다. complete, content claim과
   backfill claim은 PURGING asset을 거부한다.
@@ -220,6 +230,46 @@ UNBOUND -> BOUND -> RETIRED
   남긴다.
 - 개인정보 hard delete 자동화 전에는 승인된 운영 runbook으로 원본, 파생본과 필요한 CDN
   cache를 함께 정리한다.
+
+### 6.4 specVersion 활성화
+
+`image_asset`은 공개 중인 `activeSpecVersion`과 생성 중인 `targetSpecVersion`을 분리한다.
+동시에 하나의 target job만 허용하며 `targetProcessingStatus`, `attemptGeneration`과
+`currentJobId`로 추적한다.
+
+| 상태 | active | target과 현재 attempt | 공개 상태 |
+| --- | --- | --- | --- |
+| 업로드 대기 | `null` | 모두 `null` | 공개 불가 |
+| 최초 변환 중 | `null` | 모두 존재하고 target은 PROCESSING | PROCESSING |
+| 최초 영구 실패 | `null` | 현재 target은 모두 `null`, 마지막 실패 정보만 보존 | FAILED |
+| 안정된 READY | 존재 | 모두 `null` | READY |
+| 새 규격 생성 중 | 기존 version | 모두 존재하고 target은 PROCESSING | READY |
+
+- 최초 처리에서는 `activeSpecVersion=null`, `targetSpecVersion=1`로 시작한다. target이 성공하면
+  필수 manifest 저장과 같은 transaction에서 active를 1로 바꾸고 `targetSpecVersion`,
+  `targetProcessingStatus`, `attemptGeneration`, `currentJobId`를 비운다.
+- 최초 target이 영구 실패하면 공개 상태는 FAILED다. active rendition이 없으므로 source를
+  반환하지 않는다. 마지막 실패 규격, attempt와 failure code를 기록하고 현재 target 필드는
+  비운다. 최초 FAILED asset은 다시 PROCESSING으로 되돌리지 않으며 새 원본은 새 asset으로
+  업로드한다.
+- READY v1 asset을 v2로 재처리할 때는 active v1과 공개 READY 상태를 유지한 채 target v2만
+  PROCESSING으로 둔다. v2의 일부 rendition은 공개하지 않는다.
+- v2의 필수 manifest를 모두 검증한 성공 transaction에서만 active를 v2로 원자적으로 바꾸고
+  `targetSpecVersion`, `targetProcessingStatus`, `attemptGeneration`, `currentJobId`를 비운다.
+  API와 기존 URL compatibility projection은 항상 active version만 읽는다.
+- v2가 일시 실패하거나 DLQ로 이동하면 active v1을 계속 제공한다. 영구 실패도 target만
+  실패 처리하고 active v1과 공개 READY 상태를 유지한다. 마지막 실패 규격, attempt와 failure
+  code를 기록한 뒤 현재 target 필드는 비운다. 해당 실패 target의 partial rendition은 유예 기간
+  뒤 cleanup할 수 있다.
+- active version이 있는 upgrade target이 영구 실패한 뒤 같은 source와 spec을 운영자가
+  명시적으로 다시 시도할 때는 `attemptGeneration`을 증가시켜 새 currentJobId를 만든다. 동일
+  attempt의 EPR 재발행과 DLQ redrive는 generation과 job ID를 그대로 유지한다.
+- 결과 consumer는 source identity, currentJobId, targetSpecVersion,
+  `targetProcessingStatus=PROCESSING`과 cleanup ACTIVE를 모두 만족하는 target 결과만 반영한다.
+  이전 target의 늦은 성공과 실패 결과는 무시한다.
+- 이전 active rendition은 rollback 유예 기간 동안 유지한다. cleanup은 active와 현재
+  PROCESSING target spec의 object를 삭제하지 않으며, terminal FAILED target의 partial object는
+  실패 보존 기간 뒤 정리한다. 유예 기간과 제거 시점은 운영 배포 전에 확정한다.
 
 ## 7. 업로드 API
 
@@ -631,14 +681,14 @@ GET /api/v1/restaurants/{restaurantId}/reviews/{reviewId}/images
 | `MAGAZINE_THUMBNAIL` | 156:88 중앙 cover | 156, 312, 468 | 312 |
 
 WebP quality와 worker 제한 시간은 대표 운영 이미지 benchmark 후 구현 이슈에서 확정한다.
-crop, 후보 폭, quality처럼 출력 bytes를 바꾸는 변경은 `specVersion`을 올리고 기존 object를
-덮어쓰지 않는다.
+crop, 후보 폭, quality처럼 출력 bytes를 바꾸는 변경은 target `specVersion`을 올리고 기존
+active object를 덮어쓰지 않는다.
 
 - role 규격은 임의 DB 설정이 아니라 versioned `RenditionSpecRegistry` 코드로 관리한다.
 - 원본에서 crop 가능한 width보다 작은 표준 후보만 생성한다.
 - 생성 가능한 표준 후보가 하나도 없으면 원본에서 가능한 최대 width의 WebP 하나를
   생성하며 확대하지 않는다.
-- asset READY는 해당 원본과 specVersion에서 생성 가능한 필수 role 후보와 각 role의
+- asset READY는 해당 원본과 activeSpecVersion에서 생성 가능한 필수 role 후보와 각 role의
   `defaultSource`가 모두 DB에 반영된 상태다.
 - API와 queue의 role enum은 대문자 snake case, S3 key의 role segment는 소문자 kebab case를
   canonical form으로 사용한다.
@@ -694,6 +744,7 @@ media/renditions/{assetId}/v{specVersion}/{role}/{width}.webp
   "assetId": "a3af06f1-4ef2-46f8-a489-2347fb840447",
   "purpose": "REVIEW",
   "specVersion": 1,
+  "attemptGeneration": 1,
   "originalKey": "media/originals/a3af.../original",
   "sourceVersionId": "3Lg...",
   "sourceETag": "etag-value",
@@ -703,6 +754,8 @@ media/renditions/{assetId}/v{specVersion}/{role}/{width}.webp
 }
 ```
 
+요청의 `specVersion`은 image_asset의 현재 `targetSpecVersion`이다.
+
 ### 13.2 성공 결과
 
 ```json
@@ -711,6 +764,7 @@ media/renditions/{assetId}/v{specVersion}/{role}/{width}.webp
   "jobId": "f57dbf16-f7ca-46ec-8d80-8142be93d12a",
   "assetId": "a3af06f1-4ef2-46f8-a489-2347fb840447",
   "specVersion": 1,
+  "attemptGeneration": 1,
   "status": "SUCCEEDED",
   "sourceVersionId": "3Lg...",
   "sourceETag": "etag-value",
@@ -752,6 +806,7 @@ media/renditions/{assetId}/v{specVersion}/{role}/{width}.webp
   "jobId": "f57dbf16-f7ca-46ec-8d80-8142be93d12a",
   "assetId": "a3af06f1-4ef2-46f8-a489-2347fb840447",
   "specVersion": 1,
+  "attemptGeneration": 1,
   "status": "FAILED",
   "sourceVersionId": "3Lg...",
   "sourceETag": "etag-value",
@@ -767,17 +822,21 @@ failure message에는 사용자 파일명, URL, stack trace와 원본 metadata�
 
 - request queue와 result queue는 Standard queue로 두고 각각 DLQ를 연결한다. 중복과 순서
   역전을 전제로 한다.
-- job ID는 assetId, sourceVersionId, specVersion으로 계산한 UUIDv5 또는 동등한 결정적
-  idempotency key다. 같은 job을 재발행할 때 DB에 저장된 같은 ID를 사용한다.
-- 동일 asset, sourceVersionId, specVersion의 job은 결정적 job ID와 object key를 사용한다.
+- job ID는 assetId, sourceVersionId, specVersion, attemptGeneration으로 계산한 UUIDv5 또는
+  동등한 결정적 idempotency key다. 같은 attempt를 재발행할 때 DB에 저장된 같은 ID를 사용한다.
+- 동일 asset, sourceVersionId, specVersion, attemptGeneration의 job은 결정적 job ID와 object
+  key를 사용한다. 새 명시적 재시도만 generation을 증가시켜 이전 결과와 구분한다.
 - DB는 `(asset_id, role, spec_version, format, width)`를 unique로 보호한다.
 - worker가 같은 요청을 여러 번 처리해도 최종 object와 manifest가 같아야 한다.
 - Spring consumer가 같은 결과를 여러 번 받아도 DB 결과가 같아야 한다.
-- READY 이후 이전 job 또는 FAILED 결과는 무시한다.
+- 현재 target과 일치하지 않는 이전 job 결과는 무시한다. active rendition이 있는 upgrade의
+  FAILED 결과는 target만 실패 처리하고 공개 READY 상태를 낮추지 않는다.
 - ETag는 보안 checksum이 아니라 source version marker로만 사용한다.
 - worker는 originalKey가 assetId와 허용 prefix에 맞는지 검증하고, 지정한 S3 version ID와
   `If-Match: sourceETag` 조건으로 원본을 읽는다.
-- Spring consumer는 현재 job ID, sourceVersionId, ETag, specVersion이 모두 일치하는 결과만
+- Spring consumer는 currentJobId, attemptGeneration, sourceVersionId, ETag,
+  targetSpecVersion이 모두 일치하고 `targetProcessingStatus=PROCESSING`,
+  `cleanupStatus=ACTIVE`인 결과만
   반영한다. 예상 purpose와 role, width, format, deterministic object key, `verifiedSource`의
   필수 값과 범위도 검증한다.
 - Spring은 DB commit 성공 후에만 result message를 ack한다.
@@ -900,6 +959,11 @@ snapshot을 DB에서 조회해 queue payload를 만들며, listener ID는
 실행 중에도 오래된 미완료 건을 주기적으로 재전송한다. 완료 mode는 v1에서 `delete`다.
 여러 instance의 동시 재전송은 결정적 job ID를 가진 중복 메시지로 흡수한다.
 
+publisher가 event를 재처리할 때 asset의 currentJobId가 event jobId와 다르거나 현재 target이
+없으면 해당 job은 이미 terminal 또는 superseded된 것으로 판단해 SQS를 보내지 않고 정상
+반환한다. Event Publication Registry는 이 no-op publication을 완료 처리한다. currentJobId가
+같고 target이 PROCESSING일 때만 immutable snapshot을 구성해 전송한다.
+
 ## 16. 검증 계약
 
 - purpose별 USER, ADMIN, ONBOARDING 권한과 소유권을 테스트한다.
@@ -909,8 +973,17 @@ snapshot을 DB에서 조회해 queue payload를 만들며, listener ID는
 - 완료 API all-or-nothing, 중복 asset ID와 동시 완료 요청을 테스트한다.
 - event publication 실제 직렬화 저장, listener 실패, 재시작과 주기 재전송, 중복 SQS 발행,
   완료 publication 삭제를 MySQL Testcontainers에서 테스트한다.
+- SQS 전송 뒤 publication 완료 전 중단되고 그 사이 target이 terminal 또는 superseded된 경우,
+  재시작한 publisher가 snapshot 부재를 오류로 반복하지 않고 no-op 완료하는지 테스트한다.
 - source version과 ETag가 다른 stale job과 result를 거부하는지 테스트한다.
 - 상태 전이, binding 전이, READY 이후 늦은 FAILED와 중복 result를 테스트한다.
+- 최초 v1 처리와 READY v1에서 v2 target 처리의 상태를 구분하고, v2 부분 성공과 실패 중에도
+  v1만 제공되는지, v2 전체 성공 시 active version만 원자 전환되는지 테스트한다.
+- 같은 source와 spec의 새 attempt가 이전 attempt의 늦은 성공과 실패를 거부하고, 동일
+  attempt의 EPR 재발행과 DLQ redrive는 같은 job ID로 멱등 처리되는지 테스트한다.
+- admin A가 연결한 asset을 권한 있는 admin B가 교체하는 경우, USER와 ADMIN이 각 도메인
+  권한으로 SYSTEM_BACKFILL association을 제거하는 경우, 현재 association에 없는 임의 asset
+  retire 거부와 transaction rollback을 테스트한다.
 - collection 동시 수정에서 retained, added, removed diff와 backfill association의 legacy key
   재전송이 stable association ID와 asset binding을 보존하는지 테스트한다.
 - restaurant association 두 개의 순서 교환과 중복 legacy key의 multiset 매칭이 1-based
@@ -932,11 +1005,14 @@ snapshot을 DB에서 조회해 queue payload를 만들며, listener ID는
 - FAILED BOUND는 object만 정리하고 tombstone과 리뷰 슬롯을 유지하며, 일반 업로드 FAILED
   UNBOUND는 object와 asset row를 정리하는지 테스트한다.
 - backfill FAILED UNBOUND는 object만 정리하고 identity와 failure tombstone을 유지해 자동
-  재생성이 반복되지 않으며 source identity 변경 또는 명시적 runbook만 재처리하는지 테스트한다.
-- DB에 없는 original, manifest에 없는 rendition과 현재 PROCESSING job의 expected object를
+  재생성이 반복되지 않는지 테스트한다. 명시적 runbook은 정리 완료를 검증해 tombstone row를
+  제거하고 다음 scan이 같은 identity의 새 asset을 생성하며 기존 FAILED asset은 바꾸지 않는지
+  테스트한다.
+- DB에 없는 original, manifest에 없는 rendition과 현재 target PROCESSING job의 expected object를
   구분하는 reconciliation을 테스트한다.
 - cleanup-vs-content claim, cleanup-vs-complete와 cleanup 중 process 중단 경쟁에서 PURGING
   lease가 정상 asset 삭제를 막고 같은 token 재시도가 수렴하는지 테스트한다.
+- result consumer가 PURGING asset과 현재 target이 아닌 늦은 결과를 거부하는지 테스트한다.
 - presigned PUT부터 READY 응답까지 E2E와 request, result DLQ redrive를 검증한다.
 
 ## 17. 관측과 완료 기준
