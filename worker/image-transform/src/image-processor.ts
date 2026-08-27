@@ -62,13 +62,28 @@ export interface ProcessImageInput {
   readonly spec: LoadedMediaSpec;
 }
 
+export type RenditionEncoder = (
+  source: Buffer,
+  roleSpec: RenditionRoleSpec,
+  target: RenditionDimensions,
+) => Promise<EncodedRendition>;
+
+interface EncodedRendition {
+  readonly data: Buffer;
+  readonly width: number;
+  readonly height: number;
+}
+
 interface InspectedSource {
   readonly verified: VerifiedSource;
   readonly orientedWidth: number;
   readonly orientedHeight: number;
 }
 
-export async function processImage(input: ProcessImageInput): Promise<ProcessedImage> {
+export async function processImage(
+  input: ProcessImageInput,
+  encoder: RenditionEncoder = encodeWebpRendition,
+): Promise<ProcessedImage> {
   const roles = requiredRoles(input.spec.manifest, input.purpose);
   const source = await inspectSource(
     input.bytes,
@@ -89,7 +104,7 @@ export async function processImage(input: ProcessImageInput): Promise<ProcessedI
       roleSpec,
     );
     for (const target of dimensions) {
-      renditions.push(await renderRendition(input.bytes, role, roleSpec, target));
+      renditions.push(await renderRendition(input.bytes, role, roleSpec, target, encoder));
     }
   }
 
@@ -262,7 +277,30 @@ async function renderRendition(
   role: string,
   roleSpec: RenditionRoleSpec,
   target: RenditionDimensions,
+  encoder: RenditionEncoder,
 ): Promise<GeneratedRendition> {
+  const output = await encoder(source, roleSpec, target);
+
+  if (output.width !== target.width || output.height !== target.height) {
+    throw new ContractMismatchError("Sharp output dimensions differ from the canonical manifest");
+  }
+
+  return Object.freeze({
+    role,
+    format: "WEBP",
+    width: output.width,
+    height: output.height,
+    byteSize: output.data.length,
+    checksumSha256: sha256Base64(output.data),
+    bytes: output.data,
+  });
+}
+
+async function encodeWebpRendition(
+  source: Buffer,
+  roleSpec: RenditionRoleSpec,
+  target: RenditionDimensions,
+): Promise<EncodedRendition> {
   const output = await sharp(source, sharpInputOptions(false))
     .rotate()
     .resize({
@@ -279,19 +317,10 @@ async function renderRendition(
       quality: roleSpec.quality,
     })
     .toBuffer({ resolveWithObject: true });
-
-  if (output.info.width !== target.width || output.info.height !== target.height) {
-    throw new ContractMismatchError("Sharp output dimensions differ from the canonical manifest");
-  }
-
   return Object.freeze({
-    role,
-    format: "WEBP",
+    data: output.data,
     width: output.info.width,
     height: output.info.height,
-    byteSize: output.data.length,
-    checksumSha256: sha256Base64(output.data),
-    bytes: output.data,
   });
 }
 

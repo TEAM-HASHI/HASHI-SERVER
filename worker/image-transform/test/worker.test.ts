@@ -4,6 +4,7 @@ import test from "node:test";
 import sharp from "sharp";
 
 import { ContractMismatchError } from "../src/errors";
+import { processImage } from "../src/image-processor";
 import type {
   ImageObjectStorage,
   OriginalObject,
@@ -112,9 +113,11 @@ test("retries unexpected encoder failures instead of publishing user failure", a
   const source = await jpegSource(32, 32);
   const storage = new FakeStorage(original(source));
   const publisher = new FakePublisher();
-  const worker = new ImageTransformWorker(storage, publisher, async () => {
-    throw new Error("transient encoder failure");
-  });
+  const worker = new ImageTransformWorker(storage, publisher, (input) =>
+    processImage(input, async () => {
+      throw new Error("transient encoder failure");
+    }),
+  );
 
   await assert.rejects(worker.processMessage(requestBody(source)), /transient encoder failure/);
   assert.equal(publisher.results.length, 0);
