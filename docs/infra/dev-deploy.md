@@ -111,6 +111,7 @@ KAKAO_REDIRECT_URI
 
 AWS_REGION
 AWS_S3_BUCKET
+AWS_MEDIA_ORIGINAL_BUCKET
 CLOUDFRONT_DOMAIN
 
 CORS_ALLOWED_ORIGINS
@@ -155,6 +156,10 @@ AWS_SECRET_KEY
 ```
 
 애플리케이션 서버의 AWS 접근은 EC2 IAM Role을 사용한다.
+
+이미지 변환 stack과 queue를 도입할 때의 리소스 소유 경계, OIDC 배포 변수와 rollback 절차는
+[`infra/media/README.md`](../../infra/media/README.md)를 따른다. stack output의 실제 값은 EC2의
+환경 파일과 승인된 GitHub Environment에서만 관리하고 repository에는 기록하지 않는다.
 
 ---
 
