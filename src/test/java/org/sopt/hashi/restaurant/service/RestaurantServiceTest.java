@@ -4,7 +4,9 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.BDDMockito.given;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
@@ -17,6 +19,8 @@ import java.time.LocalTime;
 import java.time.ZoneId;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
+import java.util.UUID;
 import java.util.stream.LongStream;
 import java.util.stream.IntStream;
 import org.junit.jupiter.api.Test;
@@ -25,7 +29,11 @@ import org.mockito.ArgumentCaptor;
 import org.mockito.ArgumentMatchers;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.sopt.hashi.media.MediaPort;
+import org.sopt.hashi.media.MediaAssetPurpose;
+import org.sopt.hashi.media.MediaAssetUse;
 import org.sopt.hashi.restaurant.AdminRestaurantCommand;
+import org.sopt.hashi.restaurant.AdminRestaurantCommand.ImageCommand;
 import org.sopt.hashi.restaurant.AdminRestaurantCommand.MenuCommand;
 import org.sopt.hashi.restaurant.code.RestaurantErrorCode;
 import org.sopt.hashi.restaurant.domain.PriceCurrency;
@@ -66,8 +74,11 @@ class RestaurantServiceTest {
     @Mock
     private FileStorage fileStorage;
 
+    @Mock
+    private MediaPort mediaPort;
+
     private RestaurantService createRestaurantService() {
-        return new RestaurantService(restaurantRepository, fileStorage, JAPAN_CLOCK);
+        return new RestaurantService(restaurantRepository, fileStorage, mediaPort, JAPAN_CLOCK);
     }
 
     @Test
@@ -211,7 +222,7 @@ class RestaurantServiceTest {
         RestaurantMenu removedMenu = createMenu(20L, "삭제 메뉴", false);
         restaurant.addMenu(retainedMenu);
         restaurant.addMenu(removedMenu);
-        given(restaurantRepository.findById(1L)).willReturn(Optional.of(restaurant));
+        given(restaurantRepository.findByIdForUpdate(1L)).willReturn(Optional.of(restaurant));
         AdminRestaurantCommand command = updateMenuCommand(List.of(
                 new MenuCommand(10L, "수정 메뉴", "수정 설명", "restaurant-menus/updated.jpg",
                         "JPY", BigDecimal.valueOf(1_500), false),
@@ -242,7 +253,7 @@ class RestaurantServiceTest {
         RestaurantService restaurantService = createRestaurantService();
         Restaurant restaurant = createRestaurant(1L, 4.8, 100L);
         restaurant.addMenu(createMenu(10L, "기존 메뉴", true));
-        given(restaurantRepository.findById(1L)).willReturn(Optional.of(restaurant));
+        given(restaurantRepository.findByIdForUpdate(1L)).willReturn(Optional.of(restaurant));
         AdminRestaurantCommand command = updateMenuCommand(List.of(
                 new MenuCommand(999L, "다른 메뉴", "설명", null,
                         "JPY", BigDecimal.valueOf(1_000), false)
@@ -262,7 +273,7 @@ class RestaurantServiceTest {
         RestaurantService restaurantService = createRestaurantService();
         Restaurant restaurant = createRestaurant(1L, 4.8, 100L);
         restaurant.addMenu(createMenu(10L, "기존 메뉴", true));
-        given(restaurantRepository.findById(1L)).willReturn(Optional.of(restaurant));
+        given(restaurantRepository.findByIdForUpdate(1L)).willReturn(Optional.of(restaurant));
         AdminRestaurantCommand command = updateMenuCommand(List.of(
                 new MenuCommand(10L, "첫 번째", "설명", null,
                         "JPY", BigDecimal.valueOf(1_000), false),
@@ -273,6 +284,172 @@ class RestaurantServiceTest {
         assertThatThrownBy(() -> restaurantService.updateByAdmin(1L, command))
                 .isInstanceOfSatisfying(BusinessException.class, exception ->
                         assertThat(exception.getErrorCode()).isEqualTo(CommonErrorCode.INVALID_INPUT));
+    }
+
+    @Test
+    void 어드민_식당_등록은_식당과_메뉴_asset을_한번에_claim한다() {
+        RestaurantService restaurantService = createRestaurantService();
+        UUID restaurantAssetId = UUID.randomUUID();
+        UUID menuAssetId = UUID.randomUUID();
+        AdminRestaurantCommand command = createAssetAdminCommand(
+                List.of(restaurantAssetId),
+                List.of(new MenuCommand(
+                        null, "asset 메뉴", "설명", null, menuAssetId,
+                        "JPY", BigDecimal.valueOf(1_000), true))
+        );
+        given(restaurantRepository.save(any(Restaurant.class)))
+                .willAnswer(invocation -> invocation.getArgument(0));
+
+        restaurantService.createByAdmin(command);
+
+        verify(mediaPort).reconcileBindings(
+                argThat(claims -> Set.copyOf(claims).equals(Set.of(
+                        new MediaAssetUse(restaurantAssetId, MediaAssetPurpose.RESTAURANT),
+                        new MediaAssetUse(menuAssetId, MediaAssetPurpose.RESTAURANT_MENU)
+                ))),
+                argThat(Collection -> Collection.isEmpty())
+        );
+        ArgumentCaptor<Restaurant> restaurantCaptor = ArgumentCaptor.forClass(Restaurant.class);
+        verify(restaurantRepository).save(restaurantCaptor.capture());
+        assertThat(restaurantCaptor.getValue().getImages())
+                .extracting(RestaurantImage::getImageAssetId)
+                .containsExactly(restaurantAssetId);
+        assertThat(restaurantCaptor.getValue().getMenus())
+                .extracting(RestaurantMenu::getImageAssetId)
+                .containsExactly(menuAssetId);
+    }
+
+    @Test
+    void ordered_wrapper는_기존_association_ID를_유지하고_추가와_제거만_전이한다() {
+        RestaurantService restaurantService = createRestaurantService();
+        UUID removedAssetId = UUID.randomUUID();
+        UUID retainedAssetId = UUID.randomUUID();
+        UUID newAssetId = UUID.randomUUID();
+        Restaurant restaurant = createRestaurant(1L, 4.8, 100L);
+        RestaurantImage removed = image(101L, "restaurants/removed.jpg", removedAssetId, 1);
+        RestaurantImage retained = image(102L, "restaurants/retained.jpg", retainedAssetId, 2);
+        restaurant.replaceImages(List.of(removed, retained));
+        given(restaurantRepository.findByIdForUpdate(1L)).willReturn(Optional.of(restaurant));
+
+        restaurantService.updateByAdmin(1L, updateImagesCommand(
+                null,
+                List.of(
+                        new ImageCommand(102L, null),
+                        new ImageCommand(null, newAssetId)
+                )
+        ));
+
+        assertThat(restaurant.getImages())
+                .extracting(RestaurantImage::getId)
+                .containsExactly(102L, null);
+        assertThat(restaurant.getImages())
+                .extracting(RestaurantImage::getDisplayOrder)
+                .containsExactly(1, 2);
+        verify(mediaPort).reconcileBindings(
+                argThat(claims -> List.copyOf(claims).equals(List.of(
+                        new MediaAssetUse(newAssetId, MediaAssetPurpose.RESTAURANT)))),
+                argThat(retires -> List.copyOf(retires).equals(List.of(
+                        new MediaAssetUse(removedAssetId, MediaAssetPurpose.RESTAURANT))))
+        );
+    }
+
+    @Test
+    void legacy_중복_key_재정렬은_기존_ID와_backfill_asset을_보존한다() {
+        RestaurantService restaurantService = createRestaurantService();
+        UUID backfilledAssetId = UUID.randomUUID();
+        Restaurant restaurant = createRestaurant(1L, 4.8, 100L);
+        restaurant.replaceImages(List.of(
+                image(101L, "A", backfilledAssetId, 1),
+                image(102L, "A", null, 2),
+                image(103L, "B", null, 3)
+        ));
+        given(restaurantRepository.findByIdForUpdate(1L)).willReturn(Optional.of(restaurant));
+
+        restaurantService.updateByAdmin(
+                1L,
+                updateImagesCommand(List.of("B", "A", "A"), null)
+        );
+
+        assertThat(restaurant.getImages())
+                .extracting(RestaurantImage::getId)
+                .containsExactly(103L, 101L, 102L);
+        assertThat(restaurant.getImages().get(1).getImageAssetId())
+                .isEqualTo(backfilledAssetId);
+        verifyNoInteractions(mediaPort);
+    }
+
+    @Test
+    void media_binding이_실패하면_Aggregate를_변경하지_않는다() {
+        RestaurantService restaurantService = createRestaurantService();
+        UUID currentAssetId = UUID.randomUUID();
+        UUID newAssetId = UUID.randomUUID();
+        Restaurant restaurant = createRestaurant(1L, 4.8, 100L);
+        RestaurantImage current = image(101L, null, currentAssetId, 1);
+        restaurant.replaceImages(List.of(current));
+        given(restaurantRepository.findByIdForUpdate(1L)).willReturn(Optional.of(restaurant));
+        doThrow(new BusinessException(CommonErrorCode.INVALID_INPUT))
+                .when(mediaPort).reconcileBindings(any(), any());
+
+        assertThatThrownBy(() -> restaurantService.updateByAdmin(
+                1L,
+                updateImagesCommand(null, List.of(new ImageCommand(null, newAssetId)))
+        )).isInstanceOf(BusinessException.class);
+
+        assertThat(restaurant.getImages()).containsExactly(current);
+        assertThat(current.getDisplayOrder()).isEqualTo(1);
+        verify(restaurantRepository, never()).flush();
+    }
+
+    @Test
+    void 같은_legacy_메뉴_key는_backfill_asset을_보존하고_media를_변경하지_않는다() {
+        RestaurantService restaurantService = createRestaurantService();
+        UUID backfilledAssetId = UUID.randomUUID();
+        Restaurant restaurant = createRestaurant(1L, 4.8, 100L);
+        RestaurantMenu menu = createMenu(10L, "기존 메뉴", true);
+        ReflectionTestUtils.setField(menu, "imageAssetId", backfilledAssetId);
+        restaurant.addMenu(menu);
+        given(restaurantRepository.findByIdForUpdate(1L)).willReturn(Optional.of(restaurant));
+
+        restaurantService.updateByAdmin(1L, updateMenuCommand(List.of(
+                new MenuCommand(
+                        10L, "수정 메뉴", "설명", menu.getImageKey(),
+                        "JPY", BigDecimal.valueOf(1_200), true)
+        )));
+
+        assertThat(menu.getImageAssetId()).isEqualTo(backfilledAssetId);
+        assertThat(menu.getImageKey()).isEqualTo("restaurant-menus/10.jpg");
+        verifyNoInteractions(mediaPort);
+    }
+
+    @Test
+    void 메뉴_asset_교체는_새_asset만_claim하고_기존_asset만_retire한다() {
+        RestaurantService restaurantService = createRestaurantService();
+        UUID oldAssetId = UUID.randomUUID();
+        UUID newAssetId = UUID.randomUUID();
+        Restaurant restaurant = createRestaurant(1L, 4.8, 100L);
+        RestaurantMenu menu = createMenu(10L, "기존 메뉴", true);
+        ReflectionTestUtils.setField(menu, "imageKey", null);
+        ReflectionTestUtils.setField(menu, "imageAssetId", oldAssetId);
+        restaurant.addMenu(menu);
+        given(restaurantRepository.findByIdForUpdate(1L)).willReturn(Optional.of(restaurant));
+
+        restaurantService.updateByAdmin(1L, new AdminRestaurantCommand(
+                null, null, null, null, null, null, null, null, null, null, null,
+                null, null, null,
+                List.of(new MenuCommand(
+                        10L, "수정 메뉴", "설명", null, newAssetId,
+                        "JPY", BigDecimal.valueOf(1_200), true)),
+                null, null, null
+        ));
+
+        assertThat(menu.getImageAssetId()).isEqualTo(newAssetId);
+        assertThat(menu.getImageKey()).isNull();
+        verify(mediaPort).reconcileBindings(
+                argThat(claims -> List.copyOf(claims).equals(List.of(
+                        new MediaAssetUse(newAssetId, MediaAssetPurpose.RESTAURANT_MENU)))),
+                argThat(retires -> List.copyOf(retires).equals(List.of(
+                        new MediaAssetUse(oldAssetId, MediaAssetPurpose.RESTAURANT_MENU))))
+        );
     }
 
     @Test
@@ -908,6 +1085,63 @@ class RestaurantServiceTest {
                 null,
                 null
         );
+    }
+
+    private AdminRestaurantCommand createAssetAdminCommand(
+            List<UUID> imageAssetIds,
+            List<MenuCommand> menus
+    ) {
+        return new AdminRestaurantCommand(
+                "히마와리 스시",
+                "Himawari Sushi",
+                "식당 소개",
+                "매장 상세 설명",
+                "도쿄도 신주쿠구",
+                "도쿄",
+                "sushi",
+                "sushi",
+                "JPY",
+                BigDecimal.valueOf(1_000),
+                BigDecimal.valueOf(3_000),
+                null,
+                imageAssetIds,
+                null,
+                menus,
+                List.of("스시"),
+                List.of(),
+                java.util.Arrays.stream(DayOfWeek.values())
+                        .map(day -> new AdminRestaurantCommand.BusinessHourCommand(
+                                day, null, null, null, null, true))
+                        .toList()
+        );
+    }
+
+    private AdminRestaurantCommand updateImagesCommand(
+            List<String> imageKeys,
+            List<ImageCommand> images
+    ) {
+        return new AdminRestaurantCommand(
+                null, null, null, null, null, null, null, null, null, null, null,
+                imageKeys, null, images, null, null, null, null
+        );
+    }
+
+    private RestaurantImage image(
+            Long id,
+            String fileKey,
+            UUID assetId,
+            int displayOrder
+    ) {
+        RestaurantImage image;
+        if (fileKey != null && assetId != null) {
+            image = RestaurantImage.createBackfilled(fileKey, assetId, displayOrder);
+        } else if (assetId != null) {
+            image = RestaurantImage.createAsset(assetId, displayOrder);
+        } else {
+            image = RestaurantImage.createLegacy(fileKey, displayOrder);
+        }
+        ReflectionTestUtils.setField(image, "id", id);
+        return image;
     }
 
     private RestaurantMenu createMenu(Long id, String name, boolean representative) {

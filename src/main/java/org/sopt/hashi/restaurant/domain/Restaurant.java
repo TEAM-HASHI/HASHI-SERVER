@@ -241,6 +241,23 @@ public class Restaurant extends BaseTimeEntity {
         this.images.add(image);
     }
 
+    public void removeImagesNotIn(Set<Long> retainedImageIds) {
+        this.images.removeIf(image -> image.getId() != null
+                && !retainedImageIds.contains(image.getId()));
+    }
+
+    public void moveImagesToTemporaryOrders(int firstTemporaryOrder) {
+        int nextOrder = firstTemporaryOrder;
+        for (RestaurantImage image : images) {
+            image.setDisplayOrder(nextOrder);
+            nextOrder = Math.addExact(nextOrder, 1);
+        }
+    }
+
+    public void sortImagesByDisplayOrder() {
+        this.images.sort(Comparator.comparingInt(RestaurantImage::getDisplayOrder));
+    }
+
     public void replaceBusinessHours(List<RestaurantBusinessHour> businessHours) {
         this.businessHours.clear();
         if (businessHours != null) {

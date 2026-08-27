@@ -4,6 +4,7 @@ import java.math.BigDecimal;
 import java.time.DayOfWeek;
 import java.time.LocalTime;
 import java.util.List;
+import java.util.UUID;
 
 /**
  * 어드민 식당 등록·수정 커맨드 — 진입점(admin)이 {@link RestaurantPort}로 넘기는 계약.
@@ -27,10 +28,41 @@ public record AdminRestaurantCommand(
         BigDecimal minPrice,
         BigDecimal maxPrice,
         List<String> imageKeys,
+        List<UUID> imageAssetIds,
+        List<ImageCommand> images,
         List<MenuCommand> menus,
         List<String> hashtags,
         List<String> curationTypes,
         List<BusinessHourCommand> businessHours) {
+
+    /** legacy 진입점과 개발 데이터 호출을 신규 필드 활성화 전까지 호환한다. */
+    public AdminRestaurantCommand(
+            String name,
+            String localName,
+            String summary,
+            String description,
+            String address,
+            String area,
+            String genre,
+            String foodCategory,
+            String priceCurrency,
+            BigDecimal minPrice,
+            BigDecimal maxPrice,
+            List<String> imageKeys,
+            List<MenuCommand> menus,
+            List<String> hashtags,
+            List<String> curationTypes,
+            List<BusinessHourCommand> businessHours
+    ) {
+        this(
+                name, localName, summary, description, address, area, genre, foodCategory,
+                priceCurrency, minPrice, maxPrice, imageKeys, null, null, menus, hashtags,
+                curationTypes, businessHours);
+    }
+
+    /** 수정 collection의 유지 association 또는 신규 asset. 배열 위치가 최종 순서다. */
+    public record ImageCommand(Long restaurantImageId, UUID imageAssetId) {
+    }
 
     /** 메뉴 항목 — 수정 시 기존 메뉴는 menuId를, 신규 메뉴는 null을 전달한다. */
     public record MenuCommand(
@@ -38,6 +70,7 @@ public record AdminRestaurantCommand(
             String name,
             String description,
             String imageKey,
+            UUID imageAssetId,
             String priceCurrency,
             BigDecimal priceAmount,
             boolean main) {
@@ -51,7 +84,20 @@ public record AdminRestaurantCommand(
                 BigDecimal priceAmount,
                 boolean main
         ) {
-            this(null, name, description, imageKey, priceCurrency, priceAmount, main);
+            this(null, name, description, imageKey, null, priceCurrency, priceAmount, main);
+        }
+
+        /** legacy 수정 호출부를 위한 생성자. */
+        public MenuCommand(
+                Long menuId,
+                String name,
+                String description,
+                String imageKey,
+                String priceCurrency,
+                BigDecimal priceAmount,
+                boolean main
+        ) {
+            this(menuId, name, description, imageKey, null, priceCurrency, priceAmount, main);
         }
     }
 

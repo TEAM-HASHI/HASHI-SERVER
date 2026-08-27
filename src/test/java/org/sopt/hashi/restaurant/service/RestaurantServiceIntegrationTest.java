@@ -1,12 +1,15 @@
 package org.sopt.hashi.restaurant.service;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.Mockito.verifyNoInteractions;
 
 import java.math.BigDecimal;
 import java.util.List;
 import org.junit.jupiter.api.Test;
+import org.sopt.hashi.media.MediaPort;
 import org.sopt.hashi.config.TimeConfig;
 import org.sopt.hashi.restaurant.AdminRestaurantCommand;
+import org.sopt.hashi.restaurant.AdminRestaurantCommand.ImageCommand;
 import org.sopt.hashi.restaurant.AdminRestaurantCommand.MenuCommand;
 import org.sopt.hashi.restaurant.AdminRestaurantInfo;
 import org.sopt.hashi.restaurant.AdminRestaurantInfo.AdminRestaurantMenuInfo;
@@ -14,6 +17,7 @@ import org.sopt.hashi.restaurant.RestaurantPort;
 import org.sopt.hashi.restaurant.domain.PriceCurrency;
 import org.sopt.hashi.restaurant.domain.Restaurant;
 import org.sopt.hashi.restaurant.domain.RestaurantGenre;
+import org.sopt.hashi.restaurant.domain.RestaurantImage;
 import org.sopt.hashi.restaurant.domain.RestaurantMenu;
 import org.sopt.hashi.restaurant.domain.RestaurantRepository;
 import org.sopt.hashi.restaurant.dto.RestaurantListResponse;
@@ -48,6 +52,9 @@ class RestaurantServiceIntegrationTest {
 
     @MockitoBean
     private FileStorage fileStorage;
+
+    @MockitoBean
+    private MediaPort mediaPort;
 
     @Test
     void 식당_목록은_음식_분류로_필터링하지_않고_응답에는_음식_분류를_유지한다() {
@@ -122,6 +129,41 @@ class RestaurantServiceIntegrationTest {
                 .isPresent();
     }
 
+    @Test
+    void 식당_이미지_재정렬은_unique_충돌없이_association_ID를_유지한다() {
+        Restaurant restaurant = createRestaurant();
+        restaurant.replaceImages(List.of(
+                RestaurantImage.createLegacy("restaurants/A.jpg", 1),
+                RestaurantImage.createLegacy("restaurants/B.jpg", 2),
+                RestaurantImage.createLegacy("restaurants/C.jpg", 3)
+        ));
+        restaurantRepository.saveAndFlush(restaurant);
+        Long restaurantId = restaurant.getId();
+        Long firstId = restaurant.getImages().get(0).getId();
+        Long secondId = restaurant.getImages().get(1).getId();
+        Long thirdId = restaurant.getImages().get(2).getId();
+
+        restaurantPort.updateByAdmin(
+                restaurantId,
+                updateImagesCommand(List.of(
+                        new ImageCommand(thirdId, null),
+                        new ImageCommand(firstId, null),
+                        new ImageCommand(secondId, null)
+                ))
+        );
+
+        Restaurant reloaded = restaurantRepository
+                .findActiveByIdWithImages(restaurantId)
+                .orElseThrow();
+        assertThat(reloaded.getImages())
+                .extracting(RestaurantImage::getId)
+                .containsExactly(thirdId, firstId, secondId);
+        assertThat(reloaded.getImages())
+                .extracting(RestaurantImage::getDisplayOrder)
+                .containsExactly(1, 2, 3);
+        verifyNoInteractions(mediaPort);
+    }
+
     private AdminRestaurantCommand updateMenusCommand(List<MenuCommand> menus) {
         return new AdminRestaurantCommand(
                 null,
@@ -140,6 +182,13 @@ class RestaurantServiceIntegrationTest {
                 null,
                 null,
                 null
+        );
+    }
+
+    private AdminRestaurantCommand updateImagesCommand(List<ImageCommand> images) {
+        return new AdminRestaurantCommand(
+                null, null, null, null, null, null, null, null, null, null, null,
+                null, null, images, null, null, null, null
         );
     }
 

@@ -1,7 +1,9 @@
 package org.sopt.hashi.admin.dto;
 
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import io.swagger.v3.oas.annotations.media.Schema;
 import jakarta.validation.Valid;
+import jakarta.validation.constraints.AssertTrue;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Pattern;
@@ -12,6 +14,7 @@ import java.math.BigDecimal;
 import java.time.DayOfWeek;
 import java.time.LocalTime;
 import java.util.List;
+import java.util.UUID;
 
 /**
  * 어드민 식당 부분 수정(PATCH) 요청 — null 필드는 변경하지 않는다(값 비우기 불가).
@@ -48,6 +51,9 @@ public record UpdateRestaurantRequest(
         @Size(min = 1, message = "식당 이미지는 최소 1개 이상 필요합니다")
         List<@NotBlank(message = "이미지 키는 비어 있을 수 없습니다")
         @Size(max = 500, message = "이미지 키는 500자 이내입니다") String> imageKeys,
+        @Schema(description = "식당 이미지 ordered wrapper(선택) — 보내면 전체 교체")
+        @Size(min = 1, message = "식당 이미지는 최소 1개 이상 필요합니다")
+        List<@NotNull(message = "식당 이미지 항목은 null일 수 없습니다") @Valid ImageRequest> images,
         List<@NotNull(message = "메뉴 항목은 null일 수 없습니다") @Valid MenuRequest> menus,
         @Schema(description = "해시태그 목록(선택) — 보내면 전체 교체, 최소 1개", example = "[\"오마카세\"]")
         @Size(min = 1, message = "해시태그는 최소 1개 이상 필요합니다")
@@ -57,6 +63,49 @@ public record UpdateRestaurantRequest(
         List<@NotBlank(message = "큐레이션 유형은 비어 있을 수 없습니다") String> curationTypes,
         @Size(min = 7, max = 7, message = "영업시간은 모든 요일(7개)을 포함해야 합니다")
         List<@NotNull(message = "영업시간 항목은 null일 수 없습니다") @Valid BusinessHourRequest> businessHours) {
+
+    /** legacy 수정 호출부와 테스트를 신규 필드 활성화 전까지 호환한다. */
+    public UpdateRestaurantRequest(
+            String name,
+            String localName,
+            String summary,
+            String description,
+            String address,
+            String area,
+            String genre,
+            String foodCategory,
+            String priceCurrency,
+            BigDecimal minPrice,
+            BigDecimal maxPrice,
+            List<String> imageKeys,
+            List<MenuRequest> menus,
+            List<String> hashtags,
+            List<String> curationTypes,
+            List<BusinessHourRequest> businessHours
+    ) {
+        this(
+                name, localName, summary, description, address, area, genre, foodCategory,
+                priceCurrency, minPrice, maxPrice, imageKeys, null, menus, hashtags,
+                curationTypes, businessHours);
+    }
+
+    @AssertTrue(message = "imageKeys와 images는 함께 사용할 수 없습니다")
+    @JsonIgnore
+    public boolean isImageCollectionSourceValid() {
+        return imageKeys == null || images == null;
+    }
+
+    public record ImageRequest(
+            @Positive(message = "식당 이미지 ID는 1 이상이어야 합니다") Long restaurantImageId,
+            UUID imageAssetId
+    ) {
+
+        @AssertTrue(message = "restaurantImageId 또는 imageAssetId 중 하나만 필요합니다")
+        @JsonIgnore
+        public boolean isReferenceValid() {
+            return (restaurantImageId == null) != (imageAssetId == null);
+        }
+    }
 
     /** 메뉴 항목 — 기존 메뉴는 menuId를, 신규 메뉴는 null을 전달한다. */
     public record MenuRequest(
@@ -71,6 +120,8 @@ public record UpdateRestaurantRequest(
             @Schema(description = "메뉴 이미지 S3 key(선택)", example = "restaurant-menus/a1b2c3-menu.jpg")
             @Pattern(regexp = ".*\\S.*", message = "메뉴 이미지 키는 공백일 수 없습니다")
             @Size(max = 500, message = "메뉴 이미지 키는 500자 이내입니다") String imageKey,
+            @Schema(description = "메뉴 이미지 asset ID(선택)")
+            UUID imageAssetId,
             @Schema(description = "통화 코드", example = "JPY")
             @NotBlank(message = "통화는 필수입니다")
             @Size(min = 3, max = 3, message = "통화는 3자리 코드여야 합니다") String priceCurrency,
@@ -79,6 +130,24 @@ public record UpdateRestaurantRequest(
             @PositiveOrZero(message = "가격은 0 이상입니다") BigDecimal priceAmount,
             @Schema(description = "대표 메뉴 여부", example = "true")
             @NotNull(message = "대표 메뉴 여부는 필수입니다") Boolean main) {
+
+        public MenuRequest(
+                Long menuId,
+                String name,
+                String description,
+                String imageKey,
+                String priceCurrency,
+                BigDecimal priceAmount,
+                Boolean main
+        ) {
+            this(menuId, name, description, imageKey, null, priceCurrency, priceAmount, main);
+        }
+
+        @AssertTrue(message = "메뉴 이미지는 imageKey와 imageAssetId를 함께 사용할 수 없습니다")
+        @JsonIgnore
+        public boolean isImageSourceValid() {
+            return imageKey == null || imageAssetId == null;
+        }
     }
 
     /**
