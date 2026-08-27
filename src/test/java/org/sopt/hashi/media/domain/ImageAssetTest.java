@@ -226,6 +226,27 @@ class ImageAssetTest {
         assertThatThrownBy(asset::expireUpload).isInstanceOf(IllegalStateException.class);
     }
 
+    @Test
+    void ACTIVE_UNBOUND_asset은_BIND할_수_있다() {
+        ImageAsset asset = readyAsset();
+
+        asset.bind();
+
+        assertThat(asset.getBindingStatus()).isEqualTo(ImageBindingStatus.BOUND);
+        assertThatThrownBy(asset::bind).isInstanceOf(IllegalStateException.class);
+    }
+
+    @Test
+    void BOUND_asset은_RETIRED로_전이한다() {
+        ImageAsset asset = readyAsset();
+        asset.bind();
+
+        asset.retire();
+
+        assertThat(asset.getBindingStatus()).isEqualTo(ImageBindingStatus.RETIRED);
+        assertThatThrownBy(asset::retire).isInstanceOf(IllegalStateException.class);
+    }
+
     private ImageAsset createDirectUpload(MediaOwnerType ownerType, Long ownerId) {
         UUID assetId = UUID.randomUUID();
         return ImageAsset.createDirectUpload(

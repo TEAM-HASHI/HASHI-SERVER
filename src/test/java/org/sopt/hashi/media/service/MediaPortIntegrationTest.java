@@ -1,0 +1,197 @@
+package org.sopt.hashi.media.service;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.Mockito.when;
+
+import jakarta.persistence.EntityManagerFactory;
+import java.time.LocalDateTime;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Map;
+import java.util.UUID;
+import org.hibernate.SessionFactory;
+import org.hibernate.stat.Statistics;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+import org.sopt.hashi.auth.ActorType;
+import org.sopt.hashi.auth.CurrentActor;
+import org.sopt.hashi.auth.CurrentActorProvider;
+import org.sopt.hashi.media.MediaAssetPurpose;
+import org.sopt.hashi.media.MediaAssetUse;
+import org.sopt.hashi.media.MediaImage;
+import org.sopt.hashi.media.MediaImageRequest;
+import org.sopt.hashi.media.MediaImageRole;
+import org.sopt.hashi.media.MediaPort;
+import org.sopt.hashi.media.domain.ImageAsset;
+import org.sopt.hashi.media.domain.ImageAssetRepository;
+import org.sopt.hashi.media.domain.ImageBindingStatus;
+import org.sopt.hashi.media.domain.ImageFormat;
+import org.sopt.hashi.media.domain.ImageRole;
+import org.sopt.hashi.media.domain.MediaOwnerType;
+import org.sopt.hashi.media.domain.MediaPurpose;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.boot.testcontainers.service.connection.ServiceConnection;
+import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
+import org.springframework.transaction.IllegalTransactionStateException;
+import org.springframework.transaction.support.TransactionTemplate;
+import org.testcontainers.containers.MySQLContainer;
+import org.testcontainers.junit.jupiter.Container;
+import org.testcontainers.junit.jupiter.Testcontainers;
+
+@Testcontainers(disabledWithoutDocker = true)
+@SpringBootTest(properties = {
+        "spring.jpa.hibernate.ddl-auto=validate",
+        "spring.jpa.properties.hibernate.generate_statistics=true",
+        "jwt.secret=test-secret-key-must-be-at-least-32-bytes-long",
+        "kakao.client-id=test-client-id",
+        "kakao.redirect-uri=https://app.hashi.test/callback",
+        "hashi.storage.cloudfront-domain=https://cdn.hashi.test"
+})
+class MediaPortIntegrationTest {
+
+    private static final String SPEC_DIGEST =
+            "91ac56d691c5af9e43061b0a2cc43763a4d1825244135d120057c3305a1bbe32";
+    private static final String SOURCE_CHECKSUM =
+            "47DEQpj8HBSa+/TImW+5JCeuQeRkm5NMpJWZG3hSuFU=";
+
+    @Container
+    @ServiceConnection
+    private static final MySQLContainer<?> MYSQL = new MySQLContainer<>("mysql:8.4")
+            .withDatabaseName("hashi")
+            .withUsername("hashi")
+            .withPassword("hashi");
+
+    @Autowired
+    private MediaPort mediaPort;
+
+    @Autowired
+    private ImageAssetRepository imageAssetRepository;
+
+    @Autowired
+    private JdbcTemplate jdbcTemplate;
+
+    @Autowired
+    private TransactionTemplate transactionTemplate;
+
+    @Autowired
+    private EntityManagerFactory entityManagerFactory;
+
+    @MockitoBean
+    private CurrentActorProvider currentActorProvider;
+
+    @BeforeEach
+    void setUp() {
+        jdbcTemplate.update("DELETE FROM image_rendition");
+        jdbcTemplate.update("DELETE FROM image_asset");
+        when(currentActorProvider.currentActor())
+                .thenReturn(new CurrentActor(ActorType.ADMIN, 1L));
+    }
+
+    @Test
+    void binding은_외부_transaction을_필수로_하고_claim과_retire를_함께_commit한다() {
+        ImageAsset claim = readyAsset(MediaPurpose.RESTAURANT, false);
+        ImageAsset retire = readyAsset(MediaPurpose.RESTAURANT_MENU, true);
+        transactionTemplate.executeWithoutResult(status ->
+                imageAssetRepository.saveAll(List.of(claim, retire)));
+
+        assertThatThrownBy(() -> mediaPort.reconcileBindings(
+                List.of(new MediaAssetUse(
+                        claim.getPublicId(), MediaAssetPurpose.RESTAURANT)),
+                List.of(new MediaAssetUse(
+                        retire.getPublicId(), MediaAssetPurpose.RESTAURANT_MENU))
+        )).isInstanceOf(IllegalTransactionStateException.class);
+
+        transactionTemplate.executeWithoutResult(status -> mediaPort.reconcileBindings(
+                List.of(new MediaAssetUse(
+                        claim.getPublicId(), MediaAssetPurpose.RESTAURANT)),
+                List.of(new MediaAssetUse(
+                        retire.getPublicId(), MediaAssetPurpose.RESTAURANT_MENU))
+        ));
+
+        assertThat(imageAssetRepository.findByPublicId(claim.getPublicId()).orElseThrow()
+                .getBindingStatus()).isEqualTo(ImageBindingStatus.BOUND);
+        assertThat(imageAssetRepository.findByPublicId(retire.getPublicId()).orElseThrow()
+                .getBindingStatus()).isEqualTo(ImageBindingStatus.RETIRED);
+    }
+
+    @Test
+    void projection_SQL은_asset_개수와_무관하게_두_번이다() {
+        long oneAssetQueries = projectionQueryCount(1);
+        jdbcTemplate.update("DELETE FROM image_rendition");
+        jdbcTemplate.update("DELETE FROM image_asset");
+        long manyAssetQueries = projectionQueryCount(8);
+
+        assertThat(oneAssetQueries).isEqualTo(2L);
+        assertThat(manyAssetQueries).isEqualTo(2L);
+    }
+
+    private long projectionQueryCount(int count) {
+        List<ImageAsset> assets = new ArrayList<>();
+        for (int index = 0; index < count; index++) {
+            assets.add(readyAsset(MediaPurpose.RESTAURANT, true));
+        }
+        transactionTemplate.executeWithoutResult(status -> imageAssetRepository.saveAll(assets));
+        List<MediaImageRequest> requests = assets.stream()
+                .map(asset -> new MediaImageRequest(
+                        asset.getPublicId(), MediaImageRole.RESTAURANT_CARD))
+                .toList();
+        Statistics statistics = entityManagerFactory.unwrap(SessionFactory.class).getStatistics();
+        statistics.clear();
+
+        Map<MediaImageRequest, MediaImage> result = mediaPort.findImages(requests);
+
+        assertThat(result).hasSize(count);
+        assertThat(result.values()).allSatisfy(image ->
+                assertThat(image.defaultSource().width()).isEqualTo(270));
+        return statistics.getPrepareStatementCount();
+    }
+
+    private ImageAsset readyAsset(MediaPurpose purpose, boolean bound) {
+        UUID assetId = UUID.randomUUID();
+        ImageAsset asset = ImageAsset.createDirectUpload(
+                assetId,
+                purpose,
+                MediaOwnerType.ADMIN,
+                1L,
+                "media/originals/%s/original".formatted(assetId),
+                "image/jpeg",
+                1024L,
+                LocalDateTime.now().plusMinutes(5)
+        );
+        UUID jobId = UUID.randomUUID();
+        asset.beginInitialProcessing(
+                "version-1", "\"etag-1\"", 1, SPEC_DIGEST, jobId, LocalDateTime.now());
+        if (purpose == MediaPurpose.RESTAURANT) {
+            addRendition(asset, jobId, ImageRole.RESTAURANT_CARD, 135);
+            addRendition(asset, jobId, ImageRole.RESTAURANT_CARD, 270);
+            addRendition(asset, jobId, ImageRole.RESTAURANT_CARD, 405);
+        } else {
+            addRendition(asset, jobId, ImageRole.MENU_LIST, 200);
+        }
+        asset.completeCurrentProcessing(
+                jobId, 1, SPEC_DIGEST, "image/jpeg", 1024L, 3024, 4032,
+                SOURCE_CHECKSUM);
+        if (bound) {
+            asset.bind();
+        }
+        return asset;
+    }
+
+    private void addRendition(ImageAsset asset, UUID jobId, ImageRole role, int width) {
+        asset.addRendition(
+                jobId,
+                1,
+                SPEC_DIGEST,
+                role,
+                ImageFormat.WEBP,
+                width,
+                width,
+                100L,
+                "media/renditions/%s/v1/%s/%d.webp".formatted(
+                        asset.getPublicId(), role.name().toLowerCase(), width)
+        );
+    }
+}

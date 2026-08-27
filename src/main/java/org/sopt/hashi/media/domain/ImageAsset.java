@@ -247,6 +247,25 @@ public class ImageAsset extends BaseTimeEntity {
         return ownerActorType == actorType && Objects.equals(ownerSubjectId, actorSubjectId);
     }
 
+    public void bind() {
+        if (cleanupStatus != MediaCleanupStatus.ACTIVE
+                || bindingStatus != ImageBindingStatus.UNBOUND) {
+            throw new IllegalStateException("only active unbound assets can be bound");
+        }
+        bindingStatus = ImageBindingStatus.BOUND;
+    }
+
+    public void retire() {
+        boolean active = cleanupStatus == MediaCleanupStatus.ACTIVE;
+        boolean purgedFailure = cleanupStatus == MediaCleanupStatus.PURGED
+                && processingStatus == ImageProcessingStatus.FAILED
+                && objectsPurgedAt != null;
+        if (bindingStatus != ImageBindingStatus.BOUND || (!active && !purgedFailure)) {
+            throw new IllegalStateException("asset cannot be retired in its current state");
+        }
+        bindingStatus = ImageBindingStatus.RETIRED;
+    }
+
     public boolean hasCurrentProcessingJob(UUID jobId) {
         return cleanupStatus == MediaCleanupStatus.ACTIVE
                 && targetProcessingStatus == TargetProcessingStatus.PROCESSING

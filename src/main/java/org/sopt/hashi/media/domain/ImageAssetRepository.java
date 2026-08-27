@@ -26,6 +26,33 @@ public interface ImageAssetRepository extends JpaRepository<ImageAsset, Long> {
 
     List<ImageAsset> findAllByPublicIdIn(Collection<UUID> publicIds);
 
+    @Query("""
+            select asset.id as id, asset.publicId as publicId
+            from ImageAsset asset
+            where asset.publicId in :publicIds
+            """)
+    List<AssetIdentity> findIdentitiesByPublicIdIn(
+            @Param("publicIds") Collection<UUID> publicIds
+    );
+
+    @Query("""
+            select asset.publicId as publicId,
+                   asset.purpose as purpose,
+                   asset.processingStatus as processingStatus,
+                   asset.bindingStatus as bindingStatus,
+                   asset.cleanupStatus as cleanupStatus,
+                   asset.activeSpecVersion as activeSpecVersion,
+                   asset.activeSpecDigest as activeSpecDigest,
+                   asset.targetSpecVersion as targetSpecVersion,
+                   asset.targetSpecDigest as targetSpecDigest,
+                   asset.lastFailureSpecVersion as lastFailureSpecVersion
+            from ImageAsset asset
+            where asset.publicId in :publicIds
+            """)
+    List<AssetImageProjection> findImageProjectionsByPublicIdIn(
+            @Param("publicIds") Collection<UUID> publicIds
+    );
+
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("""
             select asset
@@ -34,6 +61,15 @@ public interface ImageAssetRepository extends JpaRepository<ImageAsset, Long> {
             order by asset.id asc
             """)
     List<ImageAsset> findAllByPublicIdInForUpdate(@Param("publicIds") Collection<UUID> publicIds);
+
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("""
+            select asset
+            from ImageAsset asset
+            where asset.id in :ids
+            order by asset.id asc
+            """)
+    List<ImageAsset> findAllByIdInForUpdate(@Param("ids") Collection<Long> ids);
 
     @Query("""
             select asset.id as assetId,
@@ -172,6 +208,36 @@ public interface ImageAssetRepository extends JpaRepository<ImageAsset, Long> {
         UUID getJobId();
 
         LocalDateTime getStartedAt();
+    }
+
+    interface AssetIdentity {
+
+        Long getId();
+
+        UUID getPublicId();
+    }
+
+    interface AssetImageProjection {
+
+        UUID getPublicId();
+
+        MediaPurpose getPurpose();
+
+        ImageProcessingStatus getProcessingStatus();
+
+        ImageBindingStatus getBindingStatus();
+
+        MediaCleanupStatus getCleanupStatus();
+
+        Integer getActiveSpecVersion();
+
+        String getActiveSpecDigest();
+
+        Integer getTargetSpecVersion();
+
+        String getTargetSpecDigest();
+
+        Integer getLastFailureSpecVersion();
     }
 
     interface ProcessingStatusCount {

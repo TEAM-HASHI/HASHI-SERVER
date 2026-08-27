@@ -28,6 +28,7 @@ class MediaSpecRegistryTest {
                 .findDefinition(1)
                 .orElseThrow();
 
+        assertThat(spec.roleSpecs().get(ImageRole.REVIEW_PREVIEW).defaultWidth()).isEqualTo(270);
         assertThat(spec.expectedRenditions(MediaPurpose.REVIEW, 3024, 4032))
                 .containsExactly(
                         expected(ImageRole.REVIEW_PREVIEW, 135, 135),
@@ -57,6 +58,7 @@ class MediaSpecRegistryTest {
         assertThatThrownBy(() -> new MediaRoleSpec(
                 1,
                 1,
+                100,
                 1,
                 List.of(
                         new MediaRenditionDimensions(100, 50),
@@ -64,6 +66,18 @@ class MediaSpecRegistryTest {
                 )
         )).isInstanceOf(IllegalArgumentException.class)
                 .hasMessage("media role candidate widths must be unique");
+    }
+
+    @Test
+    void default_width는_candidate에_포함되어야_한다() {
+        assertThatThrownBy(() -> new MediaRoleSpec(
+                1,
+                1,
+                200,
+                1,
+                List.of(new MediaRenditionDimensions(100, 100))
+        )).isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("media role default width must be a candidate");
     }
 
     private MediaExpectedRendition expected(ImageRole role, int width, int height) {
