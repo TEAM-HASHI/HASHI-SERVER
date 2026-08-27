@@ -18,6 +18,10 @@ class MediaQueuePropertiesTest {
                 assertThat(properties.enabled()).isFalse();
                 assertThat(properties.requestQueueUrl()).isNull();
                 assertThat(properties.resultQueueUrl()).isNull();
+                assertThat(properties.publisherCorePoolSize()).isEqualTo(2);
+                assertThat(properties.publisherMaxPoolSize()).isEqualTo(4);
+                assertThat(properties.publisherQueueCapacity()).isEqualTo(100);
+                assertThat(properties.publisherShutdownAwait()).hasSeconds(20);
             });
         });
     }
@@ -47,5 +51,15 @@ class MediaQueuePropertiesTest {
                         assertThat(properties.resultQueueUrl()).isEqualTo("https://sqs.example.com/result");
                     });
                 });
+    }
+
+    @Test
+    void publisher_pool_설정이_잘못되면_기동을_거부한다() {
+        contextRunner
+                .withPropertyValues(
+                        "hashi.media.queue.publisher-core-pool-size=4",
+                        "hashi.media.queue.publisher-max-pool-size=2"
+                )
+                .run(context -> assertThat(context).hasFailed());
     }
 }

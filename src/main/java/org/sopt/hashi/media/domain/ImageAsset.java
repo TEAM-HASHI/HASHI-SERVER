@@ -238,6 +238,12 @@ public class ImageAsset extends BaseTimeEntity {
         return ownerActorType == actorType && Objects.equals(ownerSubjectId, actorSubjectId);
     }
 
+    public boolean hasCurrentProcessingJob(UUID jobId) {
+        return cleanupStatus == MediaCleanupStatus.ACTIVE
+                && targetProcessingStatus == TargetProcessingStatus.PROCESSING
+                && Objects.equals(currentJobId, jobId);
+    }
+
     public boolean isUploadExpired(LocalDateTime now) {
         return !now.isBefore(uploadExpiresAt);
     }
