@@ -69,16 +69,12 @@ interface InspectedSource {
 }
 
 export async function processImage(input: ProcessImageInput): Promise<ProcessedImage> {
+  const roles = requiredRoles(input.spec.manifest, input.purpose);
   const source = await inspectSource(
     input.bytes,
     input.declaredContentType,
     input.declaredByteSize,
   );
-  const roles = input.spec.manifest.purposes[input.purpose];
-
-  if (roles === undefined || roles.length === 0) {
-    throw new ContractMismatchError("Purpose is not defined by the canonical manifest");
-  }
 
   const renditions: GeneratedRendition[] = [];
   for (const role of roles) {

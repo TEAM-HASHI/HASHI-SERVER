@@ -1,0 +1,27 @@
+{
+  "contractVersion": 1,
+  "jobId": "f57dbf16-f7ca-46ec-8d80-8142be93d12a",
+  "assetId": "a3af06f1-4ef2-46f8-a489-2347fb840447",
+  "specVersion": 1,
+  "specDigest": "91ac56d691c5af9e43061b0a2cc43763a4d1825244135d120057c3305a1bbe32",
+  "status": "SUCCEEDED",
+  "sourceVersionId": "3Lg-source-version",
+  "sourceETag": "\"etag-value\"",
+  "verifiedSource": {
+    "mimeType": "image/jpeg",
+    "byteSize": 1048576,
+    "width": 3024,
+    "height": 4032,
+    "checksumSha256": "47DEQpj8HBSa+/TImW+5JCeuQeRkm5NMpJWZG3hSuFU="
+  },
+  "renditions": [
+    {
+      "role": "REVIEW_PREVIEW",
+      "format": "WEBP",
+      "width": 135,
+      "height": 135,
+      "byteSize": 18342,
+      "objectKey": "media/renditions/a3af06f1-4ef2-46f8-a489-2347fb840447/v1/review-preview/135.webp"
+    }
+  ]
+}

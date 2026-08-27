@@ -1,0 +1,11 @@
+{
+  "contractVersion": 1,
+  "jobId": "f57dbf16-f7ca-46ec-8d80-8142be93d12a",
+  "assetId": "a3af06f1-4ef2-46f8-a489-2347fb840447",
+  "specVersion": 1,
+  "specDigest": "91ac56d691c5af9e43061b0a2cc43763a4d1825244135d120057c3305a1bbe32",
+  "status": "FAILED",
+  "sourceVersionId": "3Lg-source-version",
+  "sourceETag": "\"etag-value\"",
+  "failureCode": "INVALID_IMAGE_DATA"
+}
