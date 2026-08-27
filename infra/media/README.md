@@ -12,7 +12,7 @@ template과 배포 경로만 있으며, 이 문서만으로 실제 dev 또는 pr
 | request/result SQS와 DLQ | 생성·redrive·암호화·가시성 timeout 관리 |
 | image transform Lambda | Node.js 24.x, x86_64, 1536MB, 60초, batch size 1로 관리 |
 | Lambda와 Spring media IAM | worker 최소 권한 policy와 기존 EC2 role의 media policy 관리 |
-| CloudWatch | Lambda log 보존과 queue, DLQ, error, throttle alarm 관리 |
+| CloudWatch | Lambda log 보존과 queue, DLQ, invocation error, record failure, throttle alarm 관리 |
 | 기존 delivery S3 | 이름만 parameter로 참조한다. 이 stack은 bucket을 생성·수정·삭제하지 않는다. |
 | 기존 CloudFront | distribution ID만 환경 binding으로 기록한다. 이 stack은 배포 설정을 수정하지 않는다. |
 
@@ -89,6 +89,11 @@ request/result queue 지연과 DLQ 수는 CloudWatch alarm으로 확인한다. S
 `hashi.media.transform.*`, `hashi.media.processing.*`, `hashi.media.assets`,
 `hashi.media.cleanup.candidates`, `hashi.media.issuance.available`을 확인한다. metric에는
 asset ID, object key와 queue body를 tag로 넣지 않는다.
+
+Lambda의 `AWS/Lambda Errors`는 invocation 또는 runtime 자체의 실패를 감지한다. partial batch
+response로 반환한 개별 SQS record 실패는 정상 invocation으로 집계될 수 있으므로 worker가
+EMF `HASHI/Media/ImageTransformRecordFailures`를 별도로 기록하고 environment별 alarm을 울린다.
+record 실패 로그와 metric에는 원문 body, asset ID와 object key를 포함하지 않는다.
 
 ## 장애와 rollback
 

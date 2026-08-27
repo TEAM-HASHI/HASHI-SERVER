@@ -14,8 +14,10 @@ test("returns only failed SQS records for partial batch retry", async () => {
     },
   };
   const previousConsoleError = console.error;
+  const previousEnvironment = process.env.MEDIA_ENVIRONMENT;
   const logs: string[] = [];
   console.error = (message?: unknown) => logs.push(String(message));
+  process.env.MEDIA_ENVIRONMENT = "dev";
   try {
     const response = await handleSqsEvent(
       sqsEvent([
@@ -31,14 +33,31 @@ test("returns only failed SQS records for partial batch retry", async () => {
     });
     assert.equal(logs.length, 1);
     const log = JSON.parse(logs[0]!) as Record<string, unknown>;
-    assert.deepEqual(log, {
-      event: "image_transform_record_failed",
-      errorName: "Error",
-      messageId: "message-2",
-    });
+    assert.equal(log.event, "image_transform_record_failed");
+    assert.equal(log.errorName, "Error");
+    assert.equal(log.messageId, "message-2");
+    assert.equal(log.Environment, "dev");
+    assert.equal(log.ImageTransformRecordFailures, 1);
+    const metricEnvelope = log._aws as {
+      Timestamp: number;
+      CloudWatchMetrics: Array<Record<string, unknown>>;
+    };
+    assert.equal(typeof metricEnvelope.Timestamp, "number");
+    assert.deepEqual(metricEnvelope.CloudWatchMetrics, [
+      {
+        Namespace: "HASHI/Media",
+        Dimensions: [["Environment"]],
+        Metrics: [{ Name: "ImageTransformRecordFailures", Unit: "Count" }],
+      },
+    ]);
     assert.equal("body" in log, false);
   } finally {
     console.error = previousConsoleError;
+    if (previousEnvironment === undefined) {
+      delete process.env.MEDIA_ENVIRONMENT;
+    } else {
+      process.env.MEDIA_ENVIRONMENT = previousEnvironment;
+    }
   }
 });
 

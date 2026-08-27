@@ -219,6 +219,7 @@ Resources:
       Environment:
         Variables:
           MEDIA_DELIVERY_BUCKET: !Ref DeliveryBucketName
+          MEDIA_ENVIRONMENT: !Ref EnvironmentName
           MEDIA_ORIGINAL_BUCKET: !Ref OriginalImageBucket
           MEDIA_RESULT_QUEUE_URL: !Ref TransformResultQueue
           MEDIA_SPECS_DIRECTORY: media-specs
@@ -397,6 +398,27 @@ Resources:
       EvaluationPeriods: 1
       MetricName: Errors
       Namespace: AWS/Lambda
+      Period: 60
+      Statistic: Sum
+      Threshold: 1
+      TreatMissingData: notBreaching
+
+  ImageTransformRecordFailureAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmDescription: Image transform SQS record processing failed and will be retried
+      AlarmActions: !If
+        - HasAlarmNotificationTopic
+        - - !Ref AlarmNotificationTopicArn
+        - []
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      DatapointsToAlarm: 1
+      Dimensions:
+        - Name: Environment
+          Value: !Ref EnvironmentName
+      EvaluationPeriods: 1
+      MetricName: ImageTransformRecordFailures
+      Namespace: HASHI/Media
       Period: 60
       Statistic: Sum
       Threshold: 1
