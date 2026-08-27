@@ -1,0 +1,61 @@
+name: Image Pipeline Infrastructure CI
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/ci-image-pipeline-infra.yml"
+      - "infra/media/**"
+      - "media-specs/**"
+      - "worker/image-transform/**"
+  push:
+    branches:
+      - develop
+    paths:
+      - ".github/workflows/ci-image-pipeline-infra.yml"
+      - "infra/media/**"
+      - "media-specs/**"
+      - "worker/image-transform/**"
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    name: Validate and build SAM stack
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout source code
+        uses: actions/checkout@v7
+
+      - name: Set up Node.js 24
+        uses: actions/setup-node@v7
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: worker/image-transform/package-lock.json
+
+      - name: Set up AWS SAM CLI
+        uses: aws-actions/setup-sam@v3
+
+      - name: Install exact worker dependencies
+        working-directory: worker/image-transform
+        run: npm ci
+
+      - name: Test worker
+        working-directory: worker/image-transform
+        run: npm test
+
+      - name: Build production Lambda package
+        working-directory: worker/image-transform
+        run: npm run package:lambda
+
+      - name: Lint SAM template
+        run: sam validate --lint --region ap-northeast-2 --template-file infra/media/template.yaml
+
+      - name: Build SAM stack
+        run: >-
+          sam build
+          --template-file infra/media/template.yaml
+          --build-dir .aws-sam/media-build

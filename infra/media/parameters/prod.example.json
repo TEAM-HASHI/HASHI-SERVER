@@ -1,0 +1,10 @@
+[
+  {"ParameterKey": "EnvironmentName", "ParameterValue": "prod"},
+  {"ParameterKey": "DeliveryBucketName", "ParameterValue": "replace-with-existing-prod-delivery-bucket"},
+  {"ParameterKey": "CloudFrontDistributionId", "ParameterValue": "replace-with-existing-prod-distribution-id"},
+  {"ParameterKey": "SpringApplicationRoleName", "ParameterValue": "replace-with-existing-prod-ec2-role"},
+  {"ParameterKey": "UploadAllowedOrigins", "ParameterValue": "https://replace-with-prod-client-origin.example"},
+  {"ParameterKey": "AlarmNotificationTopicArn", "ParameterValue": ""},
+  {"ParameterKey": "WorkerReservedConcurrency", "ParameterValue": "5"},
+  {"ParameterKey": "WorkerLogRetentionDays", "ParameterValue": "30"}
+]
