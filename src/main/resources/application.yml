@@ -8,6 +8,16 @@ spring:
     name: hashi
   profiles:
     active: local
+  cloud:
+    aws:
+      sqs:
+        # dev E2E가 끝날 때까지 listener와 SQS client 자동 구성을 시작하지 않는다.
+        enabled: ${hashi.media.queue.enabled}
+        region: ${AWS_REGION:ap-northeast-2}
+  modulith:
+    events:
+      # 성공한 publication은 즉시 제거하고 실패한 publication만 재전송 대상으로 남긴다.
+      completion-mode: delete
   data:
     redis:
       timeout: 3s
@@ -47,6 +57,10 @@ hashi:
     presigned-url-expiration: 300s
     max-file-size: 5MB
   media:
+    queue:
+      enabled: ${AWS_MEDIA_QUEUE_ENABLED:false}
+      request-queue-url: ${AWS_MEDIA_REQUEST_QUEUE_URL:}
+      result-queue-url: ${AWS_MEDIA_RESULT_QUEUE_URL:}
     original-storage:
       region: ${AWS_REGION:ap-northeast-2}
       bucket: ${AWS_MEDIA_ORIGINAL_BUCKET:hashi-local-media-originals}
