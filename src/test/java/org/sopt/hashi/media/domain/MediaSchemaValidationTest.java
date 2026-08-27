@@ -3,12 +3,14 @@ package org.sopt.hashi.media.domain;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import java.time.LocalDateTime;
 import java.util.Map;
+import java.util.UUID;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.testcontainers.service.connection.ServiceConnection;
-import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.dao.DataAccessException;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.testcontainers.containers.MySQLContainer;
 import org.testcontainers.junit.jupiter.Container;
@@ -36,6 +38,9 @@ class MediaSchemaValidationTest {
 
     @Autowired
     private JdbcTemplate jdbcTemplate;
+
+    @Autowired
+    private ImageAssetRepository imageAssetRepository;
 
     @Test
     void Flyway_스키마와_JPA_매핑이_일치한다() {
@@ -66,7 +71,7 @@ class MediaSchemaValidationTest {
                     updated_at
                 ) VALUES (2, 1, ?, FALSE, 0, CURRENT_TIMESTAMP(6))
                 """, SPEC_DIGEST))
-                .isInstanceOf(DataIntegrityViolationException.class);
+                .isInstanceOf(DataAccessException.class);
     }
 
     @Test
@@ -96,5 +101,56 @@ class MediaSchemaValidationTest {
         assertThat(serializedEventLength).isEqualTo(4000);
         assertThat(listenerIdLength).isEqualTo(512);
         assertThat(completionDateIndexCount).isEqualTo(1);
+    }
+
+    @Test
+    void source_version과_SHA256은_worker_wire_계약_길이로_저장한다() {
+        Integer sourceVersionLength = columnLength("source_version_id");
+        Integer checksumLength = columnLength("source_checksum_sha256");
+
+        assertThat(sourceVersionLength).isEqualTo(1024);
+        assertThat(checksumLength).isEqualTo(44);
+    }
+
+    @Test
+    void source_SHA256은_44자_Base64만_허용한다() {
+        UUID assetId = UUID.randomUUID();
+        ImageAsset asset = ImageAsset.createDirectUpload(
+                assetId,
+                MediaPurpose.REVIEW,
+                MediaOwnerType.USER,
+                1L,
+                "media/originals/%s/original".formatted(assetId),
+                "image/jpeg",
+                1024L,
+                LocalDateTime.now().plusMinutes(5)
+        );
+        imageAssetRepository.saveAndFlush(asset);
+
+        assertThatThrownBy(() -> updateVerifiedSource(assetId, "a".repeat(64)))
+                .isInstanceOf(DataAccessException.class);
+        assertThat(updateVerifiedSource(assetId, "A".repeat(43) + "=")).isEqualTo(1);
+    }
+
+    private int updateVerifiedSource(UUID assetId, String checksum) {
+        return jdbcTemplate.update("""
+                UPDATE image_asset
+                SET actual_content_type = 'image/jpeg',
+                    actual_bytes = 1024,
+                    source_width = 100,
+                    source_height = 100,
+                    source_checksum_sha256 = ?
+                WHERE public_id = ?
+                """, checksum, assetId.toString());
+    }
+
+    private Integer columnLength(String columnName) {
+        return jdbcTemplate.queryForObject("""
+                SELECT character_maximum_length
+                FROM information_schema.columns
+                WHERE table_schema = DATABASE()
+                  AND table_name = 'image_asset'
+                  AND column_name = ?
+                """, Integer.class, columnName);
     }
 }

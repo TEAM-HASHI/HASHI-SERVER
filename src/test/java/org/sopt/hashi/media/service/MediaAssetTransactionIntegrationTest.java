@@ -25,6 +25,7 @@ import org.sopt.hashi.media.domain.ImageAssetRepository;
 import org.sopt.hashi.media.domain.ImageProcessingStatus;
 import org.sopt.hashi.media.domain.MediaPurpose;
 import org.sopt.hashi.media.internal.event.MediaProcessingRequestedEvent;
+import org.sopt.hashi.media.internal.job.MediaProcessingJobIdFactory;
 import org.sopt.hashi.media.internal.storage.OriginalObjectMetadata;
 import org.sopt.hashi.shared.error.BusinessException;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -67,6 +68,9 @@ class MediaAssetTransactionIntegrationTest {
 
     @Autowired
     private ImageAssetRepository imageAssetRepository;
+
+    @Autowired
+    private MediaProcessingJobIdFactory jobIdFactory;
 
     @Autowired
     private JdbcTemplate jdbcTemplate;
@@ -120,7 +124,8 @@ class MediaAssetTransactionIntegrationTest {
         assertThat(eventCollector.events()).hasSize(1);
 
         ImageAsset asset = imageAssetRepository.findByPublicId(assetId).orElseThrow();
-        assertThat(asset.getCurrentJobId()).isNotNull();
+        assertThat(asset.getCurrentJobId())
+                .isEqualTo(jobIdFactory.create(assetId, "version-1", 1));
         assertThat(asset.getLastIssuedSpecVersion()).isEqualTo(1);
     }
 
