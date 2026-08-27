@@ -40,6 +40,11 @@ replay_pid*
 .gradle/
 build/
 
+# Image transform worker
+worker/image-transform/node_modules/
+worker/image-transform/dist/
+worker/image-transform/artifacts/
+
 # IntelliJ IDEA 
 .idea/
 *.iml
