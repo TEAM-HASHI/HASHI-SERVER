@@ -18,6 +18,7 @@ import java.time.Instant;
 import java.time.LocalTime;
 import java.time.ZoneId;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
@@ -29,9 +30,13 @@ import org.mockito.ArgumentCaptor;
 import org.mockito.ArgumentMatchers;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
-import org.sopt.hashi.media.MediaPort;
 import org.sopt.hashi.media.MediaAssetPurpose;
 import org.sopt.hashi.media.MediaAssetUse;
+import org.sopt.hashi.media.MediaImage;
+import org.sopt.hashi.media.MediaImageRequest;
+import org.sopt.hashi.media.MediaImageRole;
+import org.sopt.hashi.media.MediaImageStatus;
+import org.sopt.hashi.media.MediaPort;
 import org.sopt.hashi.restaurant.AdminRestaurantCommand;
 import org.sopt.hashi.restaurant.AdminRestaurantCommand.ImageCommand;
 import org.sopt.hashi.restaurant.AdminRestaurantCommand.MenuCommand;
@@ -320,6 +325,55 @@ class RestaurantServiceTest {
     }
 
     @Test
+    void 어드민_응답은_식당과_메뉴_이미지를_한번에_bulk_조회한다() {
+        RestaurantService restaurantService = createRestaurantService();
+        UUID restaurantAssetId = UUID.randomUUID();
+        UUID menuAssetId = UUID.randomUUID();
+        Restaurant restaurant = createRestaurant(1L, 4.8, 100L);
+        restaurant.replaceImages(List.of(image(101L, null, restaurantAssetId, 1)));
+        restaurant.addMenu(createAssetMenu(201L, "asset 메뉴", true, menuAssetId));
+        given(restaurantRepository.findByIdForUpdate(1L)).willReturn(Optional.of(restaurant));
+        MediaImage thumbnail = readyImage(
+                restaurantAssetId,
+                MediaImageRole.RESTAURANT_THUMBNAIL,
+                "https://cdn.example.com/media/admin-thumbnail.webp");
+        MediaImage hero = readyImage(
+                restaurantAssetId,
+                MediaImageRole.RESTAURANT_HERO,
+                "https://cdn.example.com/media/admin-hero.webp");
+        MediaImage menuList = readyImage(
+                menuAssetId,
+                MediaImageRole.MENU_LIST,
+                "https://cdn.example.com/media/admin-menu.webp");
+        given(mediaPort.findImages(any())).willReturn(Map.of(
+                new MediaImageRequest(restaurantAssetId, MediaImageRole.RESTAURANT_THUMBNAIL), thumbnail,
+                new MediaImageRequest(restaurantAssetId, MediaImageRole.RESTAURANT_HERO), hero,
+                new MediaImageRequest(menuAssetId, MediaImageRole.MENU_LIST), menuList
+        ));
+
+        var response = restaurantService.updateByAdmin(1L, updateMenuCommand(null));
+
+        assertThat(response.thumbnailUrl()).isEqualTo(thumbnail.defaultSource().url());
+        assertThat(response.thumbnailImage().restaurantImageId()).isEqualTo(101L);
+        assertThat(response.imageUrls()).containsExactly(hero.defaultSource().url());
+        assertThat(response.heroImages()).singleElement()
+                .satisfies(image -> assertThat(image.image()).isEqualTo(hero));
+        assertThat(response.menus()).singleElement()
+                .satisfies(menu -> {
+                    assertThat(menu.imageUrl()).isEqualTo(menuList.defaultSource().url());
+                    assertThat(menu.listImage()).isEqualTo(menuList);
+                });
+        verify(mediaPort).findImages(argThat(requests -> Set.copyOf(requests).equals(Set.of(
+                new MediaImageRequest(
+                        restaurantAssetId, MediaImageRole.RESTAURANT_THUMBNAIL),
+                new MediaImageRequest(restaurantAssetId, MediaImageRole.RESTAURANT_HERO),
+                new MediaImageRequest(menuAssetId, MediaImageRole.MENU_LIST)
+        ))));
+        verify(mediaPort, never()).reconcileBindings(any(), any());
+        verify(fileStorage, never()).resolveFileUrl(any());
+    }
+
+    @Test
     void ordered_wrapper는_기존_association_ID를_유지하고_추가와_제거만_전이한다() {
         RestaurantService restaurantService = createRestaurantService();
         UUID removedAssetId = UUID.randomUUID();
@@ -375,7 +429,7 @@ class RestaurantServiceTest {
                 .containsExactly(103L, 101L, 102L);
         assertThat(restaurant.getImages().get(1).getImageAssetId())
                 .isEqualTo(backfilledAssetId);
-        verifyNoInteractions(mediaPort);
+        verify(mediaPort, never()).reconcileBindings(any(), any());
     }
 
     @Test
@@ -418,7 +472,7 @@ class RestaurantServiceTest {
 
         assertThat(menu.getImageAssetId()).isEqualTo(backfilledAssetId);
         assertThat(menu.getImageKey()).isEqualTo("restaurant-menus/10.jpg");
-        verifyNoInteractions(mediaPort);
+        verify(mediaPort, never()).reconcileBindings(any(), any());
     }
 
     @Test
@@ -761,8 +815,8 @@ class RestaurantServiceTest {
         Restaurant restaurant = createRestaurant(1L, 4.8, 100L);
         ReflectionTestUtils.setField(restaurant, "reviewCount", 256L);
         restaurant.replaceImages(List.of(
-                RestaurantImage.create("restaurants/1/images/1.jpg", 1),
-                RestaurantImage.create("restaurants/1/images/2.jpg", 2)
+                image(101L, "restaurants/1/images/1.jpg", null, 1),
+                image(102L, "restaurants/1/images/2.jpg", null, 2)
         ));
         given(restaurantRepository.findActiveByIdWithImages(1L)).willReturn(Optional.of(restaurant));
         given(fileStorage.resolveFileUrl("restaurants/1/images/1.jpg"))
@@ -781,7 +835,161 @@ class RestaurantServiceTest {
                 "https://cdn.example.com/restaurants/1/images/1.jpg",
                 "https://cdn.example.com/restaurants/1/images/2.jpg"
         );
+        assertThat(response.thumbnailImage().restaurantImageId()).isEqualTo(101L);
+        assertThat(response.thumbnailImage().image()).isNull();
+        assertThat(response.heroImages())
+                .extracting(image -> image.restaurantImageId(), image -> image.displayOrder())
+                .containsExactly(
+                        org.assertj.core.groups.Tuple.tuple(101L, 1),
+                        org.assertj.core.groups.Tuple.tuple(102L, 2));
+        assertThat(response.heroImages())
+                .allSatisfy(image -> assertThat(image.image()).isNull());
         assertThat(response.reservationFee()).isEqualTo(4_000L);
+        verifyNoInteractions(mediaPort);
+    }
+
+    @Test
+    void media_READY_식당은_role별_URL과_신규_이미지_객체를_반환한다() {
+        RestaurantService restaurantService = createRestaurantService();
+        UUID assetId = UUID.randomUUID();
+        Restaurant restaurant = createRestaurant(1L, 4.8, 100L);
+        restaurant.replaceImages(List.of(
+                image(101L, "restaurants/1/legacy.jpg", assetId, 1)
+        ));
+        MediaImage thumbnail = readyImage(
+                assetId,
+                MediaImageRole.RESTAURANT_THUMBNAIL,
+                "https://cdn.example.com/media/thumbnail.webp");
+        MediaImage hero = readyImage(
+                assetId,
+                MediaImageRole.RESTAURANT_HERO,
+                "https://cdn.example.com/media/hero.webp");
+        given(restaurantRepository.findActiveByIdWithImages(1L)).willReturn(Optional.of(restaurant));
+        given(mediaPort.findImages(any())).willReturn(Map.of(
+                new MediaImageRequest(assetId, MediaImageRole.RESTAURANT_THUMBNAIL), thumbnail,
+                new MediaImageRequest(assetId, MediaImageRole.RESTAURANT_HERO), hero
+        ));
+
+        var response = restaurantService.getRestaurantSummary(1L);
+
+        assertThat(response.thumbnailUrl()).isEqualTo(thumbnail.defaultSource().url());
+        assertThat(response.thumbnailImage().restaurantImageId()).isEqualTo(101L);
+        assertThat(response.thumbnailImage().image()).isEqualTo(thumbnail);
+        assertThat(response.imageUrls()).containsExactly(hero.defaultSource().url());
+        assertThat(response.heroImages()).singleElement()
+                .satisfies(image -> assertThat(image.image()).isEqualTo(hero));
+        verify(mediaPort).findImages(argThat(requests -> Set.copyOf(requests).equals(Set.of(
+                new MediaImageRequest(assetId, MediaImageRole.RESTAURANT_THUMBNAIL),
+                new MediaImageRequest(assetId, MediaImageRole.RESTAURANT_HERO)
+        ))));
+        verify(fileStorage, never()).resolveFileUrl(any());
+    }
+
+    @Test
+    void media_PROCESSING과_FAILED는_legacy_URL로_우회하지_않고_슬롯을_유지한다() {
+        RestaurantService restaurantService = createRestaurantService();
+        UUID processingAssetId = UUID.randomUUID();
+        UUID failedAssetId = UUID.randomUUID();
+        Restaurant restaurant = createRestaurant(1L, 4.8, 100L);
+        restaurant.replaceImages(List.of(
+                image(101L, "restaurants/1/processing.jpg", processingAssetId, 1),
+                image(102L, "restaurants/1/failed.jpg", failedAssetId, 2)
+        ));
+        given(restaurantRepository.findActiveByIdWithImages(1L)).willReturn(Optional.of(restaurant));
+        given(mediaPort.findImages(any())).willReturn(Map.of(
+                new MediaImageRequest(processingAssetId, MediaImageRole.RESTAURANT_THUMBNAIL),
+                statusImage(
+                        processingAssetId,
+                        MediaImageRole.RESTAURANT_THUMBNAIL,
+                        MediaImageStatus.PROCESSING),
+                new MediaImageRequest(processingAssetId, MediaImageRole.RESTAURANT_HERO),
+                statusImage(
+                        processingAssetId,
+                        MediaImageRole.RESTAURANT_HERO,
+                        MediaImageStatus.PROCESSING),
+                new MediaImageRequest(failedAssetId, MediaImageRole.RESTAURANT_HERO),
+                statusImage(
+                        failedAssetId,
+                        MediaImageRole.RESTAURANT_HERO,
+                        MediaImageStatus.FAILED)
+        ));
+
+        var response = restaurantService.getRestaurantSummary(1L);
+
+        assertThat(response.thumbnailUrl()).isNull();
+        assertThat(response.thumbnailImage().image().status())
+                .isEqualTo(MediaImageStatus.PROCESSING);
+        assertThat(response.imageUrls()).isEmpty();
+        assertThat(response.heroImages())
+                .extracting(image -> image.restaurantImageId(), image -> image.image().status())
+                .containsExactly(
+                        org.assertj.core.groups.Tuple.tuple(101L, MediaImageStatus.PROCESSING),
+                        org.assertj.core.groups.Tuple.tuple(102L, MediaImageStatus.FAILED));
+        verify(fileStorage, never()).resolveFileUrl(any());
+    }
+
+    @Test
+    void media_asset_조회가_불일치해도_legacy_URL로_우회하지_않는다() {
+        RestaurantService restaurantService = createRestaurantService();
+        UUID assetId = UUID.randomUUID();
+        Restaurant restaurant = createRestaurant(1L, 4.8, 100L);
+        restaurant.replaceImages(List.of(
+                image(101L, "restaurants/1/backfilled.jpg", assetId, 1)
+        ));
+        given(restaurantRepository.findActiveByIdWithImages(1L)).willReturn(Optional.of(restaurant));
+        given(mediaPort.findImages(any())).willReturn(Map.of());
+
+        var response = restaurantService.getRestaurantSummary(1L);
+
+        assertThat(response.thumbnailUrl()).isNull();
+        assertThat(response.thumbnailImage().image()).isNull();
+        assertThat(response.imageUrls()).isEmpty();
+        assertThat(response.heroImages()).singleElement()
+                .satisfies(image -> {
+                    assertThat(image.restaurantImageId()).isEqualTo(101L);
+                    assertThat(image.image()).isNull();
+                });
+        verify(fileStorage, never()).resolveFileUrl(any());
+    }
+
+    @Test
+    void 식당_목록은_페이지에_포함된_asset만_한번에_bulk_조회한다() {
+        RestaurantService restaurantService = createRestaurantService();
+        UUID firstAssetId = UUID.randomUUID();
+        UUID secondAssetId = UUID.randomUUID();
+        UUID excludedAssetId = UUID.randomUUID();
+        Restaurant first = createRestaurant(1L, 4.8, 100L);
+        Restaurant second = createRestaurant(2L, 4.7, 90L);
+        Restaurant excluded = createRestaurant(3L, 4.6, 80L);
+        first.replaceImages(List.of(image(101L, null, firstAssetId, 1)));
+        second.replaceImages(List.of(image(201L, null, secondAssetId, 1)));
+        excluded.replaceImages(List.of(image(301L, null, excludedAssetId, 1)));
+        givenRestaurants(List.of(first, second, excluded));
+        given(mediaPort.findImages(any())).willReturn(Map.of(
+                new MediaImageRequest(firstAssetId, MediaImageRole.RESTAURANT_THUMBNAIL),
+                readyImage(firstAssetId, MediaImageRole.RESTAURANT_THUMBNAIL, "https://cdn/1-thumb.webp"),
+                new MediaImageRequest(firstAssetId, MediaImageRole.RESTAURANT_CARD),
+                readyImage(firstAssetId, MediaImageRole.RESTAURANT_CARD, "https://cdn/1-card.webp"),
+                new MediaImageRequest(secondAssetId, MediaImageRole.RESTAURANT_THUMBNAIL),
+                readyImage(secondAssetId, MediaImageRole.RESTAURANT_THUMBNAIL, "https://cdn/2-thumb.webp"),
+                new MediaImageRequest(secondAssetId, MediaImageRole.RESTAURANT_CARD),
+                readyImage(secondAssetId, MediaImageRole.RESTAURANT_CARD, "https://cdn/2-card.webp")
+        ));
+
+        RestaurantListResponse response = restaurantService.getRestaurants(
+                null, null, null, null, null, 2);
+
+        assertThat(response.content()).hasSize(2);
+        assertThat(response.content().getFirst().thumbnailUrl())
+                .isEqualTo("https://cdn/1-thumb.webp");
+        assertThat(response.content().getFirst().imageUrls())
+                .containsExactly("https://cdn/1-card.webp");
+        verify(mediaPort).findImages(argThat(requests -> Set.copyOf(requests).equals(Set.of(
+                new MediaImageRequest(firstAssetId, MediaImageRole.RESTAURANT_THUMBNAIL),
+                new MediaImageRequest(firstAssetId, MediaImageRole.RESTAURANT_CARD),
+                new MediaImageRequest(secondAssetId, MediaImageRole.RESTAURANT_THUMBNAIL),
+                new MediaImageRequest(secondAssetId, MediaImageRole.RESTAURANT_CARD)
+        ))));
     }
 
     @Test
@@ -957,6 +1165,60 @@ class RestaurantServiceTest {
         assertThat(response.main()).isTrue();
         assertThat(response.otherMenuCount()).isEqualTo(6L);
         verify(restaurantRepository, never()).existsByIdAndDeletedFalse(any());
+    }
+
+    @Test
+    void media_메뉴_목록은_MENU_LIST_role을_bulk_조회한다() {
+        RestaurantService restaurantService = createRestaurantService();
+        UUID assetId = UUID.randomUUID();
+        RestaurantMenu menu = createAssetMenu(10L, "Shio Ramen", true, assetId);
+        MediaImage listImage = readyImage(
+                assetId, MediaImageRole.MENU_LIST, "https://cdn.example.com/media/menu-list.webp");
+        given(restaurantRepository.existsByIdAndDeletedFalse(1L)).willReturn(true);
+        given(restaurantRepository.findMenusByRestaurantId(
+                ArgumentMatchers.eq(1L),
+                ArgumentMatchers.isNull(),
+                ArgumentMatchers.<Boolean>isNull(),
+                ArgumentMatchers.<String>isNull(),
+                ArgumentMatchers.<Long>isNull(),
+                any(Pageable.class)
+        )).willReturn(List.of(menu));
+        given(mediaPort.findImages(any())).willReturn(Map.of(
+                new MediaImageRequest(assetId, MediaImageRole.MENU_LIST), listImage));
+
+        RestaurantMenuListResponse response = restaurantService.getRestaurantMenus(
+                1L, null, null, 10);
+
+        assertThat(response.content()).singleElement()
+                .satisfies(item -> {
+                    assertThat(item.imageUrl()).isEqualTo(listImage.defaultSource().url());
+                    assertThat(item.listImage()).isEqualTo(listImage);
+                });
+        verify(mediaPort).findImages(argThat(requests -> List.copyOf(requests).equals(List.of(
+                new MediaImageRequest(assetId, MediaImageRole.MENU_LIST)))));
+    }
+
+    @Test
+    void media_메뉴_상세_PROCESSING은_원본_URL로_우회하지_않는다() {
+        RestaurantService restaurantService = createRestaurantService();
+        UUID assetId = UUID.randomUUID();
+        RestaurantMenu menu = createAssetMenu(10L, "Shio Ramen", true, assetId);
+        ReflectionTestUtils.setField(menu, "imageKey", "restaurant-menus/legacy.jpg");
+        MediaImage processing = statusImage(
+                assetId, MediaImageRole.MENU_DETAIL, MediaImageStatus.PROCESSING);
+        given(restaurantRepository.findMenuByRestaurantIdAndMenuId(1L, 10L))
+                .willReturn(Optional.of(menu));
+        given(restaurantRepository.countOtherMenusByRestaurantId(1L, 10L)).willReturn(6L);
+        given(mediaPort.findImages(any())).willReturn(Map.of(
+                new MediaImageRequest(assetId, MediaImageRole.MENU_DETAIL), processing));
+
+        RestaurantMenuDetailResponse response = restaurantService.getRestaurantMenu(1L, 10L);
+
+        assertThat(response.imageUrl()).isNull();
+        assertThat(response.detailImage()).isEqualTo(processing);
+        verify(mediaPort).findImages(argThat(requests -> List.copyOf(requests).equals(List.of(
+                new MediaImageRequest(assetId, MediaImageRole.MENU_DETAIL)))));
+        verify(fileStorage, never()).resolveFileUrl(any());
     }
 
     @Test
@@ -1155,5 +1417,45 @@ class RestaurantServiceTest {
         );
         ReflectionTestUtils.setField(menu, "id", id);
         return menu;
+    }
+
+    private RestaurantMenu createAssetMenu(
+            Long id,
+            String name,
+            boolean representative,
+            UUID assetId
+    ) {
+        RestaurantMenu menu = RestaurantMenu.createWithAsset(
+                name,
+                "menu description",
+                assetId,
+                PriceCurrency.JPY,
+                BigDecimal.valueOf(1200),
+                representative
+        );
+        ReflectionTestUtils.setField(menu, "id", id);
+        return menu;
+    }
+
+    private MediaImage readyImage(UUID assetId, MediaImageRole role, String url) {
+        MediaImage.Source source = new MediaImage.Source(url, 270, 270, "image/webp");
+        return new MediaImage(
+                assetId,
+                role,
+                MediaImageStatus.READY,
+                source,
+                List.of(new MediaImage.SourceSet(
+                        "image/webp",
+                        List.of(new MediaImage.Candidate(url, 270, 270))
+                ))
+        );
+    }
+
+    private MediaImage statusImage(
+            UUID assetId,
+            MediaImageRole role,
+            MediaImageStatus status
+    ) {
+        return new MediaImage(assetId, role, status, null, List.of());
     }
 }
