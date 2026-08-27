@@ -70,7 +70,8 @@ class MediaProcessingRequestReaderTest {
                 1024L,
                 LocalDateTime.now().plusMinutes(5)
         );
-        asset.beginInitialProcessing("version-1", "\"etag-1\"", 1, SPEC_DIGEST, jobId);
+        asset.beginInitialProcessing(
+                "version-1", "\"etag-1\"", 1, SPEC_DIGEST, jobId, LocalDateTime.now());
         return asset;
     }
 }

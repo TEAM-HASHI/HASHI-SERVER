@@ -122,6 +122,15 @@ public class ImageAsset extends BaseTimeEntity {
     @Column(name = "target_processing_status", length = 20)
     private TargetProcessingStatus targetProcessingStatus;
 
+    @Column(name = "target_processing_started_at")
+    private LocalDateTime targetProcessingStartedAt;
+
+    @Column(name = "last_recovery_requested_at")
+    private LocalDateTime lastRecoveryRequestedAt;
+
+    @Column(name = "processing_recovery_attempts", nullable = false)
+    private int processingRecoveryAttempts;
+
     @JdbcTypeCode(SqlTypes.CHAR)
     @Column(name = "current_job_id", length = 36)
     private UUID currentJobId;
@@ -266,15 +275,17 @@ public class ImageAsset extends BaseTimeEntity {
     }
 
     public void beginInitialProcessing(String sourceVersionId, String sourceEtag,
-                                       int specVersion, String specDigest, UUID jobId) {
+                                       int specVersion, String specDigest, UUID jobId,
+                                       LocalDateTime startedAt) {
         requireState(ImageProcessingStatus.PENDING_UPLOAD);
         this.sourceVersionId = requireText(sourceVersionId, "sourceVersionId");
         this.sourceEtag = requireText(sourceEtag, "sourceEtag");
-        beginTargetProcessing(specVersion, specDigest, jobId);
+        beginTargetProcessing(specVersion, specDigest, jobId, startedAt);
         this.processingStatus = ImageProcessingStatus.PROCESSING;
     }
 
-    public void beginUpgradeProcessing(int specVersion, String specDigest, UUID jobId) {
+    public void beginUpgradeProcessing(int specVersion, String specDigest, UUID jobId,
+                                       LocalDateTime startedAt) {
         if (cleanupStatus != MediaCleanupStatus.ACTIVE) {
             throw new IllegalStateException("only active assets can be upgraded");
         }
@@ -282,7 +293,37 @@ public class ImageAsset extends BaseTimeEntity {
         if (activeSpecVersion == null || actualContentType == null) {
             throw new IllegalStateException("only a verified active spec can be upgraded");
         }
-        beginTargetProcessing(specVersion, specDigest, jobId);
+        beginTargetProcessing(specVersion, specDigest, jobId, startedAt);
+    }
+
+    public boolean recordRecoveryRequest(UUID jobId, LocalDateTime requestedAt,
+                                         LocalDateTime staleBefore,
+                                         LocalDateTime retryBefore, int maxAttempts) {
+        Objects.requireNonNull(requestedAt);
+        Objects.requireNonNull(staleBefore);
+        Objects.requireNonNull(retryBefore);
+        if (maxAttempts < 1) {
+            throw new IllegalArgumentException("maxAttempts must be positive");
+        }
+        boolean staleLongEnough = targetProcessingStartedAt != null
+                && !targetProcessingStartedAt.isAfter(staleBefore);
+        boolean retryIntervalElapsed = lastRecoveryRequestedAt == null
+                || !lastRecoveryRequestedAt.isAfter(retryBefore);
+        boolean chronological = targetProcessingStartedAt != null
+                && !requestedAt.isBefore(targetProcessingStartedAt)
+                && (lastRecoveryRequestedAt == null
+                    || !requestedAt.isBefore(lastRecoveryRequestedAt));
+        boolean recoverable = hasCurrentProcessingJob(jobId)
+                && staleLongEnough
+                && retryIntervalElapsed
+                && chronological
+                && processingRecoveryAttempts < maxAttempts;
+        if (!recoverable) {
+            return false;
+        }
+        this.lastRecoveryRequestedAt = requestedAt;
+        this.processingRecoveryAttempts++;
+        return true;
     }
 
     public void addRendition(UUID jobId, int specVersion, String specDigest,
@@ -327,7 +368,8 @@ public class ImageAsset extends BaseTimeEntity {
         clearTargetProcessing();
     }
 
-    private void beginTargetProcessing(int specVersion, String specDigest, UUID jobId) {
+    private void beginTargetProcessing(int specVersion, String specDigest, UUID jobId,
+                                       LocalDateTime startedAt) {
         if (targetProcessingStatus != null) {
             throw new IllegalStateException("another media processing target is active");
         }
@@ -339,6 +381,9 @@ public class ImageAsset extends BaseTimeEntity {
         this.targetSpecVersion = specVersion;
         this.targetSpecDigest = requireSha256(specDigest, "specDigest");
         this.targetProcessingStatus = TargetProcessingStatus.PROCESSING;
+        this.targetProcessingStartedAt = Objects.requireNonNull(startedAt);
+        this.lastRecoveryRequestedAt = null;
+        this.processingRecoveryAttempts = 0;
         this.currentJobId = Objects.requireNonNull(jobId);
         this.lastIssuedSpecVersion = specVersion;
     }
@@ -382,6 +427,9 @@ public class ImageAsset extends BaseTimeEntity {
         this.targetSpecVersion = null;
         this.targetSpecDigest = null;
         this.targetProcessingStatus = null;
+        this.targetProcessingStartedAt = null;
+        this.lastRecoveryRequestedAt = null;
+        this.processingRecoveryAttempts = 0;
         this.currentJobId = null;
     }
 

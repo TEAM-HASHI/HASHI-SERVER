@@ -15,6 +15,8 @@ class ImageAssetTest {
             "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
     private static final String SOURCE_CHECKSUM =
             "47DEQpj8HBSa+/TImW+5JCeuQeRkm5NMpJWZG3hSuFU=";
+    private static final LocalDateTime PROCESSING_STARTED_AT =
+            LocalDateTime.of(2026, 8, 27, 12, 0);
 
     @Test
     void 직접_업로드는_인증_actor와_PENDING_UPLOAD_상태를_기록한다() {
@@ -42,7 +44,8 @@ class ImageAssetTest {
         ImageAsset asset = createDirectUpload(MediaOwnerType.USER, 1L);
         UUID jobId = UUID.randomUUID();
 
-        asset.beginInitialProcessing("version-1", "\"etag-1\"", 1, SPEC_DIGEST, jobId);
+        asset.beginInitialProcessing(
+                "version-1", "\"etag-1\"", 1, SPEC_DIGEST, jobId, PROCESSING_STARTED_AT);
 
         assertThat(asset.getProcessingStatus()).isEqualTo(ImageProcessingStatus.PROCESSING);
         assertThat(asset.getSourceVersionId()).isEqualTo("version-1");
@@ -51,15 +54,61 @@ class ImageAssetTest {
         assertThat(asset.getTargetSpecDigest()).isEqualTo(SPEC_DIGEST);
         assertThat(asset.getCurrentJobId()).isEqualTo(jobId);
         assertThat(asset.getLastIssuedSpecVersion()).isEqualTo(1);
+        assertThat(asset.getTargetProcessingStartedAt()).isEqualTo(PROCESSING_STARTED_AT);
+        assertThat(asset.getProcessingRecoveryAttempts()).isZero();
+    }
+
+    @Test
+    void 정체된_현재_job만_재발행_시각과_횟수를_제한적으로_기록한다() {
+        ImageAsset asset = createDirectUpload(MediaOwnerType.USER, 1L);
+        UUID jobId = UUID.randomUUID();
+        asset.beginInitialProcessing(
+                "version-1", "\"etag-1\"", 1, SPEC_DIGEST, jobId, PROCESSING_STARTED_AT);
+
+        assertThat(asset.recordRecoveryRequest(
+                jobId,
+                PROCESSING_STARTED_AT.plusMinutes(9),
+                PROCESSING_STARTED_AT.minusSeconds(1),
+                PROCESSING_STARTED_AT.minusMinutes(1),
+                2
+        )).isFalse();
+        assertThat(asset.recordRecoveryRequest(
+                jobId,
+                PROCESSING_STARTED_AT.plusMinutes(10),
+                PROCESSING_STARTED_AT,
+                PROCESSING_STARTED_AT.plusMinutes(9),
+                2
+        )).isTrue();
+        assertThat(asset.recordRecoveryRequest(
+                jobId,
+                PROCESSING_STARTED_AT.plusMinutes(15),
+                PROCESSING_STARTED_AT,
+                PROCESSING_STARTED_AT.plusMinutes(10),
+                2
+        )).isTrue();
+        assertThat(asset.recordRecoveryRequest(
+                jobId,
+                PROCESSING_STARTED_AT.plusMinutes(30),
+                PROCESSING_STARTED_AT,
+                PROCESSING_STARTED_AT.plusMinutes(20),
+                2
+        )).isFalse();
+
+        assertThat(asset.getProcessingRecoveryAttempts()).isEqualTo(2);
+        assertThat(asset.getLastRecoveryRequestedAt())
+                .isEqualTo(PROCESSING_STARTED_AT.plusMinutes(15));
     }
 
     @Test
     void PROCESSING_asset은_같은_완료_전이를_다시_시작할_수_없다() {
         ImageAsset asset = createDirectUpload(MediaOwnerType.USER, 1L);
-        asset.beginInitialProcessing("version-1", "\"etag-1\"", 1, SPEC_DIGEST, UUID.randomUUID());
+        asset.beginInitialProcessing(
+                "version-1", "\"etag-1\"", 1, SPEC_DIGEST, UUID.randomUUID(),
+                PROCESSING_STARTED_AT);
 
         assertThatThrownBy(() -> asset.beginInitialProcessing(
-                "version-1", "\"etag-1\"", 1, SPEC_DIGEST, UUID.randomUUID()))
+                "version-1", "\"etag-1\"", 1, SPEC_DIGEST, UUID.randomUUID(),
+                PROCESSING_STARTED_AT))
                 .isInstanceOf(IllegalStateException.class);
     }
 
@@ -67,7 +116,8 @@ class ImageAssetTest {
     void 현재_job의_성공_결과만_rendition과_READY_spec으로_반영한다() {
         ImageAsset asset = createDirectUpload(MediaOwnerType.USER, 1L);
         UUID jobId = UUID.randomUUID();
-        asset.beginInitialProcessing("version-1", "\"etag-1\"", 1, SPEC_DIGEST, jobId);
+        asset.beginInitialProcessing(
+                "version-1", "\"etag-1\"", 1, SPEC_DIGEST, jobId, PROCESSING_STARTED_AT);
 
         asset.addRendition(
                 jobId,
@@ -88,6 +138,9 @@ class ImageAssetTest {
         assertThat(asset.getActiveSpecDigest()).isEqualTo(SPEC_DIGEST);
         assertThat(asset.getTargetSpecVersion()).isNull();
         assertThat(asset.getCurrentJobId()).isNull();
+        assertThat(asset.getTargetProcessingStartedAt()).isNull();
+        assertThat(asset.getLastRecoveryRequestedAt()).isNull();
+        assertThat(asset.getProcessingRecoveryAttempts()).isZero();
         assertThat(asset.getSourceChecksumSha256()).isEqualTo(SOURCE_CHECKSUM);
         assertThat(asset.getRenditions()).singleElement().satisfies(rendition -> {
             assertThat(rendition.getRole()).isEqualTo(ImageRole.REVIEW_PREVIEW);
@@ -99,7 +152,8 @@ class ImageAssetTest {
     void 초기_변환_실패는_FAILED로_전이하고_target을_정리한다() {
         ImageAsset asset = createDirectUpload(MediaOwnerType.USER, 1L);
         UUID jobId = UUID.randomUUID();
-        asset.beginInitialProcessing("version-1", "\"etag-1\"", 1, SPEC_DIGEST, jobId);
+        asset.beginInitialProcessing(
+                "version-1", "\"etag-1\"", 1, SPEC_DIGEST, jobId, PROCESSING_STARTED_AT);
 
         asset.failCurrentProcessing(jobId, 1, SPEC_DIGEST, "INVALID_IMAGE_DATA");
 
@@ -114,7 +168,8 @@ class ImageAssetTest {
     void 준비된_이미지의_upgrade_실패는_기존_ACTIVE_spec과_READY를_유지한다() {
         ImageAsset asset = readyAsset();
         UUID upgradeJobId = UUID.randomUUID();
-        asset.beginUpgradeProcessing(2, NEXT_SPEC_DIGEST, upgradeJobId);
+        asset.beginUpgradeProcessing(
+                2, NEXT_SPEC_DIGEST, upgradeJobId, PROCESSING_STARTED_AT.plusHours(1));
 
         asset.failCurrentProcessing(
                 upgradeJobId, 2, NEXT_SPEC_DIGEST, "INVALID_IMAGE_DATA");
@@ -141,7 +196,8 @@ class ImageAssetTest {
     void 동일한_rendition_식별자를_중복해서_추가할_수_없다() {
         ImageAsset asset = createDirectUpload(MediaOwnerType.USER, 1L);
         UUID jobId = UUID.randomUUID();
-        asset.beginInitialProcessing("version-1", "\"etag-1\"", 1, SPEC_DIGEST, jobId);
+        asset.beginInitialProcessing(
+                "version-1", "\"etag-1\"", 1, SPEC_DIGEST, jobId, PROCESSING_STARTED_AT);
         String objectKey = renditionKey(asset, 1, ImageRole.REVIEW_PREVIEW, 135);
         asset.addRendition(
                 jobId, 1, SPEC_DIGEST, ImageRole.REVIEW_PREVIEW, ImageFormat.WEBP,
@@ -187,7 +243,8 @@ class ImageAssetTest {
     private ImageAsset readyAsset() {
         ImageAsset asset = createDirectUpload(MediaOwnerType.USER, 1L);
         UUID jobId = UUID.randomUUID();
-        asset.beginInitialProcessing("version-1", "\"etag-1\"", 1, SPEC_DIGEST, jobId);
+        asset.beginInitialProcessing(
+                "version-1", "\"etag-1\"", 1, SPEC_DIGEST, jobId, PROCESSING_STARTED_AT);
         asset.completeCurrentProcessing(
                 jobId, 1, SPEC_DIGEST, "image/jpeg", 1024L, 3024, 4032, SOURCE_CHECKSUM);
         return asset;

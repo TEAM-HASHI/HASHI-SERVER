@@ -72,8 +72,23 @@ PR에서는 다음 작업이 자동 실행된다.
 5. 업로드부터 WebP 생성, READY 반영과 기존 CloudFront 전달까지 dev E2E를 통과한다.
 6. prod 적용은 dev E2E와 별도 운영 승인을 받은 뒤에만 실행한다.
 
-현재 Spring이 사용하는 값은 `AWS_MEDIA_ORIGINAL_BUCKET`이다. request/result queue URL 환경변수는
-Spring 상태 연동 이슈에서 추가하며, 그 전에는 stack output만 안전하게 보관한다.
+Spring에는 stack output을 다음 환경변수로 전달한다.
+
+- `AWS_MEDIA_ORIGINAL_BUCKET`
+- `AWS_MEDIA_REQUEST_QUEUE_URL`
+- `AWS_MEDIA_RESULT_QUEUE_URL`
+- `AWS_MEDIA_QUEUE_ENABLED` — dev E2E 전에는 `false`
+
+정체 복구는 기본적으로 처리 시작 10분 뒤부터 같은 결정적 job ID를 15분 간격, 최대 3회
+재발행한다. 값은 `AWS_MEDIA_PROCESSING_STALE_AGE`,
+`AWS_MEDIA_PROCESSING_RETRY_INTERVAL`, `AWS_MEDIA_PROCESSING_MAX_ATTEMPTS`로 조정할 수
+있지만, dev 관측 없이 prod 기본값을 바꾸지 않는다. `AWS_MEDIA_RECOVERY_ENABLED=false`는
+정체 job과 EPR 자동 재제출만 중지하며 기존 result consumer를 중지하지 않는다.
+
+request/result queue 지연과 DLQ 수는 CloudWatch alarm으로 확인한다. Spring Prometheus에서는
+`hashi.media.transform.*`, `hashi.media.processing.*`, `hashi.media.assets`,
+`hashi.media.cleanup.candidates`, `hashi.media.issuance.available`을 확인한다. metric에는
+asset ID, object key와 queue body를 tag로 넣지 않는다.
 
 ## 장애와 rollback
 

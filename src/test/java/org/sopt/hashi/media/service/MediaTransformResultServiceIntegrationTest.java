@@ -5,7 +5,9 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import java.time.LocalDateTime;
 import java.util.ArrayList;
+import java.util.EnumSet;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -14,6 +16,7 @@ import org.sopt.hashi.media.domain.ImageAssetRepository;
 import org.sopt.hashi.media.domain.ImageFormat;
 import org.sopt.hashi.media.domain.ImageProcessingStatus;
 import org.sopt.hashi.media.domain.ImageRole;
+import org.sopt.hashi.media.domain.MediaCreationOrigin;
 import org.sopt.hashi.media.domain.MediaOwnerType;
 import org.sopt.hashi.media.domain.MediaPurpose;
 import org.sopt.hashi.media.internal.queue.MediaRenditionResult;
@@ -22,6 +25,12 @@ import org.sopt.hashi.media.internal.queue.MediaTransformFailedResult;
 import org.sopt.hashi.media.internal.queue.MediaTransformFailureCode;
 import org.sopt.hashi.media.internal.queue.MediaTransformSucceededResult;
 import org.sopt.hashi.media.internal.queue.MediaVerifiedSource;
+import org.sopt.hashi.media.internal.recovery.MediaCleanupCandidate;
+import org.sopt.hashi.media.internal.recovery.MediaCleanupCandidateCursor;
+import org.sopt.hashi.media.internal.recovery.MediaCleanupCandidateReader;
+import org.sopt.hashi.media.internal.recovery.MediaProcessingRecoveryCandidate;
+import org.sopt.hashi.media.internal.recovery.MediaProcessingRecoveryCursor;
+import org.sopt.hashi.media.internal.recovery.MediaProcessingRecoveryReader;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.testcontainers.service.connection.ServiceConnection;
@@ -61,6 +70,12 @@ class MediaTransformResultServiceIntegrationTest {
     private ImageAssetRepository imageAssetRepository;
 
     @Autowired
+    private MediaProcessingRecoveryReader recoveryReader;
+
+    @Autowired
+    private MediaCleanupCandidateReader cleanupCandidateReader;
+
+    @Autowired
     private JdbcTemplate jdbcTemplate;
 
     @BeforeEach
@@ -74,10 +89,11 @@ class MediaTransformResultServiceIntegrationTest {
     void 성공_결과는_검증된_source와_정확한_rendition을_원자적으로_READY에_반영한다() {
         ProcessingAsset processing = createProcessingAsset(1, SPEC_DIGEST);
 
-        MediaTransformResultDisposition disposition =
+        MediaTransformResultApplication application =
                 resultService.apply(successResult(processing));
 
-        assertThat(disposition).isEqualTo(MediaTransformResultDisposition.APPLIED);
+        assertThat(application.disposition()).isEqualTo(MediaTransformResultDisposition.APPLIED);
+        assertThat(application.processingDuration().isNegative()).isFalse();
         ImageAsset saved = find(processing.assetId());
         assertThat(saved.getProcessingStatus()).isEqualTo(ImageProcessingStatus.READY);
         assertThat(saved.getActiveSpecVersion()).isEqualTo(1);
@@ -98,9 +114,10 @@ class MediaTransformResultServiceIntegrationTest {
         MediaTransformSucceededResult result = successResult(processing);
         resultService.apply(result);
 
-        MediaTransformResultDisposition disposition = resultService.apply(result);
+        MediaTransformResultApplication application = resultService.apply(result);
 
-        assertThat(disposition).isEqualTo(MediaTransformResultDisposition.STALE);
+        assertThat(application.disposition()).isEqualTo(MediaTransformResultDisposition.STALE);
+        assertThat(application.processingDuration()).isNull();
         assertThat(jdbcTemplate.queryForObject(
                 "SELECT COUNT(*) FROM image_rendition", Integer.class)).isEqualTo(6);
     }
@@ -110,10 +127,10 @@ class MediaTransformResultServiceIntegrationTest {
         ProcessingAsset processing = createProcessingAsset(1, SPEC_DIGEST);
         resultService.apply(successResult(processing));
 
-        MediaTransformResultDisposition disposition =
+        MediaTransformResultApplication application =
                 resultService.apply(failedResult(processing));
 
-        assertThat(disposition).isEqualTo(MediaTransformResultDisposition.STALE);
+        assertThat(application.disposition()).isEqualTo(MediaTransformResultDisposition.STALE);
         assertThat(find(processing.assetId()).getProcessingStatus())
                 .isEqualTo(ImageProcessingStatus.READY);
     }
@@ -122,10 +139,10 @@ class MediaTransformResultServiceIntegrationTest {
     void 현재_초기_job의_영구_실패는_FAILED로_반영한다() {
         ProcessingAsset processing = createProcessingAsset(1, SPEC_DIGEST);
 
-        MediaTransformResultDisposition disposition =
+        MediaTransformResultApplication application =
                 resultService.apply(failedResult(processing));
 
-        assertThat(disposition).isEqualTo(MediaTransformResultDisposition.APPLIED);
+        assertThat(application.disposition()).isEqualTo(MediaTransformResultDisposition.APPLIED);
         ImageAsset saved = find(processing.assetId());
         assertThat(saved.getProcessingStatus()).isEqualTo(ImageProcessingStatus.FAILED);
         assertThat(saved.getLastFailureSpecVersion()).isEqualTo(1);
@@ -145,10 +162,10 @@ class MediaTransformResultServiceIntegrationTest {
                 OTHER_DIGEST
         );
 
-        MediaTransformResultDisposition disposition =
+        MediaTransformResultApplication application =
                 resultService.apply(failedResult(stale));
 
-        assertThat(disposition).isEqualTo(MediaTransformResultDisposition.STALE);
+        assertThat(application.disposition()).isEqualTo(MediaTransformResultDisposition.STALE);
         assertThat(find(processing.assetId()).getProcessingStatus())
                 .isEqualTo(ImageProcessingStatus.PROCESSING);
     }
@@ -269,11 +286,148 @@ class MediaTransformResultServiceIntegrationTest {
         ProcessingAsset missing = new ProcessingAsset(
                 UUID.randomUUID(), UUID.randomUUID(), "version", "etag", 999, OTHER_DIGEST);
 
-        assertThat(resultService.apply(failedResult(missing)))
+        assertThat(resultService.apply(failedResult(missing)).disposition())
                 .isEqualTo(MediaTransformResultDisposition.STALE);
     }
 
+    @Test
+    void 장기_PROCESSING_scan은_복합_index와_시간_ID_keyset으로_페이지를_잇는다() {
+        LocalDateTime now = LocalDateTime.of(2026, 8, 27, 18, 0);
+        ProcessingAsset oldest = createProcessingAsset(
+                1, SPEC_DIGEST, now.minusMinutes(30));
+        ProcessingAsset middle = createProcessingAsset(
+                1, SPEC_DIGEST, now.minusMinutes(20));
+        ProcessingAsset newest = createProcessingAsset(
+                1, SPEC_DIGEST, now.minusMinutes(10));
+
+        List<MediaProcessingRecoveryCandidate> first = recoveryReader.findBatch(
+                now, now, 3, MediaProcessingRecoveryCursor.initial(), 2);
+        List<MediaProcessingRecoveryCandidate> second = recoveryReader.findBatch(
+                now, now, 3, first.getLast().nextCursor(), 2);
+
+        assertThat(first).extracting(MediaProcessingRecoveryCandidate::jobId)
+                .containsExactly(oldest.jobId(), middle.jobId());
+        assertThat(second).extracting(MediaProcessingRecoveryCandidate::jobId)
+                .containsExactly(newest.jobId());
+
+        Map<String, Object> queryPlan = jdbcTemplate.queryForMap("""
+                EXPLAIN SELECT id, current_job_id, target_processing_started_at
+                FROM image_asset FORCE INDEX (idx_image_asset_processing_scan)
+                WHERE cleanup_status = 'ACTIVE'
+                  AND target_processing_status = 'PROCESSING'
+                  AND target_processing_started_at <= ?
+                  AND (
+                        last_recovery_requested_at IS NULL
+                        OR last_recovery_requested_at <= ?
+                  )
+                  AND processing_recovery_attempts < 3
+                  AND (
+                        target_processing_started_at > ?
+                        OR (
+                            target_processing_started_at = ?
+                            AND id > 0
+                        )
+                  )
+                ORDER BY target_processing_started_at, id
+                LIMIT 100
+                """,
+                now,
+                now,
+                MediaProcessingRecoveryCursor.initial().startedAt(),
+                MediaProcessingRecoveryCursor.initial().startedAt()
+        );
+        assertThat(queryPlan.get("key")).isEqualTo("idx_image_asset_processing_scan");
+    }
+
+    @Test
+    void cleanup_기반은_UNBOUND_terminal_asset을_복합_index와_keyset으로_조회한다() {
+        LocalDateTime now = LocalDateTime.of(2026, 8, 27, 18, 0);
+        ImageAsset older = createPendingAsset();
+        ImageAsset newer = createPendingAsset();
+        jdbcTemplate.update(
+                "UPDATE image_asset SET updated_at = ? WHERE id = ?",
+                now.minusDays(2),
+                older.getId()
+        );
+        jdbcTemplate.update(
+                "UPDATE image_asset SET updated_at = ? WHERE id = ?",
+                now.minusDays(1),
+                newer.getId()
+        );
+
+        List<MediaCleanupCandidate> first = cleanupCandidateReader.findUnboundBatch(
+                MediaCreationOrigin.DIRECT_UPLOAD,
+                EnumSet.of(
+                        ImageProcessingStatus.PENDING_UPLOAD,
+                        ImageProcessingStatus.EXPIRED
+                ),
+                now,
+                MediaCleanupCandidateCursor.initial(),
+                1
+        );
+        List<MediaCleanupCandidate> second = cleanupCandidateReader.findUnboundBatch(
+                MediaCreationOrigin.DIRECT_UPLOAD,
+                EnumSet.of(
+                        ImageProcessingStatus.PENDING_UPLOAD,
+                        ImageProcessingStatus.EXPIRED
+                ),
+                now,
+                first.getLast().nextCursor(),
+                1
+        );
+
+        assertThat(first).extracting(MediaCleanupCandidate::publicId)
+                .containsExactly(older.getPublicId());
+        assertThat(second).extracting(MediaCleanupCandidate::publicId)
+                .containsExactly(newer.getPublicId());
+
+        Map<String, Object> queryPlan = jdbcTemplate.queryForMap("""
+                EXPLAIN SELECT id, public_id, processing_status, creation_origin, updated_at
+                FROM image_asset FORCE INDEX (idx_image_asset_cleanup_scan)
+                WHERE cleanup_status = 'ACTIVE'
+                  AND binding_status = 'UNBOUND'
+                  AND processing_status IN ('PENDING_UPLOAD', 'EXPIRED')
+                  AND creation_origin = 'DIRECT_UPLOAD'
+                  AND target_processing_status IS NULL
+                  AND updated_at <= ?
+                  AND (
+                        updated_at > ?
+                        OR (updated_at = ? AND id > 0)
+                  )
+                ORDER BY updated_at, id
+                LIMIT 100
+                """,
+                now,
+                MediaCleanupCandidateCursor.initial().updatedAt(),
+                MediaCleanupCandidateCursor.initial().updatedAt()
+        );
+        assertThat(queryPlan.get("key")).isEqualTo("idx_image_asset_cleanup_scan");
+    }
+
     private ProcessingAsset createProcessingAsset(int specVersion, String specDigest) {
+        return createProcessingAsset(specVersion, specDigest, LocalDateTime.now());
+    }
+
+    private ImageAsset createPendingAsset() {
+        UUID assetId = UUID.randomUUID();
+        ImageAsset asset = ImageAsset.createDirectUpload(
+                assetId,
+                MediaPurpose.REVIEW,
+                MediaOwnerType.USER,
+                1L,
+                "media/originals/%s/original".formatted(assetId),
+                "image/jpeg",
+                1_024L,
+                LocalDateTime.now().plusMinutes(5)
+        );
+        return imageAssetRepository.saveAndFlush(asset);
+    }
+
+    private ProcessingAsset createProcessingAsset(
+            int specVersion,
+            String specDigest,
+            LocalDateTime startedAt
+    ) {
         UUID assetId = UUID.randomUUID();
         UUID jobId = UUID.randomUUID();
         ImageAsset asset = ImageAsset.createDirectUpload(
@@ -287,7 +441,8 @@ class MediaTransformResultServiceIntegrationTest {
                 LocalDateTime.now().plusMinutes(5)
         );
         asset.beginInitialProcessing(
-                "3Lg-source-version", "\"etag-value\"", specVersion, specDigest, jobId);
+                "3Lg-source-version", "\"etag-value\"", specVersion, specDigest, jobId,
+                startedAt);
         imageAssetRepository.saveAndFlush(asset);
         return new ProcessingAsset(
                 assetId,

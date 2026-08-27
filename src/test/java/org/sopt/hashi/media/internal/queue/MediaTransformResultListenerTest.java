@@ -8,10 +8,12 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import io.awspring.cloud.sqs.listener.acknowledgement.Acknowledgement;
+import java.time.Duration;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
 import org.mockito.InOrder;
-import org.sopt.hashi.media.service.MediaTransformResultDisposition;
+import org.sopt.hashi.media.internal.metrics.MediaPipelineMetrics;
+import org.sopt.hashi.media.service.MediaTransformResultApplication;
 import org.sopt.hashi.media.service.MediaTransformResultService;
 
 class MediaTransformResultListenerTest {
@@ -19,21 +21,25 @@ class MediaTransformResultListenerTest {
     private final MediaTransformResultParser parser = mock(MediaTransformResultParser.class);
     private final MediaTransformResultService resultService =
             mock(MediaTransformResultService.class);
+    private final MediaPipelineMetrics metrics = mock(MediaPipelineMetrics.class);
     private final Acknowledgement acknowledgement = mock(Acknowledgement.class);
     private final MediaTransformResultListener listener =
-            new MediaTransformResultListener(parser, resultService);
+            new MediaTransformResultListener(parser, resultService, metrics);
 
     @Test
     void DB_반영이_끝난_뒤에만_메시지를_ACK한다() {
         MediaTransformResult result = failedResult();
         when(parser.parse("body")).thenReturn(result);
-        when(resultService.apply(result)).thenReturn(MediaTransformResultDisposition.APPLIED);
+        MediaTransformResultApplication application = MediaTransformResultApplication.applied(
+                Duration.ofSeconds(2));
+        when(resultService.apply(result)).thenReturn(application);
 
         listener.consume("body", acknowledgement);
 
-        InOrder order = inOrder(parser, resultService, acknowledgement);
+        InOrder order = inOrder(parser, resultService, metrics, acknowledgement);
         order.verify(parser).parse("body");
         order.verify(resultService).apply(result);
+        order.verify(metrics).recordResult(result, application);
         order.verify(acknowledgement).acknowledge();
     }
 
@@ -45,6 +51,7 @@ class MediaTransformResultListenerTest {
         assertThatThrownBy(() -> listener.consume("body", acknowledgement))
                 .isInstanceOf(MediaTransformContractException.class);
 
+        verify(metrics).recordResultContractError();
         verify(resultService, never()).apply(org.mockito.ArgumentMatchers.any());
         verify(acknowledgement, never()).acknowledge();
     }
@@ -58,6 +65,7 @@ class MediaTransformResultListenerTest {
         assertThatThrownBy(() -> listener.consume("body", acknowledgement))
                 .isInstanceOf(IllegalStateException.class);
 
+        verify(metrics).recordResultInternalError(result);
         verify(acknowledgement, never()).acknowledge();
     }
 

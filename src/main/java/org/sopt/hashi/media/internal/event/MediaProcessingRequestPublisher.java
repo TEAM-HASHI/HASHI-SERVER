@@ -2,6 +2,7 @@ package org.sopt.hashi.media.internal.event;
 
 import java.util.Optional;
 import org.sopt.hashi.media.internal.job.MediaProcessingRequestReader;
+import org.sopt.hashi.media.internal.metrics.MediaPipelineMetrics;
 import org.sopt.hashi.media.internal.queue.MediaQueueExecutionConfig;
 import org.sopt.hashi.media.internal.queue.MediaTransformRequest;
 import org.sopt.hashi.media.internal.queue.MediaTransformRequestPublisher;
@@ -18,12 +19,15 @@ public class MediaProcessingRequestPublisher {
 
     private final MediaProcessingRequestReader requestReader;
     private final ObjectProvider<MediaTransformRequestPublisher> publisherProvider;
+    private final MediaPipelineMetrics metrics;
 
     public MediaProcessingRequestPublisher(
             MediaProcessingRequestReader requestReader,
-            ObjectProvider<MediaTransformRequestPublisher> publisherProvider) {
+            ObjectProvider<MediaTransformRequestPublisher> publisherProvider,
+            MediaPipelineMetrics metrics) {
         this.requestReader = requestReader;
         this.publisherProvider = publisherProvider;
+        this.metrics = metrics;
     }
 
     @Async(MediaQueueExecutionConfig.PUBLISHER_EXECUTOR)
@@ -36,12 +40,20 @@ public class MediaProcessingRequestPublisher {
         Optional<MediaTransformRequest> request =
                 requestReader.findCurrent(event.assetId(), event.jobId());
         if (request.isEmpty()) {
+            metrics.recordRequest("stale");
             return;
         }
         MediaTransformRequestPublisher publisher = publisherProvider.getIfAvailable();
         if (publisher == null) {
+            metrics.recordRequest("unavailable");
             throw new IllegalStateException("media transform request publisher is unavailable");
         }
-        publisher.publish(request.get());
+        try {
+            publisher.publish(request.get());
+            metrics.recordRequest("published");
+        } catch (RuntimeException e) {
+            metrics.recordRequest("failed");
+            throw e;
+        }
     }
 }

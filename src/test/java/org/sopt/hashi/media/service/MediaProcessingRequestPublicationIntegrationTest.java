@@ -21,6 +21,8 @@ import org.sopt.hashi.media.domain.ImageAssetRepository;
 import org.sopt.hashi.media.domain.ImageProcessingStatus;
 import org.sopt.hashi.media.domain.MediaPurpose;
 import org.sopt.hashi.media.internal.event.MediaProcessingRequestPublisher;
+import org.sopt.hashi.media.internal.recovery.MediaProcessingRecoveryCandidate;
+import org.sopt.hashi.media.internal.recovery.MediaProcessingRecoveryTransactionService;
 import org.sopt.hashi.media.internal.queue.MediaTransformRequest;
 import org.sopt.hashi.media.internal.queue.MediaTransformRequestPublisher;
 import org.sopt.hashi.media.internal.storage.OriginalObjectMetadata;
@@ -65,6 +67,9 @@ class MediaProcessingRequestPublicationIntegrationTest {
 
     @Autowired
     private ImageAssetRepository imageAssetRepository;
+
+    @Autowired
+    private MediaProcessingRecoveryTransactionService recoveryTransactionService;
 
     @Autowired
     private JdbcTemplate jdbcTemplate;
@@ -121,6 +126,46 @@ class MediaProcessingRequestPublicationIntegrationTest {
         assertThat(awaitCondition(() -> publicationCount() == 1, Duration.ofSeconds(5))).isTrue();
         ImageAsset asset = imageAssetRepository.findByPublicId(assetId).orElseThrow();
         assertThat(asset.getProcessingStatus()).isEqualTo(ImageProcessingStatus.PROCESSING);
+    }
+
+    @Test
+    void 정체_job은_같은_jobId로_EPR을_통해_재발행하고_간격_안에는_중복하지_않는다()
+            throws Exception {
+        UUID assetId = createAndCompleteAsset();
+        MediaTransformRequest initialRequest = requestPublisher.awaitAttempt();
+        assertThat(awaitCondition(() -> publicationCount() == 0, Duration.ofSeconds(5))).isTrue();
+        ImageAsset asset = imageAssetRepository.findByPublicId(assetId).orElseThrow();
+        LocalDateTime startedAt = asset.getTargetProcessingStartedAt();
+        MediaProcessingRecoveryCandidate candidate = new MediaProcessingRecoveryCandidate(
+                asset.getId(), asset.getCurrentJobId(), startedAt);
+
+        boolean requested = recoveryTransactionService.requestRetryIfStillStalled(
+                candidate,
+                startedAt.plusMinutes(20),
+                startedAt.plusMinutes(10),
+                startedAt.plusMinutes(5),
+                3
+        );
+        MediaTransformRequest recoveredRequest = requestPublisher.awaitAttempt();
+
+        assertThat(requested).isTrue();
+        assertThat(recoveredRequest).isEqualTo(initialRequest);
+        assertThat(awaitCondition(() -> publicationCount() == 0, Duration.ofSeconds(5))).isTrue();
+        ImageAsset recovered = imageAssetRepository.findByPublicId(assetId).orElseThrow();
+        assertThat(recovered.getProcessingRecoveryAttempts()).isEqualTo(1);
+        assertThat(recovered.getLastRecoveryRequestedAt())
+                .isEqualTo(startedAt.plusMinutes(20));
+
+        boolean duplicateRequested = recoveryTransactionService.requestRetryIfStillStalled(
+                candidate,
+                startedAt.plusMinutes(21),
+                startedAt.plusMinutes(10),
+                startedAt.plusMinutes(19),
+                3
+        );
+
+        assertThat(duplicateRequested).isFalse();
+        assertThat(requestPublisher.hasNoAttempt(Duration.ofMillis(300))).isTrue();
     }
 
     private UUID createAndCompleteAsset() {
@@ -224,6 +269,10 @@ class MediaProcessingRequestPublicationIntegrationTest {
             attempts.clear();
             transactionStates.clear();
             failNext = false;
+        }
+
+        boolean hasNoAttempt(Duration timeout) throws InterruptedException {
+            return attempts.poll(timeout.toMillis(), TimeUnit.MILLISECONDS) == null;
         }
     }
 }

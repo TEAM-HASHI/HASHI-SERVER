@@ -1,5 +1,8 @@
 package org.sopt.hashi.media.service;
 
+import java.time.Clock;
+import java.time.Duration;
+import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Locale;
 import java.util.Optional;
@@ -15,6 +18,7 @@ import org.sopt.hashi.media.internal.queue.MediaVerifiedSource;
 import org.sopt.hashi.media.internal.spec.MediaExpectedRendition;
 import org.sopt.hashi.media.internal.spec.MediaSpecDefinition;
 import org.sopt.hashi.media.internal.spec.MediaSpecRegistry;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -23,25 +27,28 @@ public class MediaTransformResultService {
 
     private final ImageAssetRepository imageAssetRepository;
     private final MediaSpecRegistry mediaSpecRegistry;
+    private final Clock clock;
 
     public MediaTransformResultService(ImageAssetRepository imageAssetRepository,
-                                       MediaSpecRegistry mediaSpecRegistry) {
+                                       MediaSpecRegistry mediaSpecRegistry,
+                                       @Qualifier("japanClock") Clock clock) {
         this.imageAssetRepository = imageAssetRepository;
         this.mediaSpecRegistry = mediaSpecRegistry;
+        this.clock = clock;
     }
 
     @Transactional
-    public MediaTransformResultDisposition apply(MediaTransformResult result) {
+    public MediaTransformResultApplication apply(MediaTransformResult result) {
         Optional<ImageAsset> optionalAsset =
                 imageAssetRepository.findByPublicIdForUpdate(result.assetId());
         if (optionalAsset.isEmpty()) {
-            return MediaTransformResultDisposition.STALE;
+            return MediaTransformResultApplication.stale();
         }
 
         ImageAsset asset = optionalAsset.get();
         if (!asset.matchesCurrentProcessingAttempt(
                 result.jobId(), result.sourceVersionId(), result.sourceETag())) {
-            return MediaTransformResultDisposition.STALE;
+            return MediaTransformResultApplication.stale();
         }
         if (!asset.matchesTargetSpec(result.specVersion(), result.specDigest())) {
             throw contractMismatch("media result target spec differs from the current job");
@@ -53,6 +60,7 @@ public class MediaTransformResultService {
         if (!spec.digest().equals(result.specDigest())) {
             throw contractMismatch("media result spec digest differs from the packaged manifest");
         }
+        Duration processingDuration = processingDuration(asset);
 
         if (result instanceof MediaTransformFailedResult failed) {
             asset.failCurrentProcessing(
@@ -61,7 +69,7 @@ public class MediaTransformResultService {
                     failed.specDigest(),
                     failed.failureCode().name()
             );
-            return MediaTransformResultDisposition.APPLIED;
+            return MediaTransformResultApplication.applied(processingDuration);
         }
 
         MediaTransformSucceededResult succeeded = (MediaTransformSucceededResult) result;
@@ -89,7 +97,15 @@ public class MediaTransformResultService {
                 source.height(),
                 source.checksumSha256()
         );
-        return MediaTransformResultDisposition.APPLIED;
+        return MediaTransformResultApplication.applied(processingDuration);
+    }
+
+    private Duration processingDuration(ImageAsset asset) {
+        Duration duration = Duration.between(
+                asset.getTargetProcessingStartedAt(),
+                LocalDateTime.now(clock)
+        );
+        return duration.isNegative() ? Duration.ZERO : duration;
     }
 
     private void validateVerifiedSource(ImageAsset asset, MediaVerifiedSource source) {

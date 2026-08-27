@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import java.time.LocalDateTime;
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
@@ -132,6 +133,73 @@ class MediaSchemaValidationTest {
         assertThat(updateVerifiedSource(assetId, "A".repeat(43) + "=")).isEqualTo(1);
     }
 
+    @Test
+    void PROCESSING_recovery_상태와_keyset_index를_DB_제약으로_고정한다() {
+        UUID assetId = UUID.randomUUID();
+        ImageAsset asset = ImageAsset.createDirectUpload(
+                assetId,
+                MediaPurpose.REVIEW,
+                MediaOwnerType.USER,
+                1L,
+                "media/originals/%s/original".formatted(assetId),
+                "image/jpeg",
+                1024L,
+                LocalDateTime.now().plusMinutes(5)
+        );
+        imageAssetRepository.saveAndFlush(asset);
+        UUID jobId = UUID.randomUUID();
+
+        assertThatThrownBy(() -> jdbcTemplate.update("""
+                UPDATE image_asset
+                SET processing_status = 'PROCESSING',
+                    source_version_id = 'version-1',
+                    source_etag = '"etag-1"',
+                    target_spec_version = 1,
+                    target_spec_digest = ?,
+                    target_processing_status = 'PROCESSING',
+                    current_job_id = ?,
+                    last_issued_spec_version = 1
+                WHERE public_id = ?
+                """, SPEC_DIGEST, jobId.toString(), assetId.toString()))
+                .isInstanceOf(DataAccessException.class);
+
+        assertThat(jdbcTemplate.update("""
+                UPDATE image_asset
+                SET processing_status = 'PROCESSING',
+                    source_version_id = 'version-1',
+                    source_etag = '"etag-1"',
+                    target_spec_version = 1,
+                    target_spec_digest = ?,
+                    target_processing_status = 'PROCESSING',
+                    target_processing_started_at = CURRENT_TIMESTAMP(6),
+                    current_job_id = ?,
+                    last_issued_spec_version = 1
+                WHERE public_id = ?
+                """, SPEC_DIGEST, jobId.toString(), assetId.toString())).isEqualTo(1);
+
+        assertThatThrownBy(() -> jdbcTemplate.update("""
+                UPDATE image_asset
+                SET processing_recovery_attempts = 1
+                WHERE public_id = ?
+                """, assetId.toString()))
+                .isInstanceOf(DataAccessException.class);
+
+        assertThat(indexColumns("idx_image_asset_processing_scan")).containsExactly(
+                "cleanup_status",
+                "target_processing_status",
+                "target_processing_started_at",
+                "id"
+        );
+        assertThat(indexColumns("idx_image_asset_cleanup_scan")).containsExactly(
+                "cleanup_status",
+                "binding_status",
+                "processing_status",
+                "creation_origin",
+                "updated_at",
+                "id"
+        );
+    }
+
     private int updateVerifiedSource(UUID assetId, String checksum) {
         return jdbcTemplate.update("""
                 UPDATE image_asset
@@ -152,5 +220,16 @@ class MediaSchemaValidationTest {
                   AND table_name = 'image_asset'
                   AND column_name = ?
                 """, Integer.class, columnName);
+    }
+
+    private List<String> indexColumns(String indexName) {
+        return jdbcTemplate.queryForList("""
+                SELECT column_name
+                FROM information_schema.statistics
+                WHERE table_schema = DATABASE()
+                  AND table_name = 'image_asset'
+                  AND index_name = ?
+                ORDER BY seq_in_index
+                """, String.class, indexName);
     }
 }
