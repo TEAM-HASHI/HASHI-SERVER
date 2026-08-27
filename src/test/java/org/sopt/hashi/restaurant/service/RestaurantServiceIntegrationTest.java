@@ -1,6 +1,7 @@
 package org.sopt.hashi.restaurant.service;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.BDDMockito.given;
 import static org.mockito.Mockito.verifyNoInteractions;
 
 import java.math.BigDecimal;
@@ -13,6 +14,7 @@ import org.sopt.hashi.restaurant.AdminRestaurantCommand.ImageCommand;
 import org.sopt.hashi.restaurant.AdminRestaurantCommand.MenuCommand;
 import org.sopt.hashi.restaurant.AdminRestaurantInfo;
 import org.sopt.hashi.restaurant.AdminRestaurantInfo.AdminRestaurantMenuInfo;
+import org.sopt.hashi.restaurant.RestaurantInfo;
 import org.sopt.hashi.restaurant.RestaurantPort;
 import org.sopt.hashi.restaurant.domain.PriceCurrency;
 import org.sopt.hashi.restaurant.domain.Restaurant;
@@ -162,6 +164,27 @@ class RestaurantServiceIntegrationTest {
                 .extracting(RestaurantImage::getDisplayOrder)
                 .containsExactly(1, 2, 3);
         verifyNoInteractions(mediaPort);
+    }
+
+    @Test
+    void RestaurantPort는_soft_delete_식당도_대표_이미지와_함께_조회한다() {
+        Restaurant restaurant = createRestaurant("삭제된 식당", "초밥");
+        restaurant.replaceImages(List.of(
+                RestaurantImage.createLegacy("restaurants/deleted.jpg", 1)
+        ));
+        restaurant.softDelete();
+        restaurantRepository.saveAndFlush(restaurant);
+        given(fileStorage.resolveFileUrl("restaurants/deleted.jpg"))
+                .willReturn("https://cdn.example.com/restaurants/deleted.jpg");
+
+        RestaurantInfo response = restaurantPort.findSummaryById(restaurant.getId()).orElseThrow();
+        List<RestaurantInfo> summaries = restaurantPort.findSummaries(List.of(restaurant.getId()));
+
+        assertThat(response.thumbnailImageReference().assetId()).isNull();
+        assertThat(response.thumbnailImageReference().legacyUrl())
+                .isEqualTo("https://cdn.example.com/restaurants/deleted.jpg");
+        assertThat(summaries).singleElement()
+                .satisfies(info -> assertThat(info.id()).isEqualTo(restaurant.getId()));
     }
 
     private AdminRestaurantCommand updateMenusCommand(List<MenuCommand> menus) {

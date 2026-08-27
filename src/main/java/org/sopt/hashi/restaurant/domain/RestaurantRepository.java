@@ -31,6 +31,16 @@ public interface RestaurantRepository extends JpaRepository<Restaurant, Long>, J
     @Query("select distinct r from Restaurant r where r.id = :restaurantId and r.deleted = false")
     Optional<Restaurant> findActiveByIdWithImages(@Param("restaurantId") Long restaurantId);
 
+    /** 예약·리뷰의 과거 표시를 위해 soft-delete 식당도 대표 이미지 association과 함께 조회한다. */
+    @EntityGraph(attributePaths = "images")
+    @Query("select distinct r from Restaurant r where r.id = :restaurantId")
+    Optional<Restaurant> findByIdWithImages(@Param("restaurantId") Long restaurantId);
+
+    /** 교차 모듈 목록 enrich에서 이미지 collection N+1 없이 soft-delete 식당까지 조회한다. */
+    @EntityGraph(attributePaths = "images")
+    @Query("select distinct r from Restaurant r where r.id in :restaurantIds")
+    List<Restaurant> findAllByIdWithImages(@Param("restaurantIds") List<Long> restaurantIds);
+
     // 랜덤 추천 — 큐레이션 조건 없이 전체 활성 식당에서 뽑는다(#154). rand() 정렬은 식당 수가 적은 규모를 전제로 한다.
     @Query(value = """
             select r.id

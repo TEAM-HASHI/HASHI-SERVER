@@ -20,6 +20,7 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Optional;
 import java.util.Set;
 import lombok.AccessLevel;
 import lombok.Getter;
@@ -200,10 +201,15 @@ public class Restaurant extends BaseTimeEntity {
 
     /** 정렬 순서가 가장 빠른 식당 이미지를 대표 이미지로 사용한다. */
     public String getThumbnailFileKey() {
-        return images.stream()
-                .min(Comparator.comparingInt(RestaurantImage::getDisplayOrder))
+        return getThumbnailImage()
                 .map(RestaurantImage::getFileKey)
                 .orElse(null);
+    }
+
+    /** 대표 association 자체를 반환해 assetId와 legacy key를 함께 보존한다. */
+    public Optional<RestaurantImage> getThumbnailImage() {
+        return images.stream()
+                .min(Comparator.comparingInt(RestaurantImage::getDisplayOrder));
     }
 
     public void replaceCurationTypes(List<RestaurantCurationType> curationTypes) {
