@@ -13,24 +13,4 @@ public record RestaurantInfo(
         String address,
         ImageReference thumbnailImageReference
 ) {
-
-    /** legacy 테스트와 호출부의 점진 전환용 생성자. */
-    public RestaurantInfo(Long id, String name, String address, String imageUrl) {
-        this(
-                id,
-                name,
-                address,
-                imageUrl == null ? null : ImageReference.legacy(imageUrl));
-    }
-
-    /**
-     * 신규 asset을 legacy URL로 우회하지 않는 임시 호환 accessor다.
-     * 최종 HTTP 응답 Service는 {@link #thumbnailImageReference()}와 MediaPort를 사용해야 한다.
-     */
-    @Deprecated(forRemoval = true)
-    public String imageUrl() {
-        return thumbnailImageReference == null || thumbnailImageReference.assetId() != null
-                ? null
-                : thumbnailImageReference.legacyUrl();
-    }
 }
