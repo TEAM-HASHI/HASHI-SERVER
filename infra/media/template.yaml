@@ -41,6 +41,14 @@ Parameters:
     MaxValue: 100
     Description: Shared concurrency ceiling for the function and SQS event source
 
+  WorkerEventSourceEnabled:
+    Type: String
+    Default: "true"
+    AllowedValues:
+      - "true"
+      - "false"
+    Description: Enables or pauses request queue consumption without deleting resources
+
   WorkerLogRetentionDays:
     Type: Number
     Default: 30
@@ -57,6 +65,9 @@ Conditions:
     - !Equals
       - !Ref AlarmNotificationTopicArn
       - ""
+  IsWorkerEventSourceEnabled: !Equals
+    - !Ref WorkerEventSourceEnabled
+    - "true"
 
 Resources:
   OriginalImageBucket:
@@ -217,7 +228,10 @@ Resources:
           Type: SQS
           Properties:
             BatchSize: 1
-            Enabled: true
+            Enabled: !If
+              - IsWorkerEventSourceEnabled
+              - true
+              - false
             FunctionResponseTypes:
               - ReportBatchItemFailures
             Queue: !GetAtt TransformRequestQueue.Arn

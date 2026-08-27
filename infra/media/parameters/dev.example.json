@@ -6,5 +6,6 @@
   {"ParameterKey": "UploadAllowedOrigins", "ParameterValue": "https://replace-with-dev-client-origin.example"},
   {"ParameterKey": "AlarmNotificationTopicArn", "ParameterValue": ""},
   {"ParameterKey": "WorkerReservedConcurrency", "ParameterValue": "5"},
+  {"ParameterKey": "WorkerEventSourceEnabled", "ParameterValue": "true"},
   {"ParameterKey": "WorkerLogRetentionDays", "ParameterValue": "30"}
 ]
