@@ -134,6 +134,32 @@ class MediaSchemaValidationTest {
     }
 
     @Test
+    void verified_source의_부분_NULL_상태를_거부한다() {
+        UUID assetId = savePendingAsset();
+
+        assertThatThrownBy(() -> jdbcTemplate.update("""
+                UPDATE image_asset
+                SET actual_content_type = 'image/jpeg',
+                    actual_bytes = NULL,
+                    source_width = 100,
+                    source_height = 100,
+                    source_checksum_sha256 = ?
+                WHERE public_id = ?
+                """, "A".repeat(43) + "=", assetId.toString()))
+                .isInstanceOf(DataAccessException.class);
+        assertThatThrownBy(() -> jdbcTemplate.update("""
+                UPDATE image_asset
+                SET actual_content_type = 'image/jpeg',
+                    actual_bytes = 1024,
+                    source_width = 100,
+                    source_height = 100,
+                    source_checksum_sha256 = NULL
+                WHERE public_id = ?
+                """, assetId.toString()))
+                .isInstanceOf(DataAccessException.class);
+    }
+
+    @Test
     void PROCESSING_recovery_상태와_keyset_index를_DB_제약으로_고정한다() {
         UUID assetId = UUID.randomUUID();
         ImageAsset asset = ImageAsset.createDirectUpload(
@@ -161,6 +187,13 @@ class MediaSchemaValidationTest {
                     last_issued_spec_version = 1
                 WHERE public_id = ?
                 """, SPEC_DIGEST, jobId.toString(), assetId.toString()))
+                .isInstanceOf(DataAccessException.class);
+
+        assertThatThrownBy(() -> jdbcTemplate.update("""
+                UPDATE image_asset
+                SET target_processing_started_at = CURRENT_TIMESTAMP(6)
+                WHERE public_id = ?
+                """, assetId.toString()))
                 .isInstanceOf(DataAccessException.class);
 
         assertThat(jdbcTemplate.update("""
@@ -198,6 +231,28 @@ class MediaSchemaValidationTest {
                 "updated_at",
                 "id"
         );
+        assertThat(indexColumns("idx_image_asset_status_cleanup_scan")).containsExactly(
+                "cleanup_status",
+                "processing_status",
+                "updated_at",
+                "id"
+        );
+    }
+
+    private UUID savePendingAsset() {
+        UUID assetId = UUID.randomUUID();
+        ImageAsset asset = ImageAsset.createDirectUpload(
+                assetId,
+                MediaPurpose.REVIEW,
+                MediaOwnerType.USER,
+                1L,
+                "media/originals/%s/original".formatted(assetId),
+                "image/jpeg",
+                1024L,
+                LocalDateTime.now().plusMinutes(5)
+        );
+        imageAssetRepository.saveAndFlush(asset);
+        return assetId;
     }
 
     private int updateVerifiedSource(UUID assetId, String checksum) {

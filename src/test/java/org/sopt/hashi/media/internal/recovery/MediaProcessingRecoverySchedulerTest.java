@@ -85,6 +85,37 @@ class MediaProcessingRecoverySchedulerTest {
                 anyInt());
     }
 
+    @Test
+    void 애플리케이션_시작_직후에도_이미_정체된_job을_조회한다() {
+        MediaProcessingRecoveryCandidate stalled = candidate(1, 30);
+        given(reader.findBatch(
+                any(LocalDateTime.class),
+                any(LocalDateTime.class),
+                eq(3),
+                any(MediaProcessingRecoveryCursor.class),
+                eq(2)))
+                .willReturn(List.of(stalled));
+        given(transactionService.requestRetryIfStillStalled(
+                eq(stalled),
+                any(LocalDateTime.class),
+                any(LocalDateTime.class),
+                any(LocalDateTime.class),
+                eq(3)))
+                .willReturn(true);
+        MediaProcessingRecoveryScheduler scheduler = new MediaProcessingRecoveryScheduler(
+                properties(true), reader, transactionService, metrics, CLOCK);
+
+        scheduler.recoverOnStartup();
+
+        verify(transactionService).requestRetryIfStillStalled(
+                eq(stalled),
+                any(LocalDateTime.class),
+                any(LocalDateTime.class),
+                any(LocalDateTime.class),
+                eq(3));
+        verify(metrics).recordRecovery("requested");
+    }
+
     private MediaProcessingRecoveryCandidate candidate(long id, int minutesAgo) {
         return new MediaProcessingRecoveryCandidate(
                 id,

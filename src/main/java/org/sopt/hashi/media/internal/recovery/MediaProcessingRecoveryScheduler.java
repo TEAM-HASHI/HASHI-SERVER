@@ -6,6 +6,8 @@ import java.util.List;
 import org.sopt.hashi.media.internal.metrics.MediaPipelineMetrics;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
+import org.springframework.boot.context.event.ApplicationReadyEvent;
+import org.springframework.context.event.EventListener;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
@@ -37,6 +39,11 @@ public class MediaProcessingRecoveryScheduler {
             initialDelayString = "${hashi.media.recovery.processing-stale-age:10m}"
     )
     public void scheduleRecovery() {
+        recoverStalledProcessing();
+    }
+
+    @EventListener(ApplicationReadyEvent.class)
+    public void recoverOnStartup() {
         recoverStalledProcessing();
     }
 

@@ -10,7 +10,8 @@ WHERE target_processing_status = 'PROCESSING';
 ALTER TABLE image_asset
     ADD CONSTRAINT ck_image_asset_processing_recovery CHECK (
         (
-            target_processing_status = 'PROCESSING'
+            target_processing_status IS NOT NULL
+            AND target_processing_status = 'PROCESSING'
             AND target_processing_started_at IS NOT NULL
             AND processing_recovery_attempts >= 0
             AND (
@@ -48,6 +49,13 @@ CREATE INDEX idx_image_asset_cleanup_scan ON image_asset (
     binding_status,
     processing_status,
     creation_origin,
+    updated_at,
+    id
+);
+
+CREATE INDEX idx_image_asset_status_cleanup_scan ON image_asset (
+    cleanup_status,
+    processing_status,
     updated_at,
     id
 );
