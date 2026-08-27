@@ -1,0 +1,68 @@
+name: Image Transform Worker CI
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/ci-image-transform-worker.yml"
+      - "media-specs/**"
+      - "worker/image-transform/**"
+  push:
+    branches:
+      - develop
+    paths:
+      - ".github/workflows/ci-image-transform-worker.yml"
+      - "media-specs/**"
+      - "worker/image-transform/**"
+
+permissions:
+  contents: read
+
+jobs:
+  test-and-package:
+    name: Test and package Lambda ZIP
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    defaults:
+      run:
+        working-directory: worker/image-transform
+
+    steps:
+      - name: Checkout source code
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js 24
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: worker/image-transform/package-lock.json
+
+      - name: Install exact dependencies
+        run: npm ci
+
+      - name: Typecheck worker
+        run: npm run typecheck
+
+      - name: Test worker
+        run: npm test
+
+      - name: Build production Lambda ZIP
+        run: npm run package:lambda
+
+      - name: Smoke test extracted Linux x64 package
+        run: |
+          mkdir -p artifacts/smoke
+          unzip -q artifacts/image-transform.zip -d artifacts/smoke
+          node scripts/verify-package.mjs artifacts/smoke
+
+      - name: Show package size
+        run: du -h artifacts/image-transform.zip
+
+      - name: Upload Lambda ZIP
+        uses: actions/upload-artifact@v4
+        with:
+          name: image-transform-lambda
+          path: worker/image-transform/artifacts/image-transform.zip
+          if-no-files-found: error
+          retention-days: 7
