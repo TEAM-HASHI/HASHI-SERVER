@@ -45,6 +45,20 @@
 WebP 단일 제공은 합의된 최소 지원 환경인 Safari와 iOS 16.4 이상을 전제로 한다. 지원
 범위를 낮추면 API 구조를 유지한 채 JPEG 또는 PNG source set을 추가한다.
 
+### 2.3 v1 구현 기준
+
+- 기존 Spring Boot 애플리케이션과 Docker, EC2 배포 구조는 유지한다.
+- 변환 worker는 `nodejs24.x`, `x86_64`, Sharp 기반 Lambda ZIP으로 배포한다.
+- worker용 EC2, ECS, ECR과 운영 Docker image를 추가하지 않는다.
+- 초기 Lambda 설정은 memory 1536MB, timeout 60초, request batch size 1이다.
+- private original bucket, SQS와 DLQ, Lambda, IAM, alarm은 AWS SAM/CloudFormation의 dev와
+  prod stack으로 관리한다.
+- GitHub Actions는 environment별 OIDC role을 사용하고 장기 AWS access key를 저장하지 않는다.
+- 기존 delivery bucket과 CloudFront는 새 stack이 소유하지 않고 parameter로 참조한다.
+- Spring의 SQS 연동은 Spring Boot 3.5.x와 호환되는 Spring Cloud AWS 3.4.2를 사용한다.
+- prod stack 적용과 `media_pipeline_config.issuance_enabled=true` 전환은 dev E2E 이후 별도
+  운영 승인 대상으로 둔다.
+
 ## 3. 용어
 
 | 용어 | 의미 |

@@ -265,11 +265,34 @@ v1은 Node.js와 Sharp를 Lambda ZIP으로 배포한다.
 - 현재 최대 5MB 정지 이미지와 고정 role 규격에는 Lambda 실행 모델이 적합하다.
 - ZIP은 worker 코드와 Lambda Linux 호환 dependency를 묶는 배포 파일이다.
 - v1에는 worker용 EC2, ECS, ECR과 운영 Docker image를 추가하지 않는다.
+- v1 Lambda runtime은 Amazon Linux 2023 기반 `nodejs24.x`, architecture는 `x86_64`로
+  고정한다. GitHub Actions의 Linux x64 runner와 같은 architecture를 사용해 Sharp native
+  package의 교차 빌드와 운영 진단 부담을 줄인다. ARM 비용 최적화는 운영 지표를 확보한 뒤
+  동일 fixture benchmark와 ZIP smoke test를 통과한 별도 spec version에서 검토한다.
+- Sharp와 모든 Node dependency는 `package-lock.json`으로 exact version을 고정한다. Lambda
+  Layer나 runtime 내장 AWS SDK에 의존하지 않고 production ZIP에 필요한 package를 포함한다.
+- 초기 Lambda 설정은 memory 1536MB, timeout 60초, request SQS batch size 1이다. 실제 대표
+  이미지 benchmark에서 memory, timeout과 concurrency만 조정할 수 있으며 출력 bytes에 영향을
+  주는 Sharp와 encoder 설정 변경은 `specVersion`을 올린다.
 
 GitHub Actions Linux runner에서 Lambda 환경과 호환되는 Sharp package를 포함한 ZIP을 만든다.
 worker source는 HASHI-SERVER 저장소 안의 별도 디렉터리와 독립 Node package로 관리한다.
 Gradle과 Spring runtime dependency에는 포함하지 않고 worker 변경에만 별도 CI와 배포를
 실행한다. 팀과 배포 주기가 실제로 분리될 때 별도 저장소 이전을 검토한다.
+
+AWS 리소스는 AWS SAM으로 표현하고 CloudFormation stack을 dev와 prod로 분리한다. GitHub
+Actions는 environment별 OIDC role을 assume하며 장기 AWS access key를 repository나 GitHub
+Secrets에 추가하지 않는다. SAM stack은 private original bucket, request와 result SQS 및
+각 DLQ, Lambda, event source mapping, 최소 권한 IAM과 CloudWatch alarm을 소유한다. 기존
+delivery bucket과 CloudFront distribution은 parameter로 참조하고 stack의 관리 대상으로
+가져오지 않아 기존 리소스의 교체나 삭제 위험을 막는다. original bucket에는 deletion과
+replacement 방지를 위한 retain 정책을 적용한다. prod stack apply와 issuance 활성화는 dev
+E2E와 별도 운영 승인을 통과한 뒤 수행한다.
+
+Spring Boot 3.5.x 애플리케이션의 SQS publisher와 result consumer는 Spring Cloud AWS 3.4.2를
+사용한다. listener는 media Service의 transaction이 commit된 뒤에만 ack하고, listener container
+설정과 message conversion은 media 모듈이 소유한다. 기존 S3 presigner 동작은 dependency 변경
+전후 회귀 테스트로 고정한다.
 
 role과 purpose별 role 집합, exact width와 height, default width, no-upscale와 rounding, crop,
 format, quality, metadata, color 처리와 processor revision은 저장소의 append-only
