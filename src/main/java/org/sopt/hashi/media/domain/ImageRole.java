@@ -1,0 +1,15 @@
+package org.sopt.hashi.media.domain;
+
+public enum ImageRole {
+
+    PROFILE_AVATAR,
+    RESTAURANT_THUMBNAIL,
+    RESTAURANT_CARD,
+    RESTAURANT_HERO,
+    MENU_LIST,
+    MENU_DETAIL,
+    REVIEW_PREVIEW,
+    REVIEW_DETAIL,
+    MAGAZINE_BANNER,
+    MAGAZINE_THUMBNAIL
+}

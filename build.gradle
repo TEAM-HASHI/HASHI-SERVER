@@ -100,3 +100,9 @@ tasks.named('jar') {
 tasks.named('test') {
     useJUnitPlatform()
 }
+
+tasks.named('processResources') {
+    from('media-specs') {
+        into 'media-specs'
+    }
+}
