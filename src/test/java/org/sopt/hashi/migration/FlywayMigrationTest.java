@@ -8,7 +8,6 @@ import java.sql.ResultSet;
 import java.sql.Statement;
 import java.util.Base64;
 import java.util.HexFormat;
-import java.util.UUID;
 import org.flywaydb.core.Flyway;
 import org.flywaydb.core.api.MigrationVersion;
 import org.junit.jupiter.api.Test;
@@ -43,22 +42,25 @@ class FlywayMigrationTest {
 
     @Test
     void V15의_hex_checksum을_Base64로_보존해서_변환한다() throws Exception {
-        String schema = "hashi_media_upgrade_" + UUID.randomUUID().toString().replace("-", "");
-        try (Connection connection = DriverManager.getConnection(
-                MYSQL.getJdbcUrl(), MYSQL.getUsername(), MYSQL.getPassword());
-             Statement statement = connection.createStatement()) {
-            statement.execute("CREATE DATABASE " + schema);
-        }
-        String jdbcUrl = "jdbc:mysql://%s:%d/%s".formatted(
-                MYSQL.getHost(), MYSQL.getMappedPort(3306), schema);
-        Flyway v15 = flyway(jdbcUrl, MigrationVersion.fromVersion("15"));
-        v15.migrate();
+        try (MySQLContainer<?> upgradeMysql = new MySQLContainer<>("mysql:8.4")
+                .withDatabaseName("hashi_upgrade")
+                .withUsername("hashi")
+                .withPassword("hashi")) {
+            upgradeMysql.start();
+            String jdbcUrl = upgradeMysql.getJdbcUrl();
+            Flyway v15 = flyway(
+                    jdbcUrl,
+                    upgradeMysql.getUsername(),
+                    upgradeMysql.getPassword(),
+                    MigrationVersion.fromVersion("15")
+            );
+            v15.migrate();
 
-        String hexChecksum = "a".repeat(64);
-        try (Connection connection = DriverManager.getConnection(
-                jdbcUrl, MYSQL.getUsername(), MYSQL.getPassword());
-             Statement statement = connection.createStatement()) {
-            statement.executeUpdate("""
+            String hexChecksum = "a".repeat(64);
+            try (Connection connection = DriverManager.getConnection(
+                    jdbcUrl, upgradeMysql.getUsername(), upgradeMysql.getPassword());
+                 Statement statement = connection.createStatement()) {
+                statement.executeUpdate("""
                     INSERT INTO image_asset (
                         public_id, purpose, creation_origin,
                         creator_actor_type, creator_subject_id,
@@ -80,30 +82,37 @@ class FlywayMigrationTest {
                         1, 'ACTIVE', 0, CURRENT_TIMESTAMP(6), CURRENT_TIMESTAMP(6)
                     )
                     """.formatted(hexChecksum));
-        }
+            }
 
-        Flyway latest = flyway(jdbcUrl, null);
-        latest.migrate();
+            Flyway latest = flyway(
+                    jdbcUrl,
+                    upgradeMysql.getUsername(),
+                    upgradeMysql.getPassword(),
+                    null
+            );
+            latest.migrate();
 
-        try (Connection connection = DriverManager.getConnection(
-                jdbcUrl, MYSQL.getUsername(), MYSQL.getPassword());
-             Statement statement = connection.createStatement();
-             ResultSet result = statement.executeQuery("""
+            try (Connection connection = DriverManager.getConnection(
+                    jdbcUrl, upgradeMysql.getUsername(), upgradeMysql.getPassword());
+                 Statement statement = connection.createStatement();
+                 ResultSet result = statement.executeQuery("""
                      SELECT source_checksum_sha256
                      FROM image_asset
                      WHERE public_id = 'a3af06f1-4ef2-46f8-a489-2347fb840447'
                      """)) {
-            assertThat(result.next()).isTrue();
-            String expected = Base64.getEncoder().encodeToString(
-                    HexFormat.of().parseHex(hexChecksum));
-            assertThat(result.getString(1)).isEqualTo(expected);
+                assertThat(result.next()).isTrue();
+                String expected = Base64.getEncoder().encodeToString(
+                        HexFormat.of().parseHex(hexChecksum));
+                assertThat(result.getString(1)).isEqualTo(expected);
+            }
+            assertThat(latest.validateWithResult().validationSuccessful).isTrue();
         }
-        assertThat(latest.validateWithResult().validationSuccessful).isTrue();
     }
 
-    private Flyway flyway(String jdbcUrl, MigrationVersion target) {
+    private Flyway flyway(String jdbcUrl, String username, String password,
+                          MigrationVersion target) {
         var configuration = Flyway.configure()
-                .dataSource(jdbcUrl, MYSQL.getUsername(), MYSQL.getPassword())
+                .dataSource(jdbcUrl, username, password)
                 .locations("classpath:db/migration")
                 .validateOnMigrate(true)
                 .baselineOnMigrate(false)
