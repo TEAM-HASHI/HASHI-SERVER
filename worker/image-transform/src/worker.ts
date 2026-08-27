@@ -1,5 +1,10 @@
 import { ContractMismatchError, PermanentImageError } from "./errors";
-import { processImage, requiredRoles } from "./image-processor";
+import {
+  processImage,
+  requiredRoles,
+  type ProcessedImage,
+  type ProcessImageInput,
+} from "./image-processor";
 import { loadMediaSpec } from "./manifest";
 import { renditionObjectKey } from "./object-key";
 import type { ImageObjectStorage, TransformResultPublisher } from "./ports";
@@ -15,6 +20,7 @@ export class ImageTransformWorker {
   constructor(
     private readonly storage: ImageObjectStorage,
     private readonly resultPublisher: TransformResultPublisher,
+    private readonly imageProcessor: ImageProcessor = processImage,
   ) {}
 
   async processMessage(body: string): Promise<void> {
@@ -33,7 +39,7 @@ export class ImageTransformWorker {
     this.assertOriginalIdentity(request, original);
 
     try {
-      const processed = await processImage({
+      const processed = await this.imageProcessor({
         bytes: original.bytes,
         declaredByteSize: request.declaredByteSize,
         declaredContentType: request.declaredContentType,
@@ -105,6 +111,8 @@ export class ImageTransformWorker {
     }
   }
 }
+
+export type ImageProcessor = (input: ProcessImageInput) => Promise<ProcessedImage>;
 
 function resultIdentity(request: TransformRequest) {
   return {

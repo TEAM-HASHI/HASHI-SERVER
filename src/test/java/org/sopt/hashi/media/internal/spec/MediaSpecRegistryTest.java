@@ -1,8 +1,10 @@
 package org.sopt.hashi.media.internal.spec;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import java.util.List;
 import org.junit.jupiter.api.Test;
 import org.sopt.hashi.media.domain.ImageRole;
 import org.sopt.hashi.media.domain.MediaPurpose;
@@ -48,6 +50,20 @@ class MediaSpecRegistryTest {
                         expected(ImageRole.REVIEW_PREVIEW, 100, 100),
                         expected(ImageRole.REVIEW_DETAIL, 68, 99)
                 );
+    }
+
+    @Test
+    void 같은_role의_candidate_width는_중복될_수_없다() {
+        assertThatThrownBy(() -> new MediaRoleSpec(
+                1,
+                1,
+                1,
+                List.of(
+                        new MediaRenditionDimensions(100, 50),
+                        new MediaRenditionDimensions(100, 60)
+                )
+        )).isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("media role candidate widths must be unique");
     }
 
     private MediaExpectedRendition expected(ImageRole role, int width, int height) {

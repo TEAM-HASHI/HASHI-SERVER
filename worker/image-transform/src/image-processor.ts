@@ -263,29 +263,22 @@ async function renderRendition(
   roleSpec: RenditionRoleSpec,
   target: RenditionDimensions,
 ): Promise<GeneratedRendition> {
-  let output: { data: Buffer; info: sharp.OutputInfo };
-  try {
-    output = await sharp(source, sharpInputOptions(false))
-      .rotate()
-      .resize({
-        width: target.width,
-        height: target.height,
-        fit: roleSpec.fit,
-        position: roleSpec.position,
-        kernel: sharp.kernel.lanczos3,
-        withoutEnlargement: true,
-      })
-      .toColourspace("srgb")
-      .webp({
-        ...WEBP_ENCODER_V1,
-        quality: roleSpec.quality,
-      })
-      .toBuffer({ resolveWithObject: true });
-  } catch (error) {
-    throw new PermanentImageError("INVALID_IMAGE_DATA", "Source rendition cannot be encoded", {
-      cause: error,
-    });
-  }
+  const output = await sharp(source, sharpInputOptions(false))
+    .rotate()
+    .resize({
+      width: target.width,
+      height: target.height,
+      fit: roleSpec.fit,
+      position: roleSpec.position,
+      kernel: sharp.kernel.lanczos3,
+      withoutEnlargement: true,
+    })
+    .toColourspace("srgb")
+    .webp({
+      ...WEBP_ENCODER_V1,
+      quality: roleSpec.quality,
+    })
+    .toBuffer({ resolveWithObject: true });
 
   if (output.info.width !== target.width || output.info.height !== target.height) {
     throw new ContractMismatchError("Sharp output dimensions differ from the canonical manifest");

@@ -23,6 +23,10 @@ public record MediaRoleSpec(
         if (candidates.stream().distinct().count() != candidates.size()) {
             throw new IllegalArgumentException("media role candidates must be unique");
         }
+        if (candidates.stream().map(MediaRenditionDimensions::width).distinct().count()
+                != candidates.size()) {
+            throw new IllegalArgumentException("media role candidate widths must be unique");
+        }
     }
 
     public List<MediaRenditionDimensions> selectFor(int sourceWidth, int sourceHeight) {

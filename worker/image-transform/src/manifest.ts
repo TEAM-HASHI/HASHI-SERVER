@@ -84,6 +84,7 @@ export function loadMediaSpec(specVersion: number, specsDirectory?: string): Loa
     if (manifest.processorRevision !== "sharp-webp-v1") {
       throw new ContractMismatchError("Worker does not support the manifest processor revision");
     }
+    assertUniqueCandidateWidths(manifest);
 
     const loaded = Object.freeze({
       digest: createHash("sha256").update(rawBytes).digest("hex"),
@@ -99,6 +100,18 @@ export function loadMediaSpec(specVersion: number, specsDirectory?: string): Loa
     throw new ContractMismatchError(`Unable to load media spec v${specVersion}`, {
       cause: error,
     });
+  }
+}
+
+function assertUniqueCandidateWidths(manifest: MediaSpecManifest): void {
+  for (const role of Object.values(manifest.roles)) {
+    const widths = new Set<number>();
+    for (const candidate of role.candidates) {
+      if (widths.has(candidate.width)) {
+        throw new ContractMismatchError("Media role candidate widths must be unique");
+      }
+      widths.add(candidate.width);
+    }
   }
 }
 
