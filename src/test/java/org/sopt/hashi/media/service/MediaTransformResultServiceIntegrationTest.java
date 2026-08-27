@@ -1,0 +1,366 @@
+package org.sopt.hashi.media.service;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+
+import java.time.LocalDateTime;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.UUID;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+import org.sopt.hashi.media.domain.ImageAsset;
+import org.sopt.hashi.media.domain.ImageAssetRepository;
+import org.sopt.hashi.media.domain.ImageFormat;
+import org.sopt.hashi.media.domain.ImageProcessingStatus;
+import org.sopt.hashi.media.domain.ImageRole;
+import org.sopt.hashi.media.domain.MediaOwnerType;
+import org.sopt.hashi.media.domain.MediaPurpose;
+import org.sopt.hashi.media.internal.queue.MediaRenditionResult;
+import org.sopt.hashi.media.internal.queue.MediaTransformContractException;
+import org.sopt.hashi.media.internal.queue.MediaTransformFailedResult;
+import org.sopt.hashi.media.internal.queue.MediaTransformFailureCode;
+import org.sopt.hashi.media.internal.queue.MediaTransformSucceededResult;
+import org.sopt.hashi.media.internal.queue.MediaVerifiedSource;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.boot.testcontainers.service.connection.ServiceConnection;
+import org.springframework.jdbc.core.JdbcTemplate;
+import org.testcontainers.containers.MySQLContainer;
+import org.testcontainers.junit.jupiter.Container;
+import org.testcontainers.junit.jupiter.Testcontainers;
+
+@Testcontainers(disabledWithoutDocker = true)
+@SpringBootTest(properties = {
+        "spring.jpa.hibernate.ddl-auto=validate",
+        "jwt.secret=test-secret-key-must-be-at-least-32-bytes-long",
+        "kakao.client-id=test-client-id",
+        "kakao.redirect-uri=https://app.hashi.test/callback",
+        "hashi.storage.cloudfront-domain=https://cdn.hashi.test"
+})
+class MediaTransformResultServiceIntegrationTest {
+
+    private static final String SPEC_DIGEST =
+            "91ac56d691c5af9e43061b0a2cc43763a4d1825244135d120057c3305a1bbe32";
+    private static final String OTHER_DIGEST =
+            "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+    private static final String SOURCE_CHECKSUM =
+            "47DEQpj8HBSa+/TImW+5JCeuQeRkm5NMpJWZG3hSuFU=";
+
+    @Container
+    @ServiceConnection
+    private static final MySQLContainer<?> MYSQL = new MySQLContainer<>("mysql:8.4")
+            .withDatabaseName("hashi")
+            .withUsername("hashi")
+            .withPassword("hashi");
+
+    @Autowired
+    private MediaTransformResultService resultService;
+
+    @Autowired
+    private ImageAssetRepository imageAssetRepository;
+
+    @Autowired
+    private JdbcTemplate jdbcTemplate;
+
+    @BeforeEach
+    void setUp() {
+        jdbcTemplate.update("DELETE FROM event_publication");
+        jdbcTemplate.update("DELETE FROM image_rendition");
+        jdbcTemplate.update("DELETE FROM image_asset");
+    }
+
+    @Test
+    void 성공_결과는_검증된_source와_정확한_rendition을_원자적으로_READY에_반영한다() {
+        ProcessingAsset processing = createProcessingAsset(1, SPEC_DIGEST);
+
+        MediaTransformResultDisposition disposition =
+                resultService.apply(successResult(processing));
+
+        assertThat(disposition).isEqualTo(MediaTransformResultDisposition.APPLIED);
+        ImageAsset saved = find(processing.assetId());
+        assertThat(saved.getProcessingStatus()).isEqualTo(ImageProcessingStatus.READY);
+        assertThat(saved.getActiveSpecVersion()).isEqualTo(1);
+        assertThat(saved.getActiveSpecDigest()).isEqualTo(SPEC_DIGEST);
+        assertThat(saved.getCurrentJobId()).isNull();
+        assertThat(saved.getActualContentType()).isEqualTo("image/jpeg");
+        assertThat(saved.getActualBytes()).isEqualTo(1_048_576L);
+        assertThat(saved.getSourceWidth()).isEqualTo(3024);
+        assertThat(saved.getSourceHeight()).isEqualTo(4032);
+        assertThat(saved.getSourceChecksumSha256()).isEqualTo(SOURCE_CHECKSUM);
+        assertThat(jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM image_rendition", Integer.class)).isEqualTo(6);
+    }
+
+    @Test
+    void 같은_성공_결과가_다시_오면_STALE로_ACK할_수_있고_중복_저장하지_않는다() {
+        ProcessingAsset processing = createProcessingAsset(1, SPEC_DIGEST);
+        MediaTransformSucceededResult result = successResult(processing);
+        resultService.apply(result);
+
+        MediaTransformResultDisposition disposition = resultService.apply(result);
+
+        assertThat(disposition).isEqualTo(MediaTransformResultDisposition.STALE);
+        assertThat(jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM image_rendition", Integer.class)).isEqualTo(6);
+    }
+
+    @Test
+    void 성공_뒤_늦게_도착한_FAILED는_READY를_낮추지_않는다() {
+        ProcessingAsset processing = createProcessingAsset(1, SPEC_DIGEST);
+        resultService.apply(successResult(processing));
+
+        MediaTransformResultDisposition disposition =
+                resultService.apply(failedResult(processing));
+
+        assertThat(disposition).isEqualTo(MediaTransformResultDisposition.STALE);
+        assertThat(find(processing.assetId()).getProcessingStatus())
+                .isEqualTo(ImageProcessingStatus.READY);
+    }
+
+    @Test
+    void 현재_초기_job의_영구_실패는_FAILED로_반영한다() {
+        ProcessingAsset processing = createProcessingAsset(1, SPEC_DIGEST);
+
+        MediaTransformResultDisposition disposition =
+                resultService.apply(failedResult(processing));
+
+        assertThat(disposition).isEqualTo(MediaTransformResultDisposition.APPLIED);
+        ImageAsset saved = find(processing.assetId());
+        assertThat(saved.getProcessingStatus()).isEqualTo(ImageProcessingStatus.FAILED);
+        assertThat(saved.getLastFailureSpecVersion()).isEqualTo(1);
+        assertThat(saved.getLastFailureCode()).isEqualTo("INVALID_IMAGE_DATA");
+        assertThat(saved.getCurrentJobId()).isNull();
+    }
+
+    @Test
+    void 교체된_job의_알_수_없는_spec은_manifest를_조회하지_않고_STALE로_처리한다() {
+        ProcessingAsset processing = createProcessingAsset(1, SPEC_DIGEST);
+        ProcessingAsset stale = new ProcessingAsset(
+                processing.assetId(),
+                UUID.randomUUID(),
+                processing.sourceVersionId(),
+                processing.sourceEtag(),
+                999,
+                OTHER_DIGEST
+        );
+
+        MediaTransformResultDisposition disposition =
+                resultService.apply(failedResult(stale));
+
+        assertThat(disposition).isEqualTo(MediaTransformResultDisposition.STALE);
+        assertThat(find(processing.assetId()).getProcessingStatus())
+                .isEqualTo(ImageProcessingStatus.PROCESSING);
+    }
+
+    @Test
+    void 현재_job이지만_target_spec이_다른_결과는_재시도를_위해_예외로_남긴다() {
+        ProcessingAsset processing = createProcessingAsset(1, SPEC_DIGEST);
+        ProcessingAsset mismatched = new ProcessingAsset(
+                processing.assetId(),
+                processing.jobId(),
+                processing.sourceVersionId(),
+                processing.sourceEtag(),
+                2,
+                OTHER_DIGEST
+        );
+
+        assertThatThrownBy(() -> resultService.apply(failedResult(mismatched)))
+                .isInstanceOf(MediaTransformContractException.class)
+                .hasMessage("media result target spec differs from the current job");
+        assertThat(find(processing.assetId()).getProcessingStatus())
+                .isEqualTo(ImageProcessingStatus.PROCESSING);
+    }
+
+    @Test
+    void 현재_job의_manifest가_서버에_없으면_FAILED로_오인하지_않고_예외로_남긴다() {
+        ProcessingAsset processing = createProcessingAsset(999, OTHER_DIGEST);
+
+        assertThatThrownBy(() -> resultService.apply(failedResult(processing)))
+                .isInstanceOf(MediaTransformContractException.class)
+                .hasMessage("media result references an unknown spec version");
+        assertThat(find(processing.assetId()).getProcessingStatus())
+                .isEqualTo(ImageProcessingStatus.PROCESSING);
+    }
+
+    @Test
+    void 현재_job의_digest가_패키징된_manifest와_다르면_예외로_남긴다() {
+        ProcessingAsset processing = createProcessingAsset(1, OTHER_DIGEST);
+
+        assertThatThrownBy(() -> resultService.apply(failedResult(processing)))
+                .isInstanceOf(MediaTransformContractException.class)
+                .hasMessage("media result spec digest differs from the packaged manifest");
+        assertThat(find(processing.assetId()).getProcessingStatus())
+                .isEqualTo(ImageProcessingStatus.PROCESSING);
+    }
+
+    @Test
+    void 일부가_빠진_성공_결과는_저장하지_않고_PROCESSING을_유지한다() {
+        ProcessingAsset processing = createProcessingAsset(1, SPEC_DIGEST);
+        MediaTransformSucceededResult complete = successResult(processing);
+        MediaTransformSucceededResult incomplete = new MediaTransformSucceededResult(
+                complete.contractVersion(),
+                complete.jobId(),
+                complete.assetId(),
+                complete.specVersion(),
+                complete.specDigest(),
+                complete.sourceVersionId(),
+                complete.sourceETag(),
+                complete.verifiedSource(),
+                complete.renditions().subList(0, 1)
+        );
+
+        assertThatThrownBy(() -> resultService.apply(incomplete))
+                .isInstanceOf(MediaTransformContractException.class)
+                .hasMessage("media result renditions differ from the packaged manifest");
+        assertThat(find(processing.assetId()).getProcessingStatus())
+                .isEqualTo(ImageProcessingStatus.PROCESSING);
+        assertThat(jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM image_rendition", Integer.class)).isZero();
+    }
+
+    @Test
+    void 결정적_S3_key와_다른_성공_결과는_저장하지_않는다() {
+        ProcessingAsset processing = createProcessingAsset(1, SPEC_DIGEST);
+        MediaTransformSucceededResult complete = successResult(processing);
+        List<MediaRenditionResult> renditions = new ArrayList<>(complete.renditions());
+        MediaRenditionResult first = renditions.getFirst();
+        renditions.set(0, new MediaRenditionResult(
+                first.role(),
+                first.format(),
+                first.width(),
+                first.height(),
+                first.byteSize(),
+                "media/renditions/wrong.webp"
+        ));
+        MediaTransformSucceededResult wrongKey = new MediaTransformSucceededResult(
+                complete.contractVersion(), complete.jobId(), complete.assetId(),
+                complete.specVersion(), complete.specDigest(), complete.sourceVersionId(),
+                complete.sourceETag(), complete.verifiedSource(), renditions);
+
+        assertThatThrownBy(() -> resultService.apply(wrongKey))
+                .isInstanceOf(MediaTransformContractException.class)
+                .hasMessage("media result rendition object key is invalid");
+        assertThat(jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM image_rendition", Integer.class)).isZero();
+    }
+
+    @Test
+    void 검증된_source가_업로드_선언과_다르면_저장하지_않는다() {
+        ProcessingAsset processing = createProcessingAsset(1, SPEC_DIGEST);
+        MediaTransformSucceededResult complete = successResult(processing);
+        MediaTransformSucceededResult wrongSource = new MediaTransformSucceededResult(
+                complete.contractVersion(), complete.jobId(), complete.assetId(),
+                complete.specVersion(), complete.specDigest(), complete.sourceVersionId(),
+                complete.sourceETag(),
+                new MediaVerifiedSource(
+                        "image/jpeg", 1_048_575L, 3024, 4032, SOURCE_CHECKSUM),
+                complete.renditions());
+
+        assertThatThrownBy(() -> resultService.apply(wrongSource))
+                .isInstanceOf(MediaTransformContractException.class)
+                .hasMessage("media result verified source differs from the upload declaration");
+        assertThat(find(processing.assetId()).getProcessingStatus())
+                .isEqualTo(ImageProcessingStatus.PROCESSING);
+    }
+
+    @Test
+    void 존재하지_않는_asset의_결과는_STALE로_처리한다() {
+        ProcessingAsset missing = new ProcessingAsset(
+                UUID.randomUUID(), UUID.randomUUID(), "version", "etag", 999, OTHER_DIGEST);
+
+        assertThat(resultService.apply(failedResult(missing)))
+                .isEqualTo(MediaTransformResultDisposition.STALE);
+    }
+
+    private ProcessingAsset createProcessingAsset(int specVersion, String specDigest) {
+        UUID assetId = UUID.randomUUID();
+        UUID jobId = UUID.randomUUID();
+        ImageAsset asset = ImageAsset.createDirectUpload(
+                assetId,
+                MediaPurpose.REVIEW,
+                MediaOwnerType.USER,
+                1L,
+                "media/originals/%s/original".formatted(assetId),
+                "image/jpeg",
+                1_048_576L,
+                LocalDateTime.now().plusMinutes(5)
+        );
+        asset.beginInitialProcessing(
+                "3Lg-source-version", "\"etag-value\"", specVersion, specDigest, jobId);
+        imageAssetRepository.saveAndFlush(asset);
+        return new ProcessingAsset(
+                assetId,
+                jobId,
+                "3Lg-source-version",
+                "\"etag-value\"",
+                specVersion,
+                specDigest
+        );
+    }
+
+    private MediaTransformSucceededResult successResult(ProcessingAsset processing) {
+        MediaVerifiedSource source = new MediaVerifiedSource(
+                "image/jpeg", 1_048_576L, 3024, 4032, SOURCE_CHECKSUM);
+        List<MediaRenditionResult> renditions = List.of(
+                rendition(processing, ImageRole.REVIEW_PREVIEW, 135, 135),
+                rendition(processing, ImageRole.REVIEW_PREVIEW, 270, 270),
+                rendition(processing, ImageRole.REVIEW_PREVIEW, 405, 405),
+                rendition(processing, ImageRole.REVIEW_DETAIL, 430, 628),
+                rendition(processing, ImageRole.REVIEW_DETAIL, 860, 1256),
+                rendition(processing, ImageRole.REVIEW_DETAIL, 1290, 1885)
+        );
+        return new MediaTransformSucceededResult(
+                1,
+                processing.jobId(),
+                processing.assetId(),
+                processing.specVersion(),
+                processing.specDigest(),
+                processing.sourceVersionId(),
+                processing.sourceEtag(),
+                source,
+                renditions
+        );
+    }
+
+    private MediaTransformFailedResult failedResult(ProcessingAsset processing) {
+        return new MediaTransformFailedResult(
+                1,
+                processing.jobId(),
+                processing.assetId(),
+                processing.specVersion(),
+                processing.specDigest(),
+                processing.sourceVersionId(),
+                processing.sourceEtag(),
+                MediaTransformFailureCode.INVALID_IMAGE_DATA
+        );
+    }
+
+    private MediaRenditionResult rendition(
+            ProcessingAsset processing, ImageRole role, int width, int height) {
+        String roleSegment = role.name().toLowerCase().replace('_', '-');
+        return new MediaRenditionResult(
+                role,
+                ImageFormat.WEBP,
+                width,
+                height,
+                10_000L + width,
+                "media/renditions/%s/v%d/%s/%d.webp".formatted(
+                        processing.assetId(), processing.specVersion(), roleSegment, width)
+        );
+    }
+
+    private ImageAsset find(UUID assetId) {
+        return imageAssetRepository.findByPublicId(assetId).orElseThrow();
+    }
+
+    private record ProcessingAsset(
+            UUID assetId,
+            UUID jobId,
+            String sourceVersionId,
+            String sourceEtag,
+            int specVersion,
+            String specDigest
+    ) {
+    }
+}

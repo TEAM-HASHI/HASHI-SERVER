@@ -244,6 +244,18 @@ public class ImageAsset extends BaseTimeEntity {
                 && Objects.equals(currentJobId, jobId);
     }
 
+    public boolean matchesCurrentProcessingAttempt(UUID jobId, String sourceVersionId,
+                                                   String sourceEtag) {
+        return hasCurrentProcessingJob(jobId)
+                && Objects.equals(this.sourceVersionId, sourceVersionId)
+                && Objects.equals(this.sourceEtag, sourceEtag);
+    }
+
+    public boolean matchesTargetSpec(int specVersion, String specDigest) {
+        return Objects.equals(targetSpecVersion, specVersion)
+                && Objects.equals(targetSpecDigest, specDigest);
+    }
+
     public boolean isUploadExpired(LocalDateTime now) {
         return !now.isBefore(uploadExpiresAt);
     }
@@ -256,17 +268,121 @@ public class ImageAsset extends BaseTimeEntity {
     public void beginInitialProcessing(String sourceVersionId, String sourceEtag,
                                        int specVersion, String specDigest, UUID jobId) {
         requireState(ImageProcessingStatus.PENDING_UPLOAD);
-        if (specVersion < 1 || (lastIssuedSpecVersion != null && specVersion <= lastIssuedSpecVersion)) {
-            throw new IllegalArgumentException("specVersion must be greater than the last issued version");
-        }
         this.sourceVersionId = requireText(sourceVersionId, "sourceVersionId");
         this.sourceEtag = requireText(sourceEtag, "sourceEtag");
+        beginTargetProcessing(specVersion, specDigest, jobId);
+        this.processingStatus = ImageProcessingStatus.PROCESSING;
+    }
+
+    public void beginUpgradeProcessing(int specVersion, String specDigest, UUID jobId) {
+        if (cleanupStatus != MediaCleanupStatus.ACTIVE) {
+            throw new IllegalStateException("only active assets can be upgraded");
+        }
+        requireState(ImageProcessingStatus.READY);
+        if (activeSpecVersion == null || actualContentType == null) {
+            throw new IllegalStateException("only a verified active spec can be upgraded");
+        }
+        beginTargetProcessing(specVersion, specDigest, jobId);
+    }
+
+    public void addRendition(UUID jobId, int specVersion, String specDigest,
+                             ImageRole role, ImageFormat format, int width, int height,
+                             long bytes, String objectKey) {
+        requireCurrentTarget(jobId, specVersion, specDigest);
+        boolean duplicate = renditions.stream().anyMatch(rendition ->
+                rendition.getRole() == role
+                        && rendition.getSpecVersion() == specVersion
+                        && rendition.getFormat() == format
+                        && rendition.getWidth() == width);
+        if (duplicate) {
+            throw new IllegalStateException("rendition identity is duplicated");
+        }
+        renditions.add(ImageRendition.create(
+                this, role, specVersion, format, width, height, bytes, objectKey));
+    }
+
+    public void completeCurrentProcessing(UUID jobId, int specVersion, String specDigest,
+                                          String actualContentType, long actualBytes,
+                                          int sourceWidth, int sourceHeight,
+                                          String sourceChecksumSha256) {
+        requireCurrentTarget(jobId, specVersion, specDigest);
+        requireVerifiedSource(
+                actualContentType, actualBytes, sourceWidth, sourceHeight, sourceChecksumSha256);
+        this.activeSpecVersion = specVersion;
+        this.activeSpecDigest = specDigest;
+        this.processingStatus = ImageProcessingStatus.READY;
+        clearTargetProcessing();
+    }
+
+    public void failCurrentProcessing(UUID jobId, int specVersion, String specDigest,
+                                      String failureCode) {
+        requireCurrentTarget(jobId, specVersion, specDigest);
+        this.lastFailureSpecVersion = specVersion;
+        this.lastFailureCode = requireText(failureCode, "failureCode");
+        if (activeSpecVersion == null) {
+            this.processingStatus = ImageProcessingStatus.FAILED;
+        } else {
+            this.processingStatus = ImageProcessingStatus.READY;
+        }
+        clearTargetProcessing();
+    }
+
+    private void beginTargetProcessing(int specVersion, String specDigest, UUID jobId) {
+        if (targetProcessingStatus != null) {
+            throw new IllegalStateException("another media processing target is active");
+        }
+        if (specVersion < 1
+                || (lastIssuedSpecVersion != null && specVersion <= lastIssuedSpecVersion)) {
+            throw new IllegalArgumentException(
+                    "specVersion must be greater than the last issued version");
+        }
         this.targetSpecVersion = specVersion;
         this.targetSpecDigest = requireSha256(specDigest, "specDigest");
         this.targetProcessingStatus = TargetProcessingStatus.PROCESSING;
         this.currentJobId = Objects.requireNonNull(jobId);
         this.lastIssuedSpecVersion = specVersion;
-        this.processingStatus = ImageProcessingStatus.PROCESSING;
+    }
+
+    private void requireCurrentTarget(UUID jobId, int specVersion, String specDigest) {
+        if (!hasCurrentProcessingJob(jobId) || !matchesTargetSpec(specVersion, specDigest)) {
+            throw new IllegalStateException("media processing result is not current");
+        }
+    }
+
+    private void requireVerifiedSource(String contentType, long bytes, int width, int height,
+                                       String checksumSha256) {
+        String verifiedContentType = requireText(contentType, "actualContentType");
+        String verifiedChecksum = requireBase64Sha256(checksumSha256, "sourceChecksumSha256");
+        if (bytes < 1 || width < 1 || height < 1) {
+            throw new IllegalArgumentException("verified source values must be positive");
+        }
+        if (!declaredContentType.equalsIgnoreCase(verifiedContentType)
+                || declaredBytes != bytes) {
+            throw new IllegalStateException("verified source differs from the upload declaration");
+        }
+        if (actualContentType != null) {
+            boolean matchesExisting = actualContentType.equals(verifiedContentType)
+                    && Objects.equals(actualBytes, bytes)
+                    && Objects.equals(sourceWidth, width)
+                    && Objects.equals(sourceHeight, height)
+                    && Objects.equals(sourceChecksumSha256, verifiedChecksum);
+            if (!matchesExisting) {
+                throw new IllegalStateException("verified source identity has changed");
+            }
+            return;
+        }
+        this.actualContentType = verifiedContentType;
+        this.actualBytes = bytes;
+        this.sourceWidth = width;
+        this.sourceHeight = height;
+        this.sourceChecksumSha256 = verifiedChecksum;
+    }
+
+    private void clearTargetProcessing() {
+        this.targetSpecVersion = null;
+        this.targetSpecDigest = null;
+        this.targetProcessingStatus = null;
+        this.currentJobId = null;
     }
 
     private void requireState(ImageProcessingStatus expectedStatus) {
@@ -280,6 +396,14 @@ public class ImageAsset extends BaseTimeEntity {
         String text = requireText(value, fieldName);
         if (!text.matches("[0-9a-f]{64}")) {
             throw new IllegalArgumentException(fieldName + " must be a lowercase SHA-256 digest");
+        }
+        return text;
+    }
+
+    private static String requireBase64Sha256(String value, String fieldName) {
+        String text = requireText(value, fieldName);
+        if (!text.matches("[A-Za-z0-9+/]{43}=")) {
+            throw new IllegalArgumentException(fieldName + " must be a Base64 SHA-256 digest");
         }
         return text;
     }

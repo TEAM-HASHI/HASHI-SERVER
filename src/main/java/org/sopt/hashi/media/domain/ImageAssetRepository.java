@@ -14,6 +14,10 @@ public interface ImageAssetRepository extends JpaRepository<ImageAsset, Long> {
 
     Optional<ImageAsset> findByPublicId(UUID publicId);
 
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("select asset from ImageAsset asset where asset.publicId = :publicId")
+    Optional<ImageAsset> findByPublicIdForUpdate(@Param("publicId") UUID publicId);
+
     List<ImageAsset> findAllByPublicIdIn(Collection<UUID> publicIds);
 
     @Lock(LockModeType.PESSIMISTIC_WRITE)

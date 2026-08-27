@@ -11,6 +11,10 @@ class ImageAssetTest {
 
     private static final String SPEC_DIGEST =
             "91ac56d691c5af9e43061b0a2cc43763a4d1825244135d120057c3305a1bbe32";
+    private static final String NEXT_SPEC_DIGEST =
+            "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+    private static final String SOURCE_CHECKSUM =
+            "47DEQpj8HBSa+/TImW+5JCeuQeRkm5NMpJWZG3hSuFU=";
 
     @Test
     void 직접_업로드는_인증_actor와_PENDING_UPLOAD_상태를_기록한다() {
@@ -60,6 +64,97 @@ class ImageAssetTest {
     }
 
     @Test
+    void 현재_job의_성공_결과만_rendition과_READY_spec으로_반영한다() {
+        ImageAsset asset = createDirectUpload(MediaOwnerType.USER, 1L);
+        UUID jobId = UUID.randomUUID();
+        asset.beginInitialProcessing("version-1", "\"etag-1\"", 1, SPEC_DIGEST, jobId);
+
+        asset.addRendition(
+                jobId,
+                1,
+                SPEC_DIGEST,
+                ImageRole.REVIEW_PREVIEW,
+                ImageFormat.WEBP,
+                135,
+                135,
+                100L,
+                renditionKey(asset, 1, ImageRole.REVIEW_PREVIEW, 135)
+        );
+        asset.completeCurrentProcessing(
+                jobId, 1, SPEC_DIGEST, "image/jpeg", 1024L, 3024, 4032, SOURCE_CHECKSUM);
+
+        assertThat(asset.getProcessingStatus()).isEqualTo(ImageProcessingStatus.READY);
+        assertThat(asset.getActiveSpecVersion()).isEqualTo(1);
+        assertThat(asset.getActiveSpecDigest()).isEqualTo(SPEC_DIGEST);
+        assertThat(asset.getTargetSpecVersion()).isNull();
+        assertThat(asset.getCurrentJobId()).isNull();
+        assertThat(asset.getSourceChecksumSha256()).isEqualTo(SOURCE_CHECKSUM);
+        assertThat(asset.getRenditions()).singleElement().satisfies(rendition -> {
+            assertThat(rendition.getRole()).isEqualTo(ImageRole.REVIEW_PREVIEW);
+            assertThat(rendition.getMimeType()).isEqualTo("image/webp");
+        });
+    }
+
+    @Test
+    void 초기_변환_실패는_FAILED로_전이하고_target을_정리한다() {
+        ImageAsset asset = createDirectUpload(MediaOwnerType.USER, 1L);
+        UUID jobId = UUID.randomUUID();
+        asset.beginInitialProcessing("version-1", "\"etag-1\"", 1, SPEC_DIGEST, jobId);
+
+        asset.failCurrentProcessing(jobId, 1, SPEC_DIGEST, "INVALID_IMAGE_DATA");
+
+        assertThat(asset.getProcessingStatus()).isEqualTo(ImageProcessingStatus.FAILED);
+        assertThat(asset.getLastFailureSpecVersion()).isEqualTo(1);
+        assertThat(asset.getLastFailureCode()).isEqualTo("INVALID_IMAGE_DATA");
+        assertThat(asset.getTargetSpecVersion()).isNull();
+        assertThat(asset.getCurrentJobId()).isNull();
+    }
+
+    @Test
+    void 준비된_이미지의_upgrade_실패는_기존_ACTIVE_spec과_READY를_유지한다() {
+        ImageAsset asset = readyAsset();
+        UUID upgradeJobId = UUID.randomUUID();
+        asset.beginUpgradeProcessing(2, NEXT_SPEC_DIGEST, upgradeJobId);
+
+        asset.failCurrentProcessing(
+                upgradeJobId, 2, NEXT_SPEC_DIGEST, "INVALID_IMAGE_DATA");
+
+        assertThat(asset.getProcessingStatus()).isEqualTo(ImageProcessingStatus.READY);
+        assertThat(asset.getActiveSpecVersion()).isEqualTo(1);
+        assertThat(asset.getActiveSpecDigest()).isEqualTo(SPEC_DIGEST);
+        assertThat(asset.getLastFailureSpecVersion()).isEqualTo(2);
+        assertThat(asset.getCurrentJobId()).isNull();
+    }
+
+    @Test
+    void 완료된_job의_늦은_실패_결과는_READY를_낮출_수_없다() {
+        ImageAsset asset = readyAsset();
+
+        assertThatThrownBy(() -> asset.failCurrentProcessing(
+                UUID.randomUUID(), 1, SPEC_DIGEST, "INVALID_IMAGE_DATA"))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessage("media processing result is not current");
+        assertThat(asset.getProcessingStatus()).isEqualTo(ImageProcessingStatus.READY);
+    }
+
+    @Test
+    void 동일한_rendition_식별자를_중복해서_추가할_수_없다() {
+        ImageAsset asset = createDirectUpload(MediaOwnerType.USER, 1L);
+        UUID jobId = UUID.randomUUID();
+        asset.beginInitialProcessing("version-1", "\"etag-1\"", 1, SPEC_DIGEST, jobId);
+        String objectKey = renditionKey(asset, 1, ImageRole.REVIEW_PREVIEW, 135);
+        asset.addRendition(
+                jobId, 1, SPEC_DIGEST, ImageRole.REVIEW_PREVIEW, ImageFormat.WEBP,
+                135, 135, 100L, objectKey);
+
+        assertThatThrownBy(() -> asset.addRendition(
+                jobId, 1, SPEC_DIGEST, ImageRole.REVIEW_PREVIEW, ImageFormat.WEBP,
+                135, 135, 100L, objectKey))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessage("rendition identity is duplicated");
+    }
+
+    @Test
     void 직접_업로드에_SYSTEM_BACKFILL_actor를_사용할_수_없다() {
         assertThatThrownBy(() -> createDirectUpload(MediaOwnerType.SYSTEM_BACKFILL, 1L))
                 .isInstanceOf(IllegalArgumentException.class);
@@ -86,6 +181,24 @@ class ImageAssetTest {
                 "image/jpeg",
                 1024L,
                 LocalDateTime.now().plusMinutes(5)
+        );
+    }
+
+    private ImageAsset readyAsset() {
+        ImageAsset asset = createDirectUpload(MediaOwnerType.USER, 1L);
+        UUID jobId = UUID.randomUUID();
+        asset.beginInitialProcessing("version-1", "\"etag-1\"", 1, SPEC_DIGEST, jobId);
+        asset.completeCurrentProcessing(
+                jobId, 1, SPEC_DIGEST, "image/jpeg", 1024L, 3024, 4032, SOURCE_CHECKSUM);
+        return asset;
+    }
+
+    private String renditionKey(ImageAsset asset, int specVersion, ImageRole role, int width) {
+        return "media/renditions/%s/v%d/%s/%d.webp".formatted(
+                asset.getPublicId(),
+                specVersion,
+                role.name().toLowerCase().replace('_', '-'),
+                width
         );
     }
 }
