@@ -1,0 +1,161 @@
+name: Deploy Image Pipeline
+
+on:
+  workflow_dispatch:
+    inputs:
+      target:
+        description: Environment to deploy
+        required: true
+        type: choice
+        options:
+          - dev
+          - prod
+      production_confirmation:
+        description: Type deploy-prod only for a production deployment
+        required: false
+        type: string
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: deploy-image-pipeline-${{ inputs.target }}
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Deploy ${{ inputs.target }} image pipeline
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment:
+      name: media-${{ inputs.target }}
+
+    steps:
+      - name: Checkout source code
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Validate deployment approval and configuration
+        shell: bash
+        env:
+          TARGET: ${{ inputs.target }}
+          PRODUCTION_CONFIRMATION: ${{ inputs.production_confirmation }}
+          AWS_ACCOUNT_ID: ${{ vars.AWS_ACCOUNT_ID }}
+          AWS_REGION: ${{ vars.AWS_REGION }}
+          AWS_DEPLOY_ROLE_ARN: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+          AWS_CLOUDFORMATION_EXECUTION_ROLE_ARN: ${{ vars.AWS_CLOUDFORMATION_EXECUTION_ROLE_ARN }}
+          AWS_SAM_ARTIFACT_BUCKET: ${{ vars.AWS_SAM_ARTIFACT_BUCKET }}
+          MEDIA_PIPELINE_STACK_NAME: ${{ vars.MEDIA_PIPELINE_STACK_NAME }}
+          MEDIA_DELIVERY_BUCKET_NAME: ${{ vars.MEDIA_DELIVERY_BUCKET_NAME }}
+          MEDIA_CLOUDFRONT_DISTRIBUTION_ID: ${{ vars.MEDIA_CLOUDFRONT_DISTRIBUTION_ID }}
+          MEDIA_SPRING_APPLICATION_ROLE_NAME: ${{ vars.MEDIA_SPRING_APPLICATION_ROLE_NAME }}
+          MEDIA_UPLOAD_ALLOWED_ORIGINS: ${{ vars.MEDIA_UPLOAD_ALLOWED_ORIGINS }}
+        run: |
+          set -euo pipefail
+
+          if [[ "${TARGET}" == "prod" && "${PRODUCTION_CONFIRMATION}" != "deploy-prod" ]]; then
+            echo "Production deployment requires the exact confirmation string."
+            exit 1
+          fi
+
+          required=(
+            AWS_ACCOUNT_ID
+            AWS_REGION
+            AWS_DEPLOY_ROLE_ARN
+            AWS_CLOUDFORMATION_EXECUTION_ROLE_ARN
+            AWS_SAM_ARTIFACT_BUCKET
+            MEDIA_PIPELINE_STACK_NAME
+            MEDIA_DELIVERY_BUCKET_NAME
+            MEDIA_CLOUDFRONT_DISTRIBUTION_ID
+            MEDIA_SPRING_APPLICATION_ROLE_NAME
+            MEDIA_UPLOAD_ALLOWED_ORIGINS
+          )
+          for name in "${required[@]}"; do
+            if [[ -z "${!name:-}" ]]; then
+              echo "Missing required GitHub Environment variable: ${name}"
+              exit 1
+            fi
+          done
+
+          if [[ "${MEDIA_UPLOAD_ALLOWED_ORIGINS}" == *"*"* ]]; then
+            echo "Upload origins must be exact and cannot contain a wildcard."
+            exit 1
+          fi
+
+      - name: Configure short-lived AWS credentials
+        uses: aws-actions/configure-aws-credentials@v6
+        with:
+          role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+          role-session-name: hashi-media-${{ inputs.target }}-${{ github.run_id }}
+          aws-region: ${{ vars.AWS_REGION }}
+          allowed-account-ids: ${{ vars.AWS_ACCOUNT_ID }}
+          mask-aws-account-id: true
+
+      - name: Set up Node.js 24
+        uses: actions/setup-node@v7
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: worker/image-transform/package-lock.json
+
+      - name: Set up AWS SAM CLI
+        uses: aws-actions/setup-sam@v3
+
+      - name: Install and test worker
+        working-directory: worker/image-transform
+        run: |
+          npm ci
+          npm test
+
+      - name: Build production Lambda package
+        working-directory: worker/image-transform
+        run: npm run package:lambda
+
+      - name: Validate SAM template
+        run: >-
+          sam validate
+          --lint
+          --region "${{ vars.AWS_REGION }}"
+          --template-file infra/media/template.yaml
+
+      - name: Deploy SAM stack
+        shell: bash
+        env:
+          TARGET: ${{ inputs.target }}
+          AWS_REGION: ${{ vars.AWS_REGION }}
+          AWS_CLOUDFORMATION_EXECUTION_ROLE_ARN: ${{ vars.AWS_CLOUDFORMATION_EXECUTION_ROLE_ARN }}
+          AWS_SAM_ARTIFACT_BUCKET: ${{ vars.AWS_SAM_ARTIFACT_BUCKET }}
+          MEDIA_PIPELINE_STACK_NAME: ${{ vars.MEDIA_PIPELINE_STACK_NAME }}
+          MEDIA_DELIVERY_BUCKET_NAME: ${{ vars.MEDIA_DELIVERY_BUCKET_NAME }}
+          MEDIA_CLOUDFRONT_DISTRIBUTION_ID: ${{ vars.MEDIA_CLOUDFRONT_DISTRIBUTION_ID }}
+          MEDIA_SPRING_APPLICATION_ROLE_NAME: ${{ vars.MEDIA_SPRING_APPLICATION_ROLE_NAME }}
+          MEDIA_UPLOAD_ALLOWED_ORIGINS: ${{ vars.MEDIA_UPLOAD_ALLOWED_ORIGINS }}
+          MEDIA_ALARM_NOTIFICATION_TOPIC_ARN: ${{ vars.MEDIA_ALARM_NOTIFICATION_TOPIC_ARN }}
+        run: |
+          set -euo pipefail
+
+          parameters=(
+            "EnvironmentName=${TARGET}"
+            "DeliveryBucketName=${MEDIA_DELIVERY_BUCKET_NAME}"
+            "CloudFrontDistributionId=${MEDIA_CLOUDFRONT_DISTRIBUTION_ID}"
+            "SpringApplicationRoleName=${MEDIA_SPRING_APPLICATION_ROLE_NAME}"
+            "UploadAllowedOrigins=${MEDIA_UPLOAD_ALLOWED_ORIGINS}"
+          )
+          if [[ -n "${MEDIA_ALARM_NOTIFICATION_TOPIC_ARN:-}" ]]; then
+            parameters+=("AlarmNotificationTopicArn=${MEDIA_ALARM_NOTIFICATION_TOPIC_ARN}")
+          fi
+
+          sam deploy \
+            --template-file infra/media/template.yaml \
+            --stack-name "${MEDIA_PIPELINE_STACK_NAME}" \
+            --region "${AWS_REGION}" \
+            --s3-bucket "${AWS_SAM_ARTIFACT_BUCKET}" \
+            --s3-prefix "media-pipeline/${TARGET}" \
+            --role-arn "${AWS_CLOUDFORMATION_EXECUTION_ROLE_ARN}" \
+            --capabilities CAPABILITY_IAM \
+            --parameter-overrides "${parameters[@]}" \
+            --tags Project=HASHI Component=media Environment="${TARGET}" ManagedBy=SAM \
+            --no-confirm-changeset \
+            --no-fail-on-empty-changeset

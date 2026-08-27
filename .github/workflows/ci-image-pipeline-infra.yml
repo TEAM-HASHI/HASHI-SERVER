@@ -4,6 +4,7 @@ on:
   pull_request:
     paths:
       - ".github/workflows/ci-image-pipeline-infra.yml"
+      - ".github/workflows/deploy-image-pipeline.yml"
       - "infra/media/**"
       - "media-specs/**"
       - "worker/image-transform/**"
@@ -12,6 +13,7 @@ on:
       - develop
     paths:
       - ".github/workflows/ci-image-pipeline-infra.yml"
+      - ".github/workflows/deploy-image-pipeline.yml"
       - "infra/media/**"
       - "media-specs/**"
       - "worker/image-transform/**"
