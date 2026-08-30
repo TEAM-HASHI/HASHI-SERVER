@@ -6,11 +6,14 @@ import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
+import java.util.UUID;
 import lombok.AccessLevel;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
+import org.hibernate.annotations.JdbcTypeCode;
 import org.hibernate.annotations.SQLDelete;
 import org.hibernate.annotations.SQLRestriction;
+import org.hibernate.type.SqlTypes;
 import org.sopt.hashi.BaseTimeEntity;
 
 /**
@@ -33,11 +36,19 @@ public class Magazine extends BaseTimeEntity {
     @Column(name = "title", length = 150, nullable = false)
     private String title;
 
-    @Column(name = "banner_key", length = 500, nullable = false)
+    @Column(name = "banner_key", length = 500)
     private String bannerKey;
 
-    @Column(name = "thumbnail_key", length = 500, nullable = false)
+    @JdbcTypeCode(SqlTypes.CHAR)
+    @Column(name = "banner_image_asset_id", length = 36, unique = true)
+    private UUID bannerImageAssetId;
+
+    @Column(name = "thumbnail_key", length = 500)
     private String thumbnailKey;
+
+    @JdbcTypeCode(SqlTypes.CHAR)
+    @Column(name = "thumbnail_image_asset_id", length = 36, unique = true)
+    private UUID thumbnailImageAssetId;
 
     @Column(name = "instagram_redirect_url", length = 255, nullable = false)
     private String instagramRedirectUrl;
@@ -45,17 +56,35 @@ public class Magazine extends BaseTimeEntity {
     @Column(name = "deleted", nullable = false)
     private boolean deleted;
 
-    private Magazine(String title, String bannerKey, String thumbnailKey, String instagramRedirectUrl) {
+    private Magazine(String title,
+                     String bannerKey, UUID bannerImageAssetId,
+                     String thumbnailKey, UUID thumbnailImageAssetId,
+                     String instagramRedirectUrl) {
         this.title = title;
         this.bannerKey = bannerKey;
+        this.bannerImageAssetId = bannerImageAssetId;
         this.thumbnailKey = thumbnailKey;
+        this.thumbnailImageAssetId = thumbnailImageAssetId;
         this.instagramRedirectUrl = instagramRedirectUrl;
         this.deleted = false;
     }
 
     public static Magazine create(String title, String bannerKey, String thumbnailKey,
                                   String instagramRedirectUrl) {
-        return new Magazine(title, bannerKey, thumbnailKey, instagramRedirectUrl);
+        return create(title, bannerKey, null, thumbnailKey, null, instagramRedirectUrl);
+    }
+
+    public static Magazine create(String title,
+                                  String bannerKey, UUID bannerImageAssetId,
+                                  String thumbnailKey, UUID thumbnailImageAssetId,
+                                  String instagramRedirectUrl) {
+        requireSource(bannerKey, bannerImageAssetId, "banner");
+        requireSource(thumbnailKey, thumbnailImageAssetId, "thumbnail");
+        return new Magazine(
+                title,
+                bannerKey, bannerImageAssetId,
+                thumbnailKey, thumbnailImageAssetId,
+                instagramRedirectUrl);
     }
 
     /** 부분 수정(PATCH) — null 필드는 기존 값을 유지한다. */
@@ -71,6 +100,12 @@ public class Magazine extends BaseTimeEntity {
         }
         if (instagramRedirectUrl != null) {
             this.instagramRedirectUrl = instagramRedirectUrl;
+        }
+    }
+
+    private static void requireSource(String key, UUID assetId, String slot) {
+        if (key == null && assetId == null) {
+            throw new IllegalArgumentException(slot + " image source is required");
         }
     }
 }
