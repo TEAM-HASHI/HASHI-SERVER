@@ -8,6 +8,7 @@ import org.sopt.hashi.admin.dto.AdminRestaurantResponse;
 import org.sopt.hashi.admin.dto.CreateRestaurantRequest;
 import org.sopt.hashi.admin.dto.UpdateRestaurantRequest;
 import org.sopt.hashi.admin.service.AdminRestaurantService;
+import org.sopt.hashi.media.code.MediaErrorCode;
 import org.sopt.hashi.shared.error.CommonErrorCode;
 import org.sopt.hashi.shared.response.SuccessResponse;
 import org.sopt.hashi.shared.swagger.ApiErrorResponse;
@@ -76,6 +77,8 @@ public class AdminRestaurantController {
             }
             """)))
     @ApiException(value = CommonErrorCode.class, codes = {"INVALID_INPUT", "UNAUTHORIZED", "FORBIDDEN"})
+    @ApiException(value = MediaErrorCode.class,
+            codes = {"ASSET_NOT_FOUND", "INVALID_STATE", "ALREADY_BOUND", "DUPLICATE_ASSET"})
     @ApiSuccess(value = AdminSuccessCode.class, codes = {"RESTAURANT_CREATED"})
     @ResponseStatus(HttpStatus.CREATED)
     @PostMapping
@@ -116,6 +119,8 @@ public class AdminRestaurantController {
             }
             """)))
     @ApiException(value = CommonErrorCode.class, codes = {"INVALID_INPUT", "UNAUTHORIZED", "FORBIDDEN"})
+    @ApiException(value = MediaErrorCode.class,
+            codes = {"ASSET_NOT_FOUND", "INVALID_STATE", "ALREADY_BOUND", "DUPLICATE_ASSET"})
     @ApiErrorResponse(status = HttpStatus.NOT_FOUND, code = "RESTAURANT-004",
             message = "식당을 찾을 수 없습니다.")
     @ApiErrorResponse(status = HttpStatus.NOT_FOUND, code = "RESTAURANT-009",
