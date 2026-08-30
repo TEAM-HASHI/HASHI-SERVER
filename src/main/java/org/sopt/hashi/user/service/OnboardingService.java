@@ -2,6 +2,7 @@ package org.sopt.hashi.user.service;
 
 import lombok.extern.slf4j.Slf4j;
 import org.sopt.hashi.auth.AuthAccountPort;
+import org.sopt.hashi.media.MediaPort;
 import org.sopt.hashi.shared.error.BusinessException;
 import org.sopt.hashi.user.code.UserErrorCode;
 import org.sopt.hashi.user.domain.User;
@@ -18,10 +19,14 @@ public class OnboardingService {
 
     private final UserRepository userRepository;
     private final AuthAccountPort authAccountPort;
+    private final MediaPort mediaPort;
 
-    public OnboardingService(UserRepository userRepository, AuthAccountPort authAccountPort) {
+    public OnboardingService(UserRepository userRepository,
+                             AuthAccountPort authAccountPort,
+                             MediaPort mediaPort) {
         this.userRepository = userRepository;
         this.authAccountPort = authAccountPort;
+        this.mediaPort = mediaPort;
     }
 
     /**
@@ -33,6 +38,9 @@ public class OnboardingService {
         validateNotDuplicated(request);
         User user = saveUser(request);
         authAccountPort.linkOnboardingAccount(user.getId());
+        if (request.profileImageAssetId() != null) {
+            mediaPort.claimOnboardingProfile(request.profileImageAssetId(), user.getId());
+        }
         // 회원 생성 시점 기록 — 프로필 값은 개인정보라 ID만 남긴다
         log.info("온보딩 가입 완료. userId={}", user.getId());
         return new OnboardingResponse(user.getId());
@@ -55,7 +63,8 @@ public class OnboardingService {
         try {
             return userRepository.save(User.onboard(
                     request.nickname(), request.nameEng(), request.birthDate(),
-                    request.phone(), request.email(), request.profileImageKey()));
+                    request.phone(), request.email(), request.profileImageKey(),
+                    request.profileImageAssetId()));
         } catch (DataIntegrityViolationException e) {
             // 사전 검사와 저장 사이의 동시 가입 경합 — 유니크 제약(nickname·email·phone)이 최종 방어한다.
             // 롤백된 트랜잭션에서 어느 필드인지 재조회하는 건 불안정하므로 일반 충돌로 변환한다.

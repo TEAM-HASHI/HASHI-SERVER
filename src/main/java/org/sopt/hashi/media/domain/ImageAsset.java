@@ -255,6 +255,27 @@ public class ImageAsset extends BaseTimeEntity {
         bindingStatus = ImageBindingStatus.BOUND;
     }
 
+    /**
+     * 온보딩 임시 소유권을 생성된 회원에게 넘기면서 bind한다.
+     * creator 감사 정보는 변경하지 않는다.
+     */
+    public void handoffOwnerAndBind(MediaOwnerType expectedOwnerType, Long expectedOwnerSubjectId,
+                                    MediaOwnerType newOwnerType, Long newOwnerSubjectId) {
+        if (!isOwnedBy(expectedOwnerType, expectedOwnerSubjectId)) {
+            throw new IllegalStateException("asset owner does not match");
+        }
+        if (newOwnerType == MediaOwnerType.SYSTEM_BACKFILL || newOwnerSubjectId == null) {
+            throw new IllegalArgumentException("new owner must be an authenticated actor");
+        }
+        if (cleanupStatus != MediaCleanupStatus.ACTIVE
+                || bindingStatus != ImageBindingStatus.UNBOUND) {
+            throw new IllegalStateException("only active unbound assets can be handed off");
+        }
+        ownerActorType = Objects.requireNonNull(newOwnerType);
+        ownerSubjectId = newOwnerSubjectId;
+        bindingStatus = ImageBindingStatus.BOUND;
+    }
+
     public void retire() {
         boolean active = cleanupStatus == MediaCleanupStatus.ACTIVE;
         boolean purgedFailure = cleanupStatus == MediaCleanupStatus.PURGED

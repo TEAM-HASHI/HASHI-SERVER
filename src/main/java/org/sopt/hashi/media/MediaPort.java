@@ -13,6 +13,12 @@ public interface MediaPort {
      */
     void reconcileBindings(Collection<MediaAssetUse> claims, Collection<MediaAssetUse> retires);
 
+    /**
+     * 현재 ONBOARDING actor가 발급한 PROFILE asset을 새 회원에게 인계하고 bind한다.
+     * 회원 생성·auth 계정 연결과 같은 transaction에서만 호출한다.
+     */
+    void claimOnboardingProfile(UUID assetId, Long newUserId);
+
     /** 요청한 asset-role projection을 고정된 bulk 조회로 반환한다. 조회 불일치는 결과에서 제외한다. */
     Map<MediaImageRequest, MediaImage> findImages(Collection<MediaImageRequest> requests);
 }
