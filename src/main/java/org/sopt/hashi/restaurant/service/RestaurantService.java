@@ -954,7 +954,6 @@ public class RestaurantService {
         Map<Long, RestaurantImage> existingById = existingImages.stream()
                 .collect(Collectors.toMap(RestaurantImage::getId, Function.identity()));
         Set<Long> retainedIds = new HashSet<>();
-        Set<UUID> newAssetIds = new HashSet<>();
         List<RestaurantImage> finalImages = new ArrayList<>();
         List<MediaAssetUse> claims = new ArrayList<>();
 
@@ -975,9 +974,6 @@ public class RestaurantService {
                 continue;
             }
             UUID assetId = requireAssetId(image.imageAssetId());
-            if (!newAssetIds.add(assetId)) {
-                throw new BusinessException(CommonErrorCode.INVALID_INPUT);
-            }
             finalImages.add(RestaurantImage.createAsset(assetId, 1));
             claims.add(new MediaAssetUse(assetId, MediaAssetPurpose.RESTAURANT));
         }

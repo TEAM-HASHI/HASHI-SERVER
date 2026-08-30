@@ -1,6 +1,8 @@
 package org.sopt.hashi.admin.dto;
 
 import com.fasterxml.jackson.annotation.JsonIgnore;
+import com.fasterxml.jackson.annotation.JsonProperty;
+import com.fasterxml.jackson.databind.JsonNode;
 import io.swagger.v3.oas.annotations.media.Schema;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.AssertTrue;
@@ -60,6 +62,9 @@ public record CreateRestaurantRequest(
         @Schema(description = "식당 이미지 asset ID 목록")
         @Size(min = 1, message = "식당 이미지 asset은 최소 1개 이상 필요합니다")
         List<@NotNull(message = "이미지 asset ID는 null일 수 없습니다") UUID> imageAssetIds,
+        @JsonProperty("images")
+        @Schema(hidden = true)
+        JsonNode unsupportedImages,
         List<@NotNull(message = "메뉴 항목은 null일 수 없습니다") @Valid MenuRequest> menus,
         @Schema(description = "해시태그 목록", example = "[\"현지인맛집\"]")
         @NotNull(message = "해시태그는 필수입니다")
@@ -97,10 +102,42 @@ public record CreateRestaurantRequest(
                 curationTypes, businessHours);
     }
 
+    /** 신규 asset 생성 호출부가 사용하던 canonical 인자 순서를 유지한다. */
+    public CreateRestaurantRequest(
+            String name,
+            String localName,
+            String summary,
+            String description,
+            String address,
+            String area,
+            String genre,
+            String foodCategory,
+            String priceCurrency,
+            BigDecimal minPrice,
+            BigDecimal maxPrice,
+            List<String> imageKeys,
+            List<UUID> imageAssetIds,
+            List<MenuRequest> menus,
+            List<String> hashtags,
+            List<String> curationTypes,
+            List<BusinessHourRequest> businessHours
+    ) {
+        this(
+                name, localName, summary, description, address, area, genre, foodCategory,
+                priceCurrency, minPrice, maxPrice, imageKeys, imageAssetIds, null, menus,
+                hashtags, curationTypes, businessHours);
+    }
+
     @AssertTrue(message = "식당 이미지는 imageKeys 또는 imageAssetIds 중 하나만 필요합니다")
     @JsonIgnore
     public boolean isImageSourceValid() {
         return (imageKeys == null) != (imageAssetIds == null);
+    }
+
+    @AssertTrue(message = "식당 등록에서는 images를 사용할 수 없습니다")
+    @JsonIgnore
+    public boolean isCreateImageContractValid() {
+        return unsupportedImages == null;
     }
 
     /** 메뉴 항목 — 목록 전체가 함께 저장되므로 각 항목은 완전한 값으로 받는다. */

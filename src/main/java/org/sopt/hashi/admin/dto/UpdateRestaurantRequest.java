@@ -1,6 +1,8 @@
 package org.sopt.hashi.admin.dto;
 
 import com.fasterxml.jackson.annotation.JsonIgnore;
+import com.fasterxml.jackson.annotation.JsonProperty;
+import com.fasterxml.jackson.databind.JsonNode;
 import io.swagger.v3.oas.annotations.media.Schema;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.AssertTrue;
@@ -54,6 +56,9 @@ public record UpdateRestaurantRequest(
         @Schema(description = "식당 이미지 ordered wrapper(선택) — 보내면 전체 교체")
         @Size(min = 1, message = "식당 이미지는 최소 1개 이상 필요합니다")
         List<@NotNull(message = "식당 이미지 항목은 null일 수 없습니다") @Valid ImageRequest> images,
+        @JsonProperty("imageAssetIds")
+        @Schema(hidden = true)
+        JsonNode unsupportedImageAssetIds,
         List<@NotNull(message = "메뉴 항목은 null일 수 없습니다") @Valid MenuRequest> menus,
         @Schema(description = "해시태그 목록(선택) — 보내면 전체 교체, 최소 1개", example = "[\"오마카세\"]")
         @Size(min = 1, message = "해시태그는 최소 1개 이상 필요합니다")
@@ -85,7 +90,33 @@ public record UpdateRestaurantRequest(
     ) {
         this(
                 name, localName, summary, description, address, area, genre, foodCategory,
-                priceCurrency, minPrice, maxPrice, imageKeys, null, menus, hashtags,
+                priceCurrency, minPrice, maxPrice, imageKeys, null, null, menus, hashtags,
+                curationTypes, businessHours);
+    }
+
+    /** ordered wrapper 호출부가 사용하던 canonical 인자 순서를 유지한다. */
+    public UpdateRestaurantRequest(
+            String name,
+            String localName,
+            String summary,
+            String description,
+            String address,
+            String area,
+            String genre,
+            String foodCategory,
+            String priceCurrency,
+            BigDecimal minPrice,
+            BigDecimal maxPrice,
+            List<String> imageKeys,
+            List<ImageRequest> images,
+            List<MenuRequest> menus,
+            List<String> hashtags,
+            List<String> curationTypes,
+            List<BusinessHourRequest> businessHours
+    ) {
+        this(
+                name, localName, summary, description, address, area, genre, foodCategory,
+                priceCurrency, minPrice, maxPrice, imageKeys, images, null, menus, hashtags,
                 curationTypes, businessHours);
     }
 
@@ -93,6 +124,12 @@ public record UpdateRestaurantRequest(
     @JsonIgnore
     public boolean isImageCollectionSourceValid() {
         return imageKeys == null || images == null;
+    }
+
+    @AssertTrue(message = "식당 수정에서는 imageAssetIds를 사용할 수 없습니다")
+    @JsonIgnore
+    public boolean isUpdateImageContractValid() {
+        return unsupportedImageAssetIds == null;
     }
 
     public record ImageRequest(

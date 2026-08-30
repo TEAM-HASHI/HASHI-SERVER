@@ -37,6 +37,7 @@ import org.sopt.hashi.media.MediaImageRequest;
 import org.sopt.hashi.media.MediaImageRole;
 import org.sopt.hashi.media.MediaImageStatus;
 import org.sopt.hashi.media.MediaPort;
+import org.sopt.hashi.media.code.MediaErrorCode;
 import org.sopt.hashi.restaurant.AdminRestaurantCommand;
 import org.sopt.hashi.restaurant.AdminRestaurantCommand.ImageCommand;
 import org.sopt.hashi.restaurant.AdminRestaurantCommand.MenuCommand;
@@ -443,6 +444,31 @@ class RestaurantServiceTest {
                 argThat(retires -> List.copyOf(retires).equals(List.of(
                         new MediaAssetUse(removedAssetId, MediaAssetPurpose.RESTAURANT))))
         );
+    }
+
+    @Test
+    void ordered_wrapper의_중복_asset은_media_중복_오류를_그대로_반환한다() {
+        RestaurantService restaurantService = createRestaurantService();
+        UUID duplicateAssetId = UUID.randomUUID();
+        Restaurant restaurant = createRestaurant(1L, 4.8, 100L);
+        restaurant.replaceImages(List.of(RestaurantImage.createLegacy("restaurants/current.jpg", 1)));
+        given(restaurantRepository.findByIdForUpdate(1L)).willReturn(Optional.of(restaurant));
+        doThrow(new BusinessException(MediaErrorCode.DUPLICATE_ASSET))
+                .when(mediaPort).reconcileBindings(any(), any());
+
+        assertThatThrownBy(() -> restaurantService.updateByAdmin(
+                1L,
+                updateImagesCommand(null, List.of(
+                        new ImageCommand(null, duplicateAssetId),
+                        new ImageCommand(null, duplicateAssetId)
+                ))
+        )).isInstanceOfSatisfying(BusinessException.class, exception ->
+                assertThat(exception.getErrorCode()).isEqualTo(MediaErrorCode.DUPLICATE_ASSET));
+
+        assertThat(restaurant.getImages())
+                .extracting(RestaurantImage::getFileKey)
+                .containsExactly("restaurants/current.jpg");
+        verify(restaurantRepository, never()).flush();
     }
 
     @Test
