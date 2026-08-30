@@ -220,6 +220,44 @@ class RestaurantServiceTest {
     }
 
     @Test
+    void 어드민_식당_등록과_수정은_각_동작에서_지원하지_않는_이미지_필드를_거부한다() {
+        RestaurantService restaurantService = createRestaurantService();
+        UUID assetId = UUID.randomUUID();
+        AdminRestaurantCommand createCommand = new AdminRestaurantCommand(
+                "히마와리 스시", "Himawari Sushi", "식당 소개", "매장 상세 설명",
+                "도쿄도 신주쿠구", "도쿄", "sushi", "sushi", "JPY",
+                BigDecimal.valueOf(1_000), BigDecimal.valueOf(3_000),
+                null, List.of(assetId), List.of(new ImageCommand(null, assetId)),
+                null, List.of("스시"), null, null
+        );
+        AdminRestaurantCommand updateCommand = new AdminRestaurantCommand(
+                null, null, null, null, null, null, null, null, null, null, null,
+                null, List.of(assetId), null, null, null, null, null
+        );
+
+        assertThatThrownBy(() -> restaurantService.createByAdmin(createCommand))
+                .isInstanceOfSatisfying(BusinessException.class, exception ->
+                        assertThat(exception.getErrorCode()).isEqualTo(CommonErrorCode.INVALID_INPUT));
+        assertThatThrownBy(() -> restaurantService.updateByAdmin(1L, updateCommand))
+                .isInstanceOfSatisfying(BusinessException.class, exception ->
+                        assertThat(exception.getErrorCode()).isEqualTo(CommonErrorCode.INVALID_INPUT));
+        verifyNoInteractions(restaurantRepository, mediaPort);
+    }
+
+    @Test
+    void 어드민_식당_삭제는_수정과_같은_write_lock으로_Aggregate를_조회한다() {
+        RestaurantService restaurantService = createRestaurantService();
+        Restaurant restaurant = createRestaurant(1L, 4.8, 100L);
+        given(restaurantRepository.findByIdForUpdate(1L)).willReturn(Optional.of(restaurant));
+
+        restaurantService.deleteByAdmin(1L);
+
+        assertThat(restaurant.isDeleted()).isTrue();
+        verify(restaurantRepository).findByIdForUpdate(1L);
+        verify(restaurantRepository, never()).findById(1L);
+    }
+
+    @Test
     void 어드민_메뉴_수정은_기존_ID를_유지하고_신규와_삭제를_동기화한다() {
         RestaurantService restaurantService = createRestaurantService();
         Restaurant restaurant = createRestaurant(1L, 4.8, 100L);

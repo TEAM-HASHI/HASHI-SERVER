@@ -5,8 +5,12 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import java.math.BigDecimal;
 import java.util.Map;
+import java.util.List;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
+import org.sopt.hashi.restaurant.AdminRestaurantCommand;
+import org.sopt.hashi.restaurant.AdminRestaurantCommand.ImageCommand;
+import org.sopt.hashi.restaurant.service.RestaurantService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.testcontainers.service.connection.ServiceConnection;
@@ -37,6 +41,9 @@ class RestaurantMediaSchemaValidationTest {
 
     @Autowired
     private RestaurantRepository restaurantRepository;
+
+    @Autowired
+    private RestaurantService restaurantService;
 
     @Autowired
     private JdbcTemplate jdbcTemplate;
@@ -80,6 +87,40 @@ class RestaurantMediaSchemaValidationTest {
         assertThatThrownBy(() -> insertMenu(
                 restaurant.getId(), "asset 중복 메뉴", menuAssetId))
                 .isInstanceOf(DataAccessException.class);
+    }
+
+    @Test
+    void 식당_이미지_재정렬은_MySQL_unique_제약에서도_ID와_1_based_순서를_유지한다() {
+        Restaurant restaurant = createRestaurant();
+        restaurant.replaceImages(List.of(
+                RestaurantImage.createLegacy("restaurants/A.jpg", 1),
+                RestaurantImage.createLegacy("restaurants/B.jpg", 2),
+                RestaurantImage.createLegacy("restaurants/C.jpg", 3)
+        ));
+        restaurantRepository.saveAndFlush(restaurant);
+        Long restaurantId = restaurant.getId();
+        Long firstId = restaurant.getImages().get(0).getId();
+        Long secondId = restaurant.getImages().get(1).getId();
+        Long thirdId = restaurant.getImages().get(2).getId();
+
+        restaurantService.updateByAdmin(
+                restaurantId,
+                updateImagesCommand(List.of(
+                        new ImageCommand(thirdId, null),
+                        new ImageCommand(firstId, null),
+                        new ImageCommand(secondId, null)
+                ))
+        );
+
+        Restaurant reloaded = restaurantRepository
+                .findActiveByIdWithImages(restaurantId)
+                .orElseThrow();
+        assertThat(reloaded.getImages())
+                .extracting(RestaurantImage::getId)
+                .containsExactly(thirdId, firstId, secondId);
+        assertThat(reloaded.getImages())
+                .extracting(RestaurantImage::getDisplayOrder)
+                .containsExactly(1, 2, 3);
     }
 
     private void assertAssetColumn(String tableName, String indexName) {
@@ -147,6 +188,13 @@ class RestaurantMediaSchemaValidationTest {
                 PriceCurrency.JPY,
                 BigDecimal.valueOf(1_000),
                 BigDecimal.valueOf(3_000)
+        );
+    }
+
+    private AdminRestaurantCommand updateImagesCommand(List<ImageCommand> images) {
+        return new AdminRestaurantCommand(
+                null, null, null, null, null, null, null, null, null, null, null,
+                null, null, images, null, null, null, null
         );
     }
 }

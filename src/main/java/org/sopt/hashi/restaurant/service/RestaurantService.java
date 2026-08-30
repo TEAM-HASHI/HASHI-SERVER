@@ -368,6 +368,7 @@ public class RestaurantService {
     /** 어드민 식당 수정 — 부분 수정(PATCH). null 필드는 유지하고, 컬렉션은 전체 교체한다. */
     @Transactional
     public AdminRestaurantInfo updateByAdmin(Long restaurantId, AdminRestaurantCommand command) {
+        validateImageFieldsForUpdate(command);
         validateNonBlankIfPresent(command.localName());
         // 자유 텍스트 전환(#145) 후에도 값 비우기 불가 정책 유지 — enum 시절엔 빈 값이 변환 단계에서 거부됐다
         validateNonBlankIfPresent(command.foodCategory());
@@ -435,7 +436,7 @@ public class RestaurantService {
     /** 어드민 식당 삭제 — soft delete(deleted=true). 예약·리뷰가 참조하는 데이터는 보존한다. */
     @Transactional
     public void deleteByAdmin(Long restaurantId) {
-        Restaurant restaurant = findRestaurantForAdmin(restaurantId);
+        Restaurant restaurant = findRestaurantForAdminUpdate(restaurantId);
         restaurant.softDelete();
         // 노출 종료 전이 — 예약·리뷰가 계속 참조하므로 언제 내려갔는지 기록이 필요하다 (adminId는 MDC)
         log.info("어드민 식당 삭제(soft). restaurantId={}", restaurantId);
@@ -744,11 +745,6 @@ public class RestaurantService {
         return new BusinessException(RestaurantErrorCode.MENU_NOT_FOUND);
     }
 
-    private Restaurant findRestaurantForAdmin(Long restaurantId) {
-        return restaurantRepository.findById(restaurantId)
-                .orElseThrow(() -> new BusinessException(RestaurantErrorCode.NOT_FOUND));
-    }
-
     private Restaurant findRestaurantForAdminUpdate(Long restaurantId) {
         return restaurantRepository.findByIdForUpdate(restaurantId)
                 .orElseThrow(() -> new BusinessException(RestaurantErrorCode.NOT_FOUND));
@@ -761,6 +757,7 @@ public class RestaurantService {
                 || command.area() == null || command.genre() == null
                 || command.foodCategory() == null || command.foodCategory().isBlank()
                 || command.priceCurrency() == null || command.minPrice() == null || command.maxPrice() == null
+                || command.images() != null
                 || !hasExactlyOneCreateImageSource(command.imageKeys(), command.imageAssetIds())
                 || command.hashtags() == null || command.hashtags().isEmpty();
         if (missingRequired) {
@@ -787,6 +784,12 @@ public class RestaurantService {
     private void validatePriceRange(BigDecimal minPrice, BigDecimal maxPrice) {
         boolean invalidRange = minPrice != null && maxPrice != null && minPrice.compareTo(maxPrice) > 0;
         if (invalidRange) {
+            throw new BusinessException(CommonErrorCode.INVALID_INPUT);
+        }
+    }
+
+    private void validateImageFieldsForUpdate(AdminRestaurantCommand command) {
+        if (command.imageAssetIds() != null) {
             throw new BusinessException(CommonErrorCode.INVALID_INPUT);
         }
     }

@@ -13,7 +13,9 @@ import java.util.UUID;
  * restaurant가 해석한다(지원하지 않는 값이면 RESTAURANT-001/005).
  * 컬렉션은 전체 교체 의미다. 수정에서 null이면 유지하며, imageKeys·hashtags는 최소 1개를 유지해야 한다.
  * businessHours는 제공 시 7개 요일을 중복 없이 모두 포함해야 한다(위반 시 RESTAURANT-006).
- * 이미지 키는 업로드 완료된 S3 object key다.
+ * 이미지 키는 업로드 완료된 S3 object key다. 신규 media 식당 이미지는 등록에서
+ * {@code imageAssetIds}, 수정에서 stable association을 포함한 {@code images}만 사용하며,
+ * 반대 동작의 필드가 전달되면 묵시적으로 무시하지 않고 잘못된 입력으로 거부한다.
  */
 public record AdminRestaurantCommand(
         String name,
