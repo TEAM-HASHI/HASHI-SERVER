@@ -5,6 +5,11 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.when;
 
 import jakarta.persistence.EntityManagerFactory;
+import java.sql.Connection;
+import java.sql.DriverManager;
+import java.sql.ResultSet;
+import java.sql.SQLException;
+import java.sql.Statement;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
@@ -213,35 +218,79 @@ class MediaPortIntegrationTest {
             List<MediaAssetUse> firstClaims,
             List<MediaAssetUse> secondClaims
     ) throws Exception {
-        CountDownLatch ready = new CountDownLatch(2);
-        CountDownLatch start = new CountDownLatch(1);
+        CountDownLatch firstClaimFlushed = new CountDownLatch(1);
+        CountDownLatch allowFirstCommit = new CountDownLatch(1);
         Future<ClaimResult> first = executor.submit(() ->
-                claimAfterBarrier(firstClaims, ready, start));
-        Future<ClaimResult> second = executor.submit(() ->
-                claimAfterBarrier(secondClaims, ready, start));
-        assertThat(ready.await(10, TimeUnit.SECONDS)).isTrue();
-        start.countDown();
+                claimAndHold(firstClaims, firstClaimFlushed, allowFirstCommit));
+        assertThat(firstClaimFlushed.await(10, TimeUnit.SECONDS)).isTrue();
+
+        Future<ClaimResult> second = executor.submit(() -> claimOnce(secondClaims));
+        try {
+            awaitMySqlRowLockCompetition();
+        } finally {
+            allowFirstCommit.countDown();
+        }
         return List.of(
                 first.get(20, TimeUnit.SECONDS),
                 second.get(20, TimeUnit.SECONDS)
         );
     }
 
-    private ClaimResult claimAfterBarrier(
+    private ClaimResult claimAndHold(
             List<MediaAssetUse> claims,
-            CountDownLatch ready,
-            CountDownLatch start
-    ) throws InterruptedException {
-        ready.countDown();
-        if (!start.await(10, TimeUnit.SECONDS)) {
-            throw new IllegalStateException("concurrent binding start timed out");
+            CountDownLatch firstClaimFlushed,
+            CountDownLatch allowFirstCommit
+    ) {
+        try {
+            transactionTemplate.executeWithoutResult(status -> {
+                mediaPort.reconcileBindings(claims, List.of());
+                imageAssetRepository.flush();
+                firstClaimFlushed.countDown();
+                await(allowFirstCommit, "첫 claim transaction commit");
+            });
+            return ClaimResult.success();
+        } catch (BusinessException exception) {
+            return ClaimResult.failure((MediaErrorCode) exception.getErrorCode());
         }
+    }
+
+    private ClaimResult claimOnce(List<MediaAssetUse> claims) {
         try {
             transactionTemplate.executeWithoutResult(status ->
                     mediaPort.reconcileBindings(claims, List.of()));
             return ClaimResult.success();
         } catch (BusinessException exception) {
             return ClaimResult.failure((MediaErrorCode) exception.getErrorCode());
+        }
+    }
+
+    private void awaitMySqlRowLockCompetition() throws InterruptedException, SQLException {
+        try (Connection connection = DriverManager.getConnection(
+                MYSQL.getJdbcUrl(), "root", MYSQL.getPassword());
+             Statement statement = connection.createStatement()) {
+            long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(10);
+            while (System.nanoTime() < deadline) {
+                try (ResultSet resultSet = statement.executeQuery(
+                        "SELECT COUNT(*) FROM performance_schema.data_lock_waits")) {
+                    resultSet.next();
+                    if (resultSet.getInt(1) > 0) {
+                        return;
+                    }
+                }
+                Thread.sleep(50);
+            }
+        }
+        throw new AssertionError("MySQL asset row lock 경쟁이 제한 시간 안에 관찰되지 않았습니다");
+    }
+
+    private void await(CountDownLatch latch, String description) {
+        try {
+            if (!latch.await(10, TimeUnit.SECONDS)) {
+                throw new IllegalStateException(description + " 대기 시간이 초과되었습니다");
+            }
+        } catch (InterruptedException exception) {
+            Thread.currentThread().interrupt();
+            throw new IllegalStateException(description + " 대기가 중단되었습니다", exception);
         }
     }
 
