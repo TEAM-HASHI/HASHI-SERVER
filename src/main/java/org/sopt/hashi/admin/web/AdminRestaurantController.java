@@ -8,7 +8,6 @@ import org.sopt.hashi.admin.dto.AdminRestaurantResponse;
 import org.sopt.hashi.admin.dto.CreateRestaurantRequest;
 import org.sopt.hashi.admin.dto.UpdateRestaurantRequest;
 import org.sopt.hashi.admin.service.AdminRestaurantService;
-import org.sopt.hashi.media.code.MediaErrorCode;
 import org.sopt.hashi.shared.error.CommonErrorCode;
 import org.sopt.hashi.shared.response.SuccessResponse;
 import org.sopt.hashi.shared.swagger.ApiErrorResponse;
@@ -77,8 +76,14 @@ public class AdminRestaurantController {
             }
             """)))
     @ApiException(value = CommonErrorCode.class, codes = {"INVALID_INPUT", "UNAUTHORIZED", "FORBIDDEN"})
-    @ApiException(value = MediaErrorCode.class,
-            codes = {"ASSET_NOT_FOUND", "INVALID_STATE", "ALREADY_BOUND", "DUPLICATE_ASSET"})
+    @ApiErrorResponse(status = HttpStatus.NOT_FOUND, code = "MEDIA-001",
+            message = "이미지 자산을 찾을 수 없습니다")
+    @ApiErrorResponse(status = HttpStatus.CONFLICT, code = "MEDIA-006",
+            message = "현재 이미지 상태에서는 요청을 처리할 수 없습니다")
+    @ApiErrorResponse(status = HttpStatus.CONFLICT, code = "MEDIA-007",
+            message = "이미 사용 중이거나 사용이 끝난 이미지입니다")
+    @ApiErrorResponse(status = HttpStatus.BAD_REQUEST, code = "MEDIA-008",
+            message = "같은 이미지 자산을 중복해서 요청할 수 없습니다")
     @ApiSuccess(value = AdminSuccessCode.class, codes = {"RESTAURANT_CREATED"})
     @ResponseStatus(HttpStatus.CREATED)
     @PostMapping
@@ -119,8 +124,14 @@ public class AdminRestaurantController {
             }
             """)))
     @ApiException(value = CommonErrorCode.class, codes = {"INVALID_INPUT", "UNAUTHORIZED", "FORBIDDEN"})
-    @ApiException(value = MediaErrorCode.class,
-            codes = {"ASSET_NOT_FOUND", "INVALID_STATE", "ALREADY_BOUND", "DUPLICATE_ASSET"})
+    @ApiErrorResponse(status = HttpStatus.NOT_FOUND, code = "MEDIA-001",
+            message = "이미지 자산을 찾을 수 없습니다")
+    @ApiErrorResponse(status = HttpStatus.CONFLICT, code = "MEDIA-006",
+            message = "현재 이미지 상태에서는 요청을 처리할 수 없습니다")
+    @ApiErrorResponse(status = HttpStatus.CONFLICT, code = "MEDIA-007",
+            message = "이미 사용 중이거나 사용이 끝난 이미지입니다")
+    @ApiErrorResponse(status = HttpStatus.BAD_REQUEST, code = "MEDIA-008",
+            message = "같은 이미지 자산을 중복해서 요청할 수 없습니다")
     @ApiErrorResponse(status = HttpStatus.NOT_FOUND, code = "RESTAURANT-004",
             message = "식당을 찾을 수 없습니다.")
     @ApiErrorResponse(status = HttpStatus.NOT_FOUND, code = "RESTAURANT-009",
