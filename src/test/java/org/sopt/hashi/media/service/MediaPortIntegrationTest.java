@@ -10,8 +10,14 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 import org.hibernate.SessionFactory;
 import org.hibernate.stat.Statistics;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.sopt.hashi.auth.ActorType;
@@ -23,6 +29,7 @@ import org.sopt.hashi.media.MediaImage;
 import org.sopt.hashi.media.MediaImageRequest;
 import org.sopt.hashi.media.MediaImageRole;
 import org.sopt.hashi.media.MediaPort;
+import org.sopt.hashi.media.code.MediaErrorCode;
 import org.sopt.hashi.media.domain.ImageAsset;
 import org.sopt.hashi.media.domain.ImageAssetRepository;
 import org.sopt.hashi.media.domain.ImageBindingStatus;
@@ -30,6 +37,7 @@ import org.sopt.hashi.media.domain.ImageFormat;
 import org.sopt.hashi.media.domain.ImageRole;
 import org.sopt.hashi.media.domain.MediaOwnerType;
 import org.sopt.hashi.media.domain.MediaPurpose;
+import org.sopt.hashi.shared.error.BusinessException;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.testcontainers.service.connection.ServiceConnection;
@@ -82,12 +90,21 @@ class MediaPortIntegrationTest {
     @MockitoBean
     private CurrentActorProvider currentActorProvider;
 
+    private ExecutorService executor;
+
     @BeforeEach
     void setUp() {
         jdbcTemplate.update("DELETE FROM image_rendition");
         jdbcTemplate.update("DELETE FROM image_asset");
         when(currentActorProvider.currentActor())
                 .thenReturn(new CurrentActor(ActorType.ADMIN, 1L));
+        executor = Executors.newFixedThreadPool(2);
+    }
+
+    @AfterEach
+    void tearDown() throws InterruptedException {
+        executor.shutdownNow();
+        executor.awaitTermination(5, TimeUnit.SECONDS);
     }
 
     @Test
@@ -128,6 +145,49 @@ class MediaPortIntegrationTest {
         assertThat(manyAssetQueries).isEqualTo(2L);
     }
 
+    @Test
+    void 동일_asset을_동시에_claim하면_하나만_BOUND로_전이한다() throws Exception {
+        ImageAsset asset = readyAsset(MediaPurpose.RESTAURANT, false);
+        transactionTemplate.executeWithoutResult(status -> imageAssetRepository.save(asset));
+        List<MediaAssetUse> claims = List.of(new MediaAssetUse(
+                asset.getPublicId(), MediaAssetPurpose.RESTAURANT));
+
+        List<ClaimResult> results = claimConcurrently(claims, claims);
+
+        assertThat(results).containsExactlyInAnyOrder(
+                ClaimResult.success(),
+                ClaimResult.failure(MediaErrorCode.ALREADY_BOUND)
+        );
+        assertThat(imageAssetRepository.findByPublicId(asset.getPublicId()).orElseThrow()
+                .getBindingStatus()).isEqualTo(ImageBindingStatus.BOUND);
+    }
+
+    @Test
+    void 반대_입력_순서의_다중_asset_claim도_내부_ID_순서로_잠가_deadlock을_피한다() throws Exception {
+        ImageAsset first = readyAsset(MediaPurpose.RESTAURANT, false);
+        ImageAsset second = readyAsset(MediaPurpose.RESTAURANT, false);
+        transactionTemplate.executeWithoutResult(status ->
+                imageAssetRepository.saveAll(List.of(first, second)));
+        MediaAssetUse firstUse = new MediaAssetUse(
+                first.getPublicId(), MediaAssetPurpose.RESTAURANT);
+        MediaAssetUse secondUse = new MediaAssetUse(
+                second.getPublicId(), MediaAssetPurpose.RESTAURANT);
+
+        List<ClaimResult> results = claimConcurrently(
+                List.of(firstUse, secondUse),
+                List.of(secondUse, firstUse)
+        );
+
+        assertThat(results).containsExactlyInAnyOrder(
+                ClaimResult.success(),
+                ClaimResult.failure(MediaErrorCode.ALREADY_BOUND)
+        );
+        assertThat(imageAssetRepository.findAllByPublicIdIn(
+                List.of(first.getPublicId(), second.getPublicId())))
+                .extracting(ImageAsset::getBindingStatus)
+                .containsOnly(ImageBindingStatus.BOUND);
+    }
+
     private long projectionQueryCount(int count) {
         List<ImageAsset> assets = new ArrayList<>();
         for (int index = 0; index < count; index++) {
@@ -147,6 +207,42 @@ class MediaPortIntegrationTest {
         assertThat(result.values()).allSatisfy(image ->
                 assertThat(image.defaultSource().width()).isEqualTo(270));
         return statistics.getPrepareStatementCount();
+    }
+
+    private List<ClaimResult> claimConcurrently(
+            List<MediaAssetUse> firstClaims,
+            List<MediaAssetUse> secondClaims
+    ) throws Exception {
+        CountDownLatch ready = new CountDownLatch(2);
+        CountDownLatch start = new CountDownLatch(1);
+        Future<ClaimResult> first = executor.submit(() ->
+                claimAfterBarrier(firstClaims, ready, start));
+        Future<ClaimResult> second = executor.submit(() ->
+                claimAfterBarrier(secondClaims, ready, start));
+        assertThat(ready.await(10, TimeUnit.SECONDS)).isTrue();
+        start.countDown();
+        return List.of(
+                first.get(20, TimeUnit.SECONDS),
+                second.get(20, TimeUnit.SECONDS)
+        );
+    }
+
+    private ClaimResult claimAfterBarrier(
+            List<MediaAssetUse> claims,
+            CountDownLatch ready,
+            CountDownLatch start
+    ) throws InterruptedException {
+        ready.countDown();
+        if (!start.await(10, TimeUnit.SECONDS)) {
+            throw new IllegalStateException("concurrent binding start timed out");
+        }
+        try {
+            transactionTemplate.executeWithoutResult(status ->
+                    mediaPort.reconcileBindings(claims, List.of()));
+            return ClaimResult.success();
+        } catch (BusinessException exception) {
+            return ClaimResult.failure((MediaErrorCode) exception.getErrorCode());
+        }
     }
 
     private ImageAsset readyAsset(MediaPurpose purpose, boolean bound) {
@@ -193,5 +289,16 @@ class MediaPortIntegrationTest {
                 "media/renditions/%s/v1/%s/%d.webp".formatted(
                         asset.getPublicId(), role.name().toLowerCase(), width)
         );
+    }
+
+    private record ClaimResult(boolean succeeded, MediaErrorCode errorCode) {
+
+        private static ClaimResult success() {
+            return new ClaimResult(true, null);
+        }
+
+        private static ClaimResult failure(MediaErrorCode errorCode) {
+            return new ClaimResult(false, errorCode);
+        }
     }
 }
