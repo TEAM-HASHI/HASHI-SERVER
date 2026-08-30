@@ -1,6 +1,7 @@
 package org.sopt.hashi.user.dto;
 
 import java.time.LocalDate;
+import org.sopt.hashi.media.MediaImage;
 import org.sopt.hashi.user.domain.User;
 
 /**
@@ -13,15 +14,21 @@ public record MyInfoResponse(
         LocalDate birthDate,
         String phone,
         String email,
-        String profileImageUrl) {
+        String profileImageUrl,
+        MediaImage profileImage) {
 
-    public static MyInfoResponse of(User user, String profileImageUrl) {
+    public static MyInfoResponse of(
+            User user,
+            String profileImageUrl,
+            MediaImage profileImage
+    ) {
         return new MyInfoResponse(
                 user.getNickname(),
                 user.getNameEng(),
                 user.getBirthDate(),
                 user.getPhone(),
                 user.getEmail(),
-                profileImageUrl);
+                profileImageUrl,
+                profileImage);
     }
 }
