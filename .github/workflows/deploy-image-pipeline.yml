@@ -54,6 +54,7 @@ jobs:
           MEDIA_UPLOAD_ALLOWED_ORIGINS: ${{ vars.MEDIA_UPLOAD_ALLOWED_ORIGINS }}
           MEDIA_ALARM_NOTIFICATION_TOPIC_ARN: ${{ vars.MEDIA_ALARM_NOTIFICATION_TOPIC_ARN }}
           MEDIA_WORKER_EVENT_SOURCE_ENABLED: ${{ vars.MEDIA_WORKER_EVENT_SOURCE_ENABLED }}
+          MEDIA_BACKFILL_ACCESS_ENABLED: ${{ vars.MEDIA_BACKFILL_ACCESS_ENABLED }}
         run: |
           set -euo pipefail
 
@@ -89,6 +90,12 @@ jobs:
           worker_enabled="${MEDIA_WORKER_EVENT_SOURCE_ENABLED:-true}"
           if [[ "${worker_enabled}" != "true" && "${worker_enabled}" != "false" ]]; then
             echo "MEDIA_WORKER_EVENT_SOURCE_ENABLED must be true or false."
+            exit 1
+          fi
+
+          backfill_enabled="${MEDIA_BACKFILL_ACCESS_ENABLED:-false}"
+          if [[ "${backfill_enabled}" != "true" && "${backfill_enabled}" != "false" ]]; then
+            echo "MEDIA_BACKFILL_ACCESS_ENABLED must be true or false."
             exit 1
           fi
 
@@ -147,6 +154,7 @@ jobs:
           MEDIA_UPLOAD_ALLOWED_ORIGINS: ${{ vars.MEDIA_UPLOAD_ALLOWED_ORIGINS }}
           MEDIA_ALARM_NOTIFICATION_TOPIC_ARN: ${{ vars.MEDIA_ALARM_NOTIFICATION_TOPIC_ARN }}
           MEDIA_WORKER_EVENT_SOURCE_ENABLED: ${{ vars.MEDIA_WORKER_EVENT_SOURCE_ENABLED }}
+          MEDIA_BACKFILL_ACCESS_ENABLED: ${{ vars.MEDIA_BACKFILL_ACCESS_ENABLED }}
         run: |
           set -euo pipefail
 
@@ -157,6 +165,7 @@ jobs:
             "SpringApplicationRoleName=${MEDIA_SPRING_APPLICATION_ROLE_NAME}"
             "UploadAllowedOrigins=${MEDIA_UPLOAD_ALLOWED_ORIGINS}"
             "WorkerEventSourceEnabled=${MEDIA_WORKER_EVENT_SOURCE_ENABLED:-true}"
+            "BackfillAccessEnabled=${MEDIA_BACKFILL_ACCESS_ENABLED:-false}"
           )
           if [[ -n "${MEDIA_ALARM_NOTIFICATION_TOPIC_ARN:-}" ]]; then
             parameters+=("AlarmNotificationTopicArn=${MEDIA_ALARM_NOTIFICATION_TOPIC_ARN}")
