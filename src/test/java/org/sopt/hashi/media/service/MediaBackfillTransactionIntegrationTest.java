@@ -14,6 +14,7 @@ import java.sql.SQLException;
 import java.sql.Statement;
 import java.time.Duration;
 import java.time.Clock;
+import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -33,11 +34,16 @@ import org.sopt.hashi.auth.ActorType;
 import org.sopt.hashi.auth.CurrentActor;
 import org.sopt.hashi.auth.CurrentActorProvider;
 import org.sopt.hashi.config.TimeConfig;
+import org.sopt.hashi.media.MediaAssetPurpose;
+import org.sopt.hashi.media.MediaBackfillClaim;
+import org.sopt.hashi.media.MediaBackfillPort;
 import org.sopt.hashi.media.code.MediaErrorCode;
 import org.sopt.hashi.media.domain.ImageAsset;
 import org.sopt.hashi.media.domain.ImageAssetRepository;
 import org.sopt.hashi.media.domain.ImageBindingStatus;
+import org.sopt.hashi.media.domain.ImageFormat;
 import org.sopt.hashi.media.domain.ImageProcessingStatus;
+import org.sopt.hashi.media.domain.ImageRole;
 import org.sopt.hashi.media.domain.MediaCleanupStatus;
 import org.sopt.hashi.media.domain.MediaCreationOrigin;
 import org.sopt.hashi.media.domain.MediaOwnerType;
@@ -81,6 +87,7 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 @TestPropertySource(properties = {
         "spring.jpa.hibernate.ddl-auto=validate",
         "hashi.media.recovery.enabled=false",
+        "hashi.media.backfill.enabled=true",
         "jwt.secret=test-secret-key-must-be-at-least-32-bytes-long",
         "kakao.client-id=test-client-id",
         "kakao.redirect-uri=https://app.hashi.test/callback",
@@ -112,6 +119,8 @@ class MediaBackfillTransactionIntegrationTest {
     private TransactionTemplate transactionTemplate;
     @Autowired
     private JdbcTemplate jdbcTemplate;
+    @Autowired
+    private MediaBackfillPort backfillPort;
     @Autowired
     private IncompleteEventPublications incompletePublications;
     @Autowired
@@ -445,6 +454,142 @@ class MediaBackfillTransactionIntegrationTest {
         assertThat(attempts).isEmpty();
         assertThat(assetRepository.findByPublicId(reserved.assetId()).orElseThrow().getProcessingStatus())
                 .isEqualTo(ImageProcessingStatus.FAILED);
+    }
+
+    @Test
+    void backfill_claim은_외부_쓰기_transaction이_필수다() {
+        MediaBackfillClaim claim = claim(readyBackfill(HASH));
+        assertThatThrownBy(() -> backfillPort.claimReady(List.of(claim)))
+                .isInstanceOf(IllegalTransactionStateException.class);
+        TransactionTemplate readOnly = new TransactionTemplate(transactionTemplate.getTransactionManager());
+        readOnly.setReadOnly(true);
+
+        assertThatThrownBy(() -> readOnly.executeWithoutResult(status -> backfillPort.claimReady(List.of(claim))))
+                .isInstanceOf(IllegalTransactionStateException.class);
+        assertThat(assetRepository.findByPublicId(claim.assetId()).orElseThrow().getBindingStatus())
+                .isEqualTo(ImageBindingStatus.UNBOUND);
+    }
+
+    @Test
+    void READY_backfill은_원_transaction에_참여하고_실패하면_함께_rollback한다() {
+        MediaBackfillClaim committed = claim(readyBackfill(HASH));
+        transactionTemplate.executeWithoutResult(status -> backfillPort.claimReady(List.of(committed)));
+        assertThat(assetRepository.findByPublicId(committed.assetId()).orElseThrow().getBindingStatus())
+                .isEqualTo(ImageBindingStatus.BOUND);
+        MediaBackfillClaim rolledBack = claim(readyBackfill("b".repeat(64)));
+
+        assertThatThrownBy(() -> transactionTemplate.executeWithoutResult(status -> {
+            backfillPort.claimReady(List.of(rolledBack));
+            assetRepository.flush();
+            throw new IllegalStateException("test association rollback");
+        })).isInstanceOf(IllegalStateException.class);
+
+        assertThat(assetRepository.findByPublicId(rolledBack.assetId()).orElseThrow().getBindingStatus())
+                .isEqualTo(ImageBindingStatus.UNBOUND);
+    }
+
+    @Test
+    void 다른_source_hash나_purpose를_claim하면_전체_연결을_거부한다() {
+        MediaBackfillClaim first = claim(readyBackfill(HASH));
+        ImageAsset second = readyBackfill("b".repeat(64));
+        List<MediaBackfillClaim> invalidClaims = List.of(
+                new MediaBackfillClaim(second.getPublicId(), MediaAssetPurpose.PROFILE, HASH),
+                new MediaBackfillClaim(second.getPublicId(), MediaAssetPurpose.REVIEW,
+                        second.getBackfillIdentityHash()));
+
+        for (MediaBackfillClaim invalid : invalidClaims) {
+            assertMediaFailure(() -> transactionTemplate.executeWithoutResult(status ->
+                    backfillPort.claimReady(List.of(first, invalid))), MediaErrorCode.INVALID_STATE);
+            assertThat(assetRepository.findAll().stream().map(ImageAsset::getBindingStatus))
+                    .containsOnly(ImageBindingStatus.UNBOUND);
+        }
+    }
+
+    @Test
+    void 일반_업로드_asset을_migration_Port로_연결할_수_없다() {
+        UUID id = UUID.randomUUID();
+        ImageAsset direct = ImageAsset.createDirectUpload(id, MediaPurpose.PROFILE, MediaOwnerType.ADMIN, 1L,
+                "media/originals/" + id + "/original", "image/jpeg", 1024, LocalDateTime.now().plusDays(1));
+        transactionTemplate.executeWithoutResult(status -> assetRepository.saveAndFlush(direct));
+
+        assertMediaFailure(() -> transactionTemplate.executeWithoutResult(status -> backfillPort.claimReady(
+                List.of(new MediaBackfillClaim(id, MediaAssetPurpose.PROFILE, HASH)))), MediaErrorCode.ASSET_NOT_FOUND);
+        assertThat(assetRepository.findByPublicId(id).orElseThrow().getBindingStatus())
+                .isEqualTo(ImageBindingStatus.UNBOUND);
+    }
+
+    @Test
+    void 반대_순서의_동시_backfill_claim은_실제_잠금_대기_뒤_한_번만_연결된다() throws Exception {
+        MediaBackfillClaim firstClaim = claim(readyBackfill(HASH));
+        MediaBackfillClaim secondClaim = claim(readyBackfill("b".repeat(64)));
+        CountDownLatch claimed = new CountDownLatch(1);
+        CountDownLatch allowCommit = new CountDownLatch(1);
+        Future<?> first = executor.submit(() -> transactionTemplate.executeWithoutResult(status -> {
+            backfillPort.claimReady(List.of(firstClaim, secondClaim));
+            assetRepository.flush();
+            claimed.countDown();
+            awaitLatch(allowCommit);
+        }));
+        assertThat(claimed.await(10, TimeUnit.SECONDS)).isTrue();
+        Future<?> second = executor.submit(() -> assertMediaFailure(() ->
+                transactionTemplate.executeWithoutResult(status ->
+                        backfillPort.claimReady(List.of(secondClaim, firstClaim))), MediaErrorCode.ALREADY_BOUND));
+        try {
+            awaitMySqlLockWait();
+        } finally {
+            allowCommit.countDown();
+        }
+        first.get(20, TimeUnit.SECONDS);
+        second.get(20, TimeUnit.SECONDS);
+        assertThat(assetRepository.findAll().stream().map(ImageAsset::getBindingStatus))
+                .containsOnly(ImageBindingStatus.BOUND);
+    }
+
+    @Test
+    void 정리가_먼저_잠근_asset은_대기하던_claim이_연결하지_않는다() throws Exception {
+        MediaBackfillClaim claim = claim(readyBackfill(HASH));
+        CountDownLatch purging = new CountDownLatch(1);
+        CountDownLatch allowCommit = new CountDownLatch(1);
+        Future<?> cleanup = executor.submit(() -> transactionTemplate.executeWithoutResult(status -> {
+            jdbcTemplate.update("""
+                    UPDATE image_asset SET cleanup_status='PURGING', purge_token=?,
+                        purge_started_at=CURRENT_TIMESTAMP(6) WHERE public_id=?
+                    """, UUID.randomUUID().toString(), claim.assetId().toString());
+            purging.countDown();
+            awaitLatch(allowCommit);
+        }));
+        assertThat(purging.await(10, TimeUnit.SECONDS)).isTrue();
+        Future<?> attach = executor.submit(() -> assertMediaFailure(() ->
+                transactionTemplate.executeWithoutResult(status -> backfillPort.claimReady(List.of(claim))),
+                MediaErrorCode.INVALID_STATE));
+        try {
+            awaitMySqlLockWait();
+        } finally {
+            allowCommit.countDown();
+        }
+        cleanup.get(20, TimeUnit.SECONDS);
+        attach.get(20, TimeUnit.SECONDS);
+        assertThat(assetRepository.findByPublicId(claim.assetId()).orElseThrow().getBindingStatus())
+                .isEqualTo(ImageBindingStatus.UNBOUND);
+    }
+
+    private ImageAsset readyBackfill(String hash) {
+        UUID id = UUID.randomUUID();
+        UUID jobId = UUID.randomUUID();
+        ImageAsset asset = ImageAsset.createSystemBackfill(id, MediaPurpose.PROFILE,
+                "media/originals/" + id + "/original", "image/jpeg", 1024, LocalDateTime.now().plusDays(1), hash);
+        asset.beginInitialProcessing("v1", "etag", 1, SPEC_DIGEST, jobId, LocalDateTime.now());
+        for (int width : List.of(90, 180, 270)) {
+            asset.addRendition(jobId, 1, SPEC_DIGEST, ImageRole.PROFILE_AVATAR, ImageFormat.WEBP, width, width, 100,
+                    "media/renditions/" + id + "/v1/PROFILE_AVATAR/" + width + ".webp");
+        }
+        asset.completeCurrentProcessing(jobId, 1, SPEC_DIGEST, "image/jpeg", 1024, 300, 300,
+                "47DEQpj8HBSa+/TImW+5JCeuQeRkm5NMpJWZG3hSuFU=");
+        return transactionTemplate.execute(status -> assetRepository.saveAndFlush(asset));
+    }
+
+    private MediaBackfillClaim claim(ImageAsset asset) {
+        return new MediaBackfillClaim(asset.getPublicId(), MediaAssetPurpose.PROFILE, asset.getBackfillIdentityHash());
     }
 
     private BackfillAssetSnapshot reserve() {
