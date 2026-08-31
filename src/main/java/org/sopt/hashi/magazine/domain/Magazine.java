@@ -17,8 +17,8 @@ import org.hibernate.type.SqlTypes;
 import org.sopt.hashi.BaseTimeEntity;
 
 /**
- * 매거진 애그리거트 루트. 매거진 1건당 배너 1개·썸네일 1개이며, 이미지는 S3 키(bannerKey·thumbnailKey)만
- * 저장하고 조회 URL 변환은 응답 생성 시 FileStorage가 담당한다(coding-style §4-2).
+ * 매거진 애그리거트 루트. 배너·썸네일 슬롯은 legacy S3 key 또는 public asset ID 값으로 참조한다.
+ * media 엔티티 관계 없이 소속을 소유하며, 조회 URL과 파생본 응답은 Service가 구성한다.
  * 삭제는 soft delete(deleted=true)이며, 삭제된 매거진은 전역 필터로 모든 조회에서 제외된다.
  */
 @Getter
@@ -89,15 +89,29 @@ public class Magazine extends BaseTimeEntity {
 
     /** 부분 수정(PATCH) — null 필드는 기존 값을 유지한다. */
     public void update(String title, String bannerKey, String thumbnailKey, String instagramRedirectUrl) {
+        update(
+                title,
+                bannerKey == null ? this.bannerKey : bannerKey,
+                bannerKey == null ? this.bannerImageAssetId : null,
+                thumbnailKey == null ? this.thumbnailKey : thumbnailKey,
+                thumbnailKey == null ? this.thumbnailImageAssetId : null,
+                instagramRedirectUrl);
+    }
+
+    /** Service가 claim·retire를 계획한 뒤 확정한 두 이미지 슬롯을 원자적으로 반영한다. */
+    public void update(String title,
+                       String bannerKey, UUID bannerImageAssetId,
+                       String thumbnailKey, UUID thumbnailImageAssetId,
+                       String instagramRedirectUrl) {
+        requireSource(bannerKey, bannerImageAssetId, "banner");
+        requireSource(thumbnailKey, thumbnailImageAssetId, "thumbnail");
         if (title != null) {
             this.title = title;
         }
-        if (bannerKey != null) {
-            this.bannerKey = bannerKey;
-        }
-        if (thumbnailKey != null) {
-            this.thumbnailKey = thumbnailKey;
-        }
+        this.bannerKey = bannerKey;
+        this.bannerImageAssetId = bannerImageAssetId;
+        this.thumbnailKey = thumbnailKey;
+        this.thumbnailImageAssetId = thumbnailImageAssetId;
         if (instagramRedirectUrl != null) {
             this.instagramRedirectUrl = instagramRedirectUrl;
         }
