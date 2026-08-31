@@ -10,6 +10,7 @@ import static org.mockito.Mockito.verifyNoInteractions;
 import java.sql.Connection;
 import java.sql.DriverManager;
 import java.sql.ResultSet;
+import java.sql.SQLException;
 import java.sql.Statement;
 import java.time.Duration;
 import java.time.Clock;
@@ -53,6 +54,7 @@ import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.boot.testcontainers.service.connection.ServiceConnection;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Import;
+import org.springframework.dao.DataAccessException;
 import org.springframework.data.jpa.repository.config.EnableJpaAuditing;
 import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -169,6 +171,21 @@ class MediaBackfillTransactionIntegrationTest {
         assertThat(asset.getOriginalObjectKey()).isEqualTo("media/originals/" + first.assetId() + "/original");
         assertThat(first.processingStatus()).isEqualTo(ImageProcessingStatus.PENDING_UPLOAD);
         assertThat(first.bindingStatus()).isEqualTo(ImageBindingStatus.UNBOUND);
+    }
+
+    @Test
+    void backfill_identity는_DB에서도_NULL로_변경할_수_없다() {
+        BackfillAssetSnapshot reserved = reserve();
+
+        assertThatThrownBy(() -> jdbcTemplate.update(
+                "UPDATE image_asset SET backfill_identity_hash=NULL WHERE public_id=?",
+                reserved.assetId().toString()))
+                .isInstanceOf(DataAccessException.class)
+                .hasStackTraceContaining("ck_image_asset_backfill_identity_required")
+                .rootCause().isInstanceOfSatisfying(SQLException.class,
+                        exception -> assertThat(exception.getErrorCode()).isEqualTo(3819));
+        assertThat(reserve().assetId()).isEqualTo(reserved.assetId());
+        assertThat(assetRepository.count()).isEqualTo(1);
     }
 
     @Test
