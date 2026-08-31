@@ -815,7 +815,7 @@ active object를 덮어쓰지 않는다.
 
 - role 규격은 임의 DB 설정이나 Java와 Node의 중복 코드가 아니라 저장소의
   `media-specs/v{specVersion}.json` immutable manifest를 단일 원본으로 관리한다.
-- 원본에서 crop 가능한 width보다 작은 표준 후보만 생성한다.
+- 원본에서 crop 가능한 width보다 작거나 같은 표준 후보만 생성한다.
 - 생성 가능한 표준 후보가 하나도 없으면 원본에서 가능한 최대 width의 WebP 하나를
   생성하며 확대하지 않는다.
 - asset READY는 해당 원본과 activeSpecVersion에서 생성 가능한 필수 role 후보와 각 role의
@@ -1247,6 +1247,8 @@ publisher가 event를 재처리할 때 asset의 currentJobId가 event jobId와 �
   golden fixture를 읽고 specDigest를 포함한 queue wire 계약을 동일하게 해석하는 테스트를 둔다.
 - Java publisher와 Node worker가 모든 append-only spec manifest와 같은 manifest JSON Schema를
   읽고 version, digest, purpose별 role, exact 산출 규격을 동일하게 해석하는 계약 테스트를 둔다.
+- no-upscale 경계값은 공통 golden fixture로 검증한다. `REVIEW_PREVIEW`의 270×270 원본에서는
+  135와 270 width 후보를 생성하고 405는 제외한다. 원본과 같은 크기는 확대가 아니다.
 - 기존 manifest 수정과 삭제는 CI가 거부하는지, current v5 request와 result의 digest가 target과
   일치하는지 테스트한다.
 - unknown version과 digest mismatch가 asset을 FAILED로 바꾸지 않고 retry와 DLQ로 이동한 뒤
@@ -1332,14 +1334,18 @@ publisher가 event를 재처리할 때 asset의 currentJobId가 event jobId와 �
 
 ## 18. 구현 전에 추가 확인할 값
 
-다음 값은 실제 AWS 환경과 운영 샘플을 확인하기 전까지 확정하지 않는다.
+§2.3의 Lambda runtime과 architecture, ZIP 배포, AWS SAM/CloudFormation과 GitHub Actions OIDC는
+확정한 기술 선택이다. 아래는 이 선택을 실제 환경에 적용할 구체 설정과 운영 검증 항목이다.
+초기 Lambda memory 1536MB, timeout 60초와 request batch size 1로 시작하며, 대표 이미지
+benchmark에 따라 memory, timeout과 concurrency를 조정한다. 출력 bytes에 영향을 주는 설정을
+바꾸면 §11의 `specVersion` 변경 규칙을 따른다.
 
 - 실제 region, bucket, queue, Lambda 이름과 ARN
 - 기존 bucket policy, OAC, CORS, encryption, versioning, lifecycle
-- IaC 도구와 GitHub Actions AWS 인증 방식
-- Lambda runtime, architecture, memory, timeout, concurrency
-- SQS visibility timeout, retention, batch size, retry, DLQ redrive 값
-- WebP quality, 최대 픽셀 수, worker 제한 시간
+- SAM stack parameter와 environment별 OIDC role의 trust policy 및 최소 권한
+- Lambda 초기 memory와 timeout의 적정성, concurrency 상한
+- SQS visibility timeout, retention, retry, DLQ redrive 값
+- WebP quality와 최대 픽셀 수
 - 일반 삭제, 회원 탈퇴, 신고 이미지의 물리 삭제 보존 기간
 - 운영 backfill 대상 수, 누락 object 수, 예상 비용
 - actor와 purpose별 asset 생성, byte, 동시 처리와 polling 제한 값
