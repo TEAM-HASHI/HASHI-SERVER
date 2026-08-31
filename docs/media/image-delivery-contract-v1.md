@@ -882,7 +882,7 @@ Sharp native version 변경처럼 한 worker artifact에서 구 processor와 vN�
 issuance false를 유지해 vN-only worker에 old spec job을 발급하지 않는다. 이 절차는 운영
 runbook과 복구 검증을 통과한 경우에만 사용한다.
 
-최초 rollout은 migration이 seed한 `(v1, v1Digest, false)`를 그대로 두고 worker와 모든 Spring
+최초 rollout은 versioned migration에서 최초 생성한 `(v1, v1Digest, false)`를 그대로 두고 worker와 모든 Spring
 instance의 v1 compatibility를 확인한 뒤 `(v1, v1Digest, true)`로 flag만 compare-and-set한다.
 동일 spec의 운영 pause와 resume도 version과 digest를 바꾸지 않고 flag만 compare-and-set한다.
 따라서 증가만 허용하는 대상은 spec version이고 `issuance_enabled`는 승인된 운영 절차에서만
@@ -1119,10 +1119,15 @@ backfill 항목부터 점진적으로 전환하고, 미전환 항목은 `assetId
 
 필요한 schema 불변식은 다음과 같다.
 
-- `media_pipeline_config`는 fixed PK `id=1`과 DB check로 singleton을 강제한다. row는
+- `media_pipeline_config`는 fixed PK `id=1`과 DB check로 최대 한 행만 허용한다. row는
   `current_spec_version`, `current_spec_digest`, `issuance_enabled`, optimistic `lock_version`과
-  `updated_at`을 가진다. 첫 migration은 packaged v1 manifest와 같은 version과 digest,
-  `issuance_enabled=false`로 seed한다.
+  `updated_at`을 가진다. 첫 versioned migration에서 packaged v1 manifest와 같은 version과 digest,
+  `issuance_enabled=false`로 필수 제어 행을 한 번 생성한다.
+- 이 행은 업무·샘플 데이터가 아니라 환경 독립적이고 비민감한 필수 제어 데이터다.
+  [DB 컨벤션](../conventions/database.md)의 최초 생성 예외와
+  [ADR 0001](../adr/0001-media-module-and-image-pipeline.md)의 근거를 따른다. 서버 재시작·재배포는
+  운영 중 변경된 값을 유지한다. 시작 시 초기화 코드나 repeatable migration으로 재초기화하지
+  않으며, 활성화·중지·규격 변경은 검증과 승인을 거친 별도 운영 절차로만 수행한다.
 - job 발급은 같은 DB transaction에서 config snapshot을 읽는다. 활성화는 이전 version과 digest를
   조건으로 한 compare-and-set이고 version 감소를 거부한다. 최초 활성화는 같은 v1 version과
   digest에서 issuance false를 true로 바꾸고, 일반 upgrade는 old version과 digest, issuance true를
@@ -1133,7 +1138,8 @@ backfill 항목부터 점진적으로 전환하고, 미전환 항목은 `assetId
   commit까지 유지한다. config CAS는 exclusive lock으로 직렬화하며 lock 순서는 config 다음 내부
   asset ID 오름차순이다. pause CAS가 commit된 뒤에는 이전 true snapshot의 transaction이 남지 않아
   drain 중 old job이 뒤늦게 추가되지 않는다.
-- config row가 없거나 중복됐거나 packaged manifest의 version과 digest와 일치하지 않으면 media
+- 누락된 config row는 자동 재생성하지 않고, 원인 확인 후 승인된 운영 절차로 복구한다.
+  config row가 없거나 중복됐거나 packaged manifest의 version과 digest와 일치하지 않으면 media
   job 발급을 fail-closed로 차단하고 별도 media issuance capability indicator 또는 metric을
   `DEGRADED`로 노출해 운영 알람을 보낸다. global liveness와 read-serving readiness는 유지해 기존
   result 처리, READY와 legacy 요청을 계속 제공하고 media write만 503으로 차단한다. 값은 worker,
@@ -1245,11 +1251,13 @@ publisher가 event를 재처리할 때 asset의 currentJobId가 event jobId와 �
   일치하는지 테스트한다.
 - unknown version과 digest mismatch가 asset을 FAILED로 바꾸지 않고 retry와 DLQ로 이동한 뒤
   compatible worker 배포 후 redrive되는지 테스트한다.
-- config singleton과 false seed, row 누락과 packaged digest mismatch의 fail-closed media issuance
+- config 최대 한 행 제약과 false 최초 생성, row 누락과 packaged digest mismatch의 fail-closed media issuance
   `DEGRADED` indicator, global liveness와 read-serving readiness 유지,
   최초 `(v1, digest, false)`에서 `(v1, digest, true)` 활성화, 일반
   `(oldVersion, oldDigest, true)`에서 `(vN, vNDigest, true)` upgrade, 동일 spec pause와 resume,
   spec version 감소 거부를 테스트한다.
+- 최초 생성 후 운영 설정을 변경한 DB에서 migration을 다시 실행하거나 서버를 재시작·재배포해도
+  현재 설정이 유지되는지, 누락된 제어 행을 시작 코드가 자동 재생성하지 않는지 검증한다.
 - issuance disabled가 신규 media create와 PENDING_UPLOAD complete, backfill과 upgrade 발급만 막고
   PROCESSING 또는 READY complete 멱등 재호출, 기존 publish, result consume, redrive, READY와 legacy
   read를 막지 않는지 테스트한다.
