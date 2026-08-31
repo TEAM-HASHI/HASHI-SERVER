@@ -106,6 +106,7 @@ tasks.named('test') {
             'infra/media/template.yaml',
             'infra/media/parameters/dev.example.json',
             'infra/media/parameters/prod.example.json',
+            '.github/workflows/ci-image-pipeline-infra.yml',
             '.github/workflows/deploy-image-pipeline.yml'
     ).withPropertyName('mediaBackfillInfrastructure')
 }

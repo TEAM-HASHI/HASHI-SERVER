@@ -49,7 +49,7 @@ jobs:
 
       - name: Verify temporary backfill permissions
         run: >-
-          ./gradlew test
+          bash ./gradlew test
           --tests org.sopt.hashi.media.internal.backfill.MediaBackfillInfrastructureTest
           --no-daemon
 

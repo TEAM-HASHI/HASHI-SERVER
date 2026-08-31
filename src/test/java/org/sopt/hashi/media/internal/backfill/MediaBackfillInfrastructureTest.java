@@ -109,6 +109,18 @@ class MediaBackfillInfrastructureTest {
                 .isEqualTo("${AWS_MEDIA_BACKFILL_ENABLED:false}");
     }
 
+    @Test
+    void Linux_CI는_실행권한에_의존하지_않고_Gradle_wrapper로_IAM_계약을_검증한다() throws IOException {
+        Node workflow = parse(Path.of(".github/workflows/ci-image-pipeline-infra.yml"));
+        Node verify = sequence(field(workflow, "jobs", "validate", "steps")).stream()
+                .filter(step -> "Verify temporary backfill permissions".equals(value(field(step, "name"))))
+                .findFirst().orElseThrow();
+        assertThat(value(field(verify, "run")))
+                .startsWith("bash ./gradlew test ")
+                .contains("--tests org.sopt.hashi.media.internal.backfill.MediaBackfillInfrastructureTest")
+                .contains("--no-daemon");
+    }
+
     private List<Node> statements() throws IOException {
         return sequence(field(parse(TEMPLATE), "Resources", POLICY, "Properties", "PolicyDocument", "Statement"));
     }
