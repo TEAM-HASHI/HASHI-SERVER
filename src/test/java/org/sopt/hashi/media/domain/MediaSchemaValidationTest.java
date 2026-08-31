@@ -1,15 +1,17 @@
 package org.sopt.hashi.media.domain;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 
+import java.sql.SQLException;
 import java.util.Map;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.testcontainers.service.connection.ServiceConnection;
-import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.dao.DataAccessException;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.test.annotation.DirtiesContext;
 import org.testcontainers.containers.MySQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
@@ -22,6 +24,7 @@ import org.testcontainers.junit.jupiter.Testcontainers;
         "kakao.redirect-uri=https://app.hashi.test/callback",
         "hashi.storage.cloudfront-domain=https://cdn.hashi.test"
 })
+@DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_CLASS)
 class MediaSchemaValidationTest {
 
     private static final String SPEC_DIGEST =
@@ -56,7 +59,7 @@ class MediaSchemaValidationTest {
 
     @Test
     void pipeline_config는_id_1인_singleton만_허용한다() {
-        assertThatThrownBy(() -> jdbcTemplate.update("""
+        DataAccessException exception = assertThrows(DataAccessException.class, () -> jdbcTemplate.update("""
                 INSERT INTO media_pipeline_config (
                     id,
                     current_spec_version,
@@ -65,8 +68,18 @@ class MediaSchemaValidationTest {
                     lock_version,
                     updated_at
                 ) VALUES (2, 1, ?, FALSE, 0, CURRENT_TIMESTAMP(6))
-                """, SPEC_DIGEST))
-                .isInstanceOf(DataIntegrityViolationException.class);
+                """, SPEC_DIGEST));
+
+        assertThat(exception.getMostSpecificCause())
+                .isInstanceOfSatisfying(SQLException.class, sqlException -> {
+                    assertThat(sqlException.getErrorCode()).isEqualTo(3819);
+                    assertThat(sqlException.getMessage()).contains("ck_media_pipeline_config_singleton");
+                });
+        assertThat(jdbcTemplate.queryForObject("SELECT COUNT(*) FROM media_pipeline_config", Long.class))
+                .isEqualTo(1L);
+        assertThat(jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM media_pipeline_config WHERE id = 2", Long.class))
+                .isZero();
     }
 
     @Test
