@@ -37,11 +37,14 @@ class MediaBackfillPortImplTest {
 
     private static final String HASH = "a".repeat(64);
     private final ImageAssetRepository repository = mock(ImageAssetRepository.class);
-    private final MediaBackfillPortImpl port = new MediaBackfillPortImpl(repository, new MediaBackfillProperties(true));
+    private final MediaBackfillPreparationService preparation = mock(MediaBackfillPreparationService.class);
+    private final MediaBackfillPortImpl port =
+            new MediaBackfillPortImpl(repository, new MediaBackfillProperties(true), preparation);
 
     @Test
     void opt_in하지_않으면_asset을_조회하거나_연결하지_않는다() {
-        MediaBackfillPortImpl disabled = new MediaBackfillPortImpl(repository, new MediaBackfillProperties(false));
+        MediaBackfillPortImpl disabled =
+                new MediaBackfillPortImpl(repository, new MediaBackfillProperties(false), preparation);
 
         assertFailure(() -> disabled.claimReady(List.of(claim(readyAsset()))), MediaErrorCode.PIPELINE_UNAVAILABLE);
         verifyNoInteractions(repository);

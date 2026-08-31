@@ -8,8 +8,11 @@ import java.util.Set;
 import java.util.UUID;
 import java.util.function.Function;
 import java.util.stream.Collectors;
+import org.sopt.hashi.media.MediaBackfillAssetInfo;
 import org.sopt.hashi.media.MediaBackfillClaim;
+import org.sopt.hashi.media.MediaBackfillInspectionInfo;
 import org.sopt.hashi.media.MediaBackfillPort;
+import org.sopt.hashi.media.MediaBackfillReference;
 import org.sopt.hashi.media.code.MediaErrorCode;
 import org.sopt.hashi.media.domain.ImageAsset;
 import org.sopt.hashi.media.domain.ImageAssetRepository;
@@ -32,10 +35,25 @@ class MediaBackfillPortImpl implements MediaBackfillPort {
 
     private final ImageAssetRepository assetRepository;
     private final MediaBackfillProperties properties;
+    private final MediaBackfillPreparationService preparationService;
 
-    MediaBackfillPortImpl(ImageAssetRepository assetRepository, MediaBackfillProperties properties) {
+    MediaBackfillPortImpl(ImageAssetRepository assetRepository, MediaBackfillProperties properties,
+                         MediaBackfillPreparationService preparationService) {
         this.assetRepository = assetRepository;
         this.properties = properties;
+        this.preparationService = preparationService;
+    }
+
+    @Override
+    @Transactional(propagation = Propagation.NEVER)
+    public MediaBackfillInspectionInfo inspect(MediaBackfillReference reference) {
+        return preparationService.inspect(reference);
+    }
+
+    @Override
+    @Transactional(propagation = Propagation.NEVER)
+    public MediaBackfillAssetInfo prepare(MediaBackfillReference reference, String expectedIdentityHash) {
+        return preparationService.prepare(reference, expectedIdentityHash);
     }
 
     @Override

@@ -57,6 +57,9 @@ hashi:
     presigned-url-expiration: 300s
     max-file-size: 5MB
   media:
+    backfill:
+      # 승인된 migration 실행 환경에서만 켠다. 일반 media 발급 활성화와 독립된 opt-in이다.
+      enabled: ${AWS_MEDIA_BACKFILL_ENABLED:false}
     recovery:
       enabled: ${AWS_MEDIA_RECOVERY_ENABLED:true}
       epr-resubmit-age: ${AWS_MEDIA_EPR_RESUBMIT_AGE:1m}

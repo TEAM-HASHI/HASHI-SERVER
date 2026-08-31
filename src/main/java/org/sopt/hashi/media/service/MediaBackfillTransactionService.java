@@ -76,6 +76,11 @@ public class MediaBackfillTransactionService {
     }
 
     @Transactional(readOnly = true)
+    public void assertIssuanceAvailable() {
+        requireAvailableSpec(lockConfig());
+    }
+
+    @Transactional(readOnly = true)
     public Optional<BackfillAssetSnapshot> findReservation(
             MediaPurpose purpose, String identityHash, LegacyImageSource source) {
         validateReservationInput(purpose, identityHash, source);

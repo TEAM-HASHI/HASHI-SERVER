@@ -5,7 +5,11 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.awaitility.Awaitility.await;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.doAnswer;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
+import static org.mockito.Mockito.when;
 
 import java.sql.Connection;
 import java.sql.DriverManager;
@@ -27,6 +31,7 @@ import java.util.concurrent.Future;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -35,8 +40,12 @@ import org.sopt.hashi.auth.CurrentActor;
 import org.sopt.hashi.auth.CurrentActorProvider;
 import org.sopt.hashi.config.TimeConfig;
 import org.sopt.hashi.media.MediaAssetPurpose;
+import org.sopt.hashi.media.MediaBackfillAssetInfo;
 import org.sopt.hashi.media.MediaBackfillClaim;
 import org.sopt.hashi.media.MediaBackfillPort;
+import org.sopt.hashi.media.MediaBackfillReference;
+import org.sopt.hashi.media.MediaBackfillSourceException;
+import org.sopt.hashi.media.MediaBackfillTarget;
 import org.sopt.hashi.media.code.MediaErrorCode;
 import org.sopt.hashi.media.domain.ImageAsset;
 import org.sopt.hashi.media.domain.ImageAssetRepository;
@@ -50,6 +59,8 @@ import org.sopt.hashi.media.domain.MediaOwnerType;
 import org.sopt.hashi.media.domain.MediaPurpose;
 import org.sopt.hashi.media.internal.backfill.BackfillOriginalCopy;
 import org.sopt.hashi.media.internal.backfill.LegacyImageSource;
+import org.sopt.hashi.media.internal.backfill.MediaBackfillStorage;
+import org.sopt.hashi.media.internal.backfill.MediaBackfillStorageException;
 import org.sopt.hashi.media.internal.event.MediaProcessingRequestedEvent;
 import org.sopt.hashi.media.internal.job.MediaProcessingJobIdFactory;
 import org.sopt.hashi.media.internal.queue.MediaQueueExecutionConfig;
@@ -133,6 +144,8 @@ class MediaBackfillTransactionIntegrationTest {
     private FileStorage fileStorage;
     @MockitoBean
     private MediaOriginalStorage originalStorage;
+    @MockitoBean
+    private MediaBackfillStorage backfillStorage;
     @MockitoBean
     private MediaTransformRequestPublisher publisher;
     @MockitoBean
@@ -571,6 +584,209 @@ class MediaBackfillTransactionIntegrationTest {
         attach.get(20, TimeUnit.SECONDS);
         assertThat(assetRepository.findByPublicId(claim.assetId()).orElseThrow().getBindingStatus())
                 .isEqualTo(ImageBindingStatus.UNBOUND);
+    }
+
+    @Test
+    void 조사와_준비_Port는_외부_transaction에서_S3를_호출하지_않는다() {
+        MediaBackfillReference reference = legacyReference();
+
+        assertThatThrownBy(() -> transactionTemplate.executeWithoutResult(
+                status -> backfillPort.inspect(reference))).isInstanceOf(IllegalTransactionStateException.class);
+        assertThatThrownBy(() -> transactionTemplate.executeWithoutResult(
+                status -> backfillPort.prepare(reference, HASH))).isInstanceOf(IllegalTransactionStateException.class);
+        assertThat(assetRepository.count()).isZero();
+        verifyNoInteractions(backfillStorage, publisher);
+    }
+
+    @Test
+    void 발급_pause_중에도_조사는_가능하지만_준비는_새_asset을_만들지_않는다() {
+        mockLegacyHead();
+        pause();
+        MediaBackfillReference reference = legacyReference();
+
+        var inspected = backfillPort.inspect(reference);
+
+        assertThat(inspected.asset()).isEmpty();
+        assertMediaFailure(() -> backfillPort.prepare(reference, inspected.identityHash()),
+                MediaErrorCode.PIPELINE_UNAVAILABLE);
+        assertThat(assetRepository.count()).isZero();
+        assertThat(publicationCount()).isZero();
+        verify(backfillStorage, never()).findOrCopyOriginal(any(), any(), any());
+        verifyNoInteractions(publisher);
+    }
+
+    @Test
+    void 준비는_transaction_밖에서_복사하고_재호출은_같은_asset과_job을_유지한다() throws Exception {
+        mockLegacyHead();
+        MediaBackfillReference reference = legacyReference();
+        var inspected = backfillPort.inspect(reference);
+        doAnswer(invocation -> {
+            assertThat(TransactionSynchronizationManager.isActualTransactionActive()).isFalse();
+            UUID assetId = invocation.getArgument(0);
+            ImageAsset reserved = assetRepository.findByPublicId(assetId).orElseThrow();
+            assertThat(reserved.getProcessingStatus()).isEqualTo(ImageProcessingStatus.PENDING_UPLOAD);
+            return preparedCopy(assetId, invocation.getArgument(1), "prepared-v1");
+        }).when(backfillStorage).findOrCopyOriginal(any(), any(), any());
+
+        MediaBackfillAssetInfo prepared = backfillPort.prepare(reference, inspected.identityHash());
+        PublishAttempt published = awaitPublish();
+        pause();
+        MediaBackfillAssetInfo repeated = backfillPort.prepare(reference, inspected.identityHash());
+
+        assertThat(prepared.state()).isEqualTo(MediaBackfillAssetInfo.State.PROCESSING);
+        assertThat(repeated).isEqualTo(prepared);
+        assertThat(assetRepository.count()).isEqualTo(1);
+        assertThat(published.inTransaction()).isFalse();
+        assertThat(published.request().assetId()).isEqualTo(prepared.assetId());
+        assertThat(published.request().sourceVersionId()).isEqualTo("prepared-v1");
+        assertThat(published.request().purpose()).isEqualTo(MediaPurpose.PROFILE);
+        assertThat(assetRepository.findByPublicId(prepared.assetId()).orElseThrow().getCurrentJobId())
+                .isEqualTo(published.request().jobId());
+        verify(backfillStorage, times(1)).findOrCopyOriginal(any(), any(), any());
+        assertThat(attempts.poll(200, TimeUnit.MILLISECONDS)).isNull();
+    }
+
+    @Test
+    void HEAD_사이에_ETag가_바뀌면_예약이나_변환_요청을_남기지_않는다() {
+        LegacyImageSource changed = new LegacyImageSource(source().bucket(), source().objectKey(),
+                null, "changed-etag", "image/jpeg", 1024);
+        when(backfillStorage.inspectSource(source().objectKey())).thenReturn(source(), changed);
+        var inspected = backfillPort.inspect(legacyReference());
+
+        assertThatThrownBy(() -> backfillPort.prepare(legacyReference(), inspected.identityHash()))
+                .isInstanceOfSatisfying(MediaBackfillSourceException.class, exception ->
+                        assertThat(exception.getReason())
+                                .isEqualTo(MediaBackfillSourceException.Reason.SOURCE_CHANGED));
+        assertThat(assetRepository.count()).isZero();
+        assertThat(publicationCount()).isZero();
+        verify(backfillStorage, never()).findOrCopyOriginal(any(), any(), any());
+        verifyNoInteractions(publisher);
+    }
+
+    @Test
+    void 복사_응답이_유실되면_예약을_보존하고_같은_asset으로_재시도한다() throws Exception {
+        mockLegacyHead();
+        var inspected = backfillPort.inspect(legacyReference());
+        AtomicInteger copyAttempts = new AtomicInteger();
+        doAnswer(invocation -> {
+            assertThat(TransactionSynchronizationManager.isActualTransactionActive()).isFalse();
+            if (copyAttempts.incrementAndGet() == 1) {
+                throw new MediaBackfillStorageException(MediaBackfillStorageException.Reason.STORAGE_UNAVAILABLE);
+            }
+            return preparedCopy(invocation.getArgument(0), invocation.getArgument(1), "existing-copy-v1");
+        }).when(backfillStorage).findOrCopyOriginal(any(), any(), any());
+
+        assertThatThrownBy(() -> backfillPort.prepare(legacyReference(), inspected.identityHash()))
+                .isInstanceOf(MediaBackfillSourceException.class);
+        ImageAsset reserved = assetRepository.findByBackfillIdentityHash(inspected.identityHash()).orElseThrow();
+        assertThat(reserved.getProcessingStatus()).isEqualTo(ImageProcessingStatus.PENDING_UPLOAD);
+        assertThat(reserved.getCurrentJobId()).isNull();
+        assertThat(publicationCount()).isZero();
+        assertThat(backfillPort.inspect(legacyReference()).asset()).hasValueSatisfying(
+                asset -> assertThat(asset.assetId()).isEqualTo(reserved.getPublicId()));
+
+        MediaBackfillAssetInfo resumed = backfillPort.prepare(legacyReference(), inspected.identityHash());
+
+        assertThat(resumed.assetId()).isEqualTo(reserved.getPublicId());
+        assertThat(resumed.state()).isEqualTo(MediaBackfillAssetInfo.State.PROCESSING);
+        assertThat(assetRepository.count()).isEqualTo(1);
+        assertThat(awaitPublish().request().sourceVersionId()).isEqualTo("existing-copy-v1");
+    }
+
+    @Test
+    void copy_중_pause되면_job을_발급하지_않고_resume_후_같은_예약으로_이어간다() throws Exception {
+        mockLegacyHead();
+        var inspected = backfillPort.inspect(legacyReference());
+        AtomicBoolean pauseDuringCopy = new AtomicBoolean(true);
+        doAnswer(invocation -> {
+            assertThat(TransactionSynchronizationManager.isActualTransactionActive()).isFalse();
+            if (pauseDuringCopy.getAndSet(false)) {
+                pause();
+            }
+            return preparedCopy(invocation.getArgument(0), invocation.getArgument(1), "paused-copy-v1");
+        }).when(backfillStorage).findOrCopyOriginal(any(), any(), any());
+
+        assertMediaFailure(() -> backfillPort.prepare(legacyReference(), inspected.identityHash()),
+                MediaErrorCode.PIPELINE_UNAVAILABLE);
+        ImageAsset reserved = assetRepository.findByBackfillIdentityHash(inspected.identityHash()).orElseThrow();
+        assertThat(reserved.getCurrentJobId()).isNull();
+        assertThat(reserved.getSourceVersionId()).isNull();
+        assertThat(publicationCount()).isZero();
+        jdbcTemplate.update("UPDATE media_pipeline_config SET issuance_enabled=TRUE WHERE id=1");
+
+        MediaBackfillAssetInfo resumed = backfillPort.prepare(legacyReference(), inspected.identityHash());
+
+        assertThat(resumed.assetId()).isEqualTo(reserved.getPublicId());
+        assertThat(assetRepository.count()).isEqualTo(1);
+        assertThat(awaitPublish().request().sourceVersionId()).isEqualTo("paused-copy-v1");
+    }
+
+    @Test
+    void 동시_준비는_같은_예약과_최초_확정된_copy_job으로_수렴한다() throws Exception {
+        mockLegacyHead();
+        var inspected = backfillPort.inspect(legacyReference());
+        CountDownLatch copiesStarted = new CountDownLatch(2);
+        AtomicInteger copySequence = new AtomicInteger();
+        doAnswer(invocation -> {
+            assertThat(TransactionSynchronizationManager.isActualTransactionActive()).isFalse();
+            String version = "concurrent-copy-" + copySequence.incrementAndGet();
+            copiesStarted.countDown();
+            awaitLatch(copiesStarted);
+            return preparedCopy(invocation.getArgument(0), invocation.getArgument(1), version);
+        }).when(backfillStorage).findOrCopyOriginal(any(), any(), any());
+        Future<MediaBackfillAssetInfo> first = executor.submit(
+                () -> backfillPort.prepare(legacyReference(), inspected.identityHash()));
+        Future<MediaBackfillAssetInfo> second = executor.submit(
+                () -> backfillPort.prepare(legacyReference(), inspected.identityHash()));
+
+        MediaBackfillAssetInfo firstResult = first.get(20, TimeUnit.SECONDS);
+        MediaBackfillAssetInfo secondResult = second.get(20, TimeUnit.SECONDS);
+        PublishAttempt published = awaitPublish();
+
+        assertThat(firstResult).isEqualTo(secondResult);
+        assertThat(firstResult.state()).isEqualTo(MediaBackfillAssetInfo.State.PROCESSING);
+        assertThat(assetRepository.count()).isEqualTo(1);
+        ImageAsset canonical = assetRepository.findByPublicId(firstResult.assetId()).orElseThrow();
+        assertThat(canonical.getSourceVersionId()).isIn("concurrent-copy-1", "concurrent-copy-2");
+        assertThat(published.request().sourceVersionId()).isEqualTo(canonical.getSourceVersionId());
+        assertThat(published.request().jobId()).isEqualTo(canonical.getCurrentJobId());
+        assertThat(copySequence).hasValue(2);
+        assertThat(attempts.poll(200, TimeUnit.MILLISECONDS)).isNull();
+    }
+
+    @Test
+    void READY_예약은_복사없이_조회하고_claim_뒤에는_BOUND로_확인한다() {
+        mockLegacyHead();
+        var inspected = backfillPort.inspect(legacyReference());
+        ImageAsset ready = readyBackfill(inspected.identityHash());
+
+        MediaBackfillAssetInfo prepared = backfillPort.prepare(legacyReference(), inspected.identityHash());
+
+        assertThat(prepared.assetId()).isEqualTo(ready.getPublicId());
+        assertThat(prepared.state()).isEqualTo(MediaBackfillAssetInfo.State.READY);
+        transactionTemplate.executeWithoutResult(status -> backfillPort.claimReady(
+                List.of(new MediaBackfillClaim(prepared.assetId(), prepared.purpose(), prepared.identityHash()))));
+        assertThat(backfillPort.inspect(legacyReference()).asset()).hasValueSatisfying(
+                asset -> assertThat(asset.state()).isEqualTo(MediaBackfillAssetInfo.State.BOUND));
+        assertThat(assetRepository.count()).isEqualTo(1);
+        verify(backfillStorage, never()).findOrCopyOriginal(any(), any(), any());
+        verifyNoInteractions(publisher);
+    }
+
+    private MediaBackfillReference legacyReference() {
+        return new MediaBackfillReference(MediaBackfillTarget.USER_PROFILE, 31L, source().objectKey());
+    }
+
+    private void mockLegacyHead() {
+        doAnswer(invocation -> {
+            assertThat(TransactionSynchronizationManager.isActualTransactionActive()).isFalse();
+            return source();
+        }).when(backfillStorage).inspectSource(source().objectKey());
+    }
+
+    private BackfillOriginalCopy preparedCopy(UUID assetId, String identityHash, String version) {
+        return new BackfillOriginalCopy("media/originals/" + assetId + "/original", version,
+                "copy-etag-" + version, source().contentType(), source().bytes(), identityHash);
     }
 
     private ImageAsset readyBackfill(String hash) {
