@@ -11,6 +11,7 @@ import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
 import java.time.LocalDateTime;
+import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
@@ -22,6 +23,8 @@ import org.hibernate.stat.Statistics;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.EnumSource;
 import org.sopt.hashi.auth.ActorType;
 import org.sopt.hashi.auth.CurrentActor;
 import org.sopt.hashi.auth.CurrentActorProvider;
@@ -199,6 +202,45 @@ class MagazineMediaTransactionIntegrationTest {
         assertBinding(banner, ImageBindingStatus.UNBOUND);
         assertBinding(foreignThumbnail, ImageBindingStatus.UNBOUND);
         assertBinding(wrongPurpose, ImageBindingStatus.UNBOUND);
+    }
+
+    @ParameterizedTest
+    @EnumSource(value = ImageBindingStatus.class, names = {"UNBOUND", "BOUND"})
+    void 앞_배너의_상태가_잘못돼도_뒤_썸네일의_존재는_드러내지_않는다(ImageBindingStatus bindingStatus) {
+        ImageAsset oldBanner = asset(MediaPurpose.MAGAZINE_BANNER, 1L, true);
+        ImageAsset oldThumbnail = asset(MediaPurpose.MAGAZINE_THUMBNAIL, 1L, true);
+        Long magazineId = magazineService.create(createCommand(oldBanner, oldThumbnail)).magazineId();
+        ImageAsset banner = asset(
+                MediaPurpose.MAGAZINE_BANNER, 1L, bindingStatus == ImageBindingStatus.BOUND);
+        if (bindingStatus == ImageBindingStatus.BOUND) {
+            banner.bind();
+            imageAssetRepository.saveAndFlush(banner);
+        }
+        ImageAsset foreignThumbnail = asset(MediaPurpose.MAGAZINE_THUMBNAIL, 2L, true);
+
+        for (UUID deniedId : List.of(foreignThumbnail.getPublicId(), UUID.randomUUID())) {
+            AdminMagazineCommand command = new AdminMagazineCommand(
+                    "저장되면 안 되는 제목", use(banner), new ImageCommand(null, deniedId),
+                    "https://www.instagram.com/p/denied-media/");
+
+            assertThatThrownBy(() -> magazineService.create(command))
+                    .isInstanceOfSatisfying(BusinessException.class, exception ->
+                            assertThat(exception.getErrorCode())
+                                    .isEqualTo(MediaErrorCode.ASSET_NOT_FOUND));
+            assertThatThrownBy(() -> magazineService.update(magazineId, command))
+                    .isInstanceOfSatisfying(BusinessException.class, exception ->
+                            assertThat(exception.getErrorCode())
+                                    .isEqualTo(MediaErrorCode.ASSET_NOT_FOUND));
+
+            assertThat(magazineRepository.count()).isEqualTo(1L);
+            assertImages(magazineId, oldBanner, oldThumbnail);
+            assertThat(magazineRepository.findById(magazineId).orElseThrow().getTitle())
+                    .isEqualTo("이미지 매거진");
+            assertBinding(oldBanner, ImageBindingStatus.BOUND);
+            assertBinding(oldThumbnail, ImageBindingStatus.BOUND);
+            assertBinding(banner, bindingStatus);
+            assertBinding(foreignThumbnail, ImageBindingStatus.UNBOUND);
+        }
     }
 
     @Test
