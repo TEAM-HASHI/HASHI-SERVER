@@ -8,6 +8,7 @@ import jakarta.persistence.Id;
 import jakarta.persistence.Table;
 import jakarta.persistence.UniqueConstraint;
 import java.time.LocalDate;
+import java.util.Objects;
 import java.util.UUID;
 import lombok.AccessLevel;
 import lombok.Getter;
@@ -98,5 +99,14 @@ public class User extends BaseTimeEntity {
         return new User(
                 nickname, nameEng, birthDate, phone, email,
                 profileImageKey, profileImageAssetId);
+    }
+
+    /** 온보딩에서 media 소유권 인계·claim이 성공한 뒤 빈 프로필 슬롯에 연결한다. */
+    public void assignOnboardingProfileImage(UUID assetId) {
+        Objects.requireNonNull(assetId, "assetId must not be null");
+        if (profileImageKey != null || profileImageAssetId != null) {
+            throw new IllegalStateException("onboarding profile image is already assigned");
+        }
+        profileImageAssetId = assetId;
     }
 }

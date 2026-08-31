@@ -40,6 +40,7 @@ public class OnboardingService {
         authAccountPort.linkOnboardingAccount(user.getId());
         if (request.profileImageAssetId() != null) {
             mediaPort.claimOnboardingProfile(request.profileImageAssetId(), user.getId());
+            user.assignOnboardingProfileImage(request.profileImageAssetId());
         }
         // 회원 생성 시점 기록 — 프로필 값은 개인정보라 ID만 남긴다
         log.info("온보딩 가입 완료. userId={}", user.getId());
@@ -61,10 +62,11 @@ public class OnboardingService {
 
     private User saveUser(CompleteOnboardingRequest request) {
         try {
+            // asset ID의 소유권 검증보다 users의 unique 제약이 먼저 실행되지 않게 한다.
+            // USER ID를 만든 뒤 같은 transaction에서 claim하고 프로필 슬롯에 연결한다.
             return userRepository.save(User.onboard(
                     request.nickname(), request.nameEng(), request.birthDate(),
-                    request.phone(), request.email(), request.profileImageKey(),
-                    request.profileImageAssetId()));
+                    request.phone(), request.email(), request.profileImageKey()));
         } catch (DataIntegrityViolationException e) {
             // 사전 검사와 저장 사이의 동시 가입 경합 — 유니크 제약(nickname·email·phone)이 최종 방어한다.
             // 롤백된 트랜잭션에서 어느 필드인지 재조회하는 건 불안정하므로 일반 충돌로 변환한다.

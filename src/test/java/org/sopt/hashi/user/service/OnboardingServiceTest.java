@@ -1,7 +1,9 @@
 package org.sopt.hashi.user.service;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -12,6 +14,7 @@ import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
 import org.mockito.InOrder;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
@@ -41,6 +44,7 @@ class OnboardingServiceTest {
         onboardingService = new OnboardingService(userRepository, authAccountPort, mediaPort);
         when(userRepository.save(any(User.class))).thenAnswer(invocation -> {
             User user = invocation.getArgument(0);
+            assertThat(user.getProfileImageAssetId()).isNull();
             ReflectionTestUtils.setField(user, "id", 7L);
             return user;
         });
@@ -57,6 +61,23 @@ class OnboardingServiceTest {
         order.verify(userRepository).save(any(User.class));
         order.verify(authAccountPort).linkOnboardingAccount(7L);
         order.verify(mediaPort).claimOnboardingProfile(assetId, 7L);
+        ArgumentCaptor<User> user = ArgumentCaptor.forClass(User.class);
+        verify(userRepository).save(user.capture());
+        assertThat(user.getValue().getProfileImageAssetId()).isEqualTo(assetId);
+    }
+
+    @Test
+    void 소유권_claim_실패시_회원의_asset_ID는_아직_연결되지_않는다() {
+        UUID assetId = UUID.randomUUID();
+        doThrow(new IllegalStateException("claim failed"))
+                .when(mediaPort).claimOnboardingProfile(assetId, 7L);
+
+        assertThatThrownBy(() -> onboardingService.completeOnboarding(request(null, assetId)))
+                .isInstanceOf(IllegalStateException.class);
+
+        ArgumentCaptor<User> user = ArgumentCaptor.forClass(User.class);
+        verify(userRepository).save(user.capture());
+        assertThat(user.getValue().getProfileImageAssetId()).isNull();
     }
 
     @Test
