@@ -19,6 +19,7 @@ import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.Executor;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
@@ -43,13 +44,16 @@ import org.sopt.hashi.media.domain.MediaOwnerType;
 import org.sopt.hashi.media.domain.MediaPurpose;
 import org.sopt.hashi.media.internal.backfill.BackfillOriginalCopy;
 import org.sopt.hashi.media.internal.backfill.LegacyImageSource;
+import org.sopt.hashi.media.internal.event.MediaProcessingRequestedEvent;
 import org.sopt.hashi.media.internal.job.MediaProcessingJobIdFactory;
+import org.sopt.hashi.media.internal.queue.MediaQueueExecutionConfig;
 import org.sopt.hashi.media.internal.queue.MediaTransformRequest;
 import org.sopt.hashi.media.internal.queue.MediaTransformRequestPublisher;
 import org.sopt.hashi.media.internal.storage.MediaOriginalStorage;
 import org.sopt.hashi.shared.error.BusinessException;
 import org.sopt.hashi.shared.storage.FileStorage;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.boot.testcontainers.service.connection.ServiceConnection;
 import org.springframework.context.annotation.Bean;
@@ -58,7 +62,9 @@ import org.springframework.dao.DataAccessException;
 import org.springframework.data.jpa.repository.config.EnableJpaAuditing;
 import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.modulith.events.IncompleteEventPublications;
 import org.springframework.modulith.test.ApplicationModuleTest;
+import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
 import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
@@ -106,6 +112,11 @@ class MediaBackfillTransactionIntegrationTest {
     private TransactionTemplate transactionTemplate;
     @Autowired
     private JdbcTemplate jdbcTemplate;
+    @Autowired
+    private IncompleteEventPublications incompletePublications;
+    @Autowired
+    @Qualifier(MediaQueueExecutionConfig.PUBLISHER_EXECUTOR)
+    private Executor publisherExecutor;
 
     @MockitoBean
     private CurrentActorProvider currentActorProvider;
@@ -137,9 +148,10 @@ class MediaBackfillTransactionIntegrationTest {
         failPublisher.set(false);
         executor = Executors.newFixedThreadPool(2);
         doAnswer(invocation -> {
+            boolean shouldFail = failPublisher.get();
             attempts.add(new PublishAttempt(invocation.getArgument(0),
                     TransactionSynchronizationManager.isActualTransactionActive()));
-            if (failPublisher.get()) {
+            if (shouldFail) {
                 throw new IllegalStateException("test publisher failure");
             }
             return null;
@@ -392,6 +404,49 @@ class MediaBackfillTransactionIntegrationTest {
                 .isEqualTo(ImageProcessingStatus.PROCESSING);
     }
 
+    @Test
+    void 발급을_pause해도_실패_EPR은_최초_job을_그대로_재전송하고_완료된다() throws Exception {
+        BackfillAssetSnapshot reserved = reserve();
+        failPublisher.set(true);
+        BackfillAssetSnapshot processing = transactionService.completeCopy(reserved.assetId(), copy(reserved, "v1"));
+        PublishAttempt first = awaitPublish();
+        awaitFailedPublication();
+        pause();
+
+        failPublisher.set(false);
+        incompletePublications.resubmitIncompletePublications(publication ->
+                publication.getEvent() instanceof MediaProcessingRequestedEvent);
+        PublishAttempt retried = awaitPublish();
+
+        assertThat(retried.request()).isEqualTo(first.request());
+        assertThat(retried.inTransaction()).isFalse();
+        assertThat(assetRepository.findByPublicId(reserved.assetId()).orElseThrow().getCurrentJobId())
+                .isEqualTo(processing.jobId());
+        await().atMost(Duration.ofSeconds(10)).untilAsserted(() -> assertThat(publicationCount()).isZero());
+    }
+
+    @Test
+    void FAILED로_종료된_job의_실패_EPR은_재전송하지_않고_noop으로_완료한다() throws Exception {
+        BackfillAssetSnapshot reserved = reserve();
+        failPublisher.set(true);
+        BackfillAssetSnapshot processing = transactionService.completeCopy(reserved.assetId(), copy(reserved, "v1"));
+        awaitPublish();
+        awaitFailedPublication();
+        transactionTemplate.executeWithoutResult(status -> {
+            ImageAsset asset = assetRepository.findByPublicIdForUpdate(reserved.assetId()).orElseThrow();
+            asset.failCurrentProcessing(processing.jobId(), 1, SPEC_DIGEST, "SOURCE_INVALID");
+        });
+
+        failPublisher.set(false);
+        incompletePublications.resubmitIncompletePublications(publication ->
+                publication.getEvent() instanceof MediaProcessingRequestedEvent);
+
+        await().atMost(Duration.ofSeconds(10)).untilAsserted(() -> assertThat(publicationCount()).isZero());
+        assertThat(attempts).isEmpty();
+        assertThat(assetRepository.findByPublicId(reserved.assetId()).orElseThrow().getProcessingStatus())
+                .isEqualTo(ImageProcessingStatus.FAILED);
+    }
+
     private BackfillAssetSnapshot reserve() {
         return reservationService.reserveOrReuse(MediaPurpose.PROFILE, HASH, source());
     }
@@ -417,6 +472,15 @@ class MediaBackfillTransactionIntegrationTest {
         PublishAttempt attempt = attempts.poll(10, TimeUnit.SECONDS);
         assertThat(attempt).isNotNull();
         return attempt;
+    }
+
+    private void awaitFailedPublication() {
+        ThreadPoolTaskExecutor taskExecutor = (ThreadPoolTaskExecutor) publisherExecutor;
+        await().atMost(Duration.ofSeconds(10)).untilAsserted(() -> {
+            assertThat(taskExecutor.getActiveCount()).isZero();
+            assertThat(taskExecutor.getThreadPoolExecutor().getQueue()).isEmpty();
+            assertThat(publicationCount()).isEqualTo(1);
+        });
     }
 
     private void awaitMySqlLockWait() throws Exception {
