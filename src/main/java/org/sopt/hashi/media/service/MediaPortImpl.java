@@ -105,8 +105,10 @@ class MediaPortImpl implements MediaPort {
                 .collect(Collectors.toMap(ImageAsset::getPublicId, Function.identity()));
 
         MediaOwnerType ownerType = toOwnerType(actor.type());
-        normalizedClaims.forEach(use -> validateClaim(
-                assetsById.get(use.assetId()), use.purpose(), ownerType, actor.subjectId()));
+        normalizedClaims.forEach(use -> requireClaimOwner(
+                assetsById.get(use.assetId()), ownerType, actor.subjectId()));
+        normalizedClaims.forEach(use -> validateClaimState(
+                assetsById.get(use.assetId()), use.purpose()));
         normalizedRetires.forEach(use -> validateRetire(assetsById.get(use.assetId()), use.purpose()));
 
         normalizedClaims.forEach(use -> assetsById.get(use.assetId()).bind());
@@ -133,11 +135,8 @@ class MediaPortImpl implements MediaPort {
                 .orElseThrow(() -> new BusinessException(MediaErrorCode.ASSET_NOT_FOUND));
         ImageAsset asset = imageAssetRepository.findByIdForUpdate(identity.getId())
                 .orElseThrow(() -> new BusinessException(MediaErrorCode.ASSET_NOT_FOUND));
-        validateClaim(
-                asset,
-                MediaAssetPurpose.PROFILE,
-                MediaOwnerType.ONBOARDING,
-                actor.subjectId());
+        requireClaimOwner(asset, MediaOwnerType.ONBOARDING, actor.subjectId());
+        validateClaimState(asset, MediaAssetPurpose.PROFILE);
         asset.handoffOwnerAndBind(
                 MediaOwnerType.ONBOARDING,
                 actor.subjectId(),
@@ -245,11 +244,13 @@ class MediaPortImpl implements MediaPort {
                 asset.getPublicId(), request.role(), status, defaultSource, sourceSets));
     }
 
-    private void validateClaim(ImageAsset asset, MediaAssetPurpose expectedPurpose,
-                               MediaOwnerType actorType, Long actorSubjectId) {
+    private void requireClaimOwner(ImageAsset asset, MediaOwnerType actorType, Long actorSubjectId) {
         if (!asset.isOwnedBy(actorType, actorSubjectId)) {
             throw new BusinessException(MediaErrorCode.ASSET_NOT_FOUND);
         }
+    }
+
+    private void validateClaimState(ImageAsset asset, MediaAssetPurpose expectedPurpose) {
         if (asset.getPurpose() != MediaPurpose.valueOf(expectedPurpose.name())
                 || asset.getCleanupStatus() != MediaCleanupStatus.ACTIVE) {
             throw new BusinessException(MediaErrorCode.INVALID_STATE);

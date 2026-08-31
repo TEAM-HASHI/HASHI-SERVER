@@ -18,6 +18,8 @@ import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.EnumSource;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.sopt.hashi.auth.ActorType;
@@ -161,6 +163,49 @@ class MediaPortImplTest {
 
         verify(valid, never()).bind();
         verify(invalid, never()).bind();
+    }
+
+    @ParameterizedTest
+    @EnumSource(value = ImageBindingStatus.class, names = {"UNBOUND", "BOUND"})
+    void 전체_claim의_소유권을_앞선_asset_상태보다_먼저_확인한다(ImageBindingStatus bindingStatus) {
+        UUID bannerId = UUID.randomUUID();
+        UUID foreignId = UUID.randomUUID();
+        UUID missingId = UUID.randomUUID();
+        ImageAsset banner = asset(
+                bannerId, MediaPurpose.MAGAZINE_BANNER, MediaOwnerType.ADMIN, 3L,
+                bindingStatus == ImageBindingStatus.UNBOUND
+                        ? ImageProcessingStatus.PROCESSING : ImageProcessingStatus.READY,
+                bindingStatus, MediaCleanupStatus.ACTIVE);
+        ImageAsset foreign = asset(
+                foreignId, MediaPurpose.MAGAZINE_THUMBNAIL, MediaOwnerType.ADMIN, 7L,
+                ImageProcessingStatus.READY, ImageBindingStatus.UNBOUND,
+                MediaCleanupStatus.ACTIVE);
+        when(currentActorProvider.currentActor())
+                .thenReturn(new CurrentActor(ActorType.ADMIN, 3L));
+        when(purposeAccessPolicy.isAllowed(ActorType.ADMIN, MediaPurpose.MAGAZINE_BANNER))
+                .thenReturn(true);
+        when(purposeAccessPolicy.isAllowed(ActorType.ADMIN, MediaPurpose.MAGAZINE_THUMBNAIL))
+                .thenReturn(true);
+        when(imageAssetRepository.findIdentitiesByPublicIdIn(anyCollection()))
+                .thenReturn(List.of(identity(1L, bannerId), identity(2L, foreignId)))
+                .thenReturn(List.of(identity(1L, bannerId)));
+        when(imageAssetRepository.findAllByIdInForUpdate(List.of(1L, 2L)))
+                .thenReturn(List.of(banner, foreign));
+
+        for (UUID deniedId : List.of(foreignId, missingId)) {
+            assertThatThrownBy(() -> mediaPort.reconcileBindings(
+                    List.of(
+                            new MediaAssetUse(bannerId, MediaAssetPurpose.MAGAZINE_BANNER),
+                            new MediaAssetUse(deniedId, MediaAssetPurpose.MAGAZINE_THUMBNAIL)
+                    ), List.of()))
+                    .isInstanceOf(BusinessException.class)
+                    .hasFieldOrPropertyWithValue("errorCode", MediaErrorCode.ASSET_NOT_FOUND);
+        }
+
+        verify(banner, never()).bind();
+        verify(foreign, never()).bind();
+        verify(banner, never()).retire();
+        verify(foreign, never()).retire();
     }
 
     @Test
