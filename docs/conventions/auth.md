@@ -1,7 +1,7 @@
 # 인증 / 인가 컨벤션
 
-> `auth`(횡단, shared) 모듈 규칙, 현재 사용자 조회 방법과 media 구현에서 추가할 actor 목표
-> 계약. 인증이 필요한 API 작업 시 참조.
+> `auth`(횡단, shared) 모듈 규칙과 현재 사용자·인증 주체(actor) 조회 계약.
+> 인증이 필요한 API 작업 시 참조.
 > 구조상 위치·의존 규칙은 `architecture.md` §9와 함께 본다.
 
 ---
@@ -12,18 +12,18 @@
 - **MUST**: 인증 **강제**(요청 차단)는 Spring Security **필터 체인**이 담당한다. 도메인 모듈은 인증 로직을 갖지 않는다.
 - **MUST NOT**: 도메인 모듈이 `auth`의 `internal`(JWT·OAuth·필터 등)을 import하지 않는다.
 - **MUST**: 도메인에서 "현재 로그인 사용자"가 필요하면 **`CurrentUserProvider`** 로 읽는다.
-- **MUST (media 구현 시)**: USER, ADMIN, ONBOARDING 유형까지 구분해야 하는 media 같은 제한된 기능은 **`CurrentActorProvider`** 를 추가해 읽는다. 일반 사용자 도메인은 이를 현재 사용자 조회 대용으로 사용하지 않는다.
-- 의존 방향: **도메인 → auth** (auth는 depended-upon 위치). auth는 인증이라는 generic subdomain으로 잘 변하지 않아 불안정한 도메인이 안정적인 auth로 의존을 모은다(SDP, ADP). 현재 공개 지점은 `CurrentUserProvider`, `AuthAccountPort`이며 media 구현에서 `CurrentActorProvider`를 추가한다. 도메인은 `auth.internal`에 의존하지 않고 이 공개 지점으로만 auth를 참조한다.
+- **MUST**: USER, ADMIN, ONBOARDING 유형까지 구분해야 하는 media 같은 제한된 기능은 **`CurrentActorProvider`** 로 읽는다. 일반 사용자 도메인은 이를 현재 사용자 조회 대용으로 사용하지 않는다.
+- 의존 방향: **도메인 → auth** (auth는 depended-upon 위치). auth는 인증이라는 generic subdomain으로 잘 변하지 않아 불안정한 도메인이 안정적인 auth로 의존을 모은다(SDP, ADP). 현재 공개 지점은 `CurrentUserProvider`, `CurrentActorProvider`, `AuthAccountPort`다. 도메인은 `auth.internal`에 의존하지 않고 이 공개 지점으로만 auth를 참조한다.
 - **MUST**: **`auth`는 어떤 도메인 모듈도 되참조하지 않는다**(순환 방지·안정성 유지). `shared`라서 순환 검사가 면제되는 게 아니라, auth가 도메인을 되참조하지 않아 무순환이 유지된다 — auth가 도메인을 관찰해야 하면 **이벤트**로 붙인다.
 
 ---
 
 ## 2. 현재 사용자 조회
 
-현재 `auth`가 노출하는 공개 지점은 `CurrentUserProvider`(현재 사용자 조회)와
-`AuthAccountPort`(온보딩 계정 연결)다. 일반적인 현재 사용자 조회는
-`CurrentUserProvider`를 쓴다. `CurrentActorProvider`는 아직 source에 없으며 media 구현에서
-추가할 목표 계약이다.
+현재 `auth`가 노출하는 공개 지점은 `CurrentUserProvider`(현재 사용자 조회),
+`CurrentActorProvider`(인증 주체의 유형과 식별자 조회), `AuthAccountPort`(온보딩 계정 연결)다.
+일반적인 현재 사용자 조회는 `CurrentUserProvider`를 쓰고, media의 역할별 권한과 소유권 검사는
+`CurrentActorProvider`를 쓴다.
 
 ```java
 // auth/CurrentUserProvider.java  (auth가 공개)
@@ -47,17 +47,20 @@ public ReviewResponse write(CreateReviewRequest req) {
 ### 2-1. 역할 단위 actor 조회
 
 이미지 업로드처럼 USER, ADMIN, ONBOARDING을 모두 받으면서 유형별 권한과 소유권을
-구분해야 하는 기능은 media 구현에서 `CurrentActorProvider`를 추가한 뒤 사용한다.
-최초 media 구현 PR은 provider 구현과 첫 사용처, 테스트를 함께 추가하고 이 문서의 목표 표기를
-현재 공개 지점으로 갱신한다.
+구분해야 하는 기능은 `CurrentActorProvider`를 사용한다. 현재 media Service가 이 계약을 사용하며,
+`auth.internal.security.CurrentActorProviderImpl`이 인증 컨텍스트 해석을 담당한다.
 
 ```java
-// auth가 공개할 목표 계약. 실제 타입은 구현 이슈에서 확정한다.
+// auth가 공개하는 현재 인증 주체 조회 계약
 public interface CurrentActorProvider {
     CurrentActor currentActor();
 }
 ```
 
+- 반환값 `CurrentActor`는 `ActorType type`과 `Long subjectId`를 가진다.
+  `ActorType`은 USER, ADMIN, ONBOARDING이며 `subjectId`는 auth 내부 식별자다.
+- 인증 정보가 없거나 principal과 role이 맞지 않거나 허용 role이 둘 이상이면 기존
+  `UNAUTHORIZED`로 거부한다. 도메인은 principal이나 SecurityContext를 직접 해석하지 않는다.
 - **MUST**: actor 유형과 식별자를 함께 비교한다. USER 1과 ADMIN 1을 같은 소유자로 취급하지 않는다.
 - **MUST NOT**: ONBOARDING의 내부 subject를 API 응답이나 로그에 노출하지 않는다.
 - **MUST NOT**: 요청 DTO의 actor 유형이나 소유자 ID를 신뢰하지 않는다.
@@ -72,7 +75,8 @@ public interface CurrentActorProvider {
 ```text
 auth/
 ├─ CurrentUserProvider          # 공개 지점 (현재 사용자 조회)
-├─ CurrentActorProvider         # 목표 공개 지점 (media 구현에서 추가)
+├─ CurrentActorProvider         # 공개 지점 (인증 주체 유형과 식별자 조회)
+├─ CurrentActor · ActorType     # actor 조회 계약의 반환값과 유형
 ├─ AuthAccountPort              # 공개 지점 (온보딩 소셜 계정 연결 — user가 원자적 커밋 위해 호출)
 ├─ code/  AuthErrorCode · AuthSuccessCode
 ├─ event/ UserWithdrawnListener  # 탈퇴 이벤트 구독 → 토큰 무효화·블랙리스트
@@ -81,7 +85,7 @@ auth/
    ├─ jwt/        JwtProvider · JwtProperties · MemberPrincipal · OnboardingPrincipal · AuthRoles
    ├─ token/      RefreshTokenStore(Redis) · OnboardingTokenStore(Redis)   # TokenBlacklist(Redis) 예정
    ├─ kakao/      KakaoOAuthClient · KakaoProperties · KakaoLoginRequest/Response
-   ├─ security/   SecurityConfig · JwtAuthenticationFilter · JwtAuthenticationEntryPoint · JwtAccessDeniedHandler · CookieUtil · OriginValidator · CurrentUserProviderImpl
+   ├─ security/   SecurityConfig · JwtAuthenticationFilter · JwtAuthenticationEntryPoint · JwtAccessDeniedHandler · CookieUtil · OriginValidator · CurrentUserProviderImpl · CurrentActorProviderImpl
    ├─ onboarding/ OnboardingJwtIssuer(응답 후처리로 정식 JWT 부착)
    ├─ admin/      Admin · AdminRepository · AdminAuthService · AdminAuthController   # 어드민 ID/PW 로그인·로그아웃
    ├─ web/        AuthController
@@ -101,10 +105,18 @@ auth/
 
 ## 4. 회원가입 흐름 (온보딩 임시 토큰)
 
-- 흐름: 카카오 OAuth 성공 → 가입 이력 없으면 `auth`가 **온보딩 임시 토큰**(Redis TTL·1회용·온보딩 API에만 유효) 발급 → 온보딩 폼(프로필 사진·연락처·영문 이름(선택)) 제출 → `user`가 User 저장 → 가입 완료 시 임시 토큰 폐기 + 정식 JWT 발급.
+- 흐름: 카카오 OAuth 성공 → 가입 이력 없으면 `auth`가 **온보딩 임시 토큰**(Redis TTL·1회용·온보딩용 제한 권한) 발급 → 온보딩 폼(프로필 사진·연락처·영문 이름(선택)) 제출 → `user`가 User 저장 → 가입 완료 시 임시 토큰 폐기 + 정식 JWT 발급.
 - **MUST**: 온보딩 요청은 **임시 토큰으로 인증**되며 auth의 Security 필터가 검증한다. `user`는 필터가 검증한 컨텍스트만 신뢰해 User를 저장하고, **소셜 계정 연결은 `AuthAccountPort`로 호출한다** — 회원 생성과 계정 연결이 **한 트랜잭션에서 원자적으로 커밋**되도록 예외적으로 허용한 `user → auth` 호출이다(그 외 auth 내부는 참조하지 않는다). 연결 대상 제공자·kakaoId는 auth가 온보딩 컨텍스트에서 직접 읽는다.
-- **MUST**: 임시 토큰은 정식 JWT와 **권한을 구분**해, 온보딩 외 API에는 접근할 수 없게 한다.
-  단 하나의 예외 — **`GET /api/v1/auth/me`**(인증 상태 조회)는 클라 진입 라우팅용으로 온보딩 토큰의 접근을 허용한다. 리소스 접근이 아니며, 응답은 토큰 컨텍스트(`subjectId`·`role`)만 담는다. 단 온보딩 토큰은 subject가 내부 식별자(kakaoId)라 `subjectId`를 `null`로 내린다(USER·ADMIN은 각각 userId·adminId).
+- **MUST**: 임시 토큰은 정식 JWT와 **권한을 구분**해, 아래 허용 경로 외에는 인증이 필요한 일반 API에 접근할 수 없게 한다. 비로그인 사용자도 조회할 수 있는 공개 경로는 이 제한과 별개다.
+  현재 `SecurityConfig`가 허용하는 인증된 ONBOARDING 주체의 추가 진입점은 다음과 같다.
+
+  - **`GET /api/v1/auth/me`**: 클라 진입 라우팅용 인증 상태 조회다. 리소스 접근이 아니며,
+    응답은 토큰 컨텍스트(`subjectId`·`role`)만 담는다. ONBOARDING의 `subjectId`는 내부 식별자를
+    숨기기 위해 `null`로 내린다(USER·ADMIN은 각각 userId·adminId).
+  - **`/api/v1/uploads/**`**: 프로필 사진을 위한 기존 presigned URL 발급 경로다.
+  - **`/api/v1/media/**`**: 신규 이미지 업로드·완료·상태 조회 경로다. filter가 actor 유형을
+    확인하고, media Service가 purpose별 권한과 소유권을 검사한다. ONBOARDING의 신규 업로드
+    purpose는 PROFILE만 허용하며, 이 경로 허용이 다른 actor의 이미지 접근을 허용하지 않는다.
 - **MUST**: 온보딩 성공 시 **정식 JWT 발급은 `auth`가 담당**한다. `user`는 프로필 저장만 하고, `auth`의 **인터셉터(응답 후처리)**가 저장 성공 응답에 정식 JWT(access 헤더 + refresh 쿠키)를 실어준다 — `user`가 JWT 발급을 위해 `auth`를 호출하지 않는다(순환 방지). → 가입과 동시에 로그인 상태가 된다.
 - 프로필(연락처·프로필 사진·영문 이름) 저장 책임은 **`user`** 모듈. `auth`는 인증·임시 토큰·정식 JWT 발급만.
 - **⚠️ MVP 제외 — SMS 전화번호 인증**: 원래 가입 필수 조건(카카오 성공 → SMS 인증 → 저장)이었으나 MVP에서 제외. 추후 도입 시, SMS 완료 여부(`auth` 소유)는 `user`가 조회하지 않고 **auth 필터가 검증 결과를 온보딩 컨텍스트에 주입**하는 방식으로 붙인다(도메인이 auth 내부를 뒤지지 않도록 — auth가 도메인을 되참조하지 않는 원칙 유지).
@@ -131,7 +143,7 @@ Review review = reviewRepository.findById(reviewId)
 
 - [ ] 도메인이 `auth.internal`을 import하지 않는가
 - [ ] 현재 사용자를 `CurrentUserProvider`로 얻는가 (요청 파라미터 userId 신뢰 금지)
-- [ ] 역할 단위 소유권이 필요한 구현은 `CurrentActorProvider`를 먼저 추가하고 actor 유형과 식별자를 함께 검증하는가
+- [ ] 역할 단위 소유권이 필요한 구현은 `CurrentActorProvider`로 actor 유형과 식별자를 함께 검증하는가
 - [ ] 어드민 API에 `ROLE_ADMIN`을 요구하는가
 - [ ] 본인 리소스 접근을 소유자 검증으로 막는가 (검증 실패는 403이 아니라 404로 존재를 숨기는가)
 - [ ] (가입) 온보딩이 임시 토큰으로 인증되고, 소셜 계정 연결만 `AuthAccountPort`로(원자적 커밋) 하며 그 외 auth 내부는 참조하지 않는가 (SMS 인증은 ⚠️ MVP 제외)
