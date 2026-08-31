@@ -8,6 +8,7 @@ import org.sopt.hashi.admin.dto.UpdateMagazineRequest;
 import org.sopt.hashi.admin.service.AdminMagazineService;
 import org.sopt.hashi.shared.error.CommonErrorCode;
 import org.sopt.hashi.shared.response.SuccessResponse;
+import org.sopt.hashi.shared.swagger.ApiErrorResponse;
 import org.sopt.hashi.shared.swagger.ApiException;
 import org.sopt.hashi.shared.swagger.ApiSuccess;
 import org.springframework.http.HttpStatus;
@@ -31,8 +32,16 @@ public class AdminMagazineController {
         this.adminMagazineService = adminMagazineService;
     }
 
-    /** 매거진 등록 — bannerKey·thumbnailKey는 presigned URL로 업로드를 마친 S3 키. */
+    /** 매거진 등록 — 슬롯별 legacy key 또는 READY public asset ID를 받는다. */
     @ApiException(value = CommonErrorCode.class, codes = {"INVALID_INPUT", "UNAUTHORIZED", "FORBIDDEN"})
+    @ApiErrorResponse(status = HttpStatus.NOT_FOUND, code = "MEDIA-001",
+            message = "이미지 자산을 찾을 수 없습니다")
+    @ApiErrorResponse(status = HttpStatus.CONFLICT, code = "MEDIA-006",
+            message = "현재 이미지 상태에서는 요청을 처리할 수 없습니다")
+    @ApiErrorResponse(status = HttpStatus.CONFLICT, code = "MEDIA-007",
+            message = "이미 사용 중이거나 사용이 끝난 이미지입니다")
+    @ApiErrorResponse(status = HttpStatus.BAD_REQUEST, code = "MEDIA-008",
+            message = "같은 이미지 자산을 중복해서 요청할 수 없습니다")
     @ApiSuccess(value = AdminSuccessCode.class, codes = {"MAGAZINE_CREATED"})
     @ResponseStatus(HttpStatus.CREATED)
     @PostMapping
@@ -44,6 +53,16 @@ public class AdminMagazineController {
 
     /** 매거진 부분 수정 — 보낸 필드만 변경된다. */
     @ApiException(value = CommonErrorCode.class, codes = {"INVALID_INPUT", "UNAUTHORIZED", "FORBIDDEN"})
+    @ApiErrorResponse(status = HttpStatus.NOT_FOUND, code = "MEDIA-001",
+            message = "이미지 자산을 찾을 수 없습니다")
+    @ApiErrorResponse(status = HttpStatus.CONFLICT, code = "MEDIA-006",
+            message = "현재 이미지 상태에서는 요청을 처리할 수 없습니다")
+    @ApiErrorResponse(status = HttpStatus.CONFLICT, code = "MEDIA-007",
+            message = "이미 사용 중이거나 사용이 끝난 이미지입니다")
+    @ApiErrorResponse(status = HttpStatus.BAD_REQUEST, code = "MEDIA-008",
+            message = "같은 이미지 자산을 중복해서 요청할 수 없습니다")
+    @ApiErrorResponse(status = HttpStatus.NOT_FOUND, code = "MAGAZINE-001",
+            message = "매거진을 찾을 수 없습니다.")
     @ApiSuccess(value = AdminSuccessCode.class, codes = {"MAGAZINE_UPDATED"})
     @PatchMapping("/{magazineId}")
     public SuccessResponse<AdminMagazineResponse> update(
@@ -55,6 +74,8 @@ public class AdminMagazineController {
 
     /** 매거진 삭제. */
     @ApiException(value = CommonErrorCode.class, codes = {"UNAUTHORIZED", "FORBIDDEN"})
+    @ApiErrorResponse(status = HttpStatus.NOT_FOUND, code = "MAGAZINE-001",
+            message = "매거진을 찾을 수 없습니다.")
     @ApiSuccess(value = AdminSuccessCode.class, codes = {"MAGAZINE_DELETED"})
     @DeleteMapping("/{magazineId}")
     public SuccessResponse<Void> delete(@PathVariable Long magazineId) {
