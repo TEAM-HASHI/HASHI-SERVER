@@ -5,10 +5,12 @@ public record BackfillOriginalCopy(String objectKey, String versionId, String eT
                                    String contentType, long bytes, String identityHash) {
 
     public BackfillOriginalCopy {
-        boolean hasVersion = versionId != null && !versionId.isBlank() && !"null".equals(versionId);
+        boolean hasVersion = versionId != null && !versionId.isBlank() && !"null".equals(versionId)
+                && versionId.length() <= 1024;
         boolean hasMetadata = objectKey != null && !objectKey.isBlank()
-                && eTag != null && !eTag.isBlank() && contentType != null && !contentType.isBlank();
-        if (!hasVersion || !hasMetadata || bytes < 1
+                && eTag != null && !eTag.isBlank() && eTag.length() <= 255
+                && contentType != null && !contentType.isBlank();
+        if (!hasVersion || !hasMetadata || bytes < 1 || bytes > 5L * 1024 * 1024
                 || identityHash == null || !identityHash.matches("[0-9a-f]{64}")) {
             throw new IllegalArgumentException("invalid backfill original copy");
         }

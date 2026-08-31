@@ -19,6 +19,29 @@ class ImageAssetTest {
             LocalDateTime.of(2026, 8, 27, 12, 0);
 
     @Test
+    void backfill은_인증_actor_없이_opaque_identity만_보관한다() {
+        ImageAsset asset = ImageAsset.createSystemBackfill(UUID.randomUUID(), MediaPurpose.PROFILE,
+                "media/originals/test/original", "image/jpeg", 1024L,
+                PROCESSING_STARTED_AT.plusDays(1), "a".repeat(64));
+
+        assertThat(asset.getCreationOrigin()).isEqualTo(MediaCreationOrigin.SYSTEM_BACKFILL);
+        assertThat(asset.getOwnerActorType()).isEqualTo(MediaOwnerType.SYSTEM_BACKFILL);
+        assertThat(asset.getOwnerSubjectId()).isNull();
+        assertThat(asset.getCreatorActorType()).isNull();
+        assertThat(asset.getCreatorSubjectId()).isNull();
+        assertThat(asset.getBackfillIdentityHash()).isEqualTo("a".repeat(64));
+        assertThat(asset.getBindingStatus()).isEqualTo(ImageBindingStatus.UNBOUND);
+    }
+
+    @Test
+    void backfill의_원시_식별자는_SHA256_대신_저장할_수_없다() {
+        assertThatThrownBy(() -> ImageAsset.createSystemBackfill(UUID.randomUUID(), MediaPurpose.PROFILE,
+                "media/originals/test/original", "image/jpeg", 1024L,
+                PROCESSING_STARTED_AT.plusDays(1), "profile:1"))
+                .isInstanceOf(IllegalArgumentException.class);
+    }
+
+    @Test
     void 직접_업로드는_인증_actor와_PENDING_UPLOAD_상태를_기록한다() {
         ImageAsset asset = createDirectUpload(MediaOwnerType.USER, 1L);
 

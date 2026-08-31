@@ -235,7 +235,7 @@ public class ImageAsset extends BaseTimeEntity {
                 declaredContentType,
                 declaredBytes,
                 uploadExpiresAt,
-                requireText(backfillIdentityHash, "backfillIdentityHash")
+                requireSha256(backfillIdentityHash, "backfillIdentityHash")
         );
     }
 
