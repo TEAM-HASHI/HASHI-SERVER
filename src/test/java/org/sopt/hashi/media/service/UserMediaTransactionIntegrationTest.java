@@ -27,6 +27,7 @@ import org.sopt.hashi.user.service.OnboardingService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.testcontainers.service.connection.ServiceConnection;
+import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
@@ -43,6 +44,7 @@ import org.testcontainers.junit.jupiter.Testcontainers;
         "hashi.storage.cloudfront-domain=https://cdn.hashi.test"
 })
 @Transactional(propagation = Propagation.NOT_SUPPORTED)
+@DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_CLASS)
 class UserMediaTransactionIntegrationTest {
 
     private static final String SPEC_DIGEST =
