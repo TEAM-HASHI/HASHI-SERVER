@@ -9,6 +9,7 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import org.junit.jupiter.api.AfterEach;
@@ -63,7 +64,7 @@ class S3MediaBackfillStorageTest {
     }
 
     @Test
-    void 정확한_source_version과_ETag로_복사하고_민감한_metadata와_tag는_승계하지_않는다() {
+    void 정확한_source_version과_ETag로_복사하고_부가정보는_승계하지_않는다() {
         arrangeEmptyDestination();
         when(s3Client.copyObject(any(CopyObjectRequest.class)))
                 .thenReturn(CopyObjectResponse.builder().versionId("copy-v1").build());
@@ -86,6 +87,8 @@ class S3MediaBackfillStorageTest {
         assertThat(value.metadata()).containsExactlyEntriesOf(Map.of("backfill-identity", IDENTITY));
         assertThat(value.taggingDirective()).isEqualTo(TaggingDirective.REPLACE);
         assertThat(value.tagging()).isEmpty();
+        assertThat(value.overrideConfiguration().orElseThrow().headers())
+                .containsEntry("x-amz-object-annotation-directive", List.of("EXCLUDE"));
         assertThat(value.serverSideEncryption()).isEqualTo(ServerSideEncryption.AES256);
         assertThat(value.cacheControl()).isEqualTo("private, no-store");
         ArgumentCaptor<HeadObjectRequest> head = ArgumentCaptor.forClass(HeadObjectRequest.class);

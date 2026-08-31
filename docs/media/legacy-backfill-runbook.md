@@ -81,6 +81,8 @@ DB issuance가 pause되어도 opt-in된 환경의 조회와 READY claim, 이미 
   같은 원인이다. runner는 원본과 association을 다시 조사해 새 hash를 확인해야 한다.
 - copy에는 opaque identity metadata를 기록한다. 응답 유실·중단 뒤 재시도는 같은 asset key의
   matching destination version을 재발견한다.
+- source의 user metadata·tag·S3 annotation은 승계하지 않는다. annotation은 metadata와
+  별개이므로 `x-amz-object-annotation-directive: EXCLUDE`를 명시하며 복사용 annotation 권한을 추가하지 않는다.
 - 동시 copy가 둘 이상 생겨도 DB에 처음 고정한 exact version과 결정적 job을 유지한다.
   늦은 copy가 canonical source나 job을 덮어쓰지 않는다.
 - FAILED, EXPIRED, RETIRED, PURGED identity는 자동으로 새 asset을 만들지 않는다. 새 source가

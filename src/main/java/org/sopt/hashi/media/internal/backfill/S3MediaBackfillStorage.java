@@ -172,6 +172,9 @@ public class S3MediaBackfillStorage implements MediaBackfillStorage {
                     .metadataDirective(MetadataDirective.REPLACE)
                     .metadata(Map.of(IDENTITY_METADATA_KEY, identityHash))
                     .taggingDirective(TaggingDirective.REPLACE).tagging("")
+                    // 현재 SDK에 전용 필드가 없어 별도 부가정보의 기본 COPY 동작을 헤더로 차단한다.
+                    .overrideConfiguration(configuration ->
+                            configuration.putHeader("x-amz-object-annotation-directive", "EXCLUDE"))
                     .contentType(source.contentType()).cacheControl("private, no-store")
                     .serverSideEncryption(ServerSideEncryption.AES256)
                     .build());
