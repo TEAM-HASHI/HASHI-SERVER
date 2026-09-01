@@ -943,13 +943,13 @@ media/renditions/{assetId}/v{specVersion}/{role}/{width}.webp
 ```json
 {
   "contractVersion": 1,
-  "jobId": "f57dbf16-f7ca-46ec-8d80-8142be93d12a",
+  "jobId": "ebb9b9d8-c427-564b-a70e-0fd4e1925e5a",
   "assetId": "a3af06f1-4ef2-46f8-a489-2347fb840447",
   "purpose": "REVIEW",
   "specVersion": 1,
   "specDigest": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
   "originalKey": "media/originals/a3af.../original",
-  "sourceVersionId": "3Lg...",
+  "sourceVersionId": "version-1",
   "sourceETag": "etag-value",
   "declaredContentType": "image/jpeg",
   "declaredByteSize": 1048576
@@ -966,12 +966,12 @@ request는 `roles`를 중복 전달하지 않는다. purpose가 manifest에 없�
 ```json
 {
   "contractVersion": 1,
-  "jobId": "f57dbf16-f7ca-46ec-8d80-8142be93d12a",
+  "jobId": "ebb9b9d8-c427-564b-a70e-0fd4e1925e5a",
   "assetId": "a3af06f1-4ef2-46f8-a489-2347fb840447",
   "specVersion": 1,
   "specDigest": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
   "status": "SUCCEEDED",
-  "sourceVersionId": "3Lg...",
+  "sourceVersionId": "version-1",
   "sourceETag": "etag-value",
   "verifiedSource": {
     "mimeType": "image/jpeg",
@@ -1008,12 +1008,12 @@ request는 `roles`를 중복 전달하지 않는다. purpose가 manifest에 없�
 ```json
 {
   "contractVersion": 1,
-  "jobId": "f57dbf16-f7ca-46ec-8d80-8142be93d12a",
+  "jobId": "ebb9b9d8-c427-564b-a70e-0fd4e1925e5a",
   "assetId": "a3af06f1-4ef2-46f8-a489-2347fb840447",
   "specVersion": 1,
   "specDigest": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
   "status": "FAILED",
-  "sourceVersionId": "3Lg...",
+  "sourceVersionId": "version-1",
   "sourceETag": "etag-value",
   "failureCode": "INVALID_IMAGE_DATA"
 }
@@ -1029,8 +1029,8 @@ unknown specVersion과 specDigest mismatch도 FAILED 결과로 확정하지 않�
 
 - request queue와 result queue는 Standard queue로 두고 각각 DLQ를 연결한다. 중복과 순서
   역전을 전제로 한다.
-- job ID는 assetId, sourceVersionId와 specVersion으로 계산한 UUIDv5 또는 동등한 결정적
-  idempotency key다. 동일 job을 재발행할 때 DB에 저장된 같은 ID를 사용한다.
+- v1 job ID는 assetId, sourceVersionId와 specVersion으로 계산한 UUIDv5다. 동일 job을
+  재발행할 때 DB에 저장된 같은 ID를 사용한다.
 - 동일 asset, sourceVersionId와 specVersion의 job은 결정적 job ID와 object key를 사용한다.
   terminal 또는 obsolete spec은 같은 asset에서 재사용하지 않으며 재처리는 더 높은 spec으로만
   시작한다.

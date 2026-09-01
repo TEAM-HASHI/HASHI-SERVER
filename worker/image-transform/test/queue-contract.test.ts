@@ -38,6 +38,51 @@ test("rejects unknown fields and non-canonical original keys", () => {
   );
 });
 
+test("requires a UUIDv5 job ID", () => {
+  const base = JSON.parse(requestFixture) as Record<string, unknown>;
+
+  assert.throws(
+    () =>
+      parseTransformRequest(
+        JSON.stringify({ ...base, jobId: "f57dbf16-f7ca-46ec-8d80-8142be93d12a" }),
+      ),
+    ContractMismatchError,
+  );
+});
+
+test("enforces the source version limit in UTF-8 bytes", () => {
+  const base = JSON.parse(requestFixture) as Record<string, unknown>;
+  const exactly1_024Bytes = `${"가".repeat(341)}a`;
+  const over1_024Bytes = "가".repeat(342);
+
+  assert.equal(
+    parseTransformRequest(
+      JSON.stringify({ ...base, sourceVersionId: exactly1_024Bytes }),
+    ).sourceVersionId,
+    exactly1_024Bytes,
+  );
+  assert.throws(
+    () =>
+      parseTransformRequest(
+        JSON.stringify({ ...base, sourceVersionId: over1_024Bytes }),
+      ),
+    ContractMismatchError,
+  );
+});
+
+test("rejects blank source identity fields", () => {
+  const base = JSON.parse(requestFixture) as Record<string, unknown>;
+
+  assert.throws(
+    () => parseTransformRequest(JSON.stringify({ ...base, sourceVersionId: "   " })),
+    ContractMismatchError,
+  );
+  assert.throws(
+    () => parseTransformRequest(JSON.stringify({ ...base, sourceETag: "   " })),
+    ContractMismatchError,
+  );
+});
+
 test("keeps success and failure golden results free of raw source fields", () => {
   for (const fixture of ["transform-succeeded-v1.json", "transform-failed-v1.json"]) {
     const result = JSON.parse(

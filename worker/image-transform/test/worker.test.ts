@@ -15,9 +15,9 @@ import type { TransformResult } from "../src/queue-contract";
 import { ImageTransformWorker } from "../src/worker";
 
 const ASSET_ID = "a3af06f1-4ef2-46f8-a489-2347fb840447";
-const JOB_ID = "f57dbf16-f7ca-46ec-8d80-8142be93d12a";
-const SPEC_DIGEST = "91ac56d691c5af9e43061b0a2cc43763a4d1825244135d120057c3305a1bbe32";
-const VERSION_ID = "3Lg-source-version";
+const JOB_ID = "ebb9b9d8-c427-564b-a70e-0fd4e1925e5a";
+const SPEC_DIGEST = "1b5759a9285732133699114e21101b3b9b43b5cd8e208bf1246d059f4293634f";
+const VERSION_ID = "version-1";
 const ETAG = '"etag-value"';
 
 test("reads the fixed source, writes deterministic renditions and publishes success", async () => {
@@ -33,6 +33,7 @@ test("reads the fixed source, writes deterministic renditions and publishes succ
       objectKey: `media/originals/${ASSET_ID}/original`,
       sourceETag: ETAG,
       sourceVersionId: VERSION_ID,
+      expectedContentLength: source.length,
     },
   ]);
   assert.deepEqual(
