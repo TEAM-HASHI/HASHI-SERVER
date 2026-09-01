@@ -74,7 +74,7 @@ public class ImageAsset extends BaseTimeEntity {
     @Column(name = "upload_expires_at", nullable = false, updatable = false)
     private LocalDateTime uploadExpiresAt;
 
-    @Column(name = "source_version_id", length = 255)
+    @Column(name = "source_version_id", length = 1024)
     private String sourceVersionId;
 
     @Column(name = "source_etag", length = 255)

@@ -28,7 +28,7 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 class MediaSchemaValidationTest {
 
     private static final String SPEC_DIGEST =
-            "91ac56d691c5af9e43061b0a2cc43763a4d1825244135d120057c3305a1bbe32";
+            "1b5759a9285732133699114e21101b3b9b43b5cd8e208bf1246d059f4293634f";
 
     @Container
     @ServiceConnection
@@ -83,6 +83,85 @@ class MediaSchemaValidationTest {
     }
 
     @Test
+    void verified_source는_일부_컬럼만_채울_수_없다() {
+        assertDirectUploadConstraintViolation(
+                "actual_content_type",
+                "'image/jpeg'",
+                "ck_image_asset_verified_source"
+        );
+    }
+
+    @Test
+    void active_spec은_version과_digest를_함께_저장해야_한다() {
+        assertDirectUploadConstraintViolation(
+                "active_spec_version",
+                "1",
+                "ck_image_asset_active_spec"
+        );
+    }
+
+    @Test
+    void target_spec은_처리_tuple을_모두_저장해야_한다() {
+        assertDirectUploadConstraintViolation(
+                "target_spec_version",
+                "1",
+                "ck_image_asset_target_spec"
+        );
+    }
+
+    @Test
+    void last_failure는_version과_code를_함께_저장해야_한다() {
+        assertDirectUploadConstraintViolation(
+                "last_failure_code",
+                "'INVALID_IMAGE_DATA'",
+                "ck_image_asset_last_failure"
+        );
+    }
+
+    @Test
+    void SYSTEM_BACKFILL은_identity_hash가_필수다() {
+        String publicId = java.util.UUID.randomUUID().toString();
+        String objectKey = "media/originals/%s/original".formatted(publicId);
+
+        DataAccessException exception = assertThrows(DataAccessException.class, () -> jdbcTemplate.update("""
+                INSERT INTO image_asset (
+                    public_id,
+                    purpose,
+                    creation_origin,
+                    owner_actor_type,
+                    original_object_key,
+                    declared_content_type,
+                    declared_bytes,
+                    upload_expires_at,
+                    processing_status,
+                    binding_status,
+                    cleanup_status,
+                    lock_version,
+                    created_at,
+                    updated_at
+                ) VALUES (?, 'REVIEW', 'SYSTEM_BACKFILL', 'SYSTEM_BACKFILL', ?, 'image/jpeg', 1024,
+                          CURRENT_TIMESTAMP(6), 'PENDING_UPLOAD', 'UNBOUND', 'ACTIVE', 0,
+                          CURRENT_TIMESTAMP(6), CURRENT_TIMESTAMP(6))
+                """, publicId, objectKey));
+
+        assertConstraintViolation(exception, "ck_image_asset_backfill_identity");
+        assertThat(imageAssetCount(publicId)).isZero();
+    }
+
+    @Test
+    void source_version_ID_컬럼은_1024_길이로_정의한다() {
+        Integer sourceVersionIdLength = jdbcTemplate.queryForObject("""
+                SELECT character_maximum_length
+                FROM information_schema.columns
+                WHERE table_schema = DATABASE()
+                  AND table_name = 'image_asset'
+                  AND column_name = 'source_version_id'
+                """, Integer.class);
+
+        assertThat(sourceVersionIdLength).isEqualTo(1024);
+    }
+
+    @Test
     void Event_Publication_Registry_컬럼과_완료일_index를_보정한다() {
         Integer serializedEventLength = jdbcTemplate.queryForObject("""
                 SELECT character_maximum_length
@@ -109,5 +188,62 @@ class MediaSchemaValidationTest {
         assertThat(serializedEventLength).isEqualTo(4000);
         assertThat(listenerIdLength).isEqualTo(512);
         assertThat(completionDateIndexCount).isEqualTo(1);
+    }
+
+    private void assertDirectUploadConstraintViolation(
+            String optionalColumn,
+            String optionalValue,
+            String constraintName
+    ) {
+        String publicId = java.util.UUID.randomUUID().toString();
+        String objectKey = "media/originals/%s/original".formatted(publicId);
+        String sql = """
+                INSERT INTO image_asset (
+                    public_id,
+                    purpose,
+                    creation_origin,
+                    creator_actor_type,
+                    creator_subject_id,
+                    owner_actor_type,
+                    owner_subject_id,
+                    original_object_key,
+                    declared_content_type,
+                    declared_bytes,
+                    upload_expires_at,
+                    processing_status,
+                    binding_status,
+                    cleanup_status,
+                    lock_version,
+                    created_at,
+                    updated_at,
+                    %s
+                ) VALUES (?, 'REVIEW', 'DIRECT_UPLOAD', 'USER', 1, 'USER', 1, ?, 'image/jpeg', 1024,
+                          CURRENT_TIMESTAMP(6), 'PENDING_UPLOAD', 'UNBOUND', 'ACTIVE', 0,
+                          CURRENT_TIMESTAMP(6), CURRENT_TIMESTAMP(6), %s)
+                """.formatted(optionalColumn, optionalValue);
+
+        DataAccessException exception = assertThrows(
+                DataAccessException.class,
+                () -> jdbcTemplate.update(sql, publicId, objectKey)
+        );
+
+        assertConstraintViolation(exception, constraintName);
+        assertThat(imageAssetCount(publicId)).isZero();
+    }
+
+    private void assertConstraintViolation(DataAccessException exception, String constraintName) {
+        assertThat(exception.getMostSpecificCause())
+                .isInstanceOfSatisfying(SQLException.class, sqlException -> {
+                    assertThat(sqlException.getErrorCode()).isEqualTo(3819);
+                    assertThat(sqlException.getMessage()).contains(constraintName);
+                });
+    }
+
+    private Long imageAssetCount(String publicId) {
+        return jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM image_asset WHERE public_id = ?",
+                Long.class,
+                publicId
+        );
     }
 }
