@@ -3,6 +3,7 @@ package org.sopt.hashi.media.service;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import java.time.Clock;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Map;
@@ -28,6 +29,7 @@ import org.sopt.hashi.media.internal.event.MediaProcessingRequestedEvent;
 import org.sopt.hashi.media.internal.storage.OriginalObjectMetadata;
 import org.sopt.hashi.shared.error.BusinessException;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.testcontainers.service.connection.ServiceConnection;
 import org.springframework.context.annotation.Import;
@@ -73,6 +75,10 @@ class MediaAssetTransactionIntegrationTest {
 
     @Autowired
     private EventCollector eventCollector;
+
+    @Autowired
+    @Qualifier("japanClock")
+    private Clock clock;
 
     private ExecutorService executor;
 
@@ -276,7 +282,7 @@ class MediaAssetTransactionIntegrationTest {
                         objectKey(assetId),
                         "image/jpeg",
                         1024L,
-                        LocalDateTime.now().plusMinutes(5)
+                        LocalDateTime.now(clock).plusMinutes(5)
                 ))
         );
         return assetId;
