@@ -29,17 +29,17 @@ jobs:
 
     steps:
       - name: Checkout source code
-        uses: actions/checkout@v7
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
 
       - name: Set up Node.js 24
-        uses: actions/setup-node@v7
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: "24"
           cache: npm
           cache-dependency-path: worker/image-transform/package-lock.json
 
       - name: Set up AWS SAM CLI
-        uses: aws-actions/setup-sam@v3
+        uses: aws-actions/setup-sam@89ddb14d60e682855e3fea4be85b3c56485de310 # v3
 
       - name: Install exact worker dependencies
         working-directory: worker/image-transform
