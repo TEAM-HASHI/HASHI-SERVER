@@ -281,9 +281,11 @@ v1은 Node.js와 Sharp를 Lambda ZIP으로 배포한다.
   동일 fixture benchmark와 ZIP smoke test를 통과한 별도 spec version에서 검토한다.
 - Sharp와 모든 Node dependency는 `package-lock.json`으로 exact version을 고정한다. Lambda
   Layer나 runtime 내장 AWS SDK에 의존하지 않고 production ZIP에 필요한 package를 포함한다.
-- 초기 Lambda 설정은 memory 1536MB, timeout 60초, request SQS batch size 1이다. 실제 대표
-  이미지 benchmark에서 memory, timeout과 concurrency만 조정할 수 있으며 출력 bytes에 영향을
-  주는 Sharp와 encoder 설정 변경은 `specVersion`을 올린다.
+- 초기 Lambda 설정은 memory 1536MB, timeout 60초, request SQS batch size 1과 reserved
+  concurrency 5다. SAM은 worker version을 `live` alias로 발행한다. 최초 stack 배포에서는 request
+  event source를 비활성화하고, Spring result consumer와 alarm 준비를 확인한 뒤 승인된 dev 절차에서
+  명시적으로 활성화한다. 실제 대표 이미지 benchmark에서 memory, timeout과 concurrency만 조정할
+  수 있으며 출력 bytes에 영향을 주는 Sharp와 encoder 설정 변경은 `specVersion`을 올린다.
 
 GitHub Actions Linux runner에서 Lambda 환경과 호환되는 Sharp package를 포함한 ZIP을 만든다.
 worker source는 HASHI-SERVER 저장소 안의 별도 디렉터리와 독립 Node package로 관리한다.
