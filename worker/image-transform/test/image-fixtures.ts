@@ -1,5 +1,14 @@
 import { deflateSync } from "node:zlib";
 
+export function createWarningCorruptJpeg(validJpeg: Buffer): Buffer {
+  return Buffer.concat([
+    validJpeg.subarray(0, 2),
+    Buffer.from([0xff]),
+    Buffer.alloc(32, 0x00),
+    validJpeg.subarray(2),
+  ]);
+}
+
 export function createTwoFrameApng(): Buffer {
   const signature = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
   const ihdr = Buffer.alloc(13);

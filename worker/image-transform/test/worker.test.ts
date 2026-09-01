@@ -13,6 +13,7 @@ import type {
 } from "../src/ports";
 import type { TransformResult } from "../src/queue-contract";
 import { ImageTransformWorker } from "../src/worker";
+import { createWarningCorruptJpeg } from "./image-fixtures";
 
 const ASSET_ID = "a3af06f1-4ef2-46f8-a489-2347fb840447";
 const JOB_ID = "ebb9b9d8-c427-564b-a70e-0fd4e1925e5a";
@@ -97,6 +98,23 @@ test("publishes a sanitized permanent failure without writing renditions", async
   ]);
 });
 
+test("rejects warning-level corrupt JPEG data without writing renditions", async () => {
+  const corrupt = createWarningCorruptJpeg(await jpegSource(100, 100));
+  const storage = new FakeStorage(original(corrupt));
+  const publisher = new FakePublisher();
+  const worker = new ImageTransformWorker(storage, publisher);
+
+  await worker.processMessage(requestBody(corrupt));
+
+  assert.equal(storage.writes.length, 0);
+  assert.equal(publisher.results.length, 1);
+  const result = publisher.results[0]!;
+  assert.equal(result.status, "FAILED");
+  if (result.status === "FAILED") {
+    assert.equal(result.failureCode, "INVALID_IMAGE_DATA");
+  }
+});
+
 test("retries contract mismatches instead of publishing user failure", async () => {
   const source = await jpegSource(32, 32);
   const mismatched = { ...original(source), eTag: '"different"' };
@@ -120,6 +138,23 @@ test("rejects unknown purpose before reading the original", async () => {
   );
   assert.equal(storage.readRequests.length, 0);
   assert.equal(storage.writes.length, 0);
+});
+
+test("rejects a mismatched UUIDv5 job before reading the original", async () => {
+  const source = await jpegSource(32, 32);
+  const storage = new FakeStorage(original(source));
+  const publisher = new FakePublisher();
+  const worker = new ImageTransformWorker(storage, publisher);
+
+  await assert.rejects(
+    worker.processMessage(
+      requestBody(source, { jobId: "ebb9b9d8-c427-564b-a70e-0fd4e1925e5b" }),
+    ),
+    ContractMismatchError,
+  );
+  assert.equal(storage.readRequests.length, 0);
+  assert.equal(storage.writes.length, 0);
+  assert.equal(publisher.results.length, 0);
 });
 
 class FakeStorage implements ImageObjectStorage {

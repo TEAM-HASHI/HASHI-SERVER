@@ -4,6 +4,7 @@ import { resolve } from "node:path";
 import test from "node:test";
 
 import { ContractMismatchError } from "../src/errors";
+import { mediaProcessingJobId } from "../src/job-id";
 import { parseTransformRequest } from "../src/queue-contract";
 
 const requestFixture = readFileSync(
@@ -50,6 +51,33 @@ test("requires a UUIDv5 job ID", () => {
   );
 });
 
+test("rejects a UUIDv5 job ID that does not match its source tuple", () => {
+  const base = JSON.parse(requestFixture) as Record<string, unknown>;
+
+  assert.throws(
+    () =>
+      parseTransformRequest(
+        JSON.stringify({
+          ...base,
+          jobId: "ebb9b9d8-c427-564b-a70e-0fd4e1925e5b",
+        }),
+      ),
+    ContractMismatchError,
+  );
+});
+
+test("keeps specVersion within the signed 32-bit producer contract", () => {
+  const base = JSON.parse(requestFixture) as Record<string, unknown>;
+
+  assert.throws(
+    () =>
+      parseTransformRequest(
+        JSON.stringify({ ...base, specVersion: 2_147_483_648 }),
+      ),
+    ContractMismatchError,
+  );
+});
+
 test("enforces the source version limit in UTF-8 bytes", () => {
   const base = JSON.parse(requestFixture) as Record<string, unknown>;
   const exactly1_024Bytes = `${"가".repeat(341)}a`;
@@ -57,7 +85,11 @@ test("enforces the source version limit in UTF-8 bytes", () => {
 
   assert.equal(
     parseTransformRequest(
-      JSON.stringify({ ...base, sourceVersionId: exactly1_024Bytes }),
+      JSON.stringify({
+        ...base,
+        jobId: mediaProcessingJobId(base.assetId as string, exactly1_024Bytes, 1),
+        sourceVersionId: exactly1_024Bytes,
+      }),
     ).sourceVersionId,
     exactly1_024Bytes,
   );

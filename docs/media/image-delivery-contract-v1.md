@@ -960,6 +960,8 @@ media/renditions/{assetId}/v{specVersion}/{role}/{width}.webp
 worker가 만들 필수 role 집합은 request의 `purpose`와 canonical manifest만으로 결정한다. queue
 request는 `roles`를 중복 전달하지 않는다. purpose가 manifest에 없거나 asset snapshot과 다르면
 사용자 이미지 FAILED가 아니라 contract mismatch로 retry, DLQ와 운영 알람에 남긴다.
+`sourceVersionId`는 빈 문자열을 허용하지 않고 UTF-8 기준 최대 1,024바이트다. `specVersion`은
+DB `INT`와 UUIDv5 canonical encoding에 맞춰 1 이상 signed 32-bit 최댓값 이하로 제한한다.
 
 ### 13.2 성공 결과
 
@@ -1029,8 +1031,13 @@ unknown specVersion과 specDigest mismatch도 FAILED 결과로 확정하지 않�
 
 - request queue와 result queue는 Standard queue로 두고 각각 DLQ를 연결한다. 중복과 순서
   역전을 전제로 한다.
-- v1 job ID는 assetId, sourceVersionId와 specVersion으로 계산한 UUIDv5다. 동일 job을
-  재발행할 때 DB에 저장된 같은 ID를 사용한다.
+- v1 job ID는 assetId, sourceVersionId와 specVersion으로 계산한 UUIDv5다. namespace는
+  `5d167dc9-9bfd-5f4e-a7a0-46b10b4de90d`로 고정한다. UUID name bytes는 asset UUID의
+  16-byte network order, sourceVersionId UTF-8 byte 길이의 4-byte big-endian signed integer,
+  sourceVersionId UTF-8 bytes, specVersion의 4-byte big-endian signed integer 순서로 연결한다.
+  예를 들어 assetId `a3af06f1-4ef2-46f8-a489-2347fb840447`, sourceVersionId `version-1`,
+  specVersion `1`의 job ID는 `ebb9b9d8-c427-564b-a70e-0fd4e1925e5a`다. 동일 job을 재발행할
+  때 DB에 저장된 같은 ID를 사용한다.
 - 동일 asset, sourceVersionId와 specVersion의 job은 결정적 job ID와 object key를 사용한다.
   terminal 또는 obsolete spec은 같은 asset에서 재사용하지 않으며 재처리는 더 높은 spec으로만
   시작한다.
