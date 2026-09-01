@@ -48,7 +48,7 @@ CREATE TABLE image_asset (
     actual_bytes BIGINT,
     source_width INT,
     source_height INT,
-    source_checksum_sha256 CHAR(64) CHARACTER SET ascii COLLATE ascii_bin,
+    source_checksum_sha256 CHAR(44) CHARACTER SET ascii COLLATE ascii_bin,
     processing_status VARCHAR(30) NOT NULL,
     binding_status VARCHAR(20) NOT NULL,
     active_spec_version INT,
@@ -140,7 +140,7 @@ CREATE TABLE image_asset (
             AND source_height IS NOT NULL
             AND source_height > 0
             AND source_checksum_sha256 IS NOT NULL
-            AND source_checksum_sha256 REGEXP '^[0-9a-f]{64}$'
+            AND source_checksum_sha256 REGEXP '^[A-Za-z0-9+/]{43}=$'
         )
     ),
     CONSTRAINT ck_image_asset_ready_source CHECK (
