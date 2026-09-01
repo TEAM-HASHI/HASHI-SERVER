@@ -815,7 +815,7 @@ active object를 덮어쓰지 않는다.
 
 - role 규격은 임의 DB 설정이나 Java와 Node의 중복 코드가 아니라 저장소의
   `media-specs/v{specVersion}.json` immutable manifest를 단일 원본으로 관리한다.
-- 원본에서 crop 가능한 width보다 작은 표준 후보만 생성한다.
+- 원본에서 crop 가능한 width보다 작거나 같은 표준 후보만 생성한다.
 - 생성 가능한 표준 후보가 하나도 없으면 원본에서 가능한 최대 width의 WebP 하나를
   생성하며 확대하지 않는다.
 - asset READY는 해당 원본과 activeSpecVersion에서 생성 가능한 필수 role 후보와 각 role의
@@ -882,7 +882,7 @@ Sharp native version 변경처럼 한 worker artifact에서 구 processor와 vN�
 issuance false를 유지해 vN-only worker에 old spec job을 발급하지 않는다. 이 절차는 운영
 runbook과 복구 검증을 통과한 경우에만 사용한다.
 
-최초 rollout은 migration이 seed한 `(v1, v1Digest, false)`를 그대로 두고 worker와 모든 Spring
+최초 rollout은 versioned migration에서 최초 생성한 `(v1, v1Digest, false)`를 그대로 두고 worker와 모든 Spring
 instance의 v1 compatibility를 확인한 뒤 `(v1, v1Digest, true)`로 flag만 compare-and-set한다.
 동일 spec의 운영 pause와 resume도 version과 digest를 바꾸지 않고 flag만 compare-and-set한다.
 따라서 증가만 허용하는 대상은 spec version이고 `issuance_enabled`는 승인된 운영 절차에서만
@@ -1119,10 +1119,15 @@ backfill 항목부터 점진적으로 전환하고, 미전환 항목은 `assetId
 
 필요한 schema 불변식은 다음과 같다.
 
-- `media_pipeline_config`는 fixed PK `id=1`과 DB check로 singleton을 강제한다. row는
+- `media_pipeline_config`는 fixed PK `id=1`과 DB check로 최대 한 행만 허용한다. row는
   `current_spec_version`, `current_spec_digest`, `issuance_enabled`, optimistic `lock_version`과
-  `updated_at`을 가진다. 첫 migration은 packaged v1 manifest와 같은 version과 digest,
-  `issuance_enabled=false`로 seed한다.
+  `updated_at`을 가진다. 첫 versioned migration에서 packaged v1 manifest와 같은 version과 digest,
+  `issuance_enabled=false`로 필수 제어 행을 한 번 생성한다.
+- 이 행은 업무·샘플 데이터가 아니라 환경 독립적이고 비민감한 필수 제어 데이터다.
+  [DB 컨벤션](../conventions/database.md)의 최초 생성 예외와
+  [ADR 0001](../adr/0001-media-module-and-image-pipeline.md)의 근거를 따른다. 서버 재시작·재배포는
+  운영 중 변경된 값을 유지한다. 시작 시 초기화 코드나 repeatable migration으로 재초기화하지
+  않으며, 활성화·중지·규격 변경은 검증과 승인을 거친 별도 운영 절차로만 수행한다.
 - job 발급은 같은 DB transaction에서 config snapshot을 읽는다. 활성화는 이전 version과 digest를
   조건으로 한 compare-and-set이고 version 감소를 거부한다. 최초 활성화는 같은 v1 version과
   digest에서 issuance false를 true로 바꾸고, 일반 upgrade는 old version과 digest, issuance true를
@@ -1133,7 +1138,8 @@ backfill 항목부터 점진적으로 전환하고, 미전환 항목은 `assetId
   commit까지 유지한다. config CAS는 exclusive lock으로 직렬화하며 lock 순서는 config 다음 내부
   asset ID 오름차순이다. pause CAS가 commit된 뒤에는 이전 true snapshot의 transaction이 남지 않아
   drain 중 old job이 뒤늦게 추가되지 않는다.
-- config row가 없거나 중복됐거나 packaged manifest의 version과 digest와 일치하지 않으면 media
+- 누락된 config row는 자동 재생성하지 않고, 원인 확인 후 승인된 운영 절차로 복구한다.
+  config row가 없거나 중복됐거나 packaged manifest의 version과 digest와 일치하지 않으면 media
   job 발급을 fail-closed로 차단하고 별도 media issuance capability indicator 또는 metric을
   `DEGRADED`로 노출해 운영 알람을 보낸다. global liveness와 read-serving readiness는 유지해 기존
   result 처리, READY와 legacy 요청을 계속 제공하고 media write만 503으로 차단한다. 값은 worker,
@@ -1241,15 +1247,19 @@ publisher가 event를 재처리할 때 asset의 currentJobId가 event jobId와 �
   golden fixture를 읽고 specDigest를 포함한 queue wire 계약을 동일하게 해석하는 테스트를 둔다.
 - Java publisher와 Node worker가 모든 append-only spec manifest와 같은 manifest JSON Schema를
   읽고 version, digest, purpose별 role, exact 산출 규격을 동일하게 해석하는 계약 테스트를 둔다.
+- no-upscale 경계값은 공통 golden fixture로 검증한다. `REVIEW_PREVIEW`의 270×270 원본에서는
+  135와 270 width 후보를 생성하고 405는 제외한다. 원본과 같은 크기는 확대가 아니다.
 - 기존 manifest 수정과 삭제는 CI가 거부하는지, current v5 request와 result의 digest가 target과
   일치하는지 테스트한다.
 - unknown version과 digest mismatch가 asset을 FAILED로 바꾸지 않고 retry와 DLQ로 이동한 뒤
   compatible worker 배포 후 redrive되는지 테스트한다.
-- config singleton과 false seed, row 누락과 packaged digest mismatch의 fail-closed media issuance
+- config 최대 한 행 제약과 false 최초 생성, row 누락과 packaged digest mismatch의 fail-closed media issuance
   `DEGRADED` indicator, global liveness와 read-serving readiness 유지,
   최초 `(v1, digest, false)`에서 `(v1, digest, true)` 활성화, 일반
   `(oldVersion, oldDigest, true)`에서 `(vN, vNDigest, true)` upgrade, 동일 spec pause와 resume,
   spec version 감소 거부를 테스트한다.
+- 최초 생성 후 운영 설정을 변경한 DB에서 migration을 다시 실행하거나 서버를 재시작·재배포해도
+  현재 설정이 유지되는지, 누락된 제어 행을 시작 코드가 자동 재생성하지 않는지 검증한다.
 - issuance disabled가 신규 media create와 PENDING_UPLOAD complete, backfill과 upgrade 발급만 막고
   PROCESSING 또는 READY complete 멱등 재호출, 기존 publish, result consume, redrive, READY와 legacy
   read를 막지 않는지 테스트한다.
@@ -1324,14 +1334,18 @@ publisher가 event를 재처리할 때 asset의 currentJobId가 event jobId와 �
 
 ## 18. 구현 전에 추가 확인할 값
 
-다음 값은 실제 AWS 환경과 운영 샘플을 확인하기 전까지 확정하지 않는다.
+§2.3의 Lambda runtime과 architecture, ZIP 배포, AWS SAM/CloudFormation과 GitHub Actions OIDC는
+확정한 기술 선택이다. 아래는 이 선택을 실제 환경에 적용할 구체 설정과 운영 검증 항목이다.
+초기 Lambda memory 1536MB, timeout 60초와 request batch size 1로 시작하며, 대표 이미지
+benchmark에 따라 memory, timeout과 concurrency를 조정한다. 출력 bytes에 영향을 주는 설정을
+바꾸면 §11의 `specVersion` 변경 규칙을 따른다.
 
 - 실제 region, bucket, queue, Lambda 이름과 ARN
 - 기존 bucket policy, OAC, CORS, encryption, versioning, lifecycle
-- IaC 도구와 GitHub Actions AWS 인증 방식
-- Lambda runtime, architecture, memory, timeout, concurrency
-- SQS visibility timeout, retention, batch size, retry, DLQ redrive 값
-- WebP quality, 최대 픽셀 수, worker 제한 시간
+- SAM stack parameter와 environment별 OIDC role의 trust policy 및 최소 권한
+- Lambda 초기 memory와 timeout의 적정성, concurrency 상한
+- SQS visibility timeout, retention, retry, DLQ redrive 값
+- WebP quality와 최대 픽셀 수
 - 일반 삭제, 회원 탈퇴, 신고 이미지의 물리 삭제 보존 기간
 - 운영 backfill 대상 수, 누락 object 수, 예상 비용
 - actor와 purpose별 asset 생성, byte, 동시 처리와 polling 제한 값
