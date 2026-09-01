@@ -83,6 +83,38 @@ class MediaSchemaValidationTest {
     }
 
     @Test
+    void DIRECT_UPLOAD은_creator_actor_type이_필수다() {
+        String publicId = java.util.UUID.randomUUID().toString();
+        String objectKey = "media/originals/%s/original".formatted(publicId);
+
+        DataAccessException exception = assertThrows(DataAccessException.class, () -> jdbcTemplate.update("""
+                INSERT INTO image_asset (
+                    public_id,
+                    purpose,
+                    creation_origin,
+                    creator_subject_id,
+                    owner_actor_type,
+                    owner_subject_id,
+                    original_object_key,
+                    declared_content_type,
+                    declared_bytes,
+                    upload_expires_at,
+                    processing_status,
+                    binding_status,
+                    cleanup_status,
+                    lock_version,
+                    created_at,
+                    updated_at
+                ) VALUES (?, 'REVIEW', 'DIRECT_UPLOAD', 1, 'USER', 1, ?, 'image/jpeg', 1024,
+                          CURRENT_TIMESTAMP(6), 'PENDING_UPLOAD', 'UNBOUND', 'ACTIVE', 0,
+                          CURRENT_TIMESTAMP(6), CURRENT_TIMESTAMP(6))
+                """, publicId, objectKey));
+
+        assertConstraintViolation(exception, "ck_image_asset_actor");
+        assertThat(imageAssetCount(publicId)).isZero();
+    }
+
+    @Test
     void verified_source는_일부_컬럼만_채울_수_없다() {
         assertDirectUploadConstraintViolation(
                 "actual_content_type",

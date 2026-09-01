@@ -87,6 +87,7 @@ CREATE TABLE image_asset (
     CONSTRAINT ck_image_asset_actor CHECK (
         (
             creation_origin = 'DIRECT_UPLOAD'
+            AND creator_actor_type IS NOT NULL
             AND creator_actor_type IN ('USER', 'ADMIN', 'ONBOARDING')
             AND creator_subject_id IS NOT NULL
             AND owner_actor_type IN ('USER', 'ADMIN', 'ONBOARDING')
