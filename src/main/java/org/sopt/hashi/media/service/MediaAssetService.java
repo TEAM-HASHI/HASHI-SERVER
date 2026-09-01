@@ -195,7 +195,7 @@ public class MediaAssetService {
     }
 
     private void validateMetadata(OwnedAssetSnapshot snapshot, OriginalObjectMetadata metadata) {
-        boolean hasSourceIdentity = hasText(metadata.versionId()) && hasText(metadata.eTag());
+        boolean hasSourceIdentity = MediaSourceIdentity.isValid(metadata.versionId(), metadata.eTag());
         boolean matchesDeclaration = snapshot.objectKey().equals(metadata.objectKey())
                 && snapshot.declaredBytes() == metadata.contentLength()
                 && snapshot.declaredContentType().equalsIgnoreCase(metadata.contentType());
@@ -222,10 +222,6 @@ public class MediaAssetService {
         return new MediaAssetStatusesResponse(snapshots.stream()
                 .map(snapshot -> new MediaAssetStatusResponse(snapshot.assetId(), snapshot.status()))
                 .toList());
-    }
-
-    private boolean hasText(String value) {
-        return value != null && !value.isBlank();
     }
 
     private record PreparedUpload(PreparedMediaAsset asset, PresignedOriginalUpload upload) {

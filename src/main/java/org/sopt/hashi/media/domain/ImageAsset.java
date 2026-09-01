@@ -74,7 +74,7 @@ public class ImageAsset extends BaseTimeEntity {
     @Column(name = "upload_expires_at", nullable = false, updatable = false)
     private LocalDateTime uploadExpiresAt;
 
-    @Column(name = "source_version_id", length = 255)
+    @Column(name = "source_version_id", length = 1024)
     private String sourceVersionId;
 
     @Column(name = "source_etag", length = 255)
@@ -92,6 +92,7 @@ public class ImageAsset extends BaseTimeEntity {
     @Column(name = "source_height")
     private Integer sourceHeight;
 
+    @JdbcTypeCode(SqlTypes.CHAR)
     @Column(name = "source_checksum_sha256", length = 64)
     private String sourceChecksumSha256;
 
@@ -106,12 +107,14 @@ public class ImageAsset extends BaseTimeEntity {
     @Column(name = "active_spec_version")
     private Integer activeSpecVersion;
 
+    @JdbcTypeCode(SqlTypes.CHAR)
     @Column(name = "active_spec_digest", length = 64)
     private String activeSpecDigest;
 
     @Column(name = "target_spec_version")
     private Integer targetSpecVersion;
 
+    @JdbcTypeCode(SqlTypes.CHAR)
     @Column(name = "target_spec_digest", length = 64)
     private String targetSpecDigest;
 
@@ -132,6 +135,7 @@ public class ImageAsset extends BaseTimeEntity {
     @Column(name = "last_failure_code", length = 64)
     private String lastFailureCode;
 
+    @JdbcTypeCode(SqlTypes.CHAR)
     @Column(name = "backfill_identity_hash", length = 64, unique = true)
     private String backfillIdentityHash;
 

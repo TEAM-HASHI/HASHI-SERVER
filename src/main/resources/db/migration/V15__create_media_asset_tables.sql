@@ -23,7 +23,7 @@ INSERT INTO media_pipeline_config (
 ) VALUES (
     1,
     1,
-    '91ac56d691c5af9e43061b0a2cc43763a4d1825244135d120057c3305a1bbe32',
+    '1b5759a9285732133699114e21101b3b9b43b5cd8e208bf1246d059f4293634f',
     FALSE,
     0,
     CURRENT_TIMESTAMP(6)
@@ -42,7 +42,7 @@ CREATE TABLE image_asset (
     declared_content_type VARCHAR(50) NOT NULL,
     declared_bytes BIGINT NOT NULL,
     upload_expires_at DATETIME(6) NOT NULL,
-    source_version_id VARCHAR(255),
+    source_version_id VARCHAR(1024),
     source_etag VARCHAR(255),
     actual_content_type VARCHAR(50),
     actual_bytes BIGINT,
@@ -87,6 +87,7 @@ CREATE TABLE image_asset (
     CONSTRAINT ck_image_asset_actor CHECK (
         (
             creation_origin = 'DIRECT_UPLOAD'
+            AND creator_actor_type IS NOT NULL
             AND creator_actor_type IN ('USER', 'ADMIN', 'ONBOARDING')
             AND creator_subject_id IS NOT NULL
             AND owner_actor_type IN ('USER', 'ADMIN', 'ONBOARDING')
@@ -132,9 +133,13 @@ CREATE TABLE image_asset (
         )
         OR (
             actual_content_type IS NOT NULL
+            AND actual_bytes IS NOT NULL
             AND actual_bytes > 0
+            AND source_width IS NOT NULL
             AND source_width > 0
+            AND source_height IS NOT NULL
             AND source_height > 0
+            AND source_checksum_sha256 IS NOT NULL
             AND source_checksum_sha256 REGEXP '^[0-9a-f]{64}$'
         )
     ),
@@ -144,7 +149,9 @@ CREATE TABLE image_asset (
     CONSTRAINT ck_image_asset_active_spec CHECK (
         (active_spec_version IS NULL AND active_spec_digest IS NULL)
         OR (
-            active_spec_version >= 1
+            active_spec_version IS NOT NULL
+            AND active_spec_version >= 1
+            AND active_spec_digest IS NOT NULL
             AND active_spec_digest REGEXP '^[0-9a-f]{64}$'
         )
     ),
@@ -156,8 +163,11 @@ CREATE TABLE image_asset (
             AND current_job_id IS NULL
         )
         OR (
-            target_spec_version >= 1
+            target_spec_version IS NOT NULL
+            AND target_spec_version >= 1
+            AND target_spec_digest IS NOT NULL
             AND target_spec_digest REGEXP '^[0-9a-f]{64}$'
+            AND target_processing_status IS NOT NULL
             AND target_processing_status = 'PROCESSING'
             AND current_job_id IS NOT NULL
         )
@@ -167,12 +177,17 @@ CREATE TABLE image_asset (
     ),
     CONSTRAINT ck_image_asset_last_failure CHECK (
         (last_failure_spec_version IS NULL AND last_failure_code IS NULL)
-        OR (last_failure_spec_version >= 1 AND last_failure_code IS NOT NULL)
+        OR (
+            last_failure_spec_version IS NOT NULL
+            AND last_failure_spec_version >= 1
+            AND last_failure_code IS NOT NULL
+        )
     ),
     CONSTRAINT ck_image_asset_backfill_identity CHECK (
         (creation_origin = 'DIRECT_UPLOAD' AND backfill_identity_hash IS NULL)
         OR (
             creation_origin = 'SYSTEM_BACKFILL'
+            AND backfill_identity_hash IS NOT NULL
             AND backfill_identity_hash REGEXP '^[0-9a-f]{64}$'
         )
     ),
