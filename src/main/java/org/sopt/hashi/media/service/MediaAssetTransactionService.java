@@ -173,7 +173,11 @@ public class MediaAssetTransactionService {
         }
         validateMetadata(asset, metadata);
 
-        UUID jobId = UUID.randomUUID();
+        UUID jobId = MediaProcessingJobId.from(
+                asset.getPublicId(),
+                metadata.versionId(),
+                spec.version()
+        );
         asset.beginInitialProcessing(
                 metadata.versionId(),
                 metadata.eTag(),
@@ -185,7 +189,7 @@ public class MediaAssetTransactionService {
     }
 
     private void validateMetadata(ImageAsset asset, OriginalObjectMetadata metadata) {
-        boolean hasSourceIdentity = hasText(metadata.versionId()) && hasText(metadata.eTag());
+        boolean hasSourceIdentity = MediaSourceIdentity.isValid(metadata.versionId(), metadata.eTag());
         boolean matchesDeclaration = asset.getOriginalObjectKey().equals(metadata.objectKey())
                 && asset.getDeclaredBytes() == metadata.contentLength()
                 && asset.getDeclaredContentType().equalsIgnoreCase(metadata.contentType());
@@ -214,7 +218,4 @@ public class MediaAssetTransactionService {
         };
     }
 
-    private boolean hasText(String value) {
-        return value != null && !value.isBlank();
-    }
 }

@@ -102,10 +102,19 @@ public interface CurrentActorProvider {
 bytes와 object key를 소유한다. `(asset_id, role, spec_version, format, width)`를 unique로
 보호한다.
 
-`media_pipeline_config`는 fixed PK `id=1`과 DB check로 singleton을 강제한다. current spec version과
-digest, `issuanceEnabled`, optimistic lock version과 updatedAt을 소유한다. 첫 migration은 packaged
-v1 manifest와 같은 version과 digest, issuance false로 seed한다. processing job 발급 transaction이
-이 snapshot을 읽어 target에 기록한다. 최초 rollout은 같은 v1 version과 digest에서 issuance를
+`media_pipeline_config`는 fixed PK `id=1`과 DB check로 최대 한 행만 허용한다. current spec version과
+digest, `issuanceEnabled`, optimistic lock version과 updatedAt을 소유한다.
+
+이 행은 업무·샘플 데이터가 아니라 신규 이미지 작업 발급과 변환 규격을 제어하는 필수 설정이다.
+환경별 리소스 값이나 민감정보를 포함하지 않으므로 [DB 컨벤션](../conventions/database.md)의
+필수 제어 데이터 최초 생성 예외를 적용한다. 첫 versioned migration에서 packaged v1 manifest와
+같은 version과 digest, `issuanceEnabled=false`로 한 번 생성해 검증 전 작업 발급을 막는다.
+최초 생성 이후 운영 중 변경한 값은 서버 재시작·재배포로 덮어쓰지 않는다. 시작 시 초기화 코드나
+repeatable migration으로 이 행을 재초기화하지 않으며, 활성화·중지·규격 변경은 아래 운영 절차로
+분리한다.
+
+processing job 발급 transaction이 이 snapshot을 읽어 target에 기록한다. 최초 rollout은 worker와
+Spring·클라이언트의 호환성과 dev E2E를 확인하고 운영 승인 후 같은 v1 version과 digest에서 issuance를
 false에서 true로 compare-and-set한다. 일반 spec upgrade는 old version과 digest, issuance true를
 vN version과 digest, issuance true로 compare-and-set하고 spec version 증가만 허용한다. 운영
 pause와 resume은 같은 version과 digest에서 issuance flag만 compare-and-set한다. 활성화와 job
@@ -118,6 +127,7 @@ lock으로 직렬화한다. pause commit이 반환될 때 이전 true snapshot�
 drain 뒤 old job이 새로 나타나지 않는다. 전체 DB lock 순서는 config 다음 내부 asset ID 오름차순이며
 S3와 SQS I/O를 잠금 transaction 안에서 실행하지 않는다.
 
+config row가 누락돼도 자동 재생성하지 않고, 원인을 확인한 뒤 승인된 운영 절차로 복구한다.
 config row 누락, 중복 또는 packaged manifest와의 version과 digest 불일치는 media job 발급을
 fail-closed로 막고 별도 media issuance capability indicator 또는 metric을 `DEGRADED`로 노출해 운영
 알람을 보낸다. global liveness와 read-serving readiness는 유지한다. issuance false는 신규 media

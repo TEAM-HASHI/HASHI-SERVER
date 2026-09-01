@@ -12,6 +12,7 @@ export interface ReadOriginalRequest {
   readonly objectKey: string;
   readonly sourceETag: string;
   readonly sourceVersionId: string;
+  readonly expectedContentLength: number;
 }
 
 export interface WriteRenditionRequest {
