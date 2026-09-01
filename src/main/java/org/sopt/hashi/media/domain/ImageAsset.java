@@ -93,7 +93,7 @@ public class ImageAsset extends BaseTimeEntity {
     private Integer sourceHeight;
 
     @JdbcTypeCode(SqlTypes.CHAR)
-    @Column(name = "source_checksum_sha256", length = 64)
+    @Column(name = "source_checksum_sha256", length = 44)
     private String sourceChecksumSha256;
 
     @Enumerated(EnumType.STRING)

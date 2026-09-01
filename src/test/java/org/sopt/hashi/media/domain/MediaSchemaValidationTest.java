@@ -29,6 +29,8 @@ class MediaSchemaValidationTest {
 
     private static final String SPEC_DIGEST =
             "1b5759a9285732133699114e21101b3b9b43b5cd8e208bf1246d059f4293634f";
+    private static final String EMPTY_CONTENT_SHA256_BASE64 =
+            "47DEQpj8HBSa+/TImW+5JCeuQeRkm5NMpJWZG3hSuFU=";
 
     @Container
     @ServiceConnection
@@ -194,6 +196,31 @@ class MediaSchemaValidationTest {
     }
 
     @Test
+    void source_checksum은_44자리_standard_Base64_SHA_256만_허용한다() {
+        Integer checksumLength = jdbcTemplate.queryForObject("""
+                SELECT character_maximum_length
+                FROM information_schema.columns
+                WHERE table_schema = DATABASE()
+                  AND table_name = 'image_asset'
+                  AND column_name = 'source_checksum_sha256'
+                """, Integer.class);
+        assertThat(checksumLength).isEqualTo(44);
+
+        String validPublicId = java.util.UUID.randomUUID().toString();
+        insertVerifiedSource(validPublicId, EMPTY_CONTENT_SHA256_BASE64);
+        assertThat(imageAssetCount(validPublicId)).isEqualTo(1L);
+        jdbcTemplate.update("DELETE FROM image_asset WHERE public_id = ?", validPublicId);
+
+        String invalidPublicId = java.util.UUID.randomUUID().toString();
+        DataAccessException exception = assertThrows(
+                DataAccessException.class,
+                () -> insertVerifiedSource(invalidPublicId, "A".repeat(44))
+        );
+        assertConstraintViolation(exception, "ck_image_asset_verified_source");
+        assertThat(imageAssetCount(invalidPublicId)).isZero();
+    }
+
+    @Test
     void Event_Publication_Registry_컬럼과_완료일_index를_보정한다() {
         Integer serializedEventLength = jdbcTemplate.queryForObject("""
                 SELECT character_maximum_length
@@ -261,6 +288,41 @@ class MediaSchemaValidationTest {
 
         assertConstraintViolation(exception, constraintName);
         assertThat(imageAssetCount(publicId)).isZero();
+    }
+
+    private void insertVerifiedSource(String publicId, String checksumSha256) {
+        String objectKey = "media/originals/%s/original".formatted(publicId);
+        jdbcTemplate.update("""
+                INSERT INTO image_asset (
+                    public_id,
+                    purpose,
+                    creation_origin,
+                    creator_actor_type,
+                    creator_subject_id,
+                    owner_actor_type,
+                    owner_subject_id,
+                    original_object_key,
+                    declared_content_type,
+                    declared_bytes,
+                    upload_expires_at,
+                    source_version_id,
+                    source_etag,
+                    actual_content_type,
+                    actual_bytes,
+                    source_width,
+                    source_height,
+                    source_checksum_sha256,
+                    processing_status,
+                    binding_status,
+                    cleanup_status,
+                    lock_version,
+                    created_at,
+                    updated_at
+                ) VALUES (?, 'REVIEW', 'DIRECT_UPLOAD', 'USER', 1, 'USER', 1, ?, 'image/jpeg', 1024,
+                          CURRENT_TIMESTAMP(6), 'version-1', '\"etag\"', 'image/jpeg', 1024, 32, 32, ?,
+                          'PROCESSING', 'UNBOUND', 'ACTIVE', 0,
+                          CURRENT_TIMESTAMP(6), CURRENT_TIMESTAMP(6))
+                """, publicId, objectKey, checksumSha256);
     }
 
     private void assertConstraintViolation(DataAccessException exception, String constraintName) {
