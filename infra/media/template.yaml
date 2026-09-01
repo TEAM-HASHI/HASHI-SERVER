@@ -37,13 +37,13 @@ Parameters:
   WorkerReservedConcurrency:
     Type: Number
     Default: 5
-    MinValue: 2
+    MinValue: 5
     MaxValue: 100
     Description: Shared concurrency ceiling for the function and SQS event source
 
   WorkerEventSourceEnabled:
     Type: String
-    Default: "true"
+    Default: "false"
     AllowedValues:
       - "true"
       - "false"
@@ -139,6 +139,10 @@ Resources:
     Properties:
       QueueName: !Sub "hashi-${EnvironmentName}-media-transform-request-dlq"
       MessageRetentionPeriod: 1209600
+      RedriveAllowPolicy:
+        redrivePermission: byQueue
+        sourceQueueArns:
+          - !Sub "arn:${AWS::Partition}:sqs:${AWS::Region}:${AWS::AccountId}:hashi-${EnvironmentName}-media-transform-request"
       SqsManagedSseEnabled: true
       Tags:
         - Key: Component
@@ -167,6 +171,10 @@ Resources:
     Properties:
       QueueName: !Sub "hashi-${EnvironmentName}-media-transform-result-dlq"
       MessageRetentionPeriod: 1209600
+      RedriveAllowPolicy:
+        redrivePermission: byQueue
+        sourceQueueArns:
+          - !Sub "arn:${AWS::Partition}:sqs:${AWS::Region}:${AWS::AccountId}:hashi-${EnvironmentName}-media-transform-result"
       SqsManagedSseEnabled: true
       Tags:
         - Key: Component
@@ -213,6 +221,7 @@ Resources:
       Runtime: nodejs24.x
       Architectures:
         - x86_64
+      AutoPublishAlias: live
       MemorySize: 1536
       Timeout: 60
       ReservedConcurrentExecutions: !Ref WorkerReservedConcurrency
