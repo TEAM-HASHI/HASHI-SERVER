@@ -48,6 +48,7 @@
 ├─ service/               # 비즈니스 로직
 ├─ dto/                   # Request / Response DTO
 ├─ web/                   # Controller
+├─ internal/              # 모듈 내부 전용 기술 구현 (필요 시)
 └─ event/                 # 이벤트 리스너 (필요 시)
 ```
 
@@ -60,6 +61,11 @@
   현재 migration 예외는 association 소유 도메인의 runner만 사용하는 `MediaBackfillPort`다.
   Controller와 일반 Service는 `MediaBackfillPort`를 사용할 수 없다.
 - **MUST**: **발행 이벤트**(예: `UserWithdrawnEvent`)는 모듈 루트에 공개(Port와 같은 위치)하고, `event/` 에는 **구독 리스너**(예: `UserWithdrawnListener`)만 둔다.
+- **MAY**: outbound storage adapter, 규격·설정 파일 reader처럼 모듈 밖에 공개하지 않는 기술 구현은
+  `internal/`에 둘 수 있다. 엔티티·Repository·비즈니스 로직·Request/Response·Controller는 각각
+  `domain`·`service`·`dto`·`web`에 두며, 다른 모듈은 `internal`을 import하지 않는다.
+- **MUST**: `internal/event`는 발행자와 구독자가 모두 같은 모듈인 내부 연결 이벤트에만 사용한다.
+  모듈 간 발행 이벤트는 기존 규칙대로 모듈 루트에 둔다.
 - **SHOULD**: 복합 컨텍스트는 하위 도메인 패키지를 둘 수 있다(예: `user/bookmark/`,
   `support/inquiry/`, `support/notice/`). 이 경우에도 일반 런타임 공개 지점은 `<Context>Port`로
   단일화한다.
