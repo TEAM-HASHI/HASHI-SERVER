@@ -378,10 +378,11 @@ class MediaSchemaValidationTest {
         assertThat(indexColumns("idx_image_asset_cleanup_scan")).containsExactly(
                 "cleanup_status",
                 "binding_status",
-                "processing_status",
                 "creation_origin",
+                "target_processing_status",
                 "updated_at",
-                "id"
+                "id",
+                "processing_status"
         );
         assertThat(indexColumns("idx_image_asset_status_cleanup_scan")).containsExactly(
                 "cleanup_status",

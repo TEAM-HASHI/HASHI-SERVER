@@ -148,20 +148,24 @@ dev 배포와 prod artifact 생성은 `Build or Deploy Image Pipeline` workflow�
    기다린다. 기존 stack update에는 이 대기를 반복하지 않는다.
 4. stack event와 termination protection을 확인하고, output의 original bucket, request queue와 result
    queue를 EC2 런타임 환경에 반영한다.
-5. Spring result consumer와 상태 연동을 배포한다. alarm topic의 confirmed subscription,
+5. Spring 상태 연동 migration 전 `issuance_enabled=false`와 `target_processing_status='PROCESSING'`인
+   asset이 0건인지 확인한다. 이 조건을 어기면 migration은 전체 `ALTER TABLE`을 실패시켜 부분 적용을
+   막는다. 현재 단일 EC2의 기존 Spring 컨테이너를 완전히 교체하며, 이 migration 이후에는 상태 연동을
+   포함하지 않은 과거 이미지 바이너리로 rollback하지 않는다.
+6. Spring result consumer와 상태 연동을 배포한다. alarm topic의 confirmed subscription,
    CloudWatch publish 및 필요 시 KMS key policy를 확인하고 실제 시험 알림을 수신한다.
-6. PENDING_UPLOAD, EXPIRED, UNBOUND, FAILED와 DB 미참조 S3 version cleanup 및 reconciliation을
+7. PENDING_UPLOAD, EXPIRED, UNBOUND, FAILED와 DB 미참조 S3 version cleanup 및 reconciliation을
    구현·배포한다. 24시간/7일 보존 기간, 실행 주기, 실패 metric·alarm과 재실행 절차를 확인한다.
-7. 4~6단계 동안 DB의 `media_pipeline_config.issuance_enabled`는 `false`로 유지한다.
-8. worker compatibility를 확인한 뒤 `MEDIA_DEV_WORKER_EVENT_SOURCE_ENABLED=true`로 dev stack을 다시
+8. 4~7단계 동안 DB의 `media_pipeline_config.issuance_enabled`는 `false`로 유지한다.
+9. worker compatibility를 확인한 뒤 `MEDIA_DEV_WORKER_EVENT_SOURCE_ENABLED=true`로 dev stack을 다시
    배포한다. 값이 없으면 worker를 켜지 않는다.
-9. 승인된 dev 절차로 upload, request, WebP 생성, result consume, READY 반영, CloudFront 전달과 DLQ
+10. 승인된 dev 절차로 upload, request, WebP 생성, result consume, READY 반영, CloudFront 전달과 DLQ
    redrive까지 E2E를 통과한 뒤에만 dev issuance를 활성화한다.
-10. prod는 검토된 `main` commit에서 `target=prod`,
+11. prod는 검토된 `main` commit에서 `target=prod`,
     `production_confirmation=prepare-prod-artifact`로 workflow를 실행한다. build job은 7일 보존 GitHub
     artifact, source commit과 build ZIP SHA-256만 만들며 AWS credential을 요청하거나 production
     resource를 변경하지 않는다.
-11. 별도 AWS 운영자는 workflow run의 `github.sha`가 검토한 `main` commit과 같은지 확인하고, 그 run에
+12. 별도 AWS 운영자는 workflow run의 `github.sha`가 검토한 `main` commit과 같은지 확인하고, 그 run에
     기록된 정확한 artifact를 내려받는다. AWS credential이 없는 검증 환경에서 ZIP SHA-256과 package
     smoke test를 다시 확인한다. 이후 검토된 commit의 clean checkout과 별도 AWS 운영 세션에서는
     artifact 코드를 다시 실행하지 않고 기존 의존성, permissions boundary와 두 단계 `iam:PassRole`을
@@ -169,7 +173,7 @@ dev 배포와 prod artifact 생성은 `Build or Deploy Image Pipeline` workflow�
     `SourceCommitSha`, `WorkerBuildArtifactSha256`을 사용해 `sam deploy --no-execute-changeset`을 실행한다.
     change set, CloudFormation execution role과 전체 parameter를 검토한 뒤 같은 운영 신뢰 경계에서
     실행하고 termination protection을 활성화한다. 최초 bucket이면 3단계 대기를 동일하게 적용한다.
-12. prod에서도 5~9단계와 별도 운영 승인을 통과한 뒤에만 event source와 issuance를 활성화한다.
+13. prod에서도 5~10단계와 별도 운영 승인을 통과한 뒤에만 event source와 issuance를 활성화한다.
 
 Spring에는 stack output을 다음 환경변수로 전달한다.
 
@@ -183,6 +187,10 @@ Spring에는 stack output을 다음 환경변수로 전달한다.
 `AWS_MEDIA_PROCESSING_RETRY_INTERVAL`, `AWS_MEDIA_PROCESSING_MAX_ATTEMPTS`로 조정할 수
 있지만, dev 관측 없이 prod 기본값을 바꾸지 않는다. `AWS_MEDIA_RECOVERY_ENABLED=false`는
 정체 job과 EPR 자동 재제출만 중지하며 기존 result consumer를 중지하지 않는다.
+EPR 복구는 한 주기마다 기본 50건까지만 listener에 다시 제출하며
+`AWS_MEDIA_EPR_RESUBMIT_BATCH_SIZE`로 조정한다. Spring Modulith 1.4는 조회 단계에서 미완료 목록을
+메모리에 적재하므로, backlog가 지속적으로 커지면 framework 업그레이드나 DB claim 방식 전환을
+검토한다.
 
 request/result queue 지연과 DLQ 수는 CloudWatch alarm으로 확인한다. Spring Prometheus에서는
 `hashi.media.transform.*`, `hashi.media.processing.*`, `hashi.media.assets`,
@@ -197,6 +205,9 @@ record 실패 로그와 metric에는 원문 body, asset ID와 object key를 포�
 ## 장애와 rollback
 
 - 신규 job 발급 중지는 DB의 `issuance_enabled=false`로 처리한다.
+- 상태 연동 migration 이후 과거 Spring 이미지 바이너리로 되돌려야 한다면 먼저 issuance와 worker event
+  source를 중지하고 target processing, EPR, request/result queue와 DLQ가 모두 비었는지 확인한다. 이
+  조건을 만족하지 않으면 과거 바이너리 rollback 대신 수정된 현재 계열 release를 배포한다.
 - dev에서 이미 request queue에 들어간 작업까지 멈춰야 하면
   `MEDIA_DEV_WORKER_EVENT_SOURCE_ENABLED=false`로 같은 stack을 다시 배포한다. prod는 별도 AWS 운영
   절차에서 동일 parameter를 false로 적용한다.

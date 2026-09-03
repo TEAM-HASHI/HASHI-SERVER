@@ -459,7 +459,7 @@ class MediaTransformResultServiceIntegrationTest {
 
         Map<String, Object> queryPlan = jdbcTemplate.queryForMap("""
                 EXPLAIN SELECT id, public_id, processing_status, creation_origin, updated_at
-                FROM image_asset FORCE INDEX (idx_image_asset_cleanup_scan)
+                FROM image_asset
                 WHERE cleanup_status = 'ACTIVE'
                   AND binding_status = 'UNBOUND'
                   AND processing_status IN ('PENDING_UPLOAD', 'EXPIRED')
@@ -478,6 +478,7 @@ class MediaTransformResultServiceIntegrationTest {
                 MediaCleanupCandidateCursor.initial().updatedAt()
         );
         assertThat(queryPlan.get("key")).isEqualTo("idx_image_asset_cleanup_scan");
+        assertThat(String.valueOf(queryPlan.get("Extra"))).doesNotContain("Using filesort");
     }
 
     private ProcessingAsset createProcessingAsset(int specVersion, String specDigest) {
