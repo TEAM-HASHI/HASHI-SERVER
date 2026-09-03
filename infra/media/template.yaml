@@ -118,6 +118,8 @@ Resources:
 
   OriginalImageBucketPolicy:
     Type: AWS::S3::BucketPolicy
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
     Properties:
       Bucket: !Ref OriginalImageBucket
       PolicyDocument:
@@ -222,6 +224,7 @@ Resources:
       Architectures:
         - x86_64
       AutoPublishAlias: live
+      AutoPublishAliasAllProperties: true
       MemorySize: 1536
       Timeout: 60
       ReservedConcurrentExecutions: !Ref WorkerReservedConcurrency
@@ -251,7 +254,6 @@ Resources:
             - Sid: ReadFixedOriginalVersion
               Effect: Allow
               Action:
-                - s3:GetObject
                 - s3:GetObjectVersion
               Resource: !Sub "${OriginalImageBucket.Arn}/media/originals/*"
             - Sid: CreateAndVerifyRenditions
