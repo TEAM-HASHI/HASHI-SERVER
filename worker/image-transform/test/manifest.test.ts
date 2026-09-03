@@ -39,3 +39,25 @@ test("rejects role candidates that would share one deterministic width key", () 
     rmSync(directory, { recursive: true, force: true });
   }
 });
+
+test("rejects purpose and role sets outside the worker capability contract", () => {
+  const directory = mkdtempSync(join(tmpdir(), "hashi-media-spec-"));
+  try {
+    const committed = loadMediaSpec(1);
+    const manifest = JSON.parse(committed.rawBytes.toString("utf8")) as {
+      purposes: Record<string, readonly string[]>;
+      roles: Record<string, unknown>;
+    };
+    delete manifest.purposes.REVIEW;
+    manifest.roles.FUTURE_ROLE = manifest.roles.PROFILE_AVATAR;
+    writeFileSync(join(directory, "v1.json"), JSON.stringify(manifest));
+    writeFileSync(
+      join(directory, "schema.json"),
+      readFileSync(resolve(process.cwd(), "../../media-specs/schema.json")),
+    );
+
+    assert.throws(() => loadMediaSpec(1, directory), ContractMismatchError);
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
