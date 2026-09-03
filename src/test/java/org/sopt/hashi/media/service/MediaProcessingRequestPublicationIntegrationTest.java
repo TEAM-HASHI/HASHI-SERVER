@@ -1,16 +1,27 @@
 package org.sopt.hashi.media.service;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import java.sql.Connection;
+import java.sql.PreparedStatement;
+import java.time.Clock;
 import java.time.Duration;
 import java.time.LocalDateTime;
+import java.time.temporal.ChronoUnit;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.BlockingQueue;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 import java.util.function.BooleanSupplier;
+import javax.sql.DataSource;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -21,18 +32,23 @@ import org.sopt.hashi.media.domain.ImageAssetRepository;
 import org.sopt.hashi.media.domain.ImageProcessingStatus;
 import org.sopt.hashi.media.domain.MediaPurpose;
 import org.sopt.hashi.media.internal.event.MediaProcessingRequestPublisher;
+import org.sopt.hashi.media.internal.metrics.MediaPipelineMetrics;
+import org.sopt.hashi.media.internal.recovery.MediaEventPublicationRecovery;
 import org.sopt.hashi.media.internal.recovery.MediaProcessingRecoveryCandidate;
 import org.sopt.hashi.media.internal.recovery.MediaProcessingRecoveryTransactionService;
+import org.sopt.hashi.media.internal.recovery.MediaRecoveryProperties;
 import org.sopt.hashi.media.internal.queue.MediaTransformRequest;
 import org.sopt.hashi.media.internal.queue.MediaTransformRequestPublisher;
 import org.sopt.hashi.media.internal.storage.OriginalObjectMetadata;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.boot.testcontainers.service.connection.ServiceConnection;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Import;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.modulith.events.IncompleteEventPublications;
 import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 import org.testcontainers.containers.MySQLContainer;
@@ -76,6 +92,19 @@ class MediaProcessingRequestPublicationIntegrationTest {
 
     @Autowired
     private TestRequestPublisher requestPublisher;
+
+    @Autowired
+    private IncompleteEventPublications incompleteEventPublications;
+
+    @Autowired
+    private MediaPipelineMetrics metrics;
+
+    @Autowired
+    private DataSource dataSource;
+
+    @Autowired
+    @Qualifier("japanClock")
+    private Clock clock;
 
     @BeforeEach
     void setUp() {
@@ -129,21 +158,74 @@ class MediaProcessingRequestPublicationIntegrationTest {
     }
 
     @Test
+    void 실제_EPR은_실패한_publication을_같은_job으로_재발행하고_완료_처리한다()
+            throws Exception {
+        requestPublisher.failNext();
+        UUID assetId = createAndCompleteAsset();
+        MediaTransformRequest failedAttempt = requestPublisher.awaitAttempt();
+        assertThat(awaitCondition(() -> publicationCount() == 1, Duration.ofSeconds(5))).isTrue();
+        requestPublisher.reset();
+
+        recovery().resubmitOnStartup();
+
+        MediaTransformRequest recovered = requestPublisher.awaitAttempt();
+        assertThat(recovered).isEqualTo(failedAttempt);
+        assertThat(recovered.assetId()).isEqualTo(assetId);
+        assertThat(awaitCondition(() -> publicationCount() == 0, Duration.ofSeconds(5))).isTrue();
+    }
+
+    @Test
+    void 실제_EPR은_이미_종료된_job을_SQS로_보내지_않고_publication을_완료한다()
+            throws Exception {
+        requestPublisher.failNext();
+        UUID assetId = createAndCompleteAsset();
+        requestPublisher.awaitAttempt();
+        assertThat(awaitCondition(() -> publicationCount() == 1, Duration.ofSeconds(5))).isTrue();
+        jdbcTemplate.update("""
+                UPDATE image_asset
+                SET processing_status = 'FAILED',
+                    target_spec_version = NULL,
+                    target_spec_digest = NULL,
+                    target_processing_status = NULL,
+                    current_job_id = NULL,
+                    target_processing_started_at = NULL,
+                    last_recovery_requested_at = NULL,
+                    processing_recovery_attempts = 0
+                WHERE public_id = ?
+                """, assetId.toString());
+        jdbcTemplate.update("""
+                UPDATE event_publication
+                SET publication_date = '2000-01-01 00:00:00.000000'
+                WHERE listener_id = ?
+                  AND completion_date IS NULL
+                """, MediaProcessingRequestPublisher.LISTENER_ID);
+        requestPublisher.reset();
+
+        recovery().resubmitOldPublications();
+
+        assertThat(awaitCondition(() -> publicationCount() == 0, Duration.ofSeconds(5))).isTrue();
+        assertThat(requestPublisher.hasNoAttempt(Duration.ofMillis(300))).isTrue();
+    }
+
+    @Test
     void 정체_job은_같은_jobId로_EPR을_통해_재발행하고_간격_안에는_중복하지_않는다()
             throws Exception {
         UUID assetId = createAndCompleteAsset();
         MediaTransformRequest initialRequest = requestPublisher.awaitAttempt();
         assertThat(awaitCondition(() -> publicationCount() == 0, Duration.ofSeconds(5))).isTrue();
         ImageAsset asset = imageAssetRepository.findByPublicId(assetId).orElseThrow();
-        LocalDateTime startedAt = asset.getTargetProcessingStartedAt();
+        LocalDateTime startedAt = LocalDateTime.now(clock).minusMinutes(30);
+        jdbcTemplate.update(
+                "UPDATE image_asset SET target_processing_started_at = ? WHERE id = ?",
+                startedAt,
+                asset.getId());
         MediaProcessingRecoveryCandidate candidate = new MediaProcessingRecoveryCandidate(
                 asset.getId(), asset.getCurrentJobId(), startedAt);
 
         boolean requested = recoveryTransactionService.requestRetryIfStillStalled(
                 candidate,
-                startedAt.plusMinutes(20),
-                startedAt.plusMinutes(10),
-                startedAt.plusMinutes(5),
+                Duration.ofMinutes(10),
+                Duration.ofMinutes(15),
                 3
         );
         MediaTransformRequest recoveredRequest = requestPublisher.awaitAttempt();
@@ -153,19 +235,63 @@ class MediaProcessingRequestPublicationIntegrationTest {
         assertThat(awaitCondition(() -> publicationCount() == 0, Duration.ofSeconds(5))).isTrue();
         ImageAsset recovered = imageAssetRepository.findByPublicId(assetId).orElseThrow();
         assertThat(recovered.getProcessingRecoveryAttempts()).isEqualTo(1);
-        assertThat(recovered.getLastRecoveryRequestedAt())
-                .isEqualTo(startedAt.plusMinutes(20));
+        assertThat(recovered.getLastRecoveryRequestedAt()).isAfter(startedAt);
 
         boolean duplicateRequested = recoveryTransactionService.requestRetryIfStillStalled(
                 candidate,
-                startedAt.plusMinutes(21),
-                startedAt.plusMinutes(10),
-                startedAt.plusMinutes(19),
+                Duration.ofMinutes(10),
+                Duration.ofMinutes(15),
                 3
         );
 
         assertThat(duplicateRequested).isFalse();
         assertThat(requestPublisher.hasNoAttempt(Duration.ofMillis(300))).isTrue();
+    }
+
+    @Test
+    void 복구_요청_시간은_row_lock을_얻은_뒤에_관측한다() throws Exception {
+        UUID assetId = createAndCompleteAsset();
+        requestPublisher.awaitAttempt();
+        assertThat(awaitCondition(() -> publicationCount() == 0, Duration.ofSeconds(5))).isTrue();
+        ImageAsset asset = imageAssetRepository.findByPublicId(assetId).orElseThrow();
+        LocalDateTime startedAt = LocalDateTime.now(clock).minusMinutes(30);
+        jdbcTemplate.update(
+                "UPDATE image_asset SET target_processing_started_at = ? WHERE id = ?",
+                startedAt,
+                asset.getId());
+        MediaProcessingRecoveryCandidate candidate = new MediaProcessingRecoveryCandidate(
+                asset.getId(), asset.getCurrentJobId(), startedAt);
+        ExecutorService executor = Executors.newSingleThreadExecutor();
+
+        try (Connection lockConnection = dataSource.getConnection();
+             PreparedStatement lockStatement = lockConnection.prepareStatement(
+                     "SELECT id FROM image_asset WHERE id = ? FOR UPDATE")) {
+            lockConnection.setAutoCommit(false);
+            lockStatement.setLong(1, asset.getId());
+            lockStatement.executeQuery();
+            CountDownLatch retryStarted = new CountDownLatch(1);
+            Future<Boolean> retry = executor.submit(() -> {
+                retryStarted.countDown();
+                return recoveryTransactionService.requestRetryIfStillStalled(
+                        candidate, Duration.ofMinutes(10), Duration.ofMinutes(15), 3);
+            });
+            assertThat(retryStarted.await(1, TimeUnit.SECONDS)).isTrue();
+            assertThatThrownBy(() -> retry.get(300, TimeUnit.MILLISECONDS))
+                    .isInstanceOf(TimeoutException.class);
+
+            LocalDateTime lockReleasedAt = LocalDateTime.now(clock)
+                    .truncatedTo(ChronoUnit.MICROS);
+            lockConnection.commit();
+
+            assertThat(retry.get(5, TimeUnit.SECONDS)).isTrue();
+            LocalDateTime recordedAt = jdbcTemplate.queryForObject(
+                    "SELECT last_recovery_requested_at FROM image_asset WHERE id = ?",
+                    LocalDateTime.class,
+                    asset.getId());
+            assertThat(recordedAt).isAfterOrEqualTo(lockReleasedAt);
+        } finally {
+            executor.shutdownNow();
+        }
     }
 
     private UUID createAndCompleteAsset() {
@@ -202,6 +328,28 @@ class MediaProcessingRequestPublicationIntegrationTest {
                 WHERE listener_id = ?
                   AND completion_date IS NULL
                 """, Integer.class, MediaProcessingRequestPublisher.LISTENER_ID);
+    }
+
+    private MediaEventPublicationRecovery recovery() {
+        return new MediaEventPublicationRecovery(
+                incompleteEventPublications,
+                new MediaRecoveryProperties(
+                        true,
+                        Duration.ofMinutes(1),
+                        Duration.ofMinutes(1),
+                        50,
+                        Duration.ofMinutes(10),
+                        Duration.ofMinutes(15),
+                        3,
+                        100,
+                        10,
+                        Duration.ofSeconds(30),
+                        Duration.ofHours(24),
+                        Duration.ofHours(24),
+                        Duration.ofDays(7),
+                        Duration.ofDays(7)),
+                metrics,
+                clock);
     }
 
     private boolean awaitCondition(BooleanSupplier condition, Duration timeout)

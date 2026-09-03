@@ -71,9 +71,8 @@ public class MediaProcessingRecoveryScheduler {
             for (MediaProcessingRecoveryCandidate candidate : candidates) {
                 if (transactionService.requestRetryIfStillStalled(
                         candidate,
-                        now,
-                        staleBefore,
-                        retryBefore,
+                        properties.processingStaleAge(),
+                        properties.processingRetryInterval(),
                         properties.processingMaxAttempts())) {
                     requestedCount++;
                     metrics.recordRecovery("requested");

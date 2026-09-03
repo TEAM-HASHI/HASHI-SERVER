@@ -61,6 +61,7 @@ hashi:
       enabled: ${AWS_MEDIA_RECOVERY_ENABLED:true}
       epr-resubmit-age: ${AWS_MEDIA_EPR_RESUBMIT_AGE:1m}
       epr-resubmit-interval: ${AWS_MEDIA_EPR_RESUBMIT_INTERVAL:1m}
+      epr-resubmit-batch-size: ${AWS_MEDIA_EPR_RESUBMIT_BATCH_SIZE:50}
       processing-stale-age: ${AWS_MEDIA_PROCESSING_STALE_AGE:10m}
       processing-retry-interval: ${AWS_MEDIA_PROCESSING_RETRY_INTERVAL:15m}
       processing-max-attempts: ${AWS_MEDIA_PROCESSING_MAX_ATTEMPTS:3}

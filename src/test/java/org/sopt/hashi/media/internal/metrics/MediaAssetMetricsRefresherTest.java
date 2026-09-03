@@ -104,6 +104,7 @@ class MediaAssetMetricsRefresherTest {
                 true,
                 Duration.ofMinutes(1),
                 Duration.ofMinutes(1),
+                50,
                 Duration.ofMinutes(10),
                 Duration.ofMinutes(15),
                 3,

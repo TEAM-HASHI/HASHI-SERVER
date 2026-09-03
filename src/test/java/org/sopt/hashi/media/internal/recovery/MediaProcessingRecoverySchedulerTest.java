@@ -49,9 +49,8 @@ class MediaProcessingRecoverySchedulerTest {
                 .willReturn(List.of(third));
         given(transactionService.requestRetryIfStillStalled(
                 any(MediaProcessingRecoveryCandidate.class),
-                any(LocalDateTime.class),
-                any(LocalDateTime.class),
-                any(LocalDateTime.class),
+                any(Duration.class),
+                any(Duration.class),
                 anyInt()))
                 .willReturn(true, false, true);
         MediaProcessingRecoveryScheduler scheduler = new MediaProcessingRecoveryScheduler(
@@ -97,9 +96,8 @@ class MediaProcessingRecoverySchedulerTest {
                 .willReturn(List.of(stalled));
         given(transactionService.requestRetryIfStillStalled(
                 eq(stalled),
-                any(LocalDateTime.class),
-                any(LocalDateTime.class),
-                any(LocalDateTime.class),
+                any(Duration.class),
+                any(Duration.class),
                 eq(3)))
                 .willReturn(true);
         MediaProcessingRecoveryScheduler scheduler = new MediaProcessingRecoveryScheduler(
@@ -109,9 +107,8 @@ class MediaProcessingRecoverySchedulerTest {
 
         verify(transactionService).requestRetryIfStillStalled(
                 eq(stalled),
-                any(LocalDateTime.class),
-                any(LocalDateTime.class),
-                any(LocalDateTime.class),
+                any(Duration.class),
+                any(Duration.class),
                 eq(3));
         verify(metrics).recordRecovery("requested");
     }
@@ -129,6 +126,7 @@ class MediaProcessingRecoverySchedulerTest {
                 enabled,
                 Duration.ofMinutes(1),
                 Duration.ofMinutes(1),
+                50,
                 Duration.ofMinutes(10),
                 Duration.ofMinutes(15),
                 3,
