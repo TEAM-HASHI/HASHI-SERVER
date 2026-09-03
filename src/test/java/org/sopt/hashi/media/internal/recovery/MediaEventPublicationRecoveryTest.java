@@ -49,6 +49,26 @@ class MediaEventPublicationRecoveryTest {
     }
 
     @Test
+    void 한_주기에는_설정한_개수까지만_media_publication을_재제출한다() {
+        MediaEventPublicationRecovery recovery = new MediaEventPublicationRecovery(
+                incompletePublications, properties(true), metrics, CLOCK);
+
+        recovery.resubmitOnStartup();
+
+        ArgumentCaptor<Predicate<EventPublication>> captor = predicateCaptor();
+        verify(incompletePublications).resubmitIncompletePublications(captor.capture());
+        Predicate<EventPublication> predicate = captor.getValue();
+        for (int index = 0; index < 50; index++) {
+            assertThat(predicate.test(publication(
+                    new MediaProcessingRequestedEvent(UUID.randomUUID(), UUID.randomUUID()),
+                    Instant.now(CLOCK)))).isTrue();
+        }
+        assertThat(predicate.test(publication(
+                new MediaProcessingRequestedEvent(UUID.randomUUID(), UUID.randomUUID()),
+                Instant.now(CLOCK)))).isFalse();
+    }
+
+    @Test
     void 실행_중에는_기준_시간보다_오래된_publication만_재제출한다() {
         MediaEventPublicationRecovery recovery = new MediaEventPublicationRecovery(
                 incompletePublications, properties(true), metrics, CLOCK);
@@ -97,6 +117,7 @@ class MediaEventPublicationRecoveryTest {
                 enabled,
                 Duration.ofMinutes(1),
                 Duration.ofMinutes(1),
+                50,
                 Duration.ofMinutes(10),
                 Duration.ofMinutes(15),
                 3,

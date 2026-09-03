@@ -26,7 +26,7 @@ import org.sopt.hashi.media.internal.spec.MediaSpecSnapshot;
 class MediaAssetMetricsRefresherTest {
 
     private static final String SPEC_DIGEST =
-            "91ac56d691c5af9e43061b0a2cc43763a4d1825244135d120057c3305a1bbe32";
+            "1b5759a9285732133699114e21101b3b9b43b5cd8e208bf1246d059f4293634f";
     private static final Clock CLOCK = Clock.fixed(
             Instant.parse("2026-08-27T09:00:00Z"),
             ZoneId.of("Asia/Tokyo")
@@ -104,6 +104,7 @@ class MediaAssetMetricsRefresherTest {
                 true,
                 Duration.ofMinutes(1),
                 Duration.ofMinutes(1),
+                50,
                 Duration.ofMinutes(10),
                 Duration.ofMinutes(15),
                 3,

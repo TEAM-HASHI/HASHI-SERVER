@@ -186,12 +186,17 @@ class MediaPortImpl implements MediaPort {
             List<RenditionImageProjection> renditionProjections,
             MediaImageRequest request
     ) {
-        if (asset == null
-                || asset.getBindingStatus() != ImageBindingStatus.BOUND
-                || asset.getCleanupStatus() == MediaCleanupStatus.PURGING) {
+        if (asset == null || asset.getBindingStatus() != ImageBindingStatus.BOUND) {
             return java.util.Optional.empty();
         }
         ImageProcessingStatus processingStatus = asset.getProcessingStatus();
+        boolean visibleFailureTombstone = processingStatus == ImageProcessingStatus.FAILED
+                && (asset.getCleanupStatus() == MediaCleanupStatus.PURGING
+                || asset.getCleanupStatus() == MediaCleanupStatus.PURGED);
+        if (asset.getCleanupStatus() != MediaCleanupStatus.ACTIVE
+                && !visibleFailureTombstone) {
+            return java.util.Optional.empty();
+        }
         if (processingStatus != ImageProcessingStatus.PROCESSING
                 && processingStatus != ImageProcessingStatus.READY
                 && processingStatus != ImageProcessingStatus.FAILED) {

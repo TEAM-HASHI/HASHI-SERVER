@@ -28,7 +28,7 @@ class SqsMediaTransformRequestPublisherTest {
 
     private static final String REQUEST_QUEUE_URL = "https://sqs.example.com/request";
     private static final String SPEC_DIGEST =
-            "91ac56d691c5af9e43061b0a2cc43763a4d1825244135d120057c3305a1bbe32";
+            "1b5759a9285732133699114e21101b3b9b43b5cd8e208bf1246d059f4293634f";
 
     @Mock
     private SqsAsyncClient sqsAsyncClient;
@@ -91,13 +91,13 @@ class SqsMediaTransformRequestPublisherTest {
         UUID assetId = UUID.fromString("a3af06f1-4ef2-46f8-a489-2347fb840447");
         return new MediaTransformRequest(
                 1,
-                UUID.fromString("f57dbf16-f7ca-46ec-8d80-8142be93d12a"),
+                UUID.fromString("ebb9b9d8-c427-564b-a70e-0fd4e1925e5a"),
                 assetId,
                 MediaPurpose.REVIEW,
                 1,
                 SPEC_DIGEST,
                 "media/originals/%s/original".formatted(assetId),
-                "3Lg-source-version",
+                "version-1",
                 "\"etag-value\"",
                 "image/jpeg",
                 1048576L

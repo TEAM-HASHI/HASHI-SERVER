@@ -27,22 +27,22 @@ class ProfileMagazineMediaUpgradeTest {
     private JdbcTemplate jdbcTemplate;
 
     @BeforeEach
-    void setUpV18() {
-        flyway("18").migrate();
+    void setUpV19() {
+        flyway("19").migrate();
         jdbcTemplate = new JdbcTemplate(new DriverManagerDataSource(
                 mysql.getJdbcUrl(), mysql.getUsername(), mysql.getPassword()));
     }
 
     @Test
-    void V18의_기존_이미지를_보존하고_빈_프로필만_정규화하며_V19로_이행한다() {
+    void V19의_기존_이미지를_보존하고_V20과_V21로_순차_이행한다() {
         insertUser(1, "profiles/legacy.jpg");
         insertUser(2, "");
         insertUser(3, "   ");
         insertUser(4, null);
         insertMagazine("magazines/banner.jpg", "magazines/thumbnail.jpg");
 
-        Flyway v19 = flyway("19");
-        assertThat(v19.migrate().migrationsExecuted).isEqualTo(1);
+        Flyway v20 = flyway("20");
+        assertThat(v20.migrate().migrationsExecuted).isEqualTo(1);
 
         assertThat(jdbcTemplate.queryForList(
                 "SELECT profile_image_key FROM users ORDER BY id", String.class))
@@ -50,6 +50,9 @@ class ProfileMagazineMediaUpgradeTest {
         assertThat(jdbcTemplate.queryForObject(
                 "SELECT COUNT(*) FROM users WHERE profile_image_asset_id IS NOT NULL", Integer.class))
                 .isZero();
+        Flyway v21 = flyway("21");
+        assertThat(v21.migrate().migrationsExecuted).isEqualTo(1);
+
         assertThat(jdbcTemplate.queryForMap("""
                 SELECT banner_key, thumbnail_key, banner_image_asset_id, thumbnail_image_asset_id
                 FROM magazine
@@ -58,40 +61,64 @@ class ProfileMagazineMediaUpgradeTest {
                 .containsEntry("thumbnail_key", "magazines/thumbnail.jpg")
                 .containsEntry("banner_image_asset_id", null)
                 .containsEntry("thumbnail_image_asset_id", null);
-        assertThat(v19.validateWithResult().validationSuccessful).isTrue();
+        assertThat(v21.validateWithResult().validationSuccessful).isTrue();
     }
 
     @ParameterizedTest
     @ValueSource(strings = {"banner", "thumbnail"})
-    void V18에_빈_매거진_이미지가_있으면_asset_컬럼을_추가하기_전에_이행을_중단한다(String blankSlot) {
+    void 빈_매거진_이미지는_V20을_보존하고_V21만_복구한다(String blankSlot) {
         insertUser(1, "profiles/legacy.jpg");
         String bannerKey = blankSlot.equals("banner") ? " " : "magazines/banner.jpg";
         String thumbnailKey = blankSlot.equals("thumbnail") ? " " : "magazines/thumbnail.jpg";
         insertMagazine(bannerKey, thumbnailKey);
 
-        assertThatThrownBy(() -> flyway("19").migrate())
+        Flyway v20 = flyway("20");
+        assertThat(v20.migrate().migrationsExecuted).isEqualTo(1);
+
+        Flyway v21 = flyway("21");
+        assertThatThrownBy(v21::migrate)
                 .isInstanceOf(FlywayException.class)
-                .hasStackTraceContaining("ck_v19_profile_magazine_media_guard");
+                .hasStackTraceContaining("ck_v21_magazine_media_guard");
 
         assertThat(jdbcTemplate.queryForObject("""
                 SELECT COUNT(*)
                 FROM information_schema.columns
                 WHERE table_schema = DATABASE()
-                  AND (
-                    (table_name = 'users' AND column_name = 'profile_image_asset_id')
-                    OR (table_name = 'magazine'
-                        AND column_name IN ('banner_image_asset_id', 'thumbnail_image_asset_id'))
-                  )
-                """, Integer.class)).isZero();
+                  AND table_name = 'users'
+                  AND column_name = 'profile_image_asset_id'
+                """, Integer.class)).isEqualTo(1);
         assertThat(jdbcTemplate.queryForObject("""
-                SELECT COUNT(*) FROM flyway_schema_history
-                WHERE version = '19' AND success = TRUE
+                SELECT COUNT(*)
+                FROM information_schema.columns
+                WHERE table_schema = DATABASE()
+                  AND table_name = 'magazine'
+                  AND column_name IN ('banner_image_asset_id', 'thumbnail_image_asset_id')
                 """, Integer.class)).isZero();
+        assertThat(successfulMigrationCount("20")).isEqualTo(1);
+        assertThat(successfulMigrationCount("21")).isZero();
         assertThat(jdbcTemplate.queryForObject(
                 "SELECT profile_image_key FROM users", String.class)).isEqualTo("profiles/legacy.jpg");
         assertThat(jdbcTemplate.queryForMap("SELECT banner_key, thumbnail_key FROM magazine"))
                 .containsEntry("banner_key", bannerKey)
                 .containsEntry("thumbnail_key", thumbnailKey);
+
+        String validKey = "magazines/recovered.jpg";
+        jdbcTemplate.update(
+                "UPDATE magazine SET " + blankSlot + "_key = ?",
+                validKey
+        );
+        v21.repair();
+        assertThat(v21.migrate().migrationsExecuted).isEqualTo(1);
+        assertThat(successfulMigrationCount("21")).isEqualTo(1);
+    }
+
+    private Integer successfulMigrationCount(String version) {
+        return jdbcTemplate.queryForObject("""
+                SELECT COUNT(*)
+                FROM flyway_schema_history
+                WHERE version = ?
+                  AND success = TRUE
+                """, Integer.class, version);
     }
 
     private Flyway flyway(String targetVersion) {

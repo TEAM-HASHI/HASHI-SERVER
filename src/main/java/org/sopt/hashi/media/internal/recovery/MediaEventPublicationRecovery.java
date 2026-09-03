@@ -2,6 +2,8 @@ package org.sopt.hashi.media.internal.recovery;
 
 import java.time.Clock;
 import java.time.Instant;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.function.Predicate;
 import org.sopt.hashi.media.internal.event.MediaProcessingRequestedEvent;
 import org.sopt.hashi.media.internal.metrics.MediaPipelineMetrics;
 import org.springframework.beans.factory.annotation.Qualifier;
@@ -36,8 +38,8 @@ public class MediaEventPublicationRecovery {
     public void resubmitOnStartup() {
         if (properties.enabled()) {
             incompletePublications.resubmitIncompletePublications(
-                    publication -> publication.getEvent()
-                            instanceof MediaProcessingRequestedEvent);
+                    limited(publication -> publication.getEvent()
+                            instanceof MediaProcessingRequestedEvent));
             metrics.recordEprResubmission("startup");
         }
     }
@@ -49,10 +51,17 @@ public class MediaEventPublicationRecovery {
     public void resubmitOldPublications() {
         if (properties.enabled()) {
             Instant publishedBefore = Instant.now(clock).minus(properties.eprResubmitAge());
-            incompletePublications.resubmitIncompletePublications(publication ->
+            incompletePublications.resubmitIncompletePublications(limited(publication ->
                     publication.getEvent() instanceof MediaProcessingRequestedEvent
-                            && !publication.getPublicationDate().isAfter(publishedBefore));
+                            && !publication.getPublicationDate().isAfter(publishedBefore)));
             metrics.recordEprResubmission("scheduled");
         }
+    }
+
+    private Predicate<org.springframework.modulith.events.EventPublication> limited(
+            Predicate<org.springframework.modulith.events.EventPublication> eligible) {
+        AtomicInteger selected = new AtomicInteger();
+        return publication -> eligible.test(publication)
+                && selected.getAndIncrement() < properties.eprResubmitBatchSize();
     }
 }
