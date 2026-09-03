@@ -50,6 +50,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.testcontainers.service.connection.ServiceConnection;
 import org.springframework.dao.DataAccessException;
+import org.springframework.dao.InvalidDataAccessApiUsageException;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
@@ -213,17 +214,22 @@ class RestaurantMediaBackfillPersistenceIntegrationTest {
         UUID runId = UUID.randomUUID();
         Lease lease = acquire(runId, RestaurantMediaBackfillTarget.RESTAURANT_IMAGE, 10L);
         checkpointStore.pause(lease);
+        Snapshot before = checkpointStore.find(runId);
 
         assertThatThrownBy(() -> checkpointStore.acquire(
                 runId, RestaurantMediaBackfillTarget.RESTAURANT_MENU,
                 RestaurantMediaBackfillMode.ATTACH, 10L, LEASE_DURATION))
-                .isInstanceOf(IllegalArgumentException.class);
+                .isInstanceOf(InvalidDataAccessApiUsageException.class)
+                .hasRootCauseExactlyInstanceOf(IllegalArgumentException.class)
+                .hasRootCauseMessage("runId is already assigned to a different backfill execution");
+        assertThat(checkpointStore.find(runId)).isEqualTo(before);
         assertThatThrownBy(() -> checkpointStore.acquire(
                 runId, RestaurantMediaBackfillTarget.RESTAURANT_IMAGE,
                 RestaurantMediaBackfillMode.PREPARE, 10L, LEASE_DURATION))
-                .isInstanceOf(IllegalArgumentException.class);
-        assertThat(checkpointStore.find(runId).target())
-                .isEqualTo(RestaurantMediaBackfillTarget.RESTAURANT_IMAGE);
+                .isInstanceOf(InvalidDataAccessApiUsageException.class)
+                .hasRootCauseExactlyInstanceOf(IllegalArgumentException.class)
+                .hasRootCauseMessage("runId is already assigned to a different backfill execution");
+        assertThat(checkpointStore.find(runId)).isEqualTo(before);
     }
 
     @Test
@@ -448,6 +454,7 @@ class RestaurantMediaBackfillPersistenceIntegrationTest {
                     restaurant_id, file_key, display_order, created_at, updated_at
                 ) VALUES (?, ?, ?, CURRENT_TIMESTAMP(6), CURRENT_TIMESTAMP(6))
                 """, rows);
+        jdbcTemplate.execute("ANALYZE TABLE restaurant_image");
         long upper = candidateReader.findUpperBound(RestaurantMediaBackfillTarget.RESTAURANT_IMAGE);
         Map<String, Object> plan = jdbcTemplate.queryForMap("""
                 EXPLAIN SELECT id, restaurant_id, file_key
@@ -457,8 +464,9 @@ class RestaurantMediaBackfillPersistenceIntegrationTest {
                 ORDER BY id ASC LIMIT 50
                 """, upper - 1_000, upper);
 
-        assertThat(plan.get("type")).isIn("range", "ref");
-        assertThat(plan.get("key")).isIn("PRIMARY", "uq_restaurant_image_asset_id");
+        assertThat(plan.get("type")).as("keyset query plan: %s", plan).isIn("range", "ref");
+        assertThat(plan.get("key")).as("keyset query plan: %s", plan)
+                .isIn("PRIMARY", "uq_restaurant_image_asset_id");
     }
 
     private Lease acquire(UUID runId, RestaurantMediaBackfillTarget target, long upperBound) {
