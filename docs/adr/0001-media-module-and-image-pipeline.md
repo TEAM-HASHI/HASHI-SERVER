@@ -282,24 +282,36 @@ v1은 Node.js와 Sharp를 Lambda ZIP으로 배포한다.
 - Sharp와 모든 Node dependency는 `package-lock.json`으로 exact version을 고정한다. Lambda
   Layer나 runtime 내장 AWS SDK에 의존하지 않고 production ZIP에 필요한 package를 포함한다.
 - 초기 Lambda 설정은 memory 1536MB, timeout 60초, request SQS batch size 1과 reserved
-  concurrency 5다. SAM은 worker version을 `live` alias로 발행한다. 최초 stack 배포에서는 request
-  event source를 비활성화하고, Spring result consumer와 alarm 준비를 확인한 뒤 승인된 dev 절차에서
-  명시적으로 활성화한다. 실제 대표 이미지 benchmark에서 memory, timeout과 concurrency만 조정할
-  수 있으며 출력 bytes에 영향을 주는 Sharp와 encoder 설정 변경은 `specVersion`을 올린다.
+  concurrency 5다. SAM은 모든 function property 변경에 새 worker version을 만들고 `live` alias로
+  발행한다. 최초 stack 배포에서는 request event source를 비활성화하고, Spring result consumer와
+  alarm 준비를 확인한 뒤 승인된 dev 절차에서 명시적으로 활성화한다. 실제 대표 이미지 benchmark에서
+  memory, timeout과 concurrency만 조정할 수 있으며 출력 bytes에 영향을 주는 Sharp와 encoder 설정
+  변경은 `specVersion`을 올린다.
 
 GitHub Actions Linux runner에서 Lambda 환경과 호환되는 Sharp package를 포함한 ZIP을 만든다.
 worker source는 HASHI-SERVER 저장소 안의 별도 디렉터리와 독립 Node package로 관리한다.
 Gradle과 Spring runtime dependency에는 포함하지 않고 worker 변경에만 별도 CI와 배포를
 실행한다. 팀과 배포 주기가 실제로 분리될 때 별도 저장소 이전을 검토한다.
 
-AWS 리소스는 AWS SAM으로 표현하고 CloudFormation stack을 dev와 prod로 분리한다. GitHub
-Actions는 environment별 OIDC role을 assume하며 장기 AWS access key를 repository나 GitHub
-Secrets에 추가하지 않는다. SAM stack은 private original bucket, request와 result SQS 및
-각 DLQ, Lambda, event source mapping, 최소 권한 IAM과 CloudWatch alarm을 소유한다. 기존
-delivery bucket과 CloudFront distribution은 parameter로 참조하고 stack의 관리 대상으로
-가져오지 않아 기존 리소스의 교체나 삭제 위험을 막는다. original bucket에는 deletion과
-replacement 방지를 위한 retain 정책을 적용한다. prod stack apply와 issuance 활성화는 dev
-E2E와 별도 운영 승인을 통과한 뒤 수행한다.
+AWS 리소스는 AWS SAM으로 표현하고 CloudFormation stack을 dev와 prod로 분리한다. CI와 배포는
+동일한 SAM CLI `1.165.0`을 사용한다. GitHub Actions는 branch가 고정된 dev/prod별 OIDC role을
+assume하며 장기 AWS access key를 repository나 GitHub Secrets에 추가하지 않는다. 현재 private
+GitHub Free 저장소에서는 required reviewer와 environment variable을 강제할 수 없으므로 repository
+variable을 환경별 prefix로 구분하고, stack 이름을 `hashi-{environment}-media-pipeline`으로
+결정적으로 만든다. 기존 stack의 environment parameter와 tag가 target과 다르면 change set을 만들지
+않는다.
+
+SAM stack은 private original bucket, request와 result SQS 및 각 DLQ, Lambda, event source mapping,
+최소 권한 IAM과 CloudWatch alarm을 소유한다. 기존 delivery bucket과 CloudFront distribution은
+parameter로 참조하고 stack의 관리 대상으로 가져오지 않아 기존 리소스의 교체나 삭제 위험을 막는다.
+original bucket과 TLS 강제 bucket policy에는 deletion과 replacement 방지를 위한 retain 정책을
+적용한다.
+
+OIDC deploy role과 CloudFormation execution role은 분리하고 같은 ARN을 거부한다. execution role은
+CloudFormation service만 신뢰한다. dev workflow는 stack을 적용할 수 있지만 prod workflow는
+`--no-execute-changeset`으로 검토할 change set만 만든다. prod OIDC role에는 change set 실행 권한을
+주지 않고, 별도 AWS 운영자가 dev E2E와 운영 승인을 확인한 뒤 실행한다. prod issuance 활성화도
+cleanup, alarm과 E2E gate를 통과한 뒤 별도로 수행한다.
 
 Spring Boot 3.5.x 애플리케이션의 SQS publisher와 result consumer는 Spring Cloud AWS 3.4.2를
 사용한다. listener는 media Service의 transaction이 commit된 뒤에만 ack하고, listener container
@@ -349,6 +361,8 @@ vN compatibility를 확인한다. config의 `(oldVersion, oldDigest, false)`를
 - 신규 원본은 별도 private original bucket에 저장한다.
 - original bucket은 versioning을 활성화한다. 완료 확인 시점의 version ID와 ETag를 job에
   고정하고 worker는 해당 version만 읽는다.
+- original bucket에서 versioning을 처음 활성화한 stack 생성은 첫 PUT 또는 DELETE 전에 15분을
+  기다린다. 이미 versioning이 활성화된 기존 stack update에는 이 대기를 반복하지 않는다.
 - 신규 presigned PUT은 서명된 `If-None-Match: *`로 첫 write만 허용한다. 동일 URL의 두 번째
   write는 412나 409로 거부된다.
 - `media/originals/*`에는 무조건적인 `NoncurrentVersionExpiration`을 설정하지 않는다. backfill
@@ -389,6 +403,9 @@ vN compatibility를 확인한다. config의 `(oldVersion, oldDigest, false)`를
   manifest는 v1에서 자동 삭제하지 않는다.
 - original bucket은 CloudFront origin으로 연결하지 않는다.
 - 기존 S3 bucket은 WebP 파생본 delivery에 사용한다.
+- 배포 전 기존 delivery bucket의 enabled lifecycle rule을 확인한다. tag 없는
+  `media/renditions/*`와 겹치는 current object expiration 또는 storage transition이 있으면 배포를
+  차단한다.
 - 기존 CloudFront distribution을 유지한다.
 - 전환 기간에는 기존 CloudFront OAC의 legacy delivery prefix 읽기 권한을 유지하고
   `media/renditions/*`를 추가 허용한다. backfill, 클라이언트 전환과 legacy fallback 사용량 0을

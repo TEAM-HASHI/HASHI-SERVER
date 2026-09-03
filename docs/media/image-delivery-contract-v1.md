@@ -51,10 +51,15 @@ WebP 단일 제공은 합의된 최소 지원 환경인 Safari와 iOS 16.4 이�
 - 변환 worker는 `nodejs24.x`, `x86_64`, Sharp 기반 Lambda ZIP으로 배포한다.
 - worker용 EC2, ECS, ECR과 운영 Docker image를 추가하지 않는다.
 - 초기 Lambda 설정은 memory 1536MB, timeout 60초, request batch size 1, reserved concurrency
-  5다. worker는 `live` alias로 발행하고 최초 request event source는 비활성화한다.
+  5다. 모든 function property 변경에 새 version을 만들고 `live` alias로 발행하며, 최초 request
+  event source는 비활성화한다.
 - private original bucket, SQS와 DLQ, Lambda, IAM, alarm은 AWS SAM/CloudFormation의 dev와
   prod stack으로 관리한다.
-- GitHub Actions는 environment별 OIDC role을 사용하고 장기 AWS access key를 저장하지 않는다.
+- CI와 배포는 SAM CLI `1.165.0`을 사용한다. GitHub Actions는 branch가 고정된 dev/prod별 OIDC
+  role을 사용하고 장기 AWS access key를 저장하지 않는다.
+- 현재 private GitHub Free 저장소에서 강제할 수 없는 required reviewer를 전제로 하지 않는다.
+  dev workflow만 stack을 적용하고, prod workflow는 change set만 생성한다. prod 적용은 별도 AWS
+  운영자가 검토·실행한다.
 - 기존 delivery bucket과 CloudFront는 새 stack이 소유하지 않고 parameter로 참조한다.
 - Spring의 SQS 연동은 Spring Boot 3.5.x와 호환되는 Spring Cloud AWS 3.4.2를 사용한다.
 - prod stack 적용과 `media_pipeline_config.issuance_enabled=true` 전환은 dev E2E 이후 별도
@@ -1351,8 +1356,12 @@ benchmark에 따라 memory, timeout과 concurrency를 조정한다. 출력 bytes
 바꾸면 §11의 `specVersion` 변경 규칙을 따른다.
 
 - 실제 region, bucket, queue, Lambda 이름과 ARN
-- 기존 bucket policy, OAC, CORS, encryption, versioning, lifecycle
-- SAM stack parameter와 environment별 OIDC role의 trust policy 및 최소 권한
+- 기존 bucket의 expected owner, policy, OAC의 S3/SigV4/always-signing, CORS, encryption,
+  versioning과 `media/renditions/*`에 겹치지 않는 lifecycle
+- 최초 original bucket versioning 활성화 뒤 첫 PUT 또는 DELETE 전 15분 대기 여부
+- 결정적인 dev/prod stack 이름, environment parameter와 tag 일치 여부
+- branch별 OIDC role의 trust policy, deploy role과 CloudFormation execution role 분리 및 최소 권한
+- prod change set 별도 검토·실행, termination protection과 실제 alarm 수신 절차
 - Lambda 초기 memory와 timeout의 적정성, concurrency 상한
 - SQS visibility timeout, retention, retry, DLQ redrive 값
 - WebP quality와 최대 픽셀 수
@@ -1360,3 +1369,4 @@ benchmark에 따라 memory, timeout과 concurrency를 조정한다. 출력 bytes
 - 운영 backfill 대상 수, 누락 object 수, 예상 비용
 - actor와 purpose별 asset 생성, byte, 동시 처리와 polling 제한 값
 - media event publisher 전용 executor의 pool, queue, shutdown 대기 값과 재발행 주기
+- issuance 활성화 전 cleanup과 reconciliation의 보존 기간, 실행 주기, 실패 alarm과 복구 절차
