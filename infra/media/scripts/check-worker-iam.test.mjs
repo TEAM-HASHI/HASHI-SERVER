@@ -22,6 +22,15 @@ test("rejects a SAM-generated worker role", () => {
   );
 });
 
+test("rejects a worker role without the deterministic reviewed name", () => {
+  const changed = template.replace(
+    '      RoleName: !Sub "hashi-${EnvironmentName}-media-image-transform-lambda"\n',
+    "",
+  );
+
+  assert.throws(() => validateWorkerIamTemplate(changed), /deterministic reviewed role name/);
+});
+
 test("rejects a wildcard request queue resource", () => {
   const changed = template.replace(
     "                Resource: !GetAtt TransformRequestQueue.Arn",

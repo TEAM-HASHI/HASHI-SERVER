@@ -88,6 +88,13 @@ export function validateWorkerIamTemplate(rawTemplate) {
   if (!roleBlock.includes("    Type: AWS::IAM::Role\n")) {
     fail("ImageTransformFunctionRole must be an explicit AWS::IAM::Role.");
   }
+  if (
+    !roleBlock.includes(
+      '      RoleName: !Sub "hashi-${EnvironmentName}-media-image-transform-lambda"\n',
+    )
+  ) {
+    fail("ImageTransformFunctionRole must use the deterministic reviewed role name.");
+  }
   if (!functionBlock.includes("      Role: !GetAtt ImageTransformFunctionRole.Arn\n")) {
     fail("ImageTransformFunction must use the explicit runtime role.");
   }

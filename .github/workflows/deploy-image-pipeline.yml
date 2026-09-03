@@ -1,4 +1,4 @@
-name: Deploy Image Pipeline
+name: Build or Deploy Image Pipeline
 
 on:
   workflow_dispatch:
@@ -11,7 +11,7 @@ on:
           - dev
           - prod
       production_confirmation:
-        description: Type prepare-prod to create a production change set
+        description: Type prepare-prod-artifact to build the production artifact without AWS access
         required: false
         type: string
 
@@ -30,9 +30,38 @@ jobs:
     permissions:
       contents: read
     outputs:
+      artifact_name: ${{ steps.package_metadata.outputs.artifact_name }}
       lambda_package_sha256: ${{ steps.package_metadata.outputs.sha256 }}
 
     steps:
+      - name: Validate requested operation
+        shell: bash
+        env:
+          TARGET: ${{ inputs.target }}
+          PRODUCTION_CONFIRMATION: ${{ inputs.production_confirmation }}
+          DEPLOYMENT_REF: ${{ github.ref }}
+        run: |
+          set -euo pipefail
+
+          if [[ "${TARGET}" == "dev" ]]; then
+            [[ "${DEPLOYMENT_REF}" == "refs/heads/develop" ]] || {
+              echo "Dev deployment must run from refs/heads/develop."
+              exit 1
+            }
+          elif [[ "${TARGET}" == "prod" ]]; then
+            [[ "${DEPLOYMENT_REF}" == "refs/heads/main" ]] || {
+              echo "Production artifact preparation must run from refs/heads/main."
+              exit 1
+            }
+            [[ "${PRODUCTION_CONFIRMATION}" == "prepare-prod-artifact" ]] || {
+              echo "Production artifact preparation requires the exact confirmation string."
+              exit 1
+            }
+          else
+            echo "Unsupported target: ${TARGET}"
+            exit 1
+          fi
+
       - name: Checkout source code
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
@@ -63,6 +92,9 @@ jobs:
 
       - name: Test infrastructure policy checkers
         run: |
+          bash -n infra/media/scripts/check-cloudformation-pass-role.sh
+          node --test infra/media/scripts/check-deploy-workflow-trust.test.mjs
+          node infra/media/scripts/check-deploy-workflow-trust.mjs .github/workflows/deploy-image-pipeline.yml
           node --test infra/media/scripts/check-delivery-lifecycle.test.mjs
           node --test infra/media/scripts/check-worker-iam.test.mjs
           node infra/media/scripts/check-worker-iam.mjs infra/media/template.yaml
@@ -75,20 +107,25 @@ jobs:
 
       - name: Build production Lambda package
         working-directory: worker/image-transform
-        run: npm run package:lambda
+        run: |
+          npm run package:lambda
+          node scripts/verify-package.mjs artifacts/package
 
       - name: Record Lambda package identity
         id: package_metadata
         shell: bash
         run: |
           set -euo pipefail
+          artifact_name="image-transform-${GITHUB_SHA}-${GITHUB_RUN_ATTEMPT}"
           package_sha256="$(sha256sum worker/image-transform/artifacts/image-transform.zip | cut -d ' ' -f 1)"
           [[ "${package_sha256}" =~ ^[0-9a-f]{64}$ ]]
+          echo "artifact_name=${artifact_name}" >> "${GITHUB_OUTPUT}"
           echo "sha256=${package_sha256}" >> "${GITHUB_OUTPUT}"
           {
             echo "### Image transform artifact"
             echo "- Source commit: \`${GITHUB_SHA}\`"
-            echo "- Lambda ZIP SHA-256: \`${package_sha256}\`"
+            echo "- GitHub artifact: \`${artifact_name}\`"
+            echo "- Build artifact ZIP SHA-256: \`${package_sha256}\`"
           } >> "${GITHUB_STEP_SUMMARY}"
 
       - name: Validate and build SAM template
@@ -98,18 +135,26 @@ jobs:
           sam validate --lint --region ap-northeast-2 --template-file infra/media/template.yaml
           sam build --template-file infra/media/template.yaml --build-dir .aws-sam/media-build
 
-      - name: Upload immutable Lambda package for deploy job
+      - name: Upload immutable Lambda build artifact
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: image-transform-${{ github.sha }}-${{ github.run_attempt }}
+          name: ${{ steps.package_metadata.outputs.artifact_name }}
           path: worker/image-transform/artifacts/image-transform.zip
           if-no-files-found: error
-          retention-days: 1
+          retention-days: 7
           compression-level: 0
 
+      - name: Record production handoff boundary
+        if: inputs.target == 'prod'
+        shell: bash
+        run: |
+          echo "Production AWS was not accessed. A separate AWS operator must verify and deploy this exact artifact." \
+            >> "${GITHUB_STEP_SUMMARY}"
+
   deploy:
-    name: Deploy dev or prepare prod image pipeline
+    name: Deploy dev image pipeline
     needs: build
+    if: inputs.target == 'dev'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     permissions:
@@ -117,7 +162,7 @@ jobs:
       id-token: write
     env:
       SOURCE_COMMIT_SHA: ${{ github.sha }}
-      LAMBDA_PACKAGE_SHA256: ${{ needs.build.outputs.lambda_package_sha256 }}
+      WORKER_BUILD_ARTIFACT_SHA256: ${{ needs.build.outputs.lambda_package_sha256 }}
 
     steps:
       - name: Checkout source code
@@ -128,8 +173,6 @@ jobs:
       - name: Select and validate repository configuration
         shell: bash
         env:
-          TARGET: ${{ inputs.target }}
-          PRODUCTION_CONFIRMATION: ${{ inputs.production_confirmation }}
           DEPLOYMENT_REF: ${{ github.ref }}
           MEDIA_DEV_AWS_ACCOUNT_ID: ${{ vars.MEDIA_DEV_AWS_ACCOUNT_ID }}
           MEDIA_DEV_AWS_REGION: ${{ vars.MEDIA_DEV_AWS_REGION }}
@@ -142,33 +185,11 @@ jobs:
           MEDIA_DEV_UPLOAD_ALLOWED_ORIGINS: ${{ vars.MEDIA_DEV_UPLOAD_ALLOWED_ORIGINS }}
           MEDIA_DEV_ALARM_NOTIFICATION_TOPIC_ARN: ${{ vars.MEDIA_DEV_ALARM_NOTIFICATION_TOPIC_ARN }}
           MEDIA_DEV_WORKER_EVENT_SOURCE_ENABLED: ${{ vars.MEDIA_DEV_WORKER_EVENT_SOURCE_ENABLED }}
-          MEDIA_PROD_AWS_ACCOUNT_ID: ${{ vars.MEDIA_PROD_AWS_ACCOUNT_ID }}
-          MEDIA_PROD_AWS_REGION: ${{ vars.MEDIA_PROD_AWS_REGION }}
-          MEDIA_PROD_AWS_DEPLOY_ROLE_ARN: ${{ vars.MEDIA_PROD_AWS_DEPLOY_ROLE_ARN }}
-          MEDIA_PROD_AWS_CLOUDFORMATION_EXECUTION_ROLE_ARN: ${{ vars.MEDIA_PROD_AWS_CLOUDFORMATION_EXECUTION_ROLE_ARN }}
-          MEDIA_PROD_AWS_SAM_ARTIFACT_BUCKET: ${{ vars.MEDIA_PROD_AWS_SAM_ARTIFACT_BUCKET }}
-          MEDIA_PROD_DELIVERY_BUCKET_NAME: ${{ vars.MEDIA_PROD_DELIVERY_BUCKET_NAME }}
-          MEDIA_PROD_CLOUDFRONT_DISTRIBUTION_ID: ${{ vars.MEDIA_PROD_CLOUDFRONT_DISTRIBUTION_ID }}
-          MEDIA_PROD_SPRING_APPLICATION_ROLE_NAME: ${{ vars.MEDIA_PROD_SPRING_APPLICATION_ROLE_NAME }}
-          MEDIA_PROD_UPLOAD_ALLOWED_ORIGINS: ${{ vars.MEDIA_PROD_UPLOAD_ALLOWED_ORIGINS }}
-          MEDIA_PROD_ALARM_NOTIFICATION_TOPIC_ARN: ${{ vars.MEDIA_PROD_ALARM_NOTIFICATION_TOPIC_ARN }}
-          MEDIA_PROD_WORKER_EVENT_SOURCE_ENABLED: ${{ vars.MEDIA_PROD_WORKER_EVENT_SOURCE_ENABLED }}
         run: |
           set -euo pipefail
 
-          if [[ "${TARGET}" == "prod" && "${PRODUCTION_CONFIRMATION}" != "prepare-prod" ]]; then
-            echo "Production change-set preparation requires the exact confirmation string."
-            exit 1
-          fi
-
-          expected_ref="refs/heads/develop"
-          variable_prefix="MEDIA_DEV"
-          if [[ "${TARGET}" == "prod" ]]; then
-            expected_ref="refs/heads/main"
-            variable_prefix="MEDIA_PROD"
-          fi
-          if [[ "${DEPLOYMENT_REF}" != "${expected_ref}" ]]; then
-            echo "${TARGET} operations must run from ${expected_ref}."
+          if [[ "${DEPLOYMENT_REF}" != "refs/heads/develop" ]]; then
+            echo "Dev deployment must run from refs/heads/develop."
             exit 1
           fi
 
@@ -187,7 +208,7 @@ jobs:
           for mapping in "${mappings[@]}"; do
             source_suffix="${mapping%%:*}"
             destination="${mapping##*:}"
-            source_name="${variable_prefix}_${source_suffix}"
+            source_name="MEDIA_DEV_${source_suffix}"
             value="${!source_name:-}"
             if [[ -z "${value}" ]]; then
               echo "Missing required repository variable: ${source_name}"
@@ -200,18 +221,17 @@ jobs:
             selected["${destination}"]="${value}"
           done
 
-          alarm_name="${variable_prefix}_ALARM_NOTIFICATION_TOPIC_ARN"
-          worker_name="${variable_prefix}_WORKER_EVENT_SOURCE_ENABLED"
-          selected[MEDIA_ALARM_NOTIFICATION_TOPIC_ARN]="${!alarm_name:-}"
-          selected[MEDIA_WORKER_EVENT_SOURCE_ENABLED]="${!worker_name:-false}"
+          selected[MEDIA_ALARM_NOTIFICATION_TOPIC_ARN]="${MEDIA_DEV_ALARM_NOTIFICATION_TOPIC_ARN:-}"
+          selected[MEDIA_WORKER_EVENT_SOURCE_ENABLED]="${MEDIA_DEV_WORKER_EVENT_SOURCE_ENABLED:-false}"
           for optional_name in MEDIA_ALARM_NOTIFICATION_TOPIC_ARN MEDIA_WORKER_EVENT_SOURCE_ENABLED; do
             if [[ "${selected[${optional_name}]}" == *$'\n'* || "${selected[${optional_name}]}" == *$'\r'* ]]; then
               echo "Optional repository variables cannot contain a newline."
               exit 1
             fi
           done
-          selected[MEDIA_PIPELINE_STACK_NAME]="hashi-${TARGET}-media-pipeline"
-          selected[TARGET]="${TARGET}"
+          selected[MEDIA_PIPELINE_STACK_NAME]="hashi-dev-media-pipeline"
+          selected[MEDIA_WORKER_EXECUTION_ROLE_NAME]="hashi-dev-media-image-transform-lambda"
+          selected[TARGET]="dev"
 
           if [[ ! "${selected[AWS_ACCOUNT_ID]}" =~ ^[0-9]{12}$ ]]; then
             echo "AWS_ACCOUNT_ID must contain exactly 12 digits."
@@ -235,6 +255,7 @@ jobs:
             echo "The OIDC deploy role and CloudFormation execution role must be different."
             exit 1
           fi
+          selected[MEDIA_WORKER_EXECUTION_ROLE_ARN]="${expected_role_prefix}${selected[MEDIA_WORKER_EXECUTION_ROLE_NAME]}"
 
           if [[ ! "${selected[MEDIA_SPRING_APPLICATION_ROLE_NAME]}" =~ ^[A-Za-z0-9+=,.@_-]{1,64}$ ]]; then
             echo "MEDIA_SPRING_APPLICATION_ROLE_NAME is invalid."
@@ -255,10 +276,6 @@ jobs:
               echo "Every upload origin must be an exact HTTP(S) origin without a path."
               exit 1
             fi
-            if [[ "${TARGET}" == "prod" && "${origin}" != https://* ]]; then
-              echo "Production upload origins must use HTTPS."
-              exit 1
-            fi
           done
 
           worker_enabled="${selected[MEDIA_WORKER_EVENT_SOURCE_ENABLED]}"
@@ -268,10 +285,6 @@ jobs:
           fi
 
           alarm_topic="${selected[MEDIA_ALARM_NOTIFICATION_TOPIC_ARN]}"
-          if [[ "${TARGET}" == "prod" && -z "${alarm_topic}" ]]; then
-            echo "Production change-set preparation requires an alarm notification topic."
-            exit 1
-          fi
           if [[ -n "${alarm_topic}" ]]; then
             expected_topic_prefix="arn:aws:sns:${selected[AWS_REGION]}:${selected[AWS_ACCOUNT_ID]}:"
             if [[ "${alarm_topic}" != "${expected_topic_prefix}"* ]]; then
@@ -287,30 +300,35 @@ jobs:
       - name: Download verified Lambda package
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
-          name: image-transform-${{ github.sha }}-${{ github.run_attempt }}
+          name: ${{ needs.build.outputs.artifact_name }}
           path: worker/image-transform/artifacts
 
-      - name: Verify and restore Lambda package
+      - name: Verify Lambda build artifact digest
         shell: bash
         run: |
           set -euo pipefail
-          [[ "${LAMBDA_PACKAGE_SHA256}" =~ ^[0-9a-f]{64}$ ]]
+          [[ "${WORKER_BUILD_ARTIFACT_SHA256}" =~ ^[0-9a-f]{64}$ ]]
           actual_sha256="$(sha256sum worker/image-transform/artifacts/image-transform.zip | cut -d ' ' -f 1)"
-          if [[ "${actual_sha256}" != "${LAMBDA_PACKAGE_SHA256}" ]]; then
+          if [[ "${actual_sha256}" != "${WORKER_BUILD_ARTIFACT_SHA256}" ]]; then
             echo "Downloaded Lambda package digest does not match the build job output."
             exit 1
           fi
-          test ! -e worker/image-transform/artifacts/package
-          mkdir -p worker/image-transform/artifacts/package
-          unzip -q worker/image-transform/artifacts/image-transform.zip \
-            -d worker/image-transform/artifacts/package
-          test -f worker/image-transform/artifacts/package/dist/handler.js
-          test -f worker/image-transform/artifacts/package/media-specs/v1.json
 
       - name: Set up Node.js 24
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: "24"
+
+      - name: Restore and smoke test Lambda package
+        shell: bash
+        run: |
+          set -euo pipefail
+          test ! -e worker/image-transform/artifacts/package
+          mkdir -p worker/image-transform/artifacts/package
+          unzip -q worker/image-transform/artifacts/image-transform.zip \
+            -d worker/image-transform/artifacts/package
+          node worker/image-transform/scripts/verify-package.mjs \
+            worker/image-transform/artifacts/package
 
       - name: Set up AWS SAM CLI 1.165.0
         uses: aws-actions/setup-sam@89ddb14d60e682855e3fea4be85b3c56485de310 # v3
@@ -329,24 +347,12 @@ jobs:
           [[ "${sam_version}" == "SAM CLI, version 1.165.0" ]]
 
       - name: Configure short-lived dev AWS credentials
-        if: inputs.target == 'dev'
         uses: aws-actions/configure-aws-credentials@e6de054238d6b7531b4efff3b6587d9aade6a06c # v6.2.3
         with:
           role-to-assume: ${{ vars.MEDIA_DEV_AWS_DEPLOY_ROLE_ARN }}
           role-session-name: hashi-media-dev-${{ github.run_id }}
           aws-region: ${{ vars.MEDIA_DEV_AWS_REGION }}
           allowed-account-ids: ${{ vars.MEDIA_DEV_AWS_ACCOUNT_ID }}
-          mask-aws-account-id: true
-          unset-current-credentials: true
-
-      - name: Configure short-lived prod AWS credentials
-        if: inputs.target == 'prod'
-        uses: aws-actions/configure-aws-credentials@e6de054238d6b7531b4efff3b6587d9aade6a06c # v6.2.3
-        with:
-          role-to-assume: ${{ vars.MEDIA_PROD_AWS_DEPLOY_ROLE_ARN }}
-          role-session-name: hashi-media-prod-${{ github.run_id }}
-          aws-region: ${{ vars.MEDIA_PROD_AWS_REGION }}
-          allowed-account-ids: ${{ vars.MEDIA_PROD_AWS_ACCOUNT_ID }}
           mask-aws-account-id: true
           unset-current-credentials: true
 
@@ -427,6 +433,12 @@ jobs:
           fi
 
           aws iam get-role --role-name "${MEDIA_SPRING_APPLICATION_ROLE_NAME}" >/dev/null
+
+          unapproved_role_arn="arn:aws:iam::${AWS_ACCOUNT_ID}:role/hashi-dev-media-unapproved-role"
+          bash infra/media/scripts/check-cloudformation-pass-role.sh \
+            "${AWS_CLOUDFORMATION_EXECUTION_ROLE_ARN}" \
+            "${MEDIA_WORKER_EXECUTION_ROLE_ARN}" \
+            "${unapproved_role_arn}"
 
           if [[ -n "${MEDIA_ALARM_NOTIFICATION_TOPIC_ARN}" ]]; then
             aws sns get-topic-attributes \
@@ -519,7 +531,7 @@ jobs:
             exit 1
           fi
 
-      - name: Deploy dev stack or prepare prod change set
+      - name: Deploy dev stack
         shell: bash
         run: |
           set -euo pipefail
@@ -532,7 +544,7 @@ jobs:
             "UploadAllowedOrigins=${MEDIA_UPLOAD_ALLOWED_ORIGINS}"
             "WorkerEventSourceEnabled=${MEDIA_WORKER_EVENT_SOURCE_ENABLED}"
             "SourceCommitSha=${SOURCE_COMMIT_SHA}"
-            "WorkerArtifactSha256=${LAMBDA_PACKAGE_SHA256}"
+            "WorkerBuildArtifactSha256=${WORKER_BUILD_ARTIFACT_SHA256}"
           )
           if [[ -n "${MEDIA_ALARM_NOTIFICATION_TOPIC_ARN}" ]]; then
             parameters+=("AlarmNotificationTopicArn=${MEDIA_ALARM_NOTIFICATION_TOPIC_ARN}")
@@ -543,20 +555,14 @@ jobs:
             --stack-name "${MEDIA_PIPELINE_STACK_NAME}"
             --region "${AWS_REGION}"
             --s3-bucket "${AWS_SAM_ARTIFACT_BUCKET}"
-            --s3-prefix "media-pipeline/${TARGET}/${SOURCE_COMMIT_SHA}"
+            --s3-prefix "media-pipeline/${TARGET}/${SOURCE_COMMIT_SHA}/${WORKER_BUILD_ARTIFACT_SHA256}"
             --role-arn "${AWS_CLOUDFORMATION_EXECUTION_ROLE_ARN}"
-            --capabilities CAPABILITY_IAM
+            --capabilities CAPABILITY_NAMED_IAM
             --parameter-overrides "${parameters[@]}"
-            --tags Project=HASHI Component=media Environment="${TARGET}" ManagedBy=SAM SourceCommit="${SOURCE_COMMIT_SHA}" WorkerArtifactSha256="${LAMBDA_PACKAGE_SHA256}"
+            --tags Project=HASHI Component=media Environment="${TARGET}" ManagedBy=SAM SourceCommit="${SOURCE_COMMIT_SHA}" WorkerBuildArtifactSha256="${WORKER_BUILD_ARTIFACT_SHA256}"
             --no-confirm-changeset
             --no-fail-on-empty-changeset
           )
-
-          if [[ "${TARGET}" == "prod" ]]; then
-            sam deploy "${deploy_args[@]}" --no-execute-changeset
-            echo "Production was not changed. Review and execute the generated change set from a separate AWS operator session."
-            exit 0
-          fi
 
           sam deploy "${deploy_args[@]}"
           aws cloudformation update-termination-protection \

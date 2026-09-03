@@ -294,19 +294,24 @@ Gradle과 Spring runtime dependency에는 포함하지 않고 worker 변경에�
 실행한다. 팀과 배포 주기가 실제로 분리될 때 별도 저장소 이전을 검토한다.
 
 AWS 리소스는 AWS SAM으로 표현하고 CloudFormation stack을 dev와 prod로 분리한다. CI와 배포는
-동일한 SAM CLI `1.165.0`을 사용한다. GitHub Actions는 branch가 고정된 dev/prod별 OIDC role을
-assume하며 장기 AWS access key를 repository나 GitHub Secrets에 추가하지 않는다. 현재 private
+동일한 SAM CLI `1.165.0`을 사용한다. GitHub Actions는 dev 배포에서 `develop` branch가 고정된 OIDC
+role을 assume하며 장기 AWS access key를 repository나 GitHub Secrets에 추가하지 않는다. prod build
+job은 AWS credential을 요청하지 않고 별도 AWS 운영자가 검토한 artifact를 배포한다. 현재 private
 GitHub Free 저장소에서는 required reviewer, protected branch와 environment variable을 강제할 수
 없으므로 repository variable을 환경별 prefix로 구분하고, stack 이름을
-`hashi-{environment}-media-pipeline`으로 결정적으로 만든다. 기존 stack의 environment parameter와
-tag가 target과 다르면 change set을 만들지 않는다. 이 plan에서는 write와 workflow 실행 권한자를 dev
-배포 신뢰 경계로 보고 dev AWS 권한과 data를 prod에서 격리한다. prod workflow는 change set을 실행하지
-않아 이 경계를 prod 적용 권한으로 확대하지 않는다.
+`hashi-{environment}-media-pipeline`으로 결정적으로 만든다. dev workflow와 prod 운영 절차는 기존
+stack의 environment parameter와 tag가 target과 다르면 change set을 만들지 않는다. 이 plan에서는
+write와 workflow 실행 권한자를 dev
+배포 신뢰 경계로 보고 dev AWS 권한과 data를 prod에서 격리한다. prod workflow에는 AWS 권한이 없으므로
+이 경계를 prod AWS 권한으로 확대하지 않는다.
 
 worker dependency 설치, test, ZIP 생성과 SAM 검증은 `id-token` 권한이 없는 build job에서 수행한다.
-deploy job은 같은 workflow run의 immutable artifact를 받아 build output의 SHA-256과 일치하는지 확인한
-뒤에만 OIDC token을 요청한다. source commit과 ZIP SHA-256은 stack parameter, tag와 output으로 남겨
-prod 운영자가 검토한 commit과 실제 change set을 대조할 수 있게 한다.
+build job은 immutable artifact 이름과 build ZIP SHA-256을 output으로 전달한다. dev deploy job은 그
+이름으로 artifact를 복원해 digest와 Sharp, handler, manifest smoke test를 확인한 뒤에만 OIDC token을
+요청한다. source commit과 build ZIP SHA-256은 stack parameter, tag와 output으로 남긴다. 이 digest는
+SAM이 directory를 다시 package한 최종 ZIP의 byte digest라고 주장하지 않으며, 검증된 build 입력물의
+추적값이다. prod 운영자는 exact commit과 GitHub artifact를 확인한 뒤 별도 AWS 세션에서 change set을
+생성·검토·실행한다.
 
 SAM stack은 private original bucket, request와 result SQS 및 각 DLQ, Lambda, event source mapping,
 최소 권한 IAM과 CloudWatch alarm을 소유한다. Lambda worker에는 명시적인 execution role을 연결하고
@@ -316,13 +321,15 @@ parameter로 참조하고 stack의 관리 대상으로 가져오지 않아 기�
 original bucket과 TLS 강제 bucket policy에는 deletion과 replacement 방지를 위한 retain 정책을
 적용한다.
 
-OIDC deploy role과 CloudFormation execution role은 분리하고 같은 ARN을 거부한다. execution role은
-CloudFormation service만 신뢰한다. dev와 prod OIDC role 모두 자기 환경의 정확한 execution role만
-`iam:PassRole`로 전달할 수 있고 `iam:PassedToService`와 `cloudformation:RoleARN` 조건으로 제한한다.
-dev workflow는 stack을 적용할 수 있지만 prod workflow는
-`--no-execute-changeset`으로 검토할 change set만 만든다. prod OIDC role에는 change set 실행 권한을
-주지 않고, 별도 AWS 운영자가 dev E2E와 운영 승인을 확인한 뒤 실행한다. prod issuance 활성화도
-cleanup, alarm과 E2E gate를 통과한 뒤 별도로 수행한다.
+dev OIDC deploy role과 CloudFormation execution role은 분리하고 같은 ARN을 거부한다. execution role은
+CloudFormation service만 신뢰한다. dev OIDC role과 prod 운영자 세션은 자기 환경의 정확한 execution
+role만 CloudFormation에 `iam:PassRole`로 전달할 수 있고 `iam:PassedToService`와
+`cloudformation:RoleARN` 조건으로 제한한다. 각 CloudFormation execution role은 결정적인 이름의
+`hashi-{environment}-media-image-transform-lambda` role만 `lambda.amazonaws.com`에
+`iam:PassRole`할 수 있다. 배포 전 policy simulation에서 exact role과 service만 허용되는지 확인한다.
+dev workflow는 stack을 적용할 수 있다. prod workflow는 GitHub artifact만 생성하고, 별도 AWS 운영자가
+dev E2E와 운영 승인을 확인한 뒤 `--no-execute-changeset`으로 change set을 생성·검토·실행한다. prod
+issuance 활성화도 cleanup, alarm과 E2E gate를 통과한 뒤 별도로 수행한다.
 
 Spring Boot 3.5.x 애플리케이션의 SQS publisher와 result consumer는 Spring Cloud AWS 3.4.2를
 사용한다. listener는 media Service의 transaction이 commit된 뒤에만 ack하고, listener container
@@ -581,8 +588,8 @@ HASHI는 화면 role과 후보 폭이 제한돼 있으므로 업로드 후 비�
 
 - 기존 AWS 리소스와 배포 인증 방식
 - private GitHub Free의 dev 신뢰 경계와 dev/prod AWS 권한 및 data 격리
-- branch별 OIDC trust, exact `iam:PassRole`, `cloudformation:RoleARN`과 worker runtime 최소 권한
-- source commit과 Lambda ZIP SHA-256을 prod change set과 대조하는 운영 절차
+- dev branch OIDC trust, 두 단계 exact `iam:PassRole`, `cloudformation:RoleARN`과 worker runtime 최소 권한
+- source commit과 worker build ZIP SHA-256을 prod artifact 및 change set과 대조하는 운영 절차
 - role별 WebP quality와 보안 제한 benchmark
 - SQS와 Lambda의 실제 운영 수치
 - 일반 삭제, 회원 탈퇴와 신고 이미지의 물리 삭제 보존 정책

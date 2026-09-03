@@ -25,10 +25,10 @@ Parameters:
     AllowedPattern: "^[0-9a-f]{40}$"
     Description: Reviewed repository commit that produced this deployment
 
-  WorkerArtifactSha256:
+  WorkerBuildArtifactSha256:
     Type: String
     AllowedPattern: "^[0-9a-f]{64}$"
-    Description: SHA-256 of the Lambda ZIP built from SourceCommitSha
+    Description: SHA-256 of the verified build ZIP supplied as input to SAM
 
   SpringApplicationRoleName:
     Type: String
@@ -224,6 +224,7 @@ Resources:
   ImageTransformFunctionRole:
     Type: AWS::IAM::Role
     Properties:
+      RoleName: !Sub "hashi-${EnvironmentName}-media-image-transform-lambda"
       AssumeRolePolicyDocument:
         Version: "2012-10-17"
         Statement:
@@ -316,7 +317,7 @@ Resources:
         Component: media
         Environment: !Ref EnvironmentName
         SourceCommit: !Ref SourceCommitSha
-        WorkerArtifactSha256: !Ref WorkerArtifactSha256
+        WorkerBuildArtifactSha256: !Ref WorkerBuildArtifactSha256
 
   SpringApplicationMediaPolicy:
     Type: AWS::IAM::ManagedPolicy
@@ -518,9 +519,13 @@ Outputs:
     Description: Reviewed repository commit recorded on the Lambda function
     Value: !Ref SourceCommitSha
 
-  DeployedWorkerArtifactSha256:
-    Description: SHA-256 recorded for the deployed Lambda ZIP
-    Value: !Ref WorkerArtifactSha256
+  RecordedWorkerBuildArtifactSha256:
+    Description: SHA-256 of the verified build ZIP supplied as input to SAM
+    Value: !Ref WorkerBuildArtifactSha256
+
+  ImageTransformFunctionRoleArn:
+    Description: Exact worker role that the CloudFormation execution role passes to Lambda
+    Value: !GetAtt ImageTransformFunctionRole.Arn
 
   SpringApplicationMediaPolicyArn:
     Description: Managed policy attached to the existing Spring EC2 role
