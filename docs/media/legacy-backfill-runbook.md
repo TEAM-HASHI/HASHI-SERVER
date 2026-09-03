@@ -58,8 +58,8 @@ S3 HEAD·copy를 DB transaction 안에 넣지 않는다. `inspect`와 `prepare`�
 | Spring `hashi.media.backfill.enabled` | `false` | migration Port의 사용 허용 |
 | DB `media_pipeline_config.issuance_enabled` | 최초 `false` | 새 asset와 변환 job 발급 허용 |
 
-Spring 환경변수는 `AWS_MEDIA_BACKFILL_ENABLED`이고, IAM 배포 변수는
-`MEDIA_BACKFILL_ACCESS_ENABLED`다. 이름이 비슷하지만 서로 다른 gate다.
+Spring 환경변수는 `AWS_MEDIA_BACKFILL_ENABLED`이고, dev IAM 배포 변수는
+`MEDIA_DEV_BACKFILL_ACCESS_ENABLED`다. 이름이 비슷하지만 서로 다른 gate다.
 Spring opt-in이 꺼져 있으면 backfill S3 adapter도 생성하지 않는다.
 
 DB issuance가 pause되어도 opt-in된 환경의 조회와 READY claim, 이미 발급된 job의 EPR 재전송은
@@ -123,9 +123,10 @@ storage 실패는 `MediaBackfillSourceException.Reason`으로만 전달한다. �
 
 ## 6. Migration과 검증
 
-V20은 SYSTEM_BACKFILL identity의 NULL을 금지한다. 기존 비정상 row를 가짜 hash로 채우지 않는다.
-기존 DB에 적용하기 전 다음 읽기 전용 집계가 0인지 확인한다. 0이 아니면 적용 전에 원인을
-조사하고 별도 복구 방향을 결정한다. 이 문서 작성 과정에서 실제 운영 DB에는 실행하지 않았다.
+최초 media schema인 V15는 SYSTEM_BACKFILL identity의 NULL을 금지한다. 기존 비정상 row를
+가짜 hash로 채우지 않는다. 아직 media schema가 적용되지 않은 환경에서만 다음 읽기 전용 집계를
+사전 점검에 사용한다. 0이 아니면 적용 전에 원인을 조사하고 별도 복구 방향을 결정한다. 이 문서
+작성 과정에서 실제 운영 DB에는 실행하지 않았다.
 
 ```sql
 SELECT COUNT(*)

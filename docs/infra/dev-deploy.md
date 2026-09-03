@@ -158,8 +158,9 @@ AWS_SECRET_KEY
 애플리케이션 서버의 AWS 접근은 EC2 IAM Role을 사용한다.
 
 이미지 변환 stack과 queue를 도입할 때의 리소스 소유 경계, OIDC 배포 변수와 rollback 절차는
-[`infra/media/README.md`](../../infra/media/README.md)를 따른다. stack output의 실제 값은 EC2의
-환경 파일과 승인된 GitHub Environment에서만 관리하고 repository에는 기록하지 않는다.
+[`infra/media/README.md`](../../infra/media/README.md)를 따른다. 기존 AWS binding 값은 환경별 GitHub
+repository variable에서 관리하고, 생성된 stack output 중 Spring runtime에 필요한 bucket과 queue 값은
+EC2 환경 파일에서 관리한다. 실제 값은 repository에 기록하지 않는다.
 
 ---
 

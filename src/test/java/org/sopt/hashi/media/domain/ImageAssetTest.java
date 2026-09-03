@@ -10,7 +10,7 @@ import org.junit.jupiter.api.Test;
 class ImageAssetTest {
 
     private static final String SPEC_DIGEST =
-            "91ac56d691c5af9e43061b0a2cc43763a4d1825244135d120057c3305a1bbe32";
+            "1b5759a9285732133699114e21101b3b9b43b5cd8e208bf1246d059f4293634f";
     private static final String NEXT_SPEC_DIGEST =
             "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
     private static final String SOURCE_CHECKSUM =

@@ -8,6 +8,7 @@ public record MediaRecoveryProperties(
         boolean enabled,
         Duration eprResubmitAge,
         Duration eprResubmitInterval,
+        int eprResubmitBatchSize,
         Duration processingStaleAge,
         Duration processingRetryInterval,
         int processingMaxAttempts,
@@ -22,6 +23,7 @@ public record MediaRecoveryProperties(
 
     private static final Duration DEFAULT_EPR_RESUBMIT_AGE = Duration.ofMinutes(1);
     private static final Duration DEFAULT_EPR_RESUBMIT_INTERVAL = Duration.ofMinutes(1);
+    private static final int DEFAULT_EPR_RESUBMIT_BATCH_SIZE = 50;
     private static final Duration DEFAULT_PROCESSING_STALE_AGE = Duration.ofMinutes(10);
     private static final Duration DEFAULT_PROCESSING_RETRY_INTERVAL = Duration.ofMinutes(15);
     private static final int DEFAULT_PROCESSING_MAX_ATTEMPTS = 3;
@@ -37,6 +39,8 @@ public record MediaRecoveryProperties(
         eprResubmitAge = defaultDuration(eprResubmitAge, DEFAULT_EPR_RESUBMIT_AGE);
         eprResubmitInterval = defaultDuration(
                 eprResubmitInterval, DEFAULT_EPR_RESUBMIT_INTERVAL);
+        eprResubmitBatchSize = defaultPositive(
+                eprResubmitBatchSize, DEFAULT_EPR_RESUBMIT_BATCH_SIZE);
         processingStaleAge = defaultDuration(
                 processingStaleAge, DEFAULT_PROCESSING_STALE_AGE);
         processingRetryInterval = defaultDuration(

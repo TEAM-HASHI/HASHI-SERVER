@@ -69,7 +69,7 @@
       "candidates": [
         {"width": 430, "height": 256},
         {"width": 860, "height": 512},
-        {"width": 1290, "height": 769}
+        {"width": 1290, "height": 768}
       ],
       "noUpscaleFallback": {"selection": "largest-croppable-width", "minimumWidth": 1}
     },
@@ -95,7 +95,7 @@
       "candidates": [
         {"width": 430, "height": 256},
         {"width": 860, "height": 512},
-        {"width": 1290, "height": 769}
+        {"width": 1290, "height": 768}
       ],
       "noUpscaleFallback": {"selection": "largest-croppable-width", "minimumWidth": 1}
     },
@@ -121,7 +121,7 @@
       "candidates": [
         {"width": 430, "height": 628},
         {"width": 860, "height": 1256},
-        {"width": 1290, "height": 1885}
+        {"width": 1290, "height": 1884}
       ],
       "noUpscaleFallback": {"selection": "largest-croppable-width", "minimumWidth": 1}
     },

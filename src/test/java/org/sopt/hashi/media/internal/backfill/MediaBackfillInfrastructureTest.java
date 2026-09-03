@@ -89,17 +89,16 @@ class MediaBackfillInfrastructureTest {
     @Test
     void 배포_workflow는_추가_권한_flag를_검증하고_false_기본값을_명시해서_전달한다() throws IOException {
         Node workflow = parse(Path.of(".github/workflows/deploy-image-pipeline.yml"));
-        Node validate = step(workflow, "Validate deployment approval and configuration");
-        Node deploy = step(workflow, "Deploy SAM stack");
-        for (Node step : List.of(validate, deploy)) {
-            assertThat(value(field(step, "env", "MEDIA_BACKFILL_ACCESS_ENABLED")))
-                    .isEqualTo("${{ vars.MEDIA_BACKFILL_ACCESS_ENABLED }}");
-        }
+        Node validate = step(workflow, "Select and validate repository configuration");
+        Node deploy = step(workflow, "Deploy dev stack");
+        assertThat(value(field(validate, "env", "MEDIA_DEV_BACKFILL_ACCESS_ENABLED")))
+                .isEqualTo("${{ vars.MEDIA_DEV_BACKFILL_ACCESS_ENABLED }}");
         assertThat(value(field(validate, "run")))
-                .contains("backfill_enabled=\"${MEDIA_BACKFILL_ACCESS_ENABLED:-false}\"")
-                .contains("[[ \"${backfill_enabled}\" != \"true\" && \"${backfill_enabled}\" != \"false\" ]]");
+                .contains("selected[MEDIA_BACKFILL_ACCESS_ENABLED]=\"${MEDIA_DEV_BACKFILL_ACCESS_ENABLED:-false}\"")
+                .contains("for flag_name in MEDIA_WORKER_EVENT_SOURCE_ENABLED MEDIA_BACKFILL_ACCESS_ENABLED")
+                .contains("printf '%s=%s\\n' \"${name}\" \"${selected[${name}]}\" >> \"${GITHUB_ENV}\"");
         assertThat(value(field(deploy, "run")))
-                .contains("BackfillAccessEnabled=${MEDIA_BACKFILL_ACCESS_ENABLED:-false}");
+                .contains("BackfillAccessEnabled=${MEDIA_BACKFILL_ACCESS_ENABLED}");
     }
 
     @Test

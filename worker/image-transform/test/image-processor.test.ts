@@ -11,8 +11,8 @@ import {
   processImage,
   selectRenditionDimensions,
 } from "../src/image-processor";
-import { loadMediaSpec } from "../src/manifest";
-import { createTwoFrameApng } from "./image-fixtures";
+import { loadMediaSpec, type LoadedMediaSpec } from "../src/manifest";
+import { createTwoFrameApng, createWarningCorruptJpeg } from "./image-fixtures";
 
 const spec = loadMediaSpec(1);
 
@@ -160,6 +160,51 @@ test("rejects corrupt image payloads after magic-byte inspection", async () => {
     inspectSource(corruptJpeg, "image/jpeg", corruptJpeg.length),
     (error: unknown) =>
       error instanceof PermanentImageError && error.failureCode === "INVALID_IMAGE_DATA",
+  );
+});
+
+test("rejects a JPEG that libjpeg reports as warning-level corrupt", async () => {
+  const valid = await sharp({
+    create: { width: 100, height: 100, channels: 3, background: "red" },
+  })
+    .jpeg()
+    .toBuffer();
+  const corrupt = createWarningCorruptJpeg(valid);
+
+  await assert.rejects(
+    inspectSource(corrupt, "image/jpeg", corrupt.length),
+    (error: unknown) =>
+      error instanceof PermanentImageError && error.failureCode === "INVALID_IMAGE_DATA",
+  );
+});
+
+test("keeps unexpected rendition encoder errors retryable", async () => {
+  const source = await sharp({
+    create: { width: 100, height: 100, channels: 3, background: "red" },
+  })
+    .jpeg()
+    .toBuffer();
+  const profileRole = spec.manifest.roles.PROFILE_AVATAR!;
+  const invalidEncoderSpec: LoadedMediaSpec = {
+    ...spec,
+    manifest: {
+      ...spec.manifest,
+      roles: {
+        ...spec.manifest.roles,
+        PROFILE_AVATAR: { ...profileRole, quality: 101 },
+      },
+    },
+  };
+
+  await assert.rejects(
+    processImage({
+      bytes: source,
+      declaredByteSize: source.length,
+      declaredContentType: "image/jpeg",
+      purpose: "PROFILE",
+      spec: invalidEncoderSpec,
+    }),
+    (error: unknown) => error instanceof Error && !(error instanceof PermanentImageError),
   );
 });
 

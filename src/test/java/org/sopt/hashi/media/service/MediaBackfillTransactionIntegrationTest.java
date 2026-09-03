@@ -62,7 +62,6 @@ import org.sopt.hashi.media.internal.backfill.LegacyImageSource;
 import org.sopt.hashi.media.internal.backfill.MediaBackfillStorage;
 import org.sopt.hashi.media.internal.backfill.MediaBackfillStorageException;
 import org.sopt.hashi.media.internal.event.MediaProcessingRequestedEvent;
-import org.sopt.hashi.media.internal.job.MediaProcessingJobIdFactory;
 import org.sopt.hashi.media.internal.queue.MediaQueueExecutionConfig;
 import org.sopt.hashi.media.internal.queue.MediaTransformRequest;
 import org.sopt.hashi.media.internal.queue.MediaTransformRequestPublisher;
@@ -109,7 +108,7 @@ class MediaBackfillTransactionIntegrationTest {
 
     private static final String HASH = "a".repeat(64);
     private static final String SPEC_DIGEST =
-            "91ac56d691c5af9e43061b0a2cc43763a4d1825244135d120057c3305a1bbe32";
+            "1b5759a9285732133699114e21101b3b9b43b5cd8e208bf1246d059f4293634f";
 
     @Container
     @ServiceConnection
@@ -124,8 +123,6 @@ class MediaBackfillTransactionIntegrationTest {
     private MediaAssetTransactionService publicAssetService;
     @Autowired
     private ImageAssetRepository assetRepository;
-    @Autowired
-    private MediaProcessingJobIdFactory jobIdFactory;
     @Autowired
     private TransactionTemplate transactionTemplate;
     @Autowired
@@ -261,7 +258,7 @@ class MediaBackfillTransactionIntegrationTest {
 
         assertThat(processing.processingStatus()).isEqualTo(ImageProcessingStatus.PROCESSING);
         assertThat(processing.sourceVersionId()).isEqualTo("v1");
-        assertThat(processing.jobId()).isEqualTo(jobIdFactory.create(reserved.assetId(), "v1", 1));
+        assertThat(processing.jobId()).isEqualTo(MediaProcessingJobId.from(reserved.assetId(), "v1", 1));
         assertThat(attempt.inTransaction()).isFalse();
         assertThat(attempt.request().sourceVersionId()).isEqualTo("v1");
         assertThat(attempt.request().sourceETag()).isEqualTo("copy-etag-v1");

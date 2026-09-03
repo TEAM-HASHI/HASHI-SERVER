@@ -52,7 +52,7 @@ import org.sopt.hashi.shared.storage.FileStorage;
 class MediaPortImplTest {
 
     private static final String SPEC_DIGEST =
-            "91ac56d691c5af9e43061b0a2cc43763a4d1825244135d120057c3305a1bbe32";
+            "1b5759a9285732133699114e21101b3b9b43b5cd8e208bf1246d059f4293634f";
 
     @Mock
     private ImageAssetRepository imageAssetRepository;
@@ -336,6 +336,76 @@ class MediaPortImplTest {
     }
 
     @Test
+    void BOUND_FAILED는_object_정리_중과_완료_후에도_source_없는_FAILED로_반환한다() {
+        UUID activeId = UUID.randomUUID();
+        UUID purgingId = UUID.randomUUID();
+        UUID purgedId = UUID.randomUUID();
+        List<MediaImageRequest> requests = List.of(
+                new MediaImageRequest(activeId, MediaImageRole.REVIEW_DETAIL),
+                new MediaImageRequest(purgingId, MediaImageRole.REVIEW_DETAIL),
+                new MediaImageRequest(purgedId, MediaImageRole.REVIEW_DETAIL)
+        );
+        when(imageAssetRepository.findImageProjectionsByPublicIdIn(anyCollection()))
+                .thenReturn(List.of(
+                        failedProjection(activeId, MediaCleanupStatus.ACTIVE),
+                        failedProjection(purgingId, MediaCleanupStatus.PURGING),
+                        failedProjection(purgedId, MediaCleanupStatus.PURGED)
+                ));
+        when(imageRenditionRepository.findActiveImageProjections(
+                anyCollection(), anyCollection())).thenReturn(List.of());
+
+        Map<MediaImageRequest, MediaImage> result = mediaPort.findImages(requests);
+
+        assertThat(result).hasSize(3);
+        requests.forEach(request -> assertThat(result.get(request)).satisfies(image -> {
+            assertThat(image.status()).isEqualTo(MediaImageStatus.FAILED);
+            assertThat(image.defaultSource()).isNull();
+            assertThat(image.sourceSets()).isEmpty();
+        }));
+        verify(fileStorage, never()).resolveFileUrl(anyString());
+    }
+
+    @Test
+    void READY와_PROCESSING은_object_정리_중이거나_완료되면_반환하지_않는다() {
+        UUID readyPurgingId = UUID.randomUUID();
+        UUID readyPurgedId = UUID.randomUUID();
+        UUID processingPurgingId = UUID.randomUUID();
+        UUID processingPurgedId = UUID.randomUUID();
+        List<MediaImageRequest> requests = List.of(
+                new MediaImageRequest(readyPurgingId, MediaImageRole.REVIEW_DETAIL),
+                new MediaImageRequest(readyPurgedId, MediaImageRole.REVIEW_DETAIL),
+                new MediaImageRequest(processingPurgingId, MediaImageRole.REVIEW_DETAIL),
+                new MediaImageRequest(processingPurgedId, MediaImageRole.REVIEW_DETAIL)
+        );
+        when(imageAssetRepository.findImageProjectionsByPublicIdIn(anyCollection()))
+                .thenReturn(List.of(
+                        readyProjection(readyPurgingId, MediaCleanupStatus.PURGING),
+                        readyProjection(readyPurgedId, MediaCleanupStatus.PURGED),
+                        processingProjection(processingPurgingId, MediaCleanupStatus.PURGING),
+                        processingProjection(processingPurgedId, MediaCleanupStatus.PURGED)
+                ));
+        when(imageRenditionRepository.findActiveImageProjections(
+                anyCollection(), anyCollection())).thenReturn(List.of(
+                        rendition(
+                                readyPurgingId,
+                                ImageRole.REVIEW_DETAIL,
+                                860,
+                                860
+                        ),
+                        rendition(
+                                readyPurgedId,
+                                ImageRole.REVIEW_DETAIL,
+                                860,
+                                860
+                        )
+                ));
+
+        assertThat(mediaPort.findImages(requests)).isEmpty();
+
+        verify(fileStorage, never()).resolveFileUrl(anyString());
+    }
+
+    @Test
     void spec_digest가_다르거나_asset이_UNBOUND이면_결과에서_제외한다() {
         UUID mismatchId = UUID.randomUUID();
         UUID unboundId = UUID.randomUUID();
@@ -413,6 +483,60 @@ class MediaPortImplTest {
                 publicId, purpose, status, bindingStatus, cleanupStatus,
                 activeSpecVersion, activeSpecDigest,
                 targetSpecVersion, targetSpecDigest, lastFailureSpecVersion);
+    }
+
+    private AssetImageProjection failedProjection(
+            UUID publicId,
+            MediaCleanupStatus cleanupStatus
+    ) {
+        return projection(
+                publicId,
+                MediaPurpose.REVIEW,
+                ImageProcessingStatus.FAILED,
+                ImageBindingStatus.BOUND,
+                cleanupStatus,
+                null,
+                null,
+                null,
+                null,
+                1
+        );
+    }
+
+    private AssetImageProjection readyProjection(
+            UUID publicId,
+            MediaCleanupStatus cleanupStatus
+    ) {
+        return projection(
+                publicId,
+                MediaPurpose.REVIEW,
+                ImageProcessingStatus.READY,
+                ImageBindingStatus.BOUND,
+                cleanupStatus,
+                1,
+                SPEC_DIGEST,
+                null,
+                null,
+                null
+        );
+    }
+
+    private AssetImageProjection processingProjection(
+            UUID publicId,
+            MediaCleanupStatus cleanupStatus
+    ) {
+        return projection(
+                publicId,
+                MediaPurpose.REVIEW,
+                ImageProcessingStatus.PROCESSING,
+                ImageBindingStatus.BOUND,
+                cleanupStatus,
+                null,
+                null,
+                1,
+                SPEC_DIGEST,
+                null
+        );
     }
 
     private RenditionImageProjection rendition(

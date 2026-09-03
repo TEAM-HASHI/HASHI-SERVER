@@ -20,7 +20,6 @@ import org.sopt.hashi.media.domain.MediaPurpose;
 import org.sopt.hashi.media.internal.backfill.BackfillOriginalCopy;
 import org.sopt.hashi.media.internal.backfill.LegacyImageSource;
 import org.sopt.hashi.media.internal.event.MediaProcessingRequestedEvent;
-import org.sopt.hashi.media.internal.job.MediaProcessingJobIdFactory;
 import org.sopt.hashi.media.internal.recovery.MediaRecoveryProperties;
 import org.sopt.hashi.media.internal.spec.MediaSpecRegistry;
 import org.sopt.hashi.media.internal.spec.MediaSpecSnapshot;
@@ -36,7 +35,6 @@ public class MediaBackfillTransactionService {
     private final ImageAssetRepository assetRepository;
     private final MediaPipelineConfigRepository configRepository;
     private final MediaSpecRegistry specRegistry;
-    private final MediaProcessingJobIdFactory jobIdFactory;
     private final ApplicationEventPublisher eventPublisher;
     private final MediaRecoveryProperties recoveryProperties;
     private final Clock clock;
@@ -44,14 +42,12 @@ public class MediaBackfillTransactionService {
     public MediaBackfillTransactionService(ImageAssetRepository assetRepository,
                                             MediaPipelineConfigRepository configRepository,
                                             MediaSpecRegistry specRegistry,
-                                            MediaProcessingJobIdFactory jobIdFactory,
                                             ApplicationEventPublisher eventPublisher,
                                             MediaRecoveryProperties recoveryProperties,
                                             @Qualifier("japanClock") Clock clock) {
         this.assetRepository = assetRepository;
         this.configRepository = configRepository;
         this.specRegistry = specRegistry;
-        this.jobIdFactory = jobIdFactory;
         this.eventPublisher = eventPublisher;
         this.recoveryProperties = recoveryProperties;
         this.clock = clock;
@@ -120,7 +116,7 @@ public class MediaBackfillTransactionService {
             throw new BusinessException(MediaErrorCode.INVALID_STATE);
         }
         MediaSpecSnapshot spec = requireAvailableSpec(config);
-        UUID jobId = jobIdFactory.create(assetId, copy.versionId(), spec.version());
+        UUID jobId = MediaProcessingJobId.from(assetId, copy.versionId(), spec.version());
         asset.beginInitialProcessing(copy.versionId(), copy.eTag(), spec.version(), spec.digest(), jobId, now());
         eventPublisher.publishEvent(new MediaProcessingRequestedEvent(assetId, jobId));
         return BackfillAssetSnapshot.from(asset);
@@ -139,7 +135,8 @@ public class MediaBackfillTransactionService {
     }
 
     private void validateCopy(ImageAsset asset, BackfillOriginalCopy copy) {
-        boolean matches = Objects.equals(asset.getBackfillIdentityHash(), copy.identityHash())
+        boolean matches = MediaSourceIdentity.isValid(copy.versionId(), copy.eTag())
+                && Objects.equals(asset.getBackfillIdentityHash(), copy.identityHash())
                 && asset.getOriginalObjectKey().equals(copy.objectKey())
                 && asset.getDeclaredContentType().equals(copy.contentType())
                 && asset.getDeclaredBytes() == copy.bytes();

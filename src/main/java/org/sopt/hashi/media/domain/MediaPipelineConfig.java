@@ -25,6 +25,7 @@ public class MediaPipelineConfig {
     public static final int SINGLETON_ID = 1;
 
     @Id
+    @JdbcTypeCode(SqlTypes.TINYINT)
     private Integer id;
 
     @Column(name = "current_spec_version", nullable = false)

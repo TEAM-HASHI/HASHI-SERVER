@@ -1,15 +1,10 @@
-UPDATE users
-SET profile_image_key = NULL
-WHERE profile_image_key IS NOT NULL
-  AND CHAR_LENGTH(TRIM(profile_image_key)) = 0;
-
-CREATE TEMPORARY TABLE v19_profile_magazine_media_guard (
+CREATE TEMPORARY TABLE v21_magazine_media_guard (
     violation VARCHAR(100) NOT NULL,
     valid TINYINT NOT NULL,
-    CONSTRAINT ck_v19_profile_magazine_media_guard CHECK (valid = 1)
+    CONSTRAINT ck_v21_magazine_media_guard CHECK (valid = 1)
 );
 
-INSERT INTO v19_profile_magazine_media_guard (violation, valid)
+INSERT INTO v21_magazine_media_guard (violation, valid)
 SELECT 'magazine.banner_key is blank', 0
 WHERE EXISTS (
     SELECT 1
@@ -17,7 +12,7 @@ WHERE EXISTS (
     WHERE CHAR_LENGTH(TRIM(banner_key)) = 0
 );
 
-INSERT INTO v19_profile_magazine_media_guard (violation, valid)
+INSERT INTO v21_magazine_media_guard (violation, valid)
 SELECT 'magazine.thumbnail_key is blank', 0
 WHERE EXISTS (
     SELECT 1
@@ -25,19 +20,7 @@ WHERE EXISTS (
     WHERE CHAR_LENGTH(TRIM(thumbnail_key)) = 0
 );
 
-DROP TEMPORARY TABLE v19_profile_magazine_media_guard;
-
-ALTER TABLE users
-    ADD COLUMN profile_image_asset_id CHAR(36) CHARACTER SET ascii COLLATE ascii_bin NULL
-        AFTER profile_image_key,
-    ADD CONSTRAINT ck_users_profile_image_key CHECK (
-        profile_image_key IS NULL OR CHAR_LENGTH(TRIM(profile_image_key)) > 0
-    ),
-    ADD CONSTRAINT ck_users_profile_image_asset_id CHECK (
-        profile_image_asset_id IS NULL
-        OR profile_image_asset_id REGEXP '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
-    ),
-    ADD UNIQUE INDEX uq_users_profile_image_asset_id (profile_image_asset_id);
+DROP TEMPORARY TABLE v21_magazine_media_guard;
 
 ALTER TABLE magazine
     MODIFY COLUMN banner_key VARCHAR(500) NULL,

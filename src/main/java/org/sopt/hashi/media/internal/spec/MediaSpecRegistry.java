@@ -41,10 +41,9 @@ public class MediaSpecRegistry {
         try (InputStream inputStream = new ClassPathResource(resourcePath).getInputStream()) {
             byte[] bytes = inputStream.readAllBytes();
             JsonNode manifest = objectMapper.readTree(bytes);
-            int version = manifest.path("specVersion").asInt(-1);
-            if (version < 1) {
-                throw new IllegalStateException("media specVersion must be positive: " + resourcePath);
-            }
+            int expectedVersion = versionFrom(resourcePath);
+            MediaSpecManifestValidator.validate(manifest, expectedVersion);
+            int version = manifest.path("specVersion").intValue();
             Map<ImageRole, MediaRoleSpec> roleSpecs = parseRoleSpecs(manifest.path("roles"));
             Map<MediaPurpose, List<ImageRole>> purposeRoles =
                     parsePurposeRoles(manifest.path("purposes"));
@@ -58,6 +57,18 @@ public class MediaSpecRegistry {
             throw new IllegalStateException("failed to load media spec: " + resourcePath, e);
         } catch (IllegalArgumentException e) {
             throw new IllegalStateException("invalid media spec: " + resourcePath, e);
+        }
+    }
+
+    private int versionFrom(String resourcePath) {
+        String fileName = resourcePath.substring(resourcePath.lastIndexOf('/') + 1);
+        if (!fileName.startsWith("v") || !fileName.endsWith(".json")) {
+            throw new IllegalArgumentException("media spec resource name is invalid");
+        }
+        try {
+            return Integer.parseInt(fileName.substring(1, fileName.length() - ".json".length()));
+        } catch (NumberFormatException exception) {
+            throw new IllegalArgumentException("media spec resource version is invalid", exception);
         }
     }
 
