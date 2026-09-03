@@ -287,6 +287,33 @@ class MediaPortImplTest {
     }
 
     @Test
+    void READY와_PROCESSING은_object_정리_중이거나_완료되면_반환하지_않는다() {
+        UUID readyPurgingId = UUID.randomUUID();
+        UUID readyPurgedId = UUID.randomUUID();
+        UUID processingPurgingId = UUID.randomUUID();
+        UUID processingPurgedId = UUID.randomUUID();
+        List<MediaImageRequest> requests = List.of(
+                new MediaImageRequest(readyPurgingId, MediaImageRole.REVIEW_DETAIL),
+                new MediaImageRequest(readyPurgedId, MediaImageRole.REVIEW_DETAIL),
+                new MediaImageRequest(processingPurgingId, MediaImageRole.REVIEW_DETAIL),
+                new MediaImageRequest(processingPurgedId, MediaImageRole.REVIEW_DETAIL)
+        );
+        when(imageAssetRepository.findImageProjectionsByPublicIdIn(anyCollection()))
+                .thenReturn(List.of(
+                        readyProjection(readyPurgingId, MediaCleanupStatus.PURGING),
+                        readyProjection(readyPurgedId, MediaCleanupStatus.PURGED),
+                        processingProjection(processingPurgingId, MediaCleanupStatus.PURGING),
+                        processingProjection(processingPurgedId, MediaCleanupStatus.PURGED)
+                ));
+        when(imageRenditionRepository.findActiveImageProjections(
+                anyCollection(), anyCollection())).thenReturn(List.of());
+
+        assertThat(mediaPort.findImages(requests)).isEmpty();
+
+        verify(fileStorage, never()).resolveFileUrl(anyString());
+    }
+
+    @Test
     void spec_digest가_다르거나_asset이_UNBOUND이면_결과에서_제외한다() {
         UUID mismatchId = UUID.randomUUID();
         UUID unboundId = UUID.randomUUID();
@@ -381,6 +408,42 @@ class MediaPortImplTest {
                 null,
                 null,
                 1
+        );
+    }
+
+    private AssetImageProjection readyProjection(
+            UUID publicId,
+            MediaCleanupStatus cleanupStatus
+    ) {
+        return projection(
+                publicId,
+                MediaPurpose.REVIEW,
+                ImageProcessingStatus.READY,
+                ImageBindingStatus.BOUND,
+                cleanupStatus,
+                1,
+                SPEC_DIGEST,
+                null,
+                null,
+                null
+        );
+    }
+
+    private AssetImageProjection processingProjection(
+            UUID publicId,
+            MediaCleanupStatus cleanupStatus
+    ) {
+        return projection(
+                publicId,
+                MediaPurpose.REVIEW,
+                ImageProcessingStatus.PROCESSING,
+                ImageBindingStatus.BOUND,
+                cleanupStatus,
+                null,
+                null,
+                1,
+                SPEC_DIGEST,
+                null
         );
     }
 
