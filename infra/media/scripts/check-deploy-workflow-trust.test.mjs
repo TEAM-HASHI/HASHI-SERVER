@@ -43,16 +43,13 @@ test("rejects handing off a production artifact without a package smoke test", (
   assert.throws(() => validateDeployWorkflowTrust(changed), /before handoff/);
 });
 
-test("rejects package smoke testing after AWS credentials", () => {
-  const smoke = workflow.indexOf("      - name: Restore and smoke test Lambda package");
-  const credentials = workflow.indexOf("      - name: Configure short-lived dev AWS credentials");
-  const smokeBlock = workflow.slice(smoke, credentials);
-  const changed = `${workflow.slice(0, smoke)}${workflow.slice(credentials).replace(
-    "      - name: Verify AWS identity and existing dependencies",
-    `${smokeBlock}      - name: Verify AWS identity and existing dependencies`,
-  )}`;
+test("rejects executing worker artifact code in the OIDC-capable deploy job", () => {
+  const changed = workflow.replace(
+    "          test -f worker/image-transform/artifacts/package/package.json\n",
+    "          node worker/image-transform/scripts/verify-package.mjs worker/image-transform/artifacts/package\n",
+  );
 
-  assert.throws(() => validateDeployWorkflowTrust(changed), /before AWS credentials/);
+  assert.throws(() => validateDeployWorkflowTrust(changed), /cannot execute worker artifact code/);
 });
 
 test("rejects creating a production change set in GitHub Actions", () => {

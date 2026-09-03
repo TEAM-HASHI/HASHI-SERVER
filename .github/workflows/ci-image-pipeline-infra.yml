@@ -59,7 +59,12 @@ jobs:
 
       - name: Test and enforce worker IAM boundary
         run: |
-          bash -n infra/media/scripts/check-cloudformation-pass-role.sh
+          node --test infra/media/scripts/check-cloudformation-pass-role.test.mjs
+          node --test infra/media/scripts/check-template-guardrails.test.mjs
+          node infra/media/scripts/check-template-guardrails.mjs \
+            infra/media/template.yaml \
+            infra/media/bootstrap/cloudformation-execution-boundary.yaml \
+            infra/media/parameters/prod.example.json
           node --test infra/media/scripts/check-deploy-workflow-trust.test.mjs
           node infra/media/scripts/check-deploy-workflow-trust.mjs .github/workflows/deploy-image-pipeline.yml
           node --test infra/media/scripts/check-worker-iam.test.mjs
@@ -80,7 +85,10 @@ jobs:
           node scripts/verify-package.mjs artifacts/package
 
       - name: Lint SAM template
-        run: sam validate --lint --region ap-northeast-2 --template-file infra/media/template.yaml
+        run: |
+          sam validate --lint --region ap-northeast-2 --template-file infra/media/template.yaml
+          sam validate --lint --region ap-northeast-2 \
+            --template-file infra/media/bootstrap/cloudformation-execution-boundary.yaml
 
       - name: Build SAM stack
         run: >-

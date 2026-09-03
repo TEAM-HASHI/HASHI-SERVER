@@ -33,10 +33,10 @@ template과 배포 경로만 있으며, 이 문서만으로 실제 dev 또는 pr
 - 권한이 있는 deployment workflow의 action은 검증한 full commit SHA로 고정한다.
 - worker 실행 role은 SAM이 자동 생성하지 않고 stack에서 직접 정의한다. request queue, 전용 log group,
   original/rendition prefix와 result queue 외의 resource에는 접근할 수 없다.
-- worker test·package와 SAM 검증은 `id-token` 권한이 없는 build job에서 끝낸다. build job이 artifact
-  이름과 build ZIP SHA-256을 output으로 전달하므로 실패한 dev deploy job만 재실행해도 같은 immutable
-  artifact를 복원한다. 복원한 package의 Sharp, handler와 manifest smoke test를 통과한 dev deploy job만
-  OIDC token을 요청한다.
+- worker test·package, Sharp·handler·manifest smoke와 SAM 검증은 `id-token` 권한이 없는 build job에서
+  끝낸다. build job이 artifact 이름과 build ZIP SHA-256을 output으로 전달하므로 실패한 dev deploy
+  job만 재실행해도 같은 immutable artifact를 복원한다. OIDC 권한이 있는 deploy job은 digest, 안전한
+  ZIP 경로와 필수 파일 구조만 확인하고 artifact의 JavaScript나 native module을 실행하지 않는다.
 - AWS 계정 전역 OIDC provider와 bootstrap role은 기존 계정 리소스와 충돌할 수 있어 이 feature stack이 소유하지 않는다.
 - 실제 account ID, role ARN, bucket 이름, distribution ID와 credential은 repository, 이슈와 PR에 기록하지 않는다.
 
@@ -102,34 +102,28 @@ dev CloudFormation execution role 하나에만 `iam:PassRole`을 허용하고
 role을 받는 CloudFormation create/update/change-set 권한에도 `cloudformation:RoleARN`이 그 execution
 role과 일치하는 조건을 둔다. dev deploy role에는 기존 의존성 읽기, SAM artifact 업로드,
 CloudFormation 배포와 termination protection에 필요한 권한만 부여한다. 배포 전 유효 권한 확인을 위해
-정확한 dev execution role에 대한 `iam:SimulatePrincipalPolicy`도 허용한다.
+정확한 dev execution role에 대한 `iam:GetRole`, boundary의 `iam:GetPolicy`와
+`iam:GetPolicyVersion`, `iam:SimulatePrincipalPolicy`도 읽기 전용으로 허용한다.
 
 CloudFormation execution role은 `cloudformation.amazonaws.com`만 신뢰하고 GitHub OIDC provider를
 신뢰하지 않는다. 실제 resource 생성·수정 권한은 이 role이 담당한다. 이 role은 자신이 관리하는 정확한
 worker role `hashi-{environment}-media-image-transform-lambda`만 Lambda에 전달할 수 있어야 한다.
-bootstrap policy의 관련 statement는 다음처럼 제한한다.
+identity policy에는 이 exact grant만 두고, 추가 policy가 범위를 넓히지 못하도록 version-controlled
+permissions boundary를 상한으로 붙인다. boundary의 source of truth는
+`infra/media/bootstrap/cloudformation-execution-boundary.yaml`이다. 이 별도 bootstrap stack을 관리자
+권한으로 먼저 생성하고, 출력된 boundary ARN을 해당 환경의 CloudFormation execution role에
+`put-role-permissions-boundary`로 연결한다. boundary는 다른 일반 권한을 부여하지 않으며,
+`iam:PassRole`만 정확한 worker role과 `lambda.amazonaws.com` 조합으로 제한한다.
 
-```json
-{
-  "Effect": "Allow",
-  "Action": "iam:PassRole",
-  "Resource": "arn:aws:iam::<ACCOUNT_ID>:role/hashi-<ENV>-media-image-transform-lambda",
-  "Condition": {
-    "StringEquals": {
-      "iam:PassedToService": "lambda.amazonaws.com"
-    }
-  }
-}
-```
-
-dev workflow와 prod 운영자는 실제 배포 전에 이 exact worker role은 `allowed`, 다른 service와 다른 role은
-denied인지 아래 검사기를 실행한다.
+dev workflow와 prod 운영자는 실제 배포 전에 execution role에 정확한 boundary ARN과 승인된 최신 policy
+document가 연결돼 있는지 확인하고, exact worker role에 대한 유효 grant도 확인한다. AWS 조회나 simulation
+중 하나라도 실패하면 검사를 통과하지 않는다.
 
 ```bash
-bash infra/media/scripts/check-cloudformation-pass-role.sh \
+node infra/media/scripts/check-cloudformation-pass-role.mjs \
   "${AWS_CLOUDFORMATION_EXECUTION_ROLE_ARN}" \
-  "arn:aws:iam::${AWS_ACCOUNT_ID}:role/hashi-${TARGET}-media-image-transform-lambda" \
-  "arn:aws:iam::${AWS_ACCOUNT_ID}:role/hashi-${TARGET}-media-unapproved-role"
+  "arn:aws:iam::${AWS_ACCOUNT_ID}:policy/hashi-${TARGET}-media-cloudformation-execution-boundary" \
+  "arn:aws:iam::${AWS_ACCOUNT_ID}:role/hashi-${TARGET}-media-image-transform-lambda"
 ```
 
 prod 운영자 세션은 prod CloudFormation execution role을 CloudFormation에 전달할 exact
@@ -168,8 +162,9 @@ dev 배포와 prod artifact 생성은 `Build or Deploy Image Pipeline` workflow�
     artifact, source commit과 build ZIP SHA-256만 만들며 AWS credential을 요청하거나 production
     resource를 변경하지 않는다.
 11. 별도 AWS 운영자는 workflow run의 `github.sha`가 검토한 `main` commit과 같은지 확인하고, 그 run에
-    기록된 정확한 artifact를 내려받아 ZIP SHA-256과 package smoke test를 다시 확인한다. 검토된 commit의
-    clean checkout에서 package를 복원하고 별도 AWS 세션으로 기존 의존성과 두 단계 `iam:PassRole`을
+    기록된 정확한 artifact를 내려받는다. AWS credential이 없는 검증 환경에서 ZIP SHA-256과 package
+    smoke test를 다시 확인한다. 이후 검토된 commit의 clean checkout과 별도 AWS 운영 세션에서는
+    artifact 코드를 다시 실행하지 않고 기존 의존성, permissions boundary와 두 단계 `iam:PassRole`을
     검증한다. `CAPABILITY_NAMED_IAM`, commit과 digest가 포함된 고유 S3 prefix,
     `SourceCommitSha`, `WorkerBuildArtifactSha256`을 사용해 `sam deploy --no-execute-changeset`을 실행한다.
     change set, CloudFormation execution role과 전체 parameter를 검토한 뒤 같은 운영 신뢰 경계에서

@@ -6,7 +6,7 @@
   {"ParameterKey": "WorkerBuildArtifactSha256", "ParameterValue": "replace-with-64-character-lowercase-sha256"},
   {"ParameterKey": "SpringApplicationRoleName", "ParameterValue": "replace-with-existing-prod-ec2-role"},
   {"ParameterKey": "UploadAllowedOrigins", "ParameterValue": "https://replace-with-prod-client-origin.example"},
-  {"ParameterKey": "AlarmNotificationTopicArn", "ParameterValue": ""},
+  {"ParameterKey": "AlarmNotificationTopicArn", "ParameterValue": "replace-with-existing-prod-alarm-topic-arn"},
   {"ParameterKey": "WorkerReservedConcurrency", "ParameterValue": "5"},
   {"ParameterKey": "WorkerEventSourceEnabled", "ParameterValue": "false"},
   {"ParameterKey": "WorkerLogRetentionDays", "ParameterValue": "30"}

@@ -62,13 +62,11 @@ export function validateDeployWorkflowTrust(rawWorkflow) {
   if (!deploy.includes("name: ${{ needs.build.outputs.artifact_name }}")) {
     fail("Dev deploy must download the artifact name exported by the build job.");
   }
-  if (!deploy.includes("node worker/image-transform/scripts/verify-package.mjs")) {
-    fail("Restored package must pass the Linux runtime smoke test before AWS access.");
+  if (deploy.includes("worker/image-transform/scripts/verify-package.mjs")) {
+    fail("Deploy job cannot execute worker artifact code while it can request an OIDC token.");
   }
-  const smokeIndex = deploy.indexOf("node worker/image-transform/scripts/verify-package.mjs");
-  const credentialsIndex = deploy.indexOf("aws-actions/configure-aws-credentials@");
-  if (credentialsIndex < 0 || smokeIndex < 0 || smokeIndex > credentialsIndex) {
-    fail("Package smoke test must run before AWS credentials are requested.");
+  if (!deploy.includes("Restore Lambda package without executing artifact code")) {
+    fail("Deploy job must restore the verified package without executing artifact code.");
   }
 
   if (workflow.includes("MEDIA_PROD_") || workflow.includes("Configure short-lived prod AWS")) {

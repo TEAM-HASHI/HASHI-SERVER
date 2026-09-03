@@ -61,8 +61,8 @@ WebP 단일 제공은 합의된 최소 지원 환경인 Safari와 iOS 16.4 이�
 - worker는 stack이 직접 정의한 execution role로 request queue, 전용 log group, original/rendition
   prefix와 result queue만 접근한다. SAM이 자동 부착하는 광범위 SQS managed policy는 사용하지 않는다.
 - worker build와 검증은 OIDC 권한이 없는 job에서 수행한다. dev deploy job은 build job이 output으로
-  넘긴 immutable artifact 이름과 build ZIP SHA-256을 확인하고 package smoke test를 통과한 뒤에만
-  AWS 권한을 받는다.
+  넘긴 immutable artifact 이름과 build ZIP SHA-256, 안전한 경로와 파일 구조만 확인한다. OIDC 권한이
+  있는 job에서는 worker JavaScript와 native module을 실행하지 않는다.
 - 현재 private GitHub Free 저장소에서 강제할 수 없는 required reviewer와 protected branch를 전제로
   하지 않는다. dev AWS 권한과 data를 prod에서 격리하고, dev workflow만 stack을 적용한다. prod
   workflow는 검토할 source commit과 artifact digest가 있는 GitHub artifact만 생성한다. 별도 AWS
@@ -71,6 +71,7 @@ WebP 단일 제공은 합의된 최소 지원 환경인 Safari와 iOS 16.4 이�
 - Spring의 SQS 연동은 Spring Boot 3.5.x와 호환되는 Spring Cloud AWS 3.4.2를 사용한다.
 - prod stack 적용과 `media_pipeline_config.issuance_enabled=true` 전환은 dev E2E 이후 별도
   운영 승인 대상으로 둔다.
+- prod의 alarm SNS topic은 CloudFormation Rule로 필수화하며 빈 값의 change set을 거부한다.
 - request event source는 Spring result consumer와 alarm 준비를 확인한 뒤 승인된 dev 배포에서만
   명시적으로 활성화한다. 설정이 누락되면 활성화하지 않는다.
 
@@ -1370,7 +1371,8 @@ benchmark에 따라 memory, timeout과 concurrency를 조정한다. 출력 bytes
 - dev OIDC role의 trust policy와 private GitHub Free의 dev 배포 신뢰 경계
 - dev/prod AWS 권한과 data 격리, deploy role과 CloudFormation execution role 분리 및 최소 권한
 - deploy 주체에서 CloudFormation으로, CloudFormation에서 exact Lambda worker role로 이어지는 두 단계
-  `iam:PassRole`, `cloudformation:RoleARN`, worker runtime role과 SQS resource 제한
+  `iam:PassRole`, version-controlled permissions boundary, `cloudformation:RoleARN`, worker runtime
+  role과 SQS resource 제한
 - source commit과 worker build ZIP SHA-256을 prod GitHub artifact 및 운영자 change set과 대조하는 절차
 - prod change set 별도 검토·실행, termination protection과 실제 alarm 수신 절차
 - Lambda 초기 memory와 timeout의 적정성, concurrency 상한

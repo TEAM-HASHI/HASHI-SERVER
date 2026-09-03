@@ -92,7 +92,12 @@ jobs:
 
       - name: Test infrastructure policy checkers
         run: |
-          bash -n infra/media/scripts/check-cloudformation-pass-role.sh
+          node --test infra/media/scripts/check-cloudformation-pass-role.test.mjs
+          node --test infra/media/scripts/check-template-guardrails.test.mjs
+          node infra/media/scripts/check-template-guardrails.mjs \
+            infra/media/template.yaml \
+            infra/media/bootstrap/cloudformation-execution-boundary.yaml \
+            infra/media/parameters/prod.example.json
           node --test infra/media/scripts/check-deploy-workflow-trust.test.mjs
           node infra/media/scripts/check-deploy-workflow-trust.mjs .github/workflows/deploy-image-pipeline.yml
           node --test infra/media/scripts/check-delivery-lifecycle.test.mjs
@@ -133,6 +138,8 @@ jobs:
         run: |
           set -euo pipefail
           sam validate --lint --region ap-northeast-2 --template-file infra/media/template.yaml
+          sam validate --lint --region ap-northeast-2 \
+            --template-file infra/media/bootstrap/cloudformation-execution-boundary.yaml
           sam build --template-file infra/media/template.yaml --build-dir .aws-sam/media-build
 
       - name: Upload immutable Lambda build artifact
@@ -256,6 +263,7 @@ jobs:
             exit 1
           fi
           selected[MEDIA_WORKER_EXECUTION_ROLE_ARN]="${expected_role_prefix}${selected[MEDIA_WORKER_EXECUTION_ROLE_NAME]}"
+          selected[MEDIA_CLOUDFORMATION_EXECUTION_BOUNDARY_ARN]="arn:aws:iam::${selected[AWS_ACCOUNT_ID]}:policy/hashi-dev-media-cloudformation-execution-boundary"
 
           if [[ ! "${selected[MEDIA_SPRING_APPLICATION_ROLE_NAME]}" =~ ^[A-Za-z0-9+=,.@_-]{1,64}$ ]]; then
             echo "MEDIA_SPRING_APPLICATION_ROLE_NAME is invalid."
@@ -319,16 +327,25 @@ jobs:
         with:
           node-version: "24"
 
-      - name: Restore and smoke test Lambda package
+      - name: Restore Lambda package without executing artifact code
         shell: bash
         run: |
           set -euo pipefail
           test ! -e worker/image-transform/artifacts/package
+          while IFS= read -r entry; do
+            case "${entry}" in
+              /*|../*|*/../*|*\\*)
+                echo "Lambda package contains an unsafe path."
+                exit 1
+                ;;
+            esac
+          done < <(unzip -Z1 worker/image-transform/artifacts/image-transform.zip)
           mkdir -p worker/image-transform/artifacts/package
           unzip -q worker/image-transform/artifacts/image-transform.zip \
             -d worker/image-transform/artifacts/package
-          node worker/image-transform/scripts/verify-package.mjs \
-            worker/image-transform/artifacts/package
+          test -f worker/image-transform/artifacts/package/package.json
+          test -f worker/image-transform/artifacts/package/dist/handler.js
+          test -f worker/image-transform/artifacts/package/media-specs/v1.json
 
       - name: Set up AWS SAM CLI 1.165.0
         uses: aws-actions/setup-sam@89ddb14d60e682855e3fea4be85b3c56485de310 # v3
@@ -434,11 +451,10 @@ jobs:
 
           aws iam get-role --role-name "${MEDIA_SPRING_APPLICATION_ROLE_NAME}" >/dev/null
 
-          unapproved_role_arn="arn:aws:iam::${AWS_ACCOUNT_ID}:role/hashi-dev-media-unapproved-role"
-          bash infra/media/scripts/check-cloudformation-pass-role.sh \
+          node infra/media/scripts/check-cloudformation-pass-role.mjs \
             "${AWS_CLOUDFORMATION_EXECUTION_ROLE_ARN}" \
-            "${MEDIA_WORKER_EXECUTION_ROLE_ARN}" \
-            "${unapproved_role_arn}"
+            "${MEDIA_CLOUDFORMATION_EXECUTION_BOUNDARY_ARN}" \
+            "${MEDIA_WORKER_EXECUTION_ROLE_ARN}"
 
           if [[ -n "${MEDIA_ALARM_NOTIFICATION_TOPIC_ARN}" ]]; then
             aws sns get-topic-attributes \

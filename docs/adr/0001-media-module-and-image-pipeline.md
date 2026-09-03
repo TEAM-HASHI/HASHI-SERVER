@@ -298,7 +298,7 @@ AWS 리소스는 AWS SAM으로 표현하고 CloudFormation stack을 dev와 prod�
 role을 assume하며 장기 AWS access key를 repository나 GitHub Secrets에 추가하지 않는다. prod build
 job은 AWS credential을 요청하지 않고 별도 AWS 운영자가 검토한 artifact를 배포한다. 현재 private
 GitHub Free 저장소에서는 required reviewer, protected branch와 environment variable을 강제할 수
-없으므로 repository variable을 환경별 prefix로 구분하고, stack 이름을
+없으므로 dev AWS 값만 `MEDIA_DEV_*` repository variable로 두고, stack 이름을
 `hashi-{environment}-media-pipeline`으로 결정적으로 만든다. dev workflow와 prod 운영 절차는 기존
 stack의 environment parameter와 tag가 target과 다르면 change set을 만들지 않는다. 이 plan에서는
 write와 workflow 실행 권한자를 dev
@@ -307,8 +307,10 @@ write와 workflow 실행 권한자를 dev
 
 worker dependency 설치, test, ZIP 생성과 SAM 검증은 `id-token` 권한이 없는 build job에서 수행한다.
 build job은 immutable artifact 이름과 build ZIP SHA-256을 output으로 전달한다. dev deploy job은 그
-이름으로 artifact를 복원해 digest와 Sharp, handler, manifest smoke test를 확인한 뒤에만 OIDC token을
-요청한다. source commit과 build ZIP SHA-256은 stack parameter, tag와 output으로 남긴다. 이 digest는
+이름으로 artifact를 복원해 digest, 안전한 ZIP 경로와 필수 파일 구조만 확인한다. OIDC 권한이 있는
+deploy job에서는 artifact의 JavaScript나 native module을 실행하지 않는다. Sharp, handler와 manifest
+smoke test는 build job에서 끝낸다. source commit과 build ZIP SHA-256은 stack parameter, tag와 output으로
+남긴다. 이 digest는
 SAM이 directory를 다시 package한 최종 ZIP의 byte digest라고 주장하지 않으며, 검증된 build 입력물의
 추적값이다. prod 운영자는 exact commit과 GitHub artifact를 확인한 뒤 별도 AWS 세션에서 change set을
 생성·검토·실행한다.
@@ -326,10 +328,15 @@ CloudFormation service만 신뢰한다. dev OIDC role과 prod 운영자 세션�
 role만 CloudFormation에 `iam:PassRole`로 전달할 수 있고 `iam:PassedToService`와
 `cloudformation:RoleARN` 조건으로 제한한다. 각 CloudFormation execution role은 결정적인 이름의
 `hashi-{environment}-media-image-transform-lambda` role만 `lambda.amazonaws.com`에
-`iam:PassRole`할 수 있다. 배포 전 policy simulation에서 exact role과 service만 허용되는지 확인한다.
+`iam:PassRole`할 수 있다. version-controlled 별도 bootstrap template이 만드는 permissions boundary를
+execution role에 붙여 다른 identity policy가 이 상한을 넓히지 못하게 한다. 배포 전에는 boundary ARN,
+최신 policy document와 exact role의 유효 grant를 모두 검사하며 AWS 조회 오류도 실패로 처리한다.
 dev workflow는 stack을 적용할 수 있다. prod workflow는 GitHub artifact만 생성하고, 별도 AWS 운영자가
 dev E2E와 운영 승인을 확인한 뒤 `--no-execute-changeset`으로 change set을 생성·검토·실행한다. prod
 issuance 활성화도 cleanup, alarm과 E2E gate를 통과한 뒤 별도로 수행한다.
+
+prod에서는 `AlarmNotificationTopicArn`이 비어 있으면 CloudFormation Rule이 change set 생성을 거부한다.
+dev는 빈 값을 허용하지만, 외부 알림이 없다는 사실을 배포자가 확인해야 한다.
 
 Spring Boot 3.5.x 애플리케이션의 SQS publisher와 result consumer는 Spring Cloud AWS 3.4.2를
 사용한다. listener는 media Service의 transaction이 commit된 뒤에만 ack하고, listener container
