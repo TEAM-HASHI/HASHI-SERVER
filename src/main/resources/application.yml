@@ -89,6 +89,18 @@ hashi:
       presigned-url-expiration: 300s
       max-file-size: 5MB
       max-files-per-request: 10
+  restaurant:
+    media-backfill:
+      # 승인된 one-shot 실행에서만 켠다. PREPARE/ATTACH는 재시작 가능한 고유 run-id가 필수다.
+      enabled: ${RESTAURANT_MEDIA_BACKFILL_ENABLED:false}
+      run-id: ${RESTAURANT_MEDIA_BACKFILL_RUN_ID:}
+      target: ${RESTAURANT_MEDIA_BACKFILL_TARGET:RESTAURANT_IMAGE}
+      mode: ${RESTAURANT_MEDIA_BACKFILL_MODE:DRY_RUN}
+      batch-size: ${RESTAURANT_MEDIA_BACKFILL_BATCH_SIZE:50}
+      max-batches: ${RESTAURANT_MEDIA_BACKFILL_MAX_BATCHES:10}
+      lease-duration: ${RESTAURANT_MEDIA_BACKFILL_LEASE_DURATION:5m}
+      max-attempts: ${RESTAURANT_MEDIA_BACKFILL_MAX_ATTEMPTS:3}
+      retry-initial-delay: ${RESTAURANT_MEDIA_BACKFILL_RETRY_INITIAL_DELAY:200ms}
 
 management:
   endpoints:

@@ -13,6 +13,7 @@ import jakarta.persistence.ManyToOne;
 import jakarta.persistence.Table;
 import jakarta.persistence.UniqueConstraint;
 import java.math.BigDecimal;
+import java.util.Objects;
 import java.util.UUID;
 import lombok.AccessLevel;
 import lombok.Getter;
@@ -85,7 +86,7 @@ public class RestaurantMenu extends BaseTimeEntity {
     public static RestaurantMenu createWithAsset(String name, String description, UUID imageAssetId,
                                                  PriceCurrency priceCurrency, BigDecimal priceAmount,
                                                  boolean main) {
-        return new RestaurantMenu(name, description, null, java.util.Objects.requireNonNull(imageAssetId),
+        return new RestaurantMenu(name, description, null, Objects.requireNonNull(imageAssetId),
                 priceCurrency, priceAmount, main);
     }
 
@@ -103,6 +104,17 @@ public class RestaurantMenu extends BaseTimeEntity {
         this.priceCurrency = priceCurrency;
         this.priceAmount = priceAmount;
         this.main = main;
+    }
+
+    boolean hasUnchangedLegacySource(String expectedImageKey) {
+        return imageAssetId == null && imageKey != null && Objects.equals(imageKey, expectedImageKey);
+    }
+
+    void attachBackfilledAsset(UUID imageAssetId) {
+        if (imageKey == null || this.imageAssetId != null) {
+            throw new IllegalStateException("restaurant menu image is not eligible for backfill");
+        }
+        this.imageAssetId = Objects.requireNonNull(imageAssetId);
     }
 
     void assignRestaurant(Restaurant restaurant) {

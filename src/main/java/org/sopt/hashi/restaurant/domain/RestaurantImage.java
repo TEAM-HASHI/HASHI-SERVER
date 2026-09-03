@@ -89,6 +89,17 @@ public class RestaurantImage extends BaseTimeEntity {
         this.displayOrder = displayOrder;
     }
 
+    boolean hasUnchangedLegacySource(String expectedFileKey) {
+        return imageAssetId == null && fileKey != null && Objects.equals(fileKey, expectedFileKey);
+    }
+
+    void attachBackfilledAsset(UUID imageAssetId) {
+        if (fileKey == null || this.imageAssetId != null) {
+            throw new IllegalStateException("restaurant image is not eligible for backfill");
+        }
+        this.imageAssetId = Objects.requireNonNull(imageAssetId);
+    }
+
     void assignRestaurant(Restaurant restaurant) {
         this.restaurant = restaurant;
     }
