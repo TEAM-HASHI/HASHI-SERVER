@@ -3,6 +3,7 @@ package org.sopt.hashi.media.service;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import java.time.Clock;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Map;
@@ -25,10 +26,10 @@ import org.sopt.hashi.media.domain.ImageAssetRepository;
 import org.sopt.hashi.media.domain.ImageProcessingStatus;
 import org.sopt.hashi.media.domain.MediaPurpose;
 import org.sopt.hashi.media.internal.event.MediaProcessingRequestedEvent;
-import org.sopt.hashi.media.internal.job.MediaProcessingJobIdFactory;
 import org.sopt.hashi.media.internal.storage.OriginalObjectMetadata;
 import org.sopt.hashi.shared.error.BusinessException;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.testcontainers.service.connection.ServiceConnection;
 import org.springframework.context.annotation.Import;
@@ -53,7 +54,7 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 class MediaAssetTransactionIntegrationTest {
 
     private static final String SPEC_DIGEST =
-            "91ac56d691c5af9e43061b0a2cc43763a4d1825244135d120057c3305a1bbe32";
+            "1b5759a9285732133699114e21101b3b9b43b5cd8e208bf1246d059f4293634f";
     private static final CurrentActor USER = new CurrentActor(ActorType.USER, 1L);
 
     @Container
@@ -70,13 +71,14 @@ class MediaAssetTransactionIntegrationTest {
     private ImageAssetRepository imageAssetRepository;
 
     @Autowired
-    private MediaProcessingJobIdFactory jobIdFactory;
-
-    @Autowired
     private JdbcTemplate jdbcTemplate;
 
     @Autowired
     private EventCollector eventCollector;
+
+    @Autowired
+    @Qualifier("japanClock")
+    private Clock clock;
 
     private ExecutorService executor;
 
@@ -125,8 +127,52 @@ class MediaAssetTransactionIntegrationTest {
 
         ImageAsset asset = imageAssetRepository.findByPublicId(assetId).orElseThrow();
         assertThat(asset.getCurrentJobId())
-                .isEqualTo(jobIdFactory.create(assetId, "version-1", 1));
+                .isEqualTo(MediaProcessingJobId.from(assetId, "version-1", 1));
+        assertThat(eventCollector.events().getFirst().jobId()).isEqualTo(asset.getCurrentJobId());
         assertThat(asset.getLastIssuedSpecVersion()).isEqualTo(1);
+    }
+
+    @Test
+    void S3_version_ID_1024_bytes를_손실없이_저장한다() {
+        UUID assetId = createAsset(USER);
+        String versionId = "v".repeat(MediaSourceIdentity.MAX_VERSION_ID_BYTES);
+        OriginalObjectMetadata metadata = metadata(assetId, versionId);
+
+        transactionService.completeAssets(USER, List.of(assetId), Map.of(assetId, metadata));
+
+        ImageAsset asset = imageAssetRepository.findByPublicId(assetId).orElseThrow();
+        assertThat(asset.getSourceVersionId()).isEqualTo(versionId);
+        assertThat(asset.getCurrentJobId())
+                .isEqualTo(MediaProcessingJobId.from(assetId, versionId, 1));
+        assertThat(eventCollector.events()).singleElement().satisfies(event -> {
+            assertThat(event.assetId()).isEqualTo(assetId);
+            assertThat(event.jobId()).isEqualTo(asset.getCurrentJobId());
+        });
+    }
+
+    @Test
+    void S3_version_ID가_1024_bytes를_넘으면_전체_complete를_롤백한다() {
+        UUID firstId = createAsset(USER);
+        UUID secondId = createAsset(USER);
+        OriginalObjectMetadata tooLongVersion = metadata(
+                secondId,
+                "v".repeat(MediaSourceIdentity.MAX_VERSION_ID_BYTES + 1)
+        );
+
+        assertThatThrownBy(() -> transactionService.completeAssets(
+                USER,
+                List.of(firstId, secondId),
+                Map.of(firstId, metadata(firstId), secondId, tooLongVersion)
+        )).isInstanceOf(BusinessException.class)
+                .hasFieldOrPropertyWithValue("errorCode", MediaErrorCode.UPLOAD_METADATA_MISMATCH);
+
+        assertThat(imageAssetRepository.findAllByPublicIdIn(List.of(firstId, secondId)))
+                .allSatisfy(asset -> {
+                    assertThat(asset.getProcessingStatus()).isEqualTo(ImageProcessingStatus.PENDING_UPLOAD);
+                    assertThat(asset.getSourceVersionId()).isNull();
+                    assertThat(asset.getCurrentJobId()).isNull();
+                });
+        assertThat(eventCollector.events()).isEmpty();
     }
 
     @Test
@@ -237,7 +283,7 @@ class MediaAssetTransactionIntegrationTest {
                         objectKey(assetId),
                         "image/jpeg",
                         1024L,
-                        LocalDateTime.now().plusMinutes(5)
+                        LocalDateTime.now(clock).plusMinutes(5)
                 ))
         );
         return assetId;
@@ -261,9 +307,13 @@ class MediaAssetTransactionIntegrationTest {
     }
 
     private OriginalObjectMetadata metadata(UUID assetId) {
+        return metadata(assetId, "version-1");
+    }
+
+    private OriginalObjectMetadata metadata(UUID assetId, String versionId) {
         return new OriginalObjectMetadata(
                 objectKey(assetId),
-                "version-1",
+                versionId,
                 "\"etag-1\"",
                 "image/jpeg",
                 1024L

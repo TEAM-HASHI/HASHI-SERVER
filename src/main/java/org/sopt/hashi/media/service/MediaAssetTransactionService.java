@@ -22,7 +22,6 @@ import org.sopt.hashi.media.domain.MediaPipelineConfig;
 import org.sopt.hashi.media.domain.MediaPipelineConfigRepository;
 import org.sopt.hashi.media.domain.MediaPurpose;
 import org.sopt.hashi.media.internal.event.MediaProcessingRequestedEvent;
-import org.sopt.hashi.media.internal.job.MediaProcessingJobIdFactory;
 import org.sopt.hashi.media.internal.spec.MediaSpecRegistry;
 import org.sopt.hashi.media.internal.spec.MediaSpecSnapshot;
 import org.sopt.hashi.media.internal.storage.OriginalObjectMetadata;
@@ -41,20 +40,17 @@ public class MediaAssetTransactionService {
     private final ImageAssetRepository imageAssetRepository;
     private final MediaPipelineConfigRepository pipelineConfigRepository;
     private final MediaSpecRegistry mediaSpecRegistry;
-    private final MediaProcessingJobIdFactory jobIdFactory;
     private final ApplicationEventPublisher eventPublisher;
     private final Clock clock;
 
     public MediaAssetTransactionService(ImageAssetRepository imageAssetRepository,
                                         MediaPipelineConfigRepository pipelineConfigRepository,
                                         MediaSpecRegistry mediaSpecRegistry,
-                                        MediaProcessingJobIdFactory jobIdFactory,
                                         ApplicationEventPublisher eventPublisher,
                                         @Qualifier("japanClock") Clock clock) {
         this.imageAssetRepository = imageAssetRepository;
         this.pipelineConfigRepository = pipelineConfigRepository;
         this.mediaSpecRegistry = mediaSpecRegistry;
-        this.jobIdFactory = jobIdFactory;
         this.eventPublisher = eventPublisher;
         this.clock = clock;
     }
@@ -178,7 +174,7 @@ public class MediaAssetTransactionService {
         }
         validateMetadata(asset, metadata);
 
-        UUID jobId = jobIdFactory.create(
+        UUID jobId = MediaProcessingJobId.from(
                 asset.getPublicId(),
                 metadata.versionId(),
                 spec.version()
@@ -195,7 +191,7 @@ public class MediaAssetTransactionService {
     }
 
     private void validateMetadata(ImageAsset asset, OriginalObjectMetadata metadata) {
-        boolean hasSourceIdentity = hasText(metadata.versionId()) && hasText(metadata.eTag());
+        boolean hasSourceIdentity = MediaSourceIdentity.isValid(metadata.versionId(), metadata.eTag());
         boolean matchesDeclaration = asset.getOriginalObjectKey().equals(metadata.objectKey())
                 && asset.getDeclaredBytes() == metadata.contentLength()
                 && asset.getDeclaredContentType().equalsIgnoreCase(metadata.contentType());
@@ -224,7 +220,4 @@ public class MediaAssetTransactionService {
         };
     }
 
-    private boolean hasText(String value) {
-        return value != null && !value.isBlank();
-    }
 }

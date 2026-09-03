@@ -50,7 +50,7 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 class MediaTransformResultServiceIntegrationTest {
 
     private static final String SPEC_DIGEST =
-            "91ac56d691c5af9e43061b0a2cc43763a4d1825244135d120057c3305a1bbe32";
+            "1b5759a9285732133699114e21101b3b9b43b5cd8e208bf1246d059f4293634f";
     private static final String OTHER_DIGEST =
             "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
     private static final String SOURCE_CHECKSUM =
@@ -463,7 +463,7 @@ class MediaTransformResultServiceIntegrationTest {
                 rendition(processing, ImageRole.REVIEW_PREVIEW, 405, 405),
                 rendition(processing, ImageRole.REVIEW_DETAIL, 430, 628),
                 rendition(processing, ImageRole.REVIEW_DETAIL, 860, 1256),
-                rendition(processing, ImageRole.REVIEW_DETAIL, 1290, 1885)
+                rendition(processing, ImageRole.REVIEW_DETAIL, 1290, 1884)
         );
         return new MediaTransformSucceededResult(
                 1,

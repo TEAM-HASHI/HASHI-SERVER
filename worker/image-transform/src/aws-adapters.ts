@@ -45,6 +45,9 @@ export class AwsImageObjectStorage implements ImageObjectStorage {
     if (response.Body === undefined) {
       throw new ContractMismatchError("S3 returned an original object without a body");
     }
+    if (response.ContentLength !== request.expectedContentLength) {
+      throw new ContractMismatchError("S3 original content length differs from transform request");
+    }
 
     const bytes = Buffer.from(await response.Body.transformToByteArray());
     return Object.freeze({

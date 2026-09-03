@@ -20,6 +20,16 @@ Parameters:
     MinLength: 1
     Description: Existing CloudFront distribution binding; this stack does not modify it
 
+  SourceCommitSha:
+    Type: String
+    AllowedPattern: "^[0-9a-f]{40}$"
+    Description: Reviewed repository commit that produced this deployment
+
+  WorkerBuildArtifactSha256:
+    Type: String
+    AllowedPattern: "^[0-9a-f]{64}$"
+    Description: SHA-256 of the verified build ZIP supplied as input to SAM
+
   SpringApplicationRoleName:
     Type: String
     MinLength: 1
@@ -32,18 +42,19 @@ Parameters:
   AlarmNotificationTopicArn:
     Type: String
     Default: ""
-    Description: Optional existing SNS topic ARN for alarm notifications
+    AllowedPattern: "^$|^arn:[a-z0-9-]+:sns:[a-z0-9-]+:[0-9]{12}:[A-Za-z0-9_+=,.@/-]+$"
+    Description: Existing SNS topic ARN for alarm notifications; required in prod
 
   WorkerReservedConcurrency:
     Type: Number
     Default: 5
-    MinValue: 2
+    MinValue: 5
     MaxValue: 100
     Description: Shared concurrency ceiling for the function and SQS event source
 
   WorkerEventSourceEnabled:
     Type: String
-    Default: "true"
+    Default: "false"
     AllowedValues:
       - "true"
       - "false"
@@ -59,6 +70,18 @@ Parameters:
       - 60
       - 90
     Description: CloudWatch Logs retention
+
+Rules:
+  ProductionAlarmTopicRequired:
+    RuleCondition: !Equals
+      - !Ref EnvironmentName
+      - prod
+    Assertions:
+      - Assert: !Not
+          - !Equals
+            - !Ref AlarmNotificationTopicArn
+            - ""
+        AssertDescription: AlarmNotificationTopicArn is required for production
 
 Conditions:
   HasAlarmNotificationTopic: !Not
@@ -118,6 +141,8 @@ Resources:
 
   OriginalImageBucketPolicy:
     Type: AWS::S3::BucketPolicy
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
     Properties:
       Bucket: !Ref OriginalImageBucket
       PolicyDocument:
@@ -139,6 +164,10 @@ Resources:
     Properties:
       QueueName: !Sub "hashi-${EnvironmentName}-media-transform-request-dlq"
       MessageRetentionPeriod: 1209600
+      RedriveAllowPolicy:
+        redrivePermission: byQueue
+        sourceQueueArns:
+          - !Sub "arn:${AWS::Partition}:sqs:${AWS::Region}:${AWS::AccountId}:hashi-${EnvironmentName}-media-transform-request"
       SqsManagedSseEnabled: true
       Tags:
         - Key: Component
@@ -167,6 +196,10 @@ Resources:
     Properties:
       QueueName: !Sub "hashi-${EnvironmentName}-media-transform-result-dlq"
       MessageRetentionPeriod: 1209600
+      RedriveAllowPolicy:
+        redrivePermission: byQueue
+        sourceQueueArns:
+          - !Sub "arn:${AWS::Partition}:sqs:${AWS::Region}:${AWS::AccountId}:hashi-${EnvironmentName}-media-transform-result"
       SqsManagedSseEnabled: true
       Tags:
         - Key: Component
@@ -201,6 +234,59 @@ Resources:
         - Key: Environment
           Value: !Ref EnvironmentName
 
+  ImageTransformFunctionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "hashi-${EnvironmentName}-media-image-transform-lambda"
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - lambda.amazonaws.com
+            Action:
+              - sts:AssumeRole
+      Policies:
+        - PolicyName: image-transform-runtime
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Sid: WriteFunctionLogs
+                Effect: Allow
+                Action:
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource: !GetAtt ImageTransformFunctionLogGroup.Arn
+              - Sid: ConsumeTransformRequests
+                Effect: Allow
+                Action:
+                  - sqs:DeleteMessage
+                  - sqs:GetQueueAttributes
+                  - sqs:ReceiveMessage
+                Resource: !GetAtt TransformRequestQueue.Arn
+              - Sid: ReadFixedOriginalVersion
+                Effect: Allow
+                Action:
+                  - s3:GetObjectVersion
+                Resource: !Sub "${OriginalImageBucket.Arn}/media/originals/*"
+              - Sid: CreateAndVerifyRenditions
+                Effect: Allow
+                Action:
+                  - s3:GetObject
+                  - s3:PutObject
+                Resource: !Sub "arn:${AWS::Partition}:s3:::${DeliveryBucketName}/media/renditions/*"
+              - Sid: PublishTransformResult
+                Effect: Allow
+                Action:
+                  - sqs:SendMessage
+                Resource: !GetAtt TransformResultQueue.Arn
+      Tags:
+        - Key: Component
+          Value: media
+        - Key: Environment
+          Value: !Ref EnvironmentName
+
   ImageTransformFunction:
     Type: AWS::Serverless::Function
     DependsOn:
@@ -211,8 +297,11 @@ Resources:
       CodeUri: ../../worker/image-transform/artifacts/package
       Handler: dist/handler.handler
       Runtime: nodejs24.x
+      Role: !GetAtt ImageTransformFunctionRole.Arn
       Architectures:
         - x86_64
+      AutoPublishAlias: live
+      AutoPublishAliasAllProperties: true
       MemorySize: 1536
       Timeout: 60
       ReservedConcurrentExecutions: !Ref WorkerReservedConcurrency
@@ -238,28 +327,11 @@ Resources:
             Queue: !GetAtt TransformRequestQueue.Arn
             ScalingConfig:
               MaximumConcurrency: !Ref WorkerReservedConcurrency
-      Policies:
-        - Statement:
-            - Sid: ReadFixedOriginalVersion
-              Effect: Allow
-              Action:
-                - s3:GetObject
-                - s3:GetObjectVersion
-              Resource: !Sub "${OriginalImageBucket.Arn}/media/originals/*"
-            - Sid: CreateAndVerifyRenditions
-              Effect: Allow
-              Action:
-                - s3:GetObject
-                - s3:PutObject
-              Resource: !Sub "arn:${AWS::Partition}:s3:::${DeliveryBucketName}/media/renditions/*"
-            - Sid: PublishTransformResult
-              Effect: Allow
-              Action:
-                - sqs:SendMessage
-              Resource: !GetAtt TransformResultQueue.Arn
       Tags:
         Component: media
         Environment: !Ref EnvironmentName
+        SourceCommit: !Ref SourceCommitSha
+        WorkerBuildArtifactSha256: !Ref WorkerBuildArtifactSha256
 
   SpringApplicationMediaPolicy:
     Type: AWS::IAM::ManagedPolicy
@@ -477,6 +549,18 @@ Outputs:
   ImageTransformFunctionName:
     Description: Image transform Lambda function name
     Value: !Ref ImageTransformFunction
+
+  DeployedSourceCommitSha:
+    Description: Reviewed repository commit recorded on the Lambda function
+    Value: !Ref SourceCommitSha
+
+  RecordedWorkerBuildArtifactSha256:
+    Description: SHA-256 of the verified build ZIP supplied as input to SAM
+    Value: !Ref WorkerBuildArtifactSha256
+
+  ImageTransformFunctionRoleArn:
+    Description: Exact worker role that the CloudFormation execution role passes to Lambda
+    Value: !GetAtt ImageTransformFunctionRole.Arn
 
   SpringApplicationMediaPolicyArn:
     Description: Managed policy attached to the existing Spring EC2 role

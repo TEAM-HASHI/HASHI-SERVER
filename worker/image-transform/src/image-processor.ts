@@ -327,7 +327,7 @@ async function encodeWebpRendition(
 function sharpInputOptions(animated: boolean): sharp.SharpOptions {
   return {
     animated,
-    failOn: "error",
+    failOn: "warning",
     limitInputPixels: IMAGE_LIMITS.maxFramePixels,
     pages: animated ? -1 : 1,
     sequentialRead: true,
