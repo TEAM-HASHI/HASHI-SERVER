@@ -2,6 +2,8 @@
   {"ParameterKey": "EnvironmentName", "ParameterValue": "dev"},
   {"ParameterKey": "DeliveryBucketName", "ParameterValue": "replace-with-existing-dev-delivery-bucket"},
   {"ParameterKey": "CloudFrontDistributionId", "ParameterValue": "replace-with-existing-dev-distribution-id"},
+  {"ParameterKey": "SourceCommitSha", "ParameterValue": "replace-with-40-character-lowercase-git-sha"},
+  {"ParameterKey": "WorkerArtifactSha256", "ParameterValue": "replace-with-64-character-lowercase-sha256"},
   {"ParameterKey": "SpringApplicationRoleName", "ParameterValue": "replace-with-existing-dev-ec2-role"},
   {"ParameterKey": "UploadAllowedOrigins", "ParameterValue": "https://replace-with-dev-client-origin.example"},
   {"ParameterKey": "AlarmNotificationTopicArn", "ParameterValue": ""},

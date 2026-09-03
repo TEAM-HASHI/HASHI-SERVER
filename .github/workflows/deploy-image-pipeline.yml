@@ -17,17 +17,107 @@ on:
 
 permissions:
   contents: read
-  id-token: write
 
 concurrency:
   group: deploy-image-pipeline-${{ inputs.target }}
   cancel-in-progress: false
 
 jobs:
+  build:
+    name: Build and verify image transform artifact
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    outputs:
+      lambda_package_sha256: ${{ steps.package_metadata.outputs.sha256 }}
+
+    steps:
+      - name: Checkout source code
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+
+      - name: Set up Node.js 24
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: worker/image-transform/package-lock.json
+
+      - name: Set up AWS SAM CLI 1.165.0
+        uses: aws-actions/setup-sam@89ddb14d60e682855e3fea4be85b3c56485de310 # v3
+        with:
+          version: "1.165.0"
+          use-installer: true
+          token: ${{ github.token }}
+
+      - name: Verify build tools
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --version
+          sam_version="$(sam --version)"
+          echo "${sam_version}"
+          [[ "${sam_version}" == "SAM CLI, version 1.165.0" ]]
+
+      - name: Test infrastructure policy checkers
+        run: |
+          node --test infra/media/scripts/check-delivery-lifecycle.test.mjs
+          node --test infra/media/scripts/check-worker-iam.test.mjs
+          node infra/media/scripts/check-worker-iam.mjs infra/media/template.yaml
+
+      - name: Install and test worker
+        working-directory: worker/image-transform
+        run: |
+          npm ci
+          npm test
+
+      - name: Build production Lambda package
+        working-directory: worker/image-transform
+        run: npm run package:lambda
+
+      - name: Record Lambda package identity
+        id: package_metadata
+        shell: bash
+        run: |
+          set -euo pipefail
+          package_sha256="$(sha256sum worker/image-transform/artifacts/image-transform.zip | cut -d ' ' -f 1)"
+          [[ "${package_sha256}" =~ ^[0-9a-f]{64}$ ]]
+          echo "sha256=${package_sha256}" >> "${GITHUB_OUTPUT}"
+          {
+            echo "### Image transform artifact"
+            echo "- Source commit: \`${GITHUB_SHA}\`"
+            echo "- Lambda ZIP SHA-256: \`${package_sha256}\`"
+          } >> "${GITHUB_STEP_SUMMARY}"
+
+      - name: Validate and build SAM template
+        shell: bash
+        run: |
+          set -euo pipefail
+          sam validate --lint --region ap-northeast-2 --template-file infra/media/template.yaml
+          sam build --template-file infra/media/template.yaml --build-dir .aws-sam/media-build
+
+      - name: Upload immutable Lambda package for deploy job
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: image-transform-${{ github.sha }}-${{ github.run_attempt }}
+          path: worker/image-transform/artifacts/image-transform.zip
+          if-no-files-found: error
+          retention-days: 1
+          compression-level: 0
+
   deploy:
     name: Deploy dev or prepare prod image pipeline
+    needs: build
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      SOURCE_COMMIT_SHA: ${{ github.sha }}
+      LAMBDA_PACKAGE_SHA256: ${{ needs.build.outputs.lambda_package_sha256 }}
 
     steps:
       - name: Checkout source code
@@ -194,12 +284,33 @@ jobs:
             printf '%s=%s\n' "${name}" "${selected[${name}]}" >> "${GITHUB_ENV}"
           done
 
+      - name: Download verified Lambda package
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: image-transform-${{ github.sha }}-${{ github.run_attempt }}
+          path: worker/image-transform/artifacts
+
+      - name: Verify and restore Lambda package
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "${LAMBDA_PACKAGE_SHA256}" =~ ^[0-9a-f]{64}$ ]]
+          actual_sha256="$(sha256sum worker/image-transform/artifacts/image-transform.zip | cut -d ' ' -f 1)"
+          if [[ "${actual_sha256}" != "${LAMBDA_PACKAGE_SHA256}" ]]; then
+            echo "Downloaded Lambda package digest does not match the build job output."
+            exit 1
+          fi
+          test ! -e worker/image-transform/artifacts/package
+          mkdir -p worker/image-transform/artifacts/package
+          unzip -q worker/image-transform/artifacts/image-transform.zip \
+            -d worker/image-transform/artifacts/package
+          test -f worker/image-transform/artifacts/package/dist/handler.js
+          test -f worker/image-transform/artifacts/package/media-specs/v1.json
+
       - name: Set up Node.js 24
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: "24"
-          cache: npm
-          cache-dependency-path: worker/image-transform/package-lock.json
 
       - name: Set up AWS SAM CLI 1.165.0
         uses: aws-actions/setup-sam@89ddb14d60e682855e3fea4be85b3c56485de310 # v3
@@ -208,7 +319,7 @@ jobs:
           use-installer: true
           token: ${{ github.token }}
 
-      - name: Verify build tools
+      - name: Verify deploy tools
         shell: bash
         run: |
           set -euo pipefail
@@ -216,31 +327,6 @@ jobs:
           sam_version="$(sam --version)"
           echo "${sam_version}"
           [[ "${sam_version}" == "SAM CLI, version 1.165.0" ]]
-
-      - name: Test delivery lifecycle policy checker
-        run: node --test infra/media/scripts/check-delivery-lifecycle.test.mjs
-
-      - name: Test and enforce worker IAM boundary
-        run: |
-          node --test infra/media/scripts/check-worker-iam.test.mjs
-          node infra/media/scripts/check-worker-iam.mjs infra/media/template.yaml
-
-      - name: Install and test worker
-        working-directory: worker/image-transform
-        run: |
-          npm ci
-          npm test
-
-      - name: Build production Lambda package
-        working-directory: worker/image-transform
-        run: npm run package:lambda
-
-      - name: Validate and build SAM template
-        shell: bash
-        run: |
-          set -euo pipefail
-          sam validate --lint --region "${AWS_REGION}" --template-file infra/media/template.yaml
-          sam build --template-file infra/media/template.yaml --build-dir .aws-sam/media-build
 
       - name: Configure short-lived dev AWS credentials
         if: inputs.target == 'dev'
@@ -445,6 +531,8 @@ jobs:
             "SpringApplicationRoleName=${MEDIA_SPRING_APPLICATION_ROLE_NAME}"
             "UploadAllowedOrigins=${MEDIA_UPLOAD_ALLOWED_ORIGINS}"
             "WorkerEventSourceEnabled=${MEDIA_WORKER_EVENT_SOURCE_ENABLED}"
+            "SourceCommitSha=${SOURCE_COMMIT_SHA}"
+            "WorkerArtifactSha256=${LAMBDA_PACKAGE_SHA256}"
           )
           if [[ -n "${MEDIA_ALARM_NOTIFICATION_TOPIC_ARN}" ]]; then
             parameters+=("AlarmNotificationTopicArn=${MEDIA_ALARM_NOTIFICATION_TOPIC_ARN}")
@@ -455,11 +543,11 @@ jobs:
             --stack-name "${MEDIA_PIPELINE_STACK_NAME}"
             --region "${AWS_REGION}"
             --s3-bucket "${AWS_SAM_ARTIFACT_BUCKET}"
-            --s3-prefix "media-pipeline/${TARGET}"
+            --s3-prefix "media-pipeline/${TARGET}/${SOURCE_COMMIT_SHA}"
             --role-arn "${AWS_CLOUDFORMATION_EXECUTION_ROLE_ARN}"
             --capabilities CAPABILITY_IAM
             --parameter-overrides "${parameters[@]}"
-            --tags Project=HASHI Component=media Environment="${TARGET}" ManagedBy=SAM
+            --tags Project=HASHI Component=media Environment="${TARGET}" ManagedBy=SAM SourceCommit="${SOURCE_COMMIT_SHA}" WorkerArtifactSha256="${LAMBDA_PACKAGE_SHA256}"
             --no-confirm-changeset
             --no-fail-on-empty-changeset
           )

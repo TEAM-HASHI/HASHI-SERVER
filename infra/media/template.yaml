@@ -20,6 +20,16 @@ Parameters:
     MinLength: 1
     Description: Existing CloudFront distribution binding; this stack does not modify it
 
+  SourceCommitSha:
+    Type: String
+    AllowedPattern: "^[0-9a-f]{40}$"
+    Description: Reviewed repository commit that produced this deployment
+
+  WorkerArtifactSha256:
+    Type: String
+    AllowedPattern: "^[0-9a-f]{64}$"
+    Description: SHA-256 of the Lambda ZIP built from SourceCommitSha
+
   SpringApplicationRoleName:
     Type: String
     MinLength: 1
@@ -305,6 +315,8 @@ Resources:
       Tags:
         Component: media
         Environment: !Ref EnvironmentName
+        SourceCommit: !Ref SourceCommitSha
+        WorkerArtifactSha256: !Ref WorkerArtifactSha256
 
   SpringApplicationMediaPolicy:
     Type: AWS::IAM::ManagedPolicy
@@ -501,6 +513,14 @@ Outputs:
   ImageTransformFunctionName:
     Description: Image transform Lambda function name
     Value: !Ref ImageTransformFunction
+
+  DeployedSourceCommitSha:
+    Description: Reviewed repository commit recorded on the Lambda function
+    Value: !Ref SourceCommitSha
+
+  DeployedWorkerArtifactSha256:
+    Description: SHA-256 recorded for the deployed Lambda ZIP
+    Value: !Ref WorkerArtifactSha256
 
   SpringApplicationMediaPolicyArn:
     Description: Managed policy attached to the existing Spring EC2 role
