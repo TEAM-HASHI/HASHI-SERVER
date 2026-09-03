@@ -220,6 +220,11 @@ jobs:
       - name: Test delivery lifecycle policy checker
         run: node --test infra/media/scripts/check-delivery-lifecycle.test.mjs
 
+      - name: Test and enforce worker IAM boundary
+        run: |
+          node --test infra/media/scripts/check-worker-iam.test.mjs
+          node infra/media/scripts/check-worker-iam.mjs infra/media/template.yaml
+
       - name: Install and test worker
         working-directory: worker/image-transform
         run: |

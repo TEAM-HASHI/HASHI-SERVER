@@ -211,6 +211,58 @@ Resources:
         - Key: Environment
           Value: !Ref EnvironmentName
 
+  ImageTransformFunctionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - lambda.amazonaws.com
+            Action:
+              - sts:AssumeRole
+      Policies:
+        - PolicyName: image-transform-runtime
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Sid: WriteFunctionLogs
+                Effect: Allow
+                Action:
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource: !GetAtt ImageTransformFunctionLogGroup.Arn
+              - Sid: ConsumeTransformRequests
+                Effect: Allow
+                Action:
+                  - sqs:DeleteMessage
+                  - sqs:GetQueueAttributes
+                  - sqs:ReceiveMessage
+                Resource: !GetAtt TransformRequestQueue.Arn
+              - Sid: ReadFixedOriginalVersion
+                Effect: Allow
+                Action:
+                  - s3:GetObjectVersion
+                Resource: !Sub "${OriginalImageBucket.Arn}/media/originals/*"
+              - Sid: CreateAndVerifyRenditions
+                Effect: Allow
+                Action:
+                  - s3:GetObject
+                  - s3:PutObject
+                Resource: !Sub "arn:${AWS::Partition}:s3:::${DeliveryBucketName}/media/renditions/*"
+              - Sid: PublishTransformResult
+                Effect: Allow
+                Action:
+                  - sqs:SendMessage
+                Resource: !GetAtt TransformResultQueue.Arn
+      Tags:
+        - Key: Component
+          Value: media
+        - Key: Environment
+          Value: !Ref EnvironmentName
+
   ImageTransformFunction:
     Type: AWS::Serverless::Function
     DependsOn:
@@ -221,6 +273,7 @@ Resources:
       CodeUri: ../../worker/image-transform/artifacts/package
       Handler: dist/handler.handler
       Runtime: nodejs24.x
+      Role: !GetAtt ImageTransformFunctionRole.Arn
       Architectures:
         - x86_64
       AutoPublishAlias: live
@@ -249,24 +302,6 @@ Resources:
             Queue: !GetAtt TransformRequestQueue.Arn
             ScalingConfig:
               MaximumConcurrency: !Ref WorkerReservedConcurrency
-      Policies:
-        - Statement:
-            - Sid: ReadFixedOriginalVersion
-              Effect: Allow
-              Action:
-                - s3:GetObjectVersion
-              Resource: !Sub "${OriginalImageBucket.Arn}/media/originals/*"
-            - Sid: CreateAndVerifyRenditions
-              Effect: Allow
-              Action:
-                - s3:GetObject
-                - s3:PutObject
-              Resource: !Sub "arn:${AWS::Partition}:s3:::${DeliveryBucketName}/media/renditions/*"
-            - Sid: PublishTransformResult
-              Effect: Allow
-              Action:
-                - sqs:SendMessage
-              Resource: !GetAtt TransformResultQueue.Arn
       Tags:
         Component: media
         Environment: !Ref EnvironmentName
