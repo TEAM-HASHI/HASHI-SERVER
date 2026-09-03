@@ -306,7 +306,20 @@ class MediaPortImplTest {
                         processingProjection(processingPurgedId, MediaCleanupStatus.PURGED)
                 ));
         when(imageRenditionRepository.findActiveImageProjections(
-                anyCollection(), anyCollection())).thenReturn(List.of());
+                anyCollection(), anyCollection())).thenReturn(List.of(
+                        rendition(
+                                readyPurgingId,
+                                ImageRole.REVIEW_DETAIL,
+                                860,
+                                860
+                        ),
+                        rendition(
+                                readyPurgedId,
+                                ImageRole.REVIEW_DETAIL,
+                                860,
+                                860
+                        )
+                ));
 
         assertThat(mediaPort.findImages(requests)).isEmpty();
 
