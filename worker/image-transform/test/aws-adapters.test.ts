@@ -13,7 +13,7 @@ import { AwsImageObjectStorage, SqsTransformResultPublisher } from "../src/aws-a
 import { ContractMismatchError } from "../src/errors";
 import type { TransformFailedResult } from "../src/queue-contract";
 
-const JOB_ID = "f57dbf16-f7ca-46ec-8d80-8142be93d12a";
+const JOB_ID = "ebb9b9d8-c427-564b-a70e-0fd4e1925e5a";
 const OBJECT_KEY =
   "media/renditions/a3af06f1-4ef2-46f8-a489-2347fb840447/v1/profile-avatar/48.webp";
 const CHECKSUM = "MDEyMzQ1Njc4OWFiY2RlZg==";
@@ -40,6 +40,7 @@ test("reads the exact original version with If-Match", async () => {
     objectKey: "media/originals/a3af06f1-4ef2-46f8-a489-2347fb840447/original",
     sourceETag: '"etag"',
     sourceVersionId: "version-id",
+    expectedContentLength: source.length,
   });
 
   assert.deepEqual(result.bytes, source);
@@ -48,6 +49,40 @@ test("reads the exact original version with If-Match", async () => {
   assert.equal(command.input.Bucket, "private-originals");
   assert.equal(command.input.VersionId, "version-id");
   assert.equal(command.input.IfMatch, '"etag"');
+});
+
+test("rejects an unexpected original size before buffering its body", async () => {
+  let bodyRead = false;
+  const client = new FakeAwsClient([
+    {
+      Body: {
+        transformToByteArray: async () => {
+          bodyRead = true;
+          return new Uint8Array(Buffer.from("oversized-source"));
+        },
+      },
+      ContentLength: 16,
+      ContentType: "image/jpeg",
+      ETag: '"etag"',
+      VersionId: "version-id",
+    },
+  ]);
+  const storage = new AwsImageObjectStorage(
+    "private-originals",
+    "delivery",
+    client as unknown as S3Client,
+  );
+
+  await assert.rejects(
+    storage.readOriginal({
+      objectKey: "media/originals/a3af06f1-4ef2-46f8-a489-2347fb840447/original",
+      sourceETag: '"etag"',
+      sourceVersionId: "version-id",
+      expectedContentLength: 12,
+    }),
+    ContractMismatchError,
+  );
+  assert.equal(bodyRead, false);
 });
 
 test("conditionally creates an immutable WebP with checksum metadata", async () => {
@@ -148,7 +183,7 @@ test("publishes only the result contract to the configured queue", async () => {
     jobId: JOB_ID,
     assetId: "a3af06f1-4ef2-46f8-a489-2347fb840447",
     specVersion: 1,
-    specDigest: "91ac56d691c5af9e43061b0a2cc43763a4d1825244135d120057c3305a1bbe32",
+    specDigest: "1b5759a9285732133699114e21101b3b9b43b5cd8e208bf1246d059f4293634f",
     sourceVersionId: "version-id",
     sourceETag: '"etag"',
     status: "FAILED",

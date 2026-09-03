@@ -13,6 +13,7 @@ class MediaRecoveryPropertiesTest {
         MediaRecoveryProperties properties = properties(null, 0, 0, 0);
 
         assertThat(properties.eprResubmitAge()).isEqualTo(Duration.ofMinutes(1));
+        assertThat(properties.eprResubmitBatchSize()).isEqualTo(50);
         assertThat(properties.processingStaleAge()).isEqualTo(Duration.ofMinutes(10));
         assertThat(properties.processingRetryInterval()).isEqualTo(Duration.ofMinutes(15));
         assertThat(properties.processingMaxAttempts()).isEqualTo(3);
@@ -41,6 +42,7 @@ class MediaRecoveryPropertiesTest {
                 true,
                 eprAge,
                 null,
+                0,
                 null,
                 null,
                 maxAttempts,

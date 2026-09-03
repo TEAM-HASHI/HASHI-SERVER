@@ -35,6 +35,7 @@ export class ImageTransformWorker {
       objectKey: request.originalKey,
       sourceETag: request.sourceETag,
       sourceVersionId: request.sourceVersionId,
+      expectedContentLength: request.declaredByteSize,
     });
     this.assertOriginalIdentity(request, original);
 

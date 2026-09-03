@@ -1,11 +1,11 @@
 {
   "contractVersion": 1,
-  "jobId": "f57dbf16-f7ca-46ec-8d80-8142be93d12a",
+  "jobId": "ebb9b9d8-c427-564b-a70e-0fd4e1925e5a",
   "assetId": "a3af06f1-4ef2-46f8-a489-2347fb840447",
   "specVersion": 1,
-  "specDigest": "91ac56d691c5af9e43061b0a2cc43763a4d1825244135d120057c3305a1bbe32",
+  "specDigest": "1b5759a9285732133699114e21101b3b9b43b5cd8e208bf1246d059f4293634f",
   "status": "FAILED",
-  "sourceVersionId": "3Lg-source-version",
+  "sourceVersionId": "version-1",
   "sourceETag": "\"etag-value\"",
   "failureCode": "INVALID_IMAGE_DATA"
 }
