@@ -4,14 +4,14 @@ on:
   workflow_dispatch:
     inputs:
       target:
-        description: Environment to deploy
+        description: Environment to deploy or prepare
         required: true
         type: choice
         options:
           - dev
           - prod
       production_confirmation:
-        description: Type deploy-prod only for a production deployment
+        description: Type prepare-prod to create a production change set
         required: false
         type: string
 
@@ -25,11 +25,9 @@ concurrency:
 
 jobs:
   deploy:
-    name: Deploy ${{ inputs.target }} image pipeline
+    name: Deploy dev or prepare prod image pipeline
     runs-on: ubuntu-latest
     timeout-minutes: 20
-    environment:
-      name: media-${{ inputs.target }}
 
     steps:
       - name: Checkout source code
@@ -37,101 +35,131 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Validate deployment approval and configuration
+      - name: Select and validate repository configuration
         shell: bash
         env:
           TARGET: ${{ inputs.target }}
           PRODUCTION_CONFIRMATION: ${{ inputs.production_confirmation }}
           DEPLOYMENT_REF: ${{ github.ref }}
-          AWS_ACCOUNT_ID: ${{ vars.AWS_ACCOUNT_ID }}
-          AWS_REGION: ${{ vars.AWS_REGION }}
-          AWS_DEPLOY_ROLE_ARN: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
-          AWS_CLOUDFORMATION_EXECUTION_ROLE_ARN: ${{ vars.AWS_CLOUDFORMATION_EXECUTION_ROLE_ARN }}
-          AWS_SAM_ARTIFACT_BUCKET: ${{ vars.AWS_SAM_ARTIFACT_BUCKET }}
-          MEDIA_PIPELINE_STACK_NAME: ${{ vars.MEDIA_PIPELINE_STACK_NAME }}
-          MEDIA_DELIVERY_BUCKET_NAME: ${{ vars.MEDIA_DELIVERY_BUCKET_NAME }}
-          MEDIA_CLOUDFRONT_DISTRIBUTION_ID: ${{ vars.MEDIA_CLOUDFRONT_DISTRIBUTION_ID }}
-          MEDIA_SPRING_APPLICATION_ROLE_NAME: ${{ vars.MEDIA_SPRING_APPLICATION_ROLE_NAME }}
-          MEDIA_UPLOAD_ALLOWED_ORIGINS: ${{ vars.MEDIA_UPLOAD_ALLOWED_ORIGINS }}
-          MEDIA_ALARM_NOTIFICATION_TOPIC_ARN: ${{ vars.MEDIA_ALARM_NOTIFICATION_TOPIC_ARN }}
-          MEDIA_WORKER_EVENT_SOURCE_ENABLED: ${{ vars.MEDIA_WORKER_EVENT_SOURCE_ENABLED }}
+          MEDIA_DEV_AWS_ACCOUNT_ID: ${{ vars.MEDIA_DEV_AWS_ACCOUNT_ID }}
+          MEDIA_DEV_AWS_REGION: ${{ vars.MEDIA_DEV_AWS_REGION }}
+          MEDIA_DEV_AWS_DEPLOY_ROLE_ARN: ${{ vars.MEDIA_DEV_AWS_DEPLOY_ROLE_ARN }}
+          MEDIA_DEV_AWS_CLOUDFORMATION_EXECUTION_ROLE_ARN: ${{ vars.MEDIA_DEV_AWS_CLOUDFORMATION_EXECUTION_ROLE_ARN }}
+          MEDIA_DEV_AWS_SAM_ARTIFACT_BUCKET: ${{ vars.MEDIA_DEV_AWS_SAM_ARTIFACT_BUCKET }}
+          MEDIA_DEV_DELIVERY_BUCKET_NAME: ${{ vars.MEDIA_DEV_DELIVERY_BUCKET_NAME }}
+          MEDIA_DEV_CLOUDFRONT_DISTRIBUTION_ID: ${{ vars.MEDIA_DEV_CLOUDFRONT_DISTRIBUTION_ID }}
+          MEDIA_DEV_SPRING_APPLICATION_ROLE_NAME: ${{ vars.MEDIA_DEV_SPRING_APPLICATION_ROLE_NAME }}
+          MEDIA_DEV_UPLOAD_ALLOWED_ORIGINS: ${{ vars.MEDIA_DEV_UPLOAD_ALLOWED_ORIGINS }}
+          MEDIA_DEV_ALARM_NOTIFICATION_TOPIC_ARN: ${{ vars.MEDIA_DEV_ALARM_NOTIFICATION_TOPIC_ARN }}
+          MEDIA_DEV_WORKER_EVENT_SOURCE_ENABLED: ${{ vars.MEDIA_DEV_WORKER_EVENT_SOURCE_ENABLED }}
+          MEDIA_PROD_AWS_ACCOUNT_ID: ${{ vars.MEDIA_PROD_AWS_ACCOUNT_ID }}
+          MEDIA_PROD_AWS_REGION: ${{ vars.MEDIA_PROD_AWS_REGION }}
+          MEDIA_PROD_AWS_DEPLOY_ROLE_ARN: ${{ vars.MEDIA_PROD_AWS_DEPLOY_ROLE_ARN }}
+          MEDIA_PROD_AWS_CLOUDFORMATION_EXECUTION_ROLE_ARN: ${{ vars.MEDIA_PROD_AWS_CLOUDFORMATION_EXECUTION_ROLE_ARN }}
+          MEDIA_PROD_AWS_SAM_ARTIFACT_BUCKET: ${{ vars.MEDIA_PROD_AWS_SAM_ARTIFACT_BUCKET }}
+          MEDIA_PROD_DELIVERY_BUCKET_NAME: ${{ vars.MEDIA_PROD_DELIVERY_BUCKET_NAME }}
+          MEDIA_PROD_CLOUDFRONT_DISTRIBUTION_ID: ${{ vars.MEDIA_PROD_CLOUDFRONT_DISTRIBUTION_ID }}
+          MEDIA_PROD_SPRING_APPLICATION_ROLE_NAME: ${{ vars.MEDIA_PROD_SPRING_APPLICATION_ROLE_NAME }}
+          MEDIA_PROD_UPLOAD_ALLOWED_ORIGINS: ${{ vars.MEDIA_PROD_UPLOAD_ALLOWED_ORIGINS }}
+          MEDIA_PROD_ALARM_NOTIFICATION_TOPIC_ARN: ${{ vars.MEDIA_PROD_ALARM_NOTIFICATION_TOPIC_ARN }}
+          MEDIA_PROD_WORKER_EVENT_SOURCE_ENABLED: ${{ vars.MEDIA_PROD_WORKER_EVENT_SOURCE_ENABLED }}
         run: |
           set -euo pipefail
 
-          if [[ "${TARGET}" == "prod" && "${PRODUCTION_CONFIRMATION}" != "deploy-prod" ]]; then
-            echo "Production deployment requires the exact confirmation string."
+          if [[ "${TARGET}" == "prod" && "${PRODUCTION_CONFIRMATION}" != "prepare-prod" ]]; then
+            echo "Production change-set preparation requires the exact confirmation string."
             exit 1
           fi
 
           expected_ref="refs/heads/develop"
+          variable_prefix="MEDIA_DEV"
           if [[ "${TARGET}" == "prod" ]]; then
             expected_ref="refs/heads/main"
+            variable_prefix="MEDIA_PROD"
           fi
           if [[ "${DEPLOYMENT_REF}" != "${expected_ref}" ]]; then
-            echo "${TARGET} deployments must run from ${expected_ref}."
+            echo "${TARGET} operations must run from ${expected_ref}."
             exit 1
           fi
 
-          required=(
-            AWS_ACCOUNT_ID
-            AWS_REGION
-            AWS_DEPLOY_ROLE_ARN
-            AWS_CLOUDFORMATION_EXECUTION_ROLE_ARN
-            AWS_SAM_ARTIFACT_BUCKET
-            MEDIA_PIPELINE_STACK_NAME
-            MEDIA_DELIVERY_BUCKET_NAME
-            MEDIA_CLOUDFRONT_DISTRIBUTION_ID
-            MEDIA_SPRING_APPLICATION_ROLE_NAME
-            MEDIA_UPLOAD_ALLOWED_ORIGINS
+          declare -A selected
+          mappings=(
+            "AWS_ACCOUNT_ID:AWS_ACCOUNT_ID"
+            "AWS_REGION:AWS_REGION"
+            "AWS_DEPLOY_ROLE_ARN:AWS_DEPLOY_ROLE_ARN"
+            "AWS_CLOUDFORMATION_EXECUTION_ROLE_ARN:AWS_CLOUDFORMATION_EXECUTION_ROLE_ARN"
+            "AWS_SAM_ARTIFACT_BUCKET:AWS_SAM_ARTIFACT_BUCKET"
+            "DELIVERY_BUCKET_NAME:MEDIA_DELIVERY_BUCKET_NAME"
+            "CLOUDFRONT_DISTRIBUTION_ID:MEDIA_CLOUDFRONT_DISTRIBUTION_ID"
+            "SPRING_APPLICATION_ROLE_NAME:MEDIA_SPRING_APPLICATION_ROLE_NAME"
+            "UPLOAD_ALLOWED_ORIGINS:MEDIA_UPLOAD_ALLOWED_ORIGINS"
           )
-          for name in "${required[@]}"; do
-            if [[ -z "${!name:-}" ]]; then
-              echo "Missing required GitHub Environment variable: ${name}"
+          for mapping in "${mappings[@]}"; do
+            source_suffix="${mapping%%:*}"
+            destination="${mapping##*:}"
+            source_name="${variable_prefix}_${source_suffix}"
+            value="${!source_name:-}"
+            if [[ -z "${value}" ]]; then
+              echo "Missing required repository variable: ${source_name}"
+              exit 1
+            fi
+            if [[ "${value}" == *$'\n'* || "${value}" == *$'\r'* ]]; then
+              echo "Repository variable ${source_name} cannot contain a newline."
+              exit 1
+            fi
+            selected["${destination}"]="${value}"
+          done
+
+          alarm_name="${variable_prefix}_ALARM_NOTIFICATION_TOPIC_ARN"
+          worker_name="${variable_prefix}_WORKER_EVENT_SOURCE_ENABLED"
+          selected[MEDIA_ALARM_NOTIFICATION_TOPIC_ARN]="${!alarm_name:-}"
+          selected[MEDIA_WORKER_EVENT_SOURCE_ENABLED]="${!worker_name:-false}"
+          for optional_name in MEDIA_ALARM_NOTIFICATION_TOPIC_ARN MEDIA_WORKER_EVENT_SOURCE_ENABLED; do
+            if [[ "${selected[${optional_name}]}" == *$'\n'* || "${selected[${optional_name}]}" == *$'\r'* ]]; then
+              echo "Optional repository variables cannot contain a newline."
               exit 1
             fi
           done
+          selected[MEDIA_PIPELINE_STACK_NAME]="hashi-${TARGET}-media-pipeline"
+          selected[TARGET]="${TARGET}"
 
-          if [[ ! "${AWS_ACCOUNT_ID}" =~ ^[0-9]{12}$ ]]; then
+          if [[ ! "${selected[AWS_ACCOUNT_ID]}" =~ ^[0-9]{12}$ ]]; then
             echo "AWS_ACCOUNT_ID must contain exactly 12 digits."
             exit 1
           fi
-
-          if [[ ! "${AWS_REGION}" =~ ^[a-z]{2}(-[a-z]+)+-[0-9]+$ ]]; then
+          if [[ ! "${selected[AWS_REGION]}" =~ ^[a-z]{2}(-[a-z]+)+-[0-9]+$ ]]; then
             echo "AWS_REGION is invalid."
             exit 1
           fi
 
-          expected_role_prefix="arn:aws:iam::${AWS_ACCOUNT_ID}:role/"
-          if [[ "${AWS_DEPLOY_ROLE_ARN}" != "${expected_role_prefix}"* ]]; then
+          expected_role_prefix="arn:aws:iam::${selected[AWS_ACCOUNT_ID]}:role/"
+          if [[ "${selected[AWS_DEPLOY_ROLE_ARN]}" != "${expected_role_prefix}"* ]]; then
             echo "AWS_DEPLOY_ROLE_ARN must be an IAM role in AWS_ACCOUNT_ID."
             exit 1
           fi
-          if [[ "${AWS_CLOUDFORMATION_EXECUTION_ROLE_ARN}" != "${expected_role_prefix}"* ]]; then
+          if [[ "${selected[AWS_CLOUDFORMATION_EXECUTION_ROLE_ARN]}" != "${expected_role_prefix}"* ]]; then
             echo "AWS_CLOUDFORMATION_EXECUTION_ROLE_ARN must be an IAM role in AWS_ACCOUNT_ID."
             exit 1
           fi
-
-          if [[ ! "${MEDIA_PIPELINE_STACK_NAME}" =~ ^[A-Za-z][A-Za-z0-9-]{0,127}$ ]]; then
-            echo "MEDIA_PIPELINE_STACK_NAME is invalid."
+          if [[ "${selected[AWS_DEPLOY_ROLE_ARN]}" == "${selected[AWS_CLOUDFORMATION_EXECUTION_ROLE_ARN]}" ]]; then
+            echo "The OIDC deploy role and CloudFormation execution role must be different."
             exit 1
           fi
 
-          if [[ ! "${MEDIA_SPRING_APPLICATION_ROLE_NAME}" =~ ^[A-Za-z0-9+=,.@_-]{1,64}$ ]]; then
+          if [[ ! "${selected[MEDIA_SPRING_APPLICATION_ROLE_NAME]}" =~ ^[A-Za-z0-9+=,.@_-]{1,64}$ ]]; then
             echo "MEDIA_SPRING_APPLICATION_ROLE_NAME is invalid."
             exit 1
           fi
-
-          if [[ ! "${MEDIA_CLOUDFRONT_DISTRIBUTION_ID}" =~ ^[A-Z0-9]+$ ]]; then
+          if [[ ! "${selected[MEDIA_CLOUDFRONT_DISTRIBUTION_ID]}" =~ ^[A-Z0-9]+$ ]]; then
             echo "MEDIA_CLOUDFRONT_DISTRIBUTION_ID is invalid."
             exit 1
           fi
-
-          if [[ "${MEDIA_UPLOAD_ALLOWED_ORIGINS}" == *"*"* ]]; then
+          if [[ "${selected[MEDIA_UPLOAD_ALLOWED_ORIGINS]}" == *"*"* ]]; then
             echo "Upload origins must be exact and cannot contain a wildcard."
             exit 1
           fi
 
-          IFS=',' read -ra origins <<< "${MEDIA_UPLOAD_ALLOWED_ORIGINS}"
+          IFS=',' read -ra origins <<< "${selected[MEDIA_UPLOAD_ALLOWED_ORIGINS]}"
           for origin in "${origins[@]}"; do
             if [[ ! "${origin}" =~ ^https?://[A-Za-z0-9.-]+(:[0-9]{1,5})?$ ]]; then
               echo "Every upload origin must be an exact HTTP(S) origin without a path."
@@ -143,44 +171,96 @@ jobs:
             fi
           done
 
-          worker_enabled="${MEDIA_WORKER_EVENT_SOURCE_ENABLED:-false}"
+          worker_enabled="${selected[MEDIA_WORKER_EVENT_SOURCE_ENABLED]}"
           if [[ "${worker_enabled}" != "true" && "${worker_enabled}" != "false" ]]; then
             echo "MEDIA_WORKER_EVENT_SOURCE_ENABLED must be true or false."
             exit 1
           fi
 
-          if [[ "${TARGET}" == "prod" && -z "${MEDIA_ALARM_NOTIFICATION_TOPIC_ARN:-}" ]]; then
-            echo "Production deployment requires an alarm notification topic."
+          alarm_topic="${selected[MEDIA_ALARM_NOTIFICATION_TOPIC_ARN]}"
+          if [[ "${TARGET}" == "prod" && -z "${alarm_topic}" ]]; then
+            echo "Production change-set preparation requires an alarm notification topic."
             exit 1
           fi
-
-          if [[ -n "${MEDIA_ALARM_NOTIFICATION_TOPIC_ARN:-}" ]]; then
-            expected_topic_prefix="arn:aws:sns:${AWS_REGION}:${AWS_ACCOUNT_ID}:"
-            if [[ "${MEDIA_ALARM_NOTIFICATION_TOPIC_ARN}" != "${expected_topic_prefix}"* ]]; then
+          if [[ -n "${alarm_topic}" ]]; then
+            expected_topic_prefix="arn:aws:sns:${selected[AWS_REGION]}:${selected[AWS_ACCOUNT_ID]}:"
+            if [[ "${alarm_topic}" != "${expected_topic_prefix}"* ]]; then
               echo "MEDIA_ALARM_NOTIFICATION_TOPIC_ARN must be in the selected account and region."
               exit 1
             fi
           fi
 
-      - name: Configure short-lived AWS credentials
+          for name in "${!selected[@]}"; do
+            printf '%s=%s\n' "${name}" "${selected[${name}]}" >> "${GITHUB_ENV}"
+          done
+
+      - name: Set up Node.js 24
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: worker/image-transform/package-lock.json
+
+      - name: Set up AWS SAM CLI 1.165.0
+        uses: aws-actions/setup-sam@89ddb14d60e682855e3fea4be85b3c56485de310 # v3
+        with:
+          version: "1.165.0"
+          use-installer: true
+          token: ${{ github.token }}
+
+      - name: Verify build tools
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --version
+          sam_version="$(sam --version)"
+          echo "${sam_version}"
+          [[ "${sam_version}" == "SAM CLI, version 1.165.0" ]]
+
+      - name: Test delivery lifecycle policy checker
+        run: node --test infra/media/scripts/check-delivery-lifecycle.test.mjs
+
+      - name: Install and test worker
+        working-directory: worker/image-transform
+        run: |
+          npm ci
+          npm test
+
+      - name: Build production Lambda package
+        working-directory: worker/image-transform
+        run: npm run package:lambda
+
+      - name: Validate and build SAM template
+        shell: bash
+        run: |
+          set -euo pipefail
+          sam validate --lint --region "${AWS_REGION}" --template-file infra/media/template.yaml
+          sam build --template-file infra/media/template.yaml --build-dir .aws-sam/media-build
+
+      - name: Configure short-lived dev AWS credentials
+        if: inputs.target == 'dev'
         uses: aws-actions/configure-aws-credentials@e6de054238d6b7531b4efff3b6587d9aade6a06c # v6.2.3
         with:
-          role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
-          role-session-name: hashi-media-${{ inputs.target }}-${{ github.run_id }}
-          aws-region: ${{ vars.AWS_REGION }}
-          allowed-account-ids: ${{ vars.AWS_ACCOUNT_ID }}
+          role-to-assume: ${{ vars.MEDIA_DEV_AWS_DEPLOY_ROLE_ARN }}
+          role-session-name: hashi-media-dev-${{ github.run_id }}
+          aws-region: ${{ vars.MEDIA_DEV_AWS_REGION }}
+          allowed-account-ids: ${{ vars.MEDIA_DEV_AWS_ACCOUNT_ID }}
+          mask-aws-account-id: true
+          unset-current-credentials: true
+
+      - name: Configure short-lived prod AWS credentials
+        if: inputs.target == 'prod'
+        uses: aws-actions/configure-aws-credentials@e6de054238d6b7531b4efff3b6587d9aade6a06c # v6.2.3
+        with:
+          role-to-assume: ${{ vars.MEDIA_PROD_AWS_DEPLOY_ROLE_ARN }}
+          role-session-name: hashi-media-prod-${{ github.run_id }}
+          aws-region: ${{ vars.MEDIA_PROD_AWS_REGION }}
+          allowed-account-ids: ${{ vars.MEDIA_PROD_AWS_ACCOUNT_ID }}
           mask-aws-account-id: true
           unset-current-credentials: true
 
       - name: Verify AWS identity and existing dependencies
         shell: bash
-        env:
-          AWS_ACCOUNT_ID: ${{ vars.AWS_ACCOUNT_ID }}
-          AWS_REGION: ${{ vars.AWS_REGION }}
-          AWS_SAM_ARTIFACT_BUCKET: ${{ vars.AWS_SAM_ARTIFACT_BUCKET }}
-          MEDIA_DELIVERY_BUCKET_NAME: ${{ vars.MEDIA_DELIVERY_BUCKET_NAME }}
-          MEDIA_CLOUDFRONT_DISTRIBUTION_ID: ${{ vars.MEDIA_CLOUDFRONT_DISTRIBUTION_ID }}
-          MEDIA_SPRING_APPLICATION_ROLE_NAME: ${{ vars.MEDIA_SPRING_APPLICATION_ROLE_NAME }}
         run: |
           set -euo pipefail
 
@@ -191,8 +271,13 @@ jobs:
           fi
 
           bucket_region() {
+            local bucket="$1"
             local location
-            location="$(aws s3api get-bucket-location --bucket "$1" --query LocationConstraint --output text)"
+            location="$(aws s3api get-bucket-location \
+              --bucket "${bucket}" \
+              --expected-bucket-owner "${AWS_ACCOUNT_ID}" \
+              --query LocationConstraint \
+              --output text)"
             case "${location}" in
               None|null) echo "us-east-1" ;;
               EU) echo "eu-west-1" ;;
@@ -202,8 +287,13 @@ jobs:
 
           verify_private_bucket() {
             local bucket="$1"
-            aws s3api head-bucket --bucket "${bucket}" >/dev/null
-            aws s3api get-public-access-block --bucket "${bucket}" --output json \
+            aws s3api head-bucket \
+              --bucket "${bucket}" \
+              --expected-bucket-owner "${AWS_ACCOUNT_ID}" >/dev/null
+            aws s3api get-public-access-block \
+              --bucket "${bucket}" \
+              --expected-bucket-owner "${AWS_ACCOUNT_ID}" \
+              --output json \
               | jq -e '
                   .PublicAccessBlockConfiguration
                   | .BlockPublicAcls == true
@@ -213,8 +303,28 @@ jobs:
                 ' >/dev/null
           }
 
+          verify_delivery_lifecycle() {
+            local lifecycle_json
+            local lifecycle_error
+            lifecycle_json="$(mktemp)"
+            lifecycle_error="$(mktemp)"
+
+            if aws s3api get-bucket-lifecycle-configuration \
+              --bucket "${MEDIA_DELIVERY_BUCKET_NAME}" \
+              --expected-bucket-owner "${AWS_ACCOUNT_ID}" \
+              --output json >"${lifecycle_json}" 2>"${lifecycle_error}"; then
+              node infra/media/scripts/check-delivery-lifecycle.mjs <"${lifecycle_json}"
+            elif ! grep -q "NoSuchLifecycleConfiguration" "${lifecycle_error}"; then
+              rm -f "${lifecycle_json}" "${lifecycle_error}"
+              echo "Unable to verify the delivery bucket lifecycle configuration."
+              exit 1
+            fi
+            rm -f "${lifecycle_json}" "${lifecycle_error}"
+          }
+
           verify_private_bucket "${AWS_SAM_ARTIFACT_BUCKET}"
           verify_private_bucket "${MEDIA_DELIVERY_BUCKET_NAME}"
+          verify_delivery_lifecycle
 
           if [[ "$(bucket_region "${AWS_SAM_ARTIFACT_BUCKET}")" != "${AWS_REGION}" ]]; then
             echo "The SAM artifact bucket must be in AWS_REGION."
@@ -227,71 +337,99 @@ jobs:
 
           aws iam get-role --role-name "${MEDIA_SPRING_APPLICATION_ROLE_NAME}" >/dev/null
 
+          if [[ -n "${MEDIA_ALARM_NOTIFICATION_TOPIC_ARN}" ]]; then
+            aws sns get-topic-attributes \
+              --topic-arn "${MEDIA_ALARM_NOTIFICATION_TOPIC_ARN}" >/dev/null
+            aws sns list-subscriptions-by-topic \
+              --topic-arn "${MEDIA_ALARM_NOTIFICATION_TOPIC_ARN}" \
+              --output json \
+              | jq -e '
+                  [.Subscriptions[]?
+                    | select(
+                        .SubscriptionArn != "PendingConfirmation"
+                        and .SubscriptionArn != "Deleted"
+                      )]
+                  | length > 0
+                ' >/dev/null || {
+                  echo "The alarm topic must have at least one confirmed subscription."
+                  exit 1
+                }
+          fi
+
           distribution="$(aws cloudfront get-distribution \
             --id "${MEDIA_CLOUDFRONT_DISTRIBUTION_ID}" \
             --output json)"
-          jq -e --arg bucket "${MEDIA_DELIVERY_BUCKET_NAME}" '
-              .Distribution.Status == "Deployed"
-              and .Distribution.DistributionConfig.Enabled == true
-              and (
+          regional_origin="${MEDIA_DELIVERY_BUCKET_NAME}.s3.${AWS_REGION}.amazonaws.com"
+          global_origin="${MEDIA_DELIVERY_BUCKET_NAME}.s3.amazonaws.com"
+          oac_id="$(jq -r \
+            --arg regional "${regional_origin}" \
+            --arg global "${global_origin}" '
+              if .Distribution.Status != "Deployed"
+                or .Distribution.DistributionConfig.Enabled != true
+              then empty
+              else
                 [
                   .Distribution.DistributionConfig.Origins.Items[]?
                   | select(
-                      (
-                        .DomainName == ($bucket + ".s3.amazonaws.com")
-                        or (.DomainName | startswith($bucket + ".s3."))
-                      )
+                      (.DomainName == $regional or .DomainName == $global)
                       and ((.OriginAccessControlId // "") != "")
                     )
-                ]
-                | length > 0
-              )
-            ' <<< "${distribution}" >/dev/null || {
-              echo "CloudFront must be deployed, enabled, and use the delivery bucket through OAC."
-              exit 1
-            }
+                  | .OriginAccessControlId
+                ][0] // empty
+              end
+            ' <<< "${distribution}")"
+          if [[ -z "${oac_id}" ]]; then
+            echo "CloudFront must be deployed, enabled, and use the exact delivery S3 origin through OAC."
+            exit 1
+          fi
 
-      - name: Set up Node.js 24
-        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
-        with:
-          node-version: "24"
-          cache: npm
-          cache-dependency-path: worker/image-transform/package-lock.json
+          aws cloudfront get-origin-access-control --id "${oac_id}" --output json \
+            | jq -e '
+                .OriginAccessControl.OriginAccessControlConfig
+                | .OriginAccessControlOriginType == "s3"
+                  and .SigningBehavior == "always"
+                  and .SigningProtocol == "sigv4"
+              ' >/dev/null || {
+                echo "CloudFront OAC must always sign the S3 origin with SigV4."
+                exit 1
+              }
 
-      - name: Set up AWS SAM CLI
-        uses: aws-actions/setup-sam@89ddb14d60e682855e3fea4be85b3c56485de310 # v3
+          stack_json="$(mktemp)"
+          stack_error="$(mktemp)"
+          trap 'rm -f "${stack_json}" "${stack_error}"' EXIT
+          if aws cloudformation describe-stacks \
+            --stack-name "${MEDIA_PIPELINE_STACK_NAME}" \
+            --region "${AWS_REGION}" \
+            --output json >"${stack_json}" 2>"${stack_error}"; then
+            jq -e --arg target "${TARGET}" '
+                .Stacks | length == 1
+                and (
+                  .[0].Parameters
+                  | any(.ParameterKey == "EnvironmentName" and .ParameterValue == $target)
+                )
+                and (
+                  .[0].Tags
+                  | any(.Key == "Project" and .Value == "HASHI")
+                )
+                and (
+                  .[0].Tags
+                  | any(.Key == "Component" and .Value == "media")
+                )
+                and (
+                  .[0].Tags
+                  | any(.Key == "Environment" and .Value == $target)
+                )
+              ' "${stack_json}" >/dev/null || {
+                echo "The existing stack identity does not match the selected environment."
+                exit 1
+              }
+          elif ! grep -q "does not exist" "${stack_error}"; then
+            echo "Unable to verify the existing CloudFormation stack identity."
+            exit 1
+          fi
 
-      - name: Install and test worker
-        working-directory: worker/image-transform
-        run: |
-          npm ci
-          npm test
-
-      - name: Build production Lambda package
-        working-directory: worker/image-transform
-        run: npm run package:lambda
-
-      - name: Validate SAM template
-        run: >-
-          sam validate
-          --lint
-          --region "${{ vars.AWS_REGION }}"
-          --template-file infra/media/template.yaml
-
-      - name: Deploy SAM stack
+      - name: Deploy dev stack or prepare prod change set
         shell: bash
-        env:
-          TARGET: ${{ inputs.target }}
-          AWS_REGION: ${{ vars.AWS_REGION }}
-          AWS_CLOUDFORMATION_EXECUTION_ROLE_ARN: ${{ vars.AWS_CLOUDFORMATION_EXECUTION_ROLE_ARN }}
-          AWS_SAM_ARTIFACT_BUCKET: ${{ vars.AWS_SAM_ARTIFACT_BUCKET }}
-          MEDIA_PIPELINE_STACK_NAME: ${{ vars.MEDIA_PIPELINE_STACK_NAME }}
-          MEDIA_DELIVERY_BUCKET_NAME: ${{ vars.MEDIA_DELIVERY_BUCKET_NAME }}
-          MEDIA_CLOUDFRONT_DISTRIBUTION_ID: ${{ vars.MEDIA_CLOUDFRONT_DISTRIBUTION_ID }}
-          MEDIA_SPRING_APPLICATION_ROLE_NAME: ${{ vars.MEDIA_SPRING_APPLICATION_ROLE_NAME }}
-          MEDIA_UPLOAD_ALLOWED_ORIGINS: ${{ vars.MEDIA_UPLOAD_ALLOWED_ORIGINS }}
-          MEDIA_ALARM_NOTIFICATION_TOPIC_ARN: ${{ vars.MEDIA_ALARM_NOTIFICATION_TOPIC_ARN }}
-          MEDIA_WORKER_EVENT_SOURCE_ENABLED: ${{ vars.MEDIA_WORKER_EVENT_SOURCE_ENABLED }}
         run: |
           set -euo pipefail
 
@@ -301,25 +439,33 @@ jobs:
             "CloudFrontDistributionId=${MEDIA_CLOUDFRONT_DISTRIBUTION_ID}"
             "SpringApplicationRoleName=${MEDIA_SPRING_APPLICATION_ROLE_NAME}"
             "UploadAllowedOrigins=${MEDIA_UPLOAD_ALLOWED_ORIGINS}"
-            "WorkerEventSourceEnabled=${MEDIA_WORKER_EVENT_SOURCE_ENABLED:-false}"
+            "WorkerEventSourceEnabled=${MEDIA_WORKER_EVENT_SOURCE_ENABLED}"
           )
-          if [[ -n "${MEDIA_ALARM_NOTIFICATION_TOPIC_ARN:-}" ]]; then
+          if [[ -n "${MEDIA_ALARM_NOTIFICATION_TOPIC_ARN}" ]]; then
             parameters+=("AlarmNotificationTopicArn=${MEDIA_ALARM_NOTIFICATION_TOPIC_ARN}")
           fi
 
-          sam deploy \
-            --template-file infra/media/template.yaml \
-            --stack-name "${MEDIA_PIPELINE_STACK_NAME}" \
-            --region "${AWS_REGION}" \
-            --s3-bucket "${AWS_SAM_ARTIFACT_BUCKET}" \
-            --s3-prefix "media-pipeline/${TARGET}" \
-            --role-arn "${AWS_CLOUDFORMATION_EXECUTION_ROLE_ARN}" \
-            --capabilities CAPABILITY_IAM \
-            --parameter-overrides "${parameters[@]}" \
-            --tags Project=HASHI Component=media Environment="${TARGET}" ManagedBy=SAM \
-            --no-confirm-changeset \
+          deploy_args=(
+            --template-file infra/media/template.yaml
+            --stack-name "${MEDIA_PIPELINE_STACK_NAME}"
+            --region "${AWS_REGION}"
+            --s3-bucket "${AWS_SAM_ARTIFACT_BUCKET}"
+            --s3-prefix "media-pipeline/${TARGET}"
+            --role-arn "${AWS_CLOUDFORMATION_EXECUTION_ROLE_ARN}"
+            --capabilities CAPABILITY_IAM
+            --parameter-overrides "${parameters[@]}"
+            --tags Project=HASHI Component=media Environment="${TARGET}" ManagedBy=SAM
+            --no-confirm-changeset
             --no-fail-on-empty-changeset
+          )
 
+          if [[ "${TARGET}" == "prod" ]]; then
+            sam deploy "${deploy_args[@]}" --no-execute-changeset
+            echo "Production was not changed. Review and execute the generated change set from a separate AWS operator session."
+            exit 0
+          fi
+
+          sam deploy "${deploy_args[@]}"
           aws cloudformation update-termination-protection \
             --stack-name "${MEDIA_PIPELINE_STACK_NAME}" \
             --region "${AWS_REGION}" \

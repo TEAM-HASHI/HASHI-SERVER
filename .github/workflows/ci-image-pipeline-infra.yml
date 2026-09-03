@@ -38,8 +38,24 @@ jobs:
           cache: npm
           cache-dependency-path: worker/image-transform/package-lock.json
 
-      - name: Set up AWS SAM CLI
+      - name: Set up AWS SAM CLI 1.165.0
         uses: aws-actions/setup-sam@89ddb14d60e682855e3fea4be85b3c56485de310 # v3
+        with:
+          version: "1.165.0"
+          use-installer: true
+          token: ${{ github.token }}
+
+      - name: Verify build tools
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --version
+          sam_version="$(sam --version)"
+          echo "${sam_version}"
+          [[ "${sam_version}" == "SAM CLI, version 1.165.0" ]]
+
+      - name: Test delivery lifecycle policy checker
+        run: node --test infra/media/scripts/check-delivery-lifecycle.test.mjs
 
       - name: Install exact worker dependencies
         working-directory: worker/image-transform
