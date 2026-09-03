@@ -57,9 +57,13 @@ WebP 단일 제공은 합의된 최소 지원 환경인 Safari와 iOS 16.4 이�
   prod stack으로 관리한다.
 - CI와 배포는 SAM CLI `1.165.0`을 사용한다. GitHub Actions는 branch가 고정된 dev/prod별 OIDC
   role을 사용하고 장기 AWS access key를 저장하지 않는다.
-- 현재 private GitHub Free 저장소에서 강제할 수 없는 required reviewer를 전제로 하지 않는다.
-  dev workflow만 stack을 적용하고, prod workflow는 change set만 생성한다. prod 적용은 별도 AWS
-  운영자가 검토·실행한다.
+- worker는 stack이 직접 정의한 execution role로 request queue, 전용 log group, original/rendition
+  prefix와 result queue만 접근한다. SAM이 자동 부착하는 광범위 SQS managed policy는 사용하지 않는다.
+- worker build와 검증은 OIDC 권한이 없는 job에서 수행하고, deploy job은 같은 run의 immutable ZIP과
+  SHA-256을 확인한 뒤에만 AWS 권한을 받는다.
+- 현재 private GitHub Free 저장소에서 강제할 수 없는 required reviewer와 protected branch를 전제로
+  하지 않는다. dev AWS 권한과 data를 prod에서 격리하고, dev workflow만 stack을 적용한다. prod
+  workflow는 source commit과 artifact digest를 기록한 change set만 생성하며 별도 AWS 운영자가 검토·실행한다.
 - 기존 delivery bucket과 CloudFront는 새 stack이 소유하지 않고 parameter로 참조한다.
 - Spring의 SQS 연동은 Spring Boot 3.5.x와 호환되는 Spring Cloud AWS 3.4.2를 사용한다.
 - prod stack 적용과 `media_pipeline_config.issuance_enabled=true` 전환은 dev E2E 이후 별도
@@ -1360,7 +1364,10 @@ benchmark에 따라 memory, timeout과 concurrency를 조정한다. 출력 bytes
   versioning과 `media/renditions/*`에 겹치지 않는 lifecycle
 - 최초 original bucket versioning 활성화 뒤 첫 PUT 또는 DELETE 전 15분 대기 여부
 - 결정적인 dev/prod stack 이름, environment parameter와 tag 일치 여부
-- branch별 OIDC role의 trust policy, deploy role과 CloudFormation execution role 분리 및 최소 권한
+- branch별 OIDC role의 trust policy와 private GitHub Free의 dev 배포 신뢰 경계
+- dev/prod AWS 권한과 data 격리, deploy role과 CloudFormation execution role 분리 및 최소 권한
+- exact `iam:PassRole`, `cloudformation:RoleARN`, worker runtime role과 SQS resource 제한
+- source commit과 Lambda ZIP SHA-256을 prod change set과 대조하는 운영 절차
 - prod change set 별도 검토·실행, termination protection과 실제 alarm 수신 절차
 - Lambda 초기 memory와 timeout의 적정성, concurrency 상한
 - SQS visibility timeout, retention, retry, DLQ redrive 값
