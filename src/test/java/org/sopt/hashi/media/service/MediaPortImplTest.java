@@ -257,6 +257,36 @@ class MediaPortImplTest {
     }
 
     @Test
+    void BOUND_FAILED는_object_정리_중과_완료_후에도_source_없는_FAILED로_반환한다() {
+        UUID activeId = UUID.randomUUID();
+        UUID purgingId = UUID.randomUUID();
+        UUID purgedId = UUID.randomUUID();
+        List<MediaImageRequest> requests = List.of(
+                new MediaImageRequest(activeId, MediaImageRole.REVIEW_DETAIL),
+                new MediaImageRequest(purgingId, MediaImageRole.REVIEW_DETAIL),
+                new MediaImageRequest(purgedId, MediaImageRole.REVIEW_DETAIL)
+        );
+        when(imageAssetRepository.findImageProjectionsByPublicIdIn(anyCollection()))
+                .thenReturn(List.of(
+                        failedProjection(activeId, MediaCleanupStatus.ACTIVE),
+                        failedProjection(purgingId, MediaCleanupStatus.PURGING),
+                        failedProjection(purgedId, MediaCleanupStatus.PURGED)
+                ));
+        when(imageRenditionRepository.findActiveImageProjections(
+                anyCollection(), anyCollection())).thenReturn(List.of());
+
+        Map<MediaImageRequest, MediaImage> result = mediaPort.findImages(requests);
+
+        assertThat(result).hasSize(3);
+        requests.forEach(request -> assertThat(result.get(request)).satisfies(image -> {
+            assertThat(image.status()).isEqualTo(MediaImageStatus.FAILED);
+            assertThat(image.defaultSource()).isNull();
+            assertThat(image.sourceSets()).isEmpty();
+        }));
+        verify(fileStorage, never()).resolveFileUrl(anyString());
+    }
+
+    @Test
     void spec_digest가_다르거나_asset이_UNBOUND이면_결과에서_제외한다() {
         UUID mismatchId = UUID.randomUUID();
         UUID unboundId = UUID.randomUUID();
@@ -334,6 +364,24 @@ class MediaPortImplTest {
                 publicId, purpose, status, bindingStatus, cleanupStatus,
                 activeSpecVersion, activeSpecDigest,
                 targetSpecVersion, targetSpecDigest, lastFailureSpecVersion);
+    }
+
+    private AssetImageProjection failedProjection(
+            UUID publicId,
+            MediaCleanupStatus cleanupStatus
+    ) {
+        return projection(
+                publicId,
+                MediaPurpose.REVIEW,
+                ImageProcessingStatus.FAILED,
+                ImageBindingStatus.BOUND,
+                cleanupStatus,
+                null,
+                null,
+                null,
+                null,
+                1
+        );
     }
 
     private RenditionImageProjection rendition(
