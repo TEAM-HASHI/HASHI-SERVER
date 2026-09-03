@@ -407,6 +407,11 @@ Resources:
             Condition:
               StringLike:
                 s3:prefix: "media/originals/*"
+          - Sid: ReplacePrivateCopyTags
+            Effect: Allow
+            Action:
+              - s3:PutObjectTagging
+            Resource: !Sub "${OriginalImageBucket.Arn}/media/originals/*"
 
   TransformRequestAgeAlarm:
     Type: AWS::CloudWatch::Alarm

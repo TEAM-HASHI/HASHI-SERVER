@@ -83,6 +83,8 @@ DB issuance가 pause되어도 opt-in된 환경의 조회와 READY claim, 이미 
   matching destination version을 재발견한다.
 - source의 user metadata·tag·S3 annotation은 승계하지 않는다. annotation은 metadata와
   별개이므로 `x-amz-object-annotation-directive: EXCLUDE`를 명시하며 복사용 annotation 권한을 추가하지 않는다.
+  빈 tag로 교체하는 CopyObject 요청에는 `s3:PutObjectTagging`이 필요하므로, backfill 기간에만
+  private original의 `media/originals/*` prefix로 제한해 허용한다.
 - 동시 copy가 둘 이상 생겨도 DB에 처음 고정한 exact version과 결정적 job을 유지한다.
   늦은 copy가 canonical source나 job을 덮어쓰지 않는다.
 - FAILED, EXPIRED, RETIRED, PURGED identity는 자동으로 새 asset을 만들지 않는다. 새 source가
@@ -123,10 +125,12 @@ storage 실패는 `MediaBackfillSourceException.Reason`으로만 전달한다. �
 
 ## 6. Migration과 검증
 
-최초 media schema인 V15는 SYSTEM_BACKFILL identity의 NULL을 금지한다. 기존 비정상 row를
-가짜 hash로 채우지 않는다. 아직 media schema가 적용되지 않은 환경에서만 다음 읽기 전용 집계를
-사전 점검에 사용한다. 0이 아니면 적용 전에 원인을 조사하고 별도 복구 방향을 결정한다. 이 문서
-작성 과정에서 실제 운영 DB에는 실행하지 않았다.
+최초 media schema인 V15는 SYSTEM_BACKFILL identity의 NULL을 처음부터 금지하므로 별도 후속
+제약 migration을 추가하지 않는다. 다음 조회는 V15 적용 전 사전 쿼리가 아니라 적용 후 불변식
+확인용이다. 결과가 0이 아니면 원인을 조사하고 별도 복구 방향을 결정한다. 약한 V15가 공유 환경에
+적용된 이력이 생긴 경우에는 V15를 수정하지 않고 새로운 versioned migration을 추가한다. 현재
+stacked PR의 V15는 공유 운영 환경에 적용하지 않았으며, 이 문서 작성 과정에서도 운영 DB에 조회를
+실행하지 않았다.
 
 ```sql
 SELECT COUNT(*)

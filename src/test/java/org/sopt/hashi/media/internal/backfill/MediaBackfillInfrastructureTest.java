@@ -45,8 +45,8 @@ class MediaBackfillInfrastructureTest {
     @Test
     void legacy_source에는_지정한_delivery_bucket의_읽기만_허용한다() throws IOException {
         List<Node> statements = statements();
-        assertThat(statements).hasSize(2);
-        Node read = statements.getFirst();
+        assertThat(statements).hasSize(3);
+        Node read = statement("ReadLegacySourceVersions");
         assertThat(keys(read)).containsExactlyInAnyOrder("Sid", "Effect", "Action", "Resource");
         assertThat(value(field(read, "Effect"))).isEqualTo("Allow");
         assertThat(values(field(read, "Action"))).containsExactlyInAnyOrder("s3:GetObject", "s3:GetObjectVersion");
@@ -61,12 +61,24 @@ class MediaBackfillInfrastructureTest {
     @Test
     void 원본_version_조회는_media_originals_prefix로_제한하고_삭제나_공개_권한을_주지_않는다()
             throws IOException {
-        Node list = statements().getLast();
+        Node list = statement("FindExistingPrivateCopies");
         assertThat(keys(list)).containsExactlyInAnyOrder("Sid", "Effect", "Action", "Resource", "Condition");
         assertThat(value(field(list, "Effect"))).isEqualTo("Allow");
         assertThat(values(field(list, "Action"))).containsExactly("s3:ListBucketVersions");
         assertTagged(field(list, "Resource"), "!GetAtt", "OriginalImageBucket.Arn");
         assertThat(value(field(list, "Condition", "StringLike", "s3:prefix"))).isEqualTo("media/originals/*");
+    }
+
+    @Test
+    void 복사본의_legacy_tag_제거는_원본_prefix의_PutObjectTagging만_허용한다() throws IOException {
+        Node replaceTags = statement("ReplacePrivateCopyTags");
+        assertThat(keys(replaceTags)).containsExactlyInAnyOrder("Sid", "Effect", "Action", "Resource");
+        assertThat(value(field(replaceTags, "Effect"))).isEqualTo("Allow");
+        assertThat(values(field(replaceTags, "Action"))).containsExactly("s3:PutObjectTagging");
+        assertTagged(
+                field(replaceTags, "Resource"),
+                "!Sub",
+                "${OriginalImageBucket.Arn}/media/originals/*");
     }
 
     @Test
@@ -109,19 +121,29 @@ class MediaBackfillInfrastructureTest {
     }
 
     @Test
-    void Linux_CI는_실행권한에_의존하지_않고_Gradle_wrapper로_IAM_계약을_검증한다() throws IOException {
+    void Linux_CI는_실행권한에_의존하지_않고_backfill과_migration_계약을_검증한다() throws IOException {
         Node workflow = parse(Path.of(".github/workflows/ci-image-pipeline-infra.yml"));
         Node verify = sequence(field(workflow, "jobs", "validate", "steps")).stream()
-                .filter(step -> "Verify temporary backfill permissions".equals(value(field(step, "name"))))
+                .filter(step -> "Verify backfill and migration contracts".equals(value(field(step, "name"))))
                 .findFirst().orElseThrow();
         assertThat(value(field(verify, "run")))
                 .startsWith("bash ./gradlew test ")
-                .contains("--tests org.sopt.hashi.media.internal.backfill.MediaBackfillInfrastructureTest")
+                .contains("--tests 'org.sopt.hashi.media.MediaBackfill*'")
+                .contains("--tests 'org.sopt.hashi.media.service.MediaBackfill*'")
+                .contains("--tests org.sopt.hashi.media.domain.MediaSchemaValidationTest")
+                .contains("--tests org.sopt.hashi.migration.FlywayMigrationTest")
                 .contains("--no-daemon");
     }
 
     private List<Node> statements() throws IOException {
         return sequence(field(parse(TEMPLATE), "Resources", POLICY, "Properties", "PolicyDocument", "Statement"));
+    }
+
+    private Node statement(String sid) throws IOException {
+        return statements().stream()
+                .filter(statement -> sid.equals(value(field(statement, "Sid"))))
+                .findFirst()
+                .orElseThrow();
     }
 
     private Node step(Node workflow, String name) {

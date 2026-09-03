@@ -194,7 +194,8 @@ Spring에는 stack output을 다음 환경변수로 전달한다.
   기존 key가 현재 upload prefix 규칙을 따른다고 가정하지 않는다. purpose는 소유 테이블과
   슬롯으로 결정하며, adapter는 `media/` 하위 객체를 source로 사용하지 않는다.
 - private original은 `media/originals/*` prefix에 한해 `ListBucketVersions`를 허용해
-  응답이 유실된 copy의 version을 재발견한다. 목적지 PUT과 exact-version HEAD는 기존 media policy를 사용한다.
+  응답이 유실된 copy의 version을 재발견한다. 목적지 PUT과 exact-version HEAD는 기존 media policy를 사용하고,
+  빈 tag로 교체하기 위한 `PutObjectTagging`만 같은 prefix의 임시 backfill policy에서 허용한다.
 - 원본 삭제, ACL 변경, bucket 공개나 기존 delivery bucket 설정 변경 권한은 추가하지 않는다.
 - 실제 적용 전 delivery bucket의 데이터 범위와 EC2 role의 기존 권한을 확인한다. 이 flag는
   이 stack의 추가 policy만 제어하며 기존의 더 넓은 policy를 회수하지 않는다.

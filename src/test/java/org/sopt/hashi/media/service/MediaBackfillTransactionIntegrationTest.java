@@ -212,7 +212,7 @@ class MediaBackfillTransactionIntegrationTest {
                 "UPDATE image_asset SET backfill_identity_hash=NULL WHERE public_id=?",
                 reserved.assetId().toString()))
                 .isInstanceOf(DataAccessException.class)
-                .hasStackTraceContaining("ck_image_asset_backfill_identity_required")
+                .hasStackTraceContaining("ck_image_asset_backfill_identity")
                 .rootCause().isInstanceOfSatisfying(SQLException.class,
                         exception -> assertThat(exception.getErrorCode()).isEqualTo(3819));
         assertThat(reserve().assetId()).isEqualTo(reserved.assetId());

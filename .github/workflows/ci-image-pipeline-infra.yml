@@ -27,7 +27,7 @@ jobs:
   validate:
     name: Validate and build SAM stack
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 20
 
     steps:
       - name: Checkout source code
@@ -47,10 +47,18 @@ jobs:
           java-version: "21"
           cache: gradle
 
-      - name: Verify temporary backfill permissions
+      - name: Verify backfill and migration contracts
         run: >-
           bash ./gradlew test
-          --tests org.sopt.hashi.media.internal.backfill.MediaBackfillInfrastructureTest
+          --tests 'org.sopt.hashi.media.MediaBackfill*'
+          --tests org.sopt.hashi.media.domain.ImageAssetTest
+          --tests org.sopt.hashi.media.domain.MediaSchemaValidationTest
+          --tests org.sopt.hashi.media.domain.ProfileMagazineMediaUpgradeTest
+          --tests 'org.sopt.hashi.media.internal.backfill.*'
+          --tests 'org.sopt.hashi.media.service.MediaBackfill*'
+          --tests org.sopt.hashi.migration.FlywayMigrationTest
+          --tests org.sopt.hashi.migration.MediaPipelineConfigLifecycleTest
+          --tests org.sopt.hashi.ModularityTests
           --no-daemon
 
       - name: Set up AWS SAM CLI 1.165.0
