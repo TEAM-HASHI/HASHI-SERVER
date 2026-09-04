@@ -86,9 +86,26 @@ class RestaurantMediaBackfillRunner {
     }
 
     private RestaurantMediaBackfillSummary executeDryRun(RestaurantMediaBackfillSourceFailures sourceFailures) {
+        MutableSummary summary = new MutableSummary(properties.target(), properties.mode());
+        try {
+            return scanDryRun(sourceFailures, summary);
+        } catch (RuntimeException exception) {
+            log.error(
+                    "Restaurant media backfill dry run stopped: target={}, mode={}, errorType={}, "
+                            + "sourceFailuresThisExecution={}",
+                    properties.target(), properties.mode(), exception.getClass().getSimpleName(),
+                    sourceFailures.snapshot()
+            );
+            return summary.finish(Status.FAILED);
+        }
+    }
+
+    private RestaurantMediaBackfillSummary scanDryRun(
+            RestaurantMediaBackfillSourceFailures sourceFailures,
+            MutableSummary summary
+    ) {
         long upperBound = candidateReader.findUpperBound(properties.target());
         long cursor = 0L;
-        MutableSummary summary = new MutableSummary(properties.target(), properties.mode());
 
         for (int batchNumber = 0; batchNumber < properties.maxBatches(); batchNumber++) {
             requireNotInterrupted();
