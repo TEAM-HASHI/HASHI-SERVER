@@ -271,6 +271,11 @@ class RestaurantMediaBackfillPersistenceIntegrationTest {
                   AND table_name = 'restaurant_media_backfill_checkpoint'
                   AND referenced_table_name IS NOT NULL
                 """, Integer.class)).isZero();
+        assertThat(jdbcTemplate.queryForObject("""
+                SELECT engine FROM information_schema.tables
+                WHERE table_schema = DATABASE()
+                  AND table_name = 'restaurant_media_backfill_checkpoint'
+                """, String.class)).isEqualToIgnoringCase("InnoDB");
     }
 
     @Test
