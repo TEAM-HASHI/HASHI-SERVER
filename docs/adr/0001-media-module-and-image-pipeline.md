@@ -418,6 +418,11 @@ vN compatibility를 확인한다. config의 `(oldVersion, oldDigest, false)`를
   PURGING asset을 거부한다. S3 삭제는 transaction 밖에서 purgeToken 기준으로 멱등 실행하고,
   별도 transaction에서 PURGED tombstone 또는 row 삭제로 마무리한다. 중단된 PURGING은 같은
   token으로 재개하며 DB lock을 S3 호출 동안 유지하지 않는다.
+- asset 전체 정리는 기본 비활성·DRY_RUN이며, 삭제 IAM과 Spring 실행 설정을 별도로 허용한다.
+  IAM은 지정한 original/rendition media prefix로만 제한하고 worker와 legacy 삭제 권한은 늘리지 않는다.
+  기본 처리량은 프로세스당 실행 1회 최대 50개 asset이다. upload safety window를 명시해야 실행할 수
+  있으며, 중지와 재개는 [asset cleanup runbook](../media/asset-cleanup-runbook.md)을 따른다.
+  배포만으로 삭제를 시작하지 않고 실제 실행·보존 기간 변경은 별도 운영 승인을 받는다.
 - terminal FAILED target의 partial object는 asset cleanupStatus를 바꾸지 않는 object-only
   reconciliation으로 정리한다. target 전체 성공 transaction만 rendition manifest와 active
   pointer를 함께 저장하므로 실패 target의 partial object는 manifest가 없는 orphan이다. 삭제
