@@ -304,7 +304,7 @@ class MediaProcessingRequestPublicationIntegrationTest {
                         objectKey(assetId),
                         "image/jpeg",
                         1024L,
-                        LocalDateTime.now().plusMinutes(5)
+                        LocalDateTime.now(clock).plusMinutes(5)
                 ))
         );
         transactionService.completeAssets(

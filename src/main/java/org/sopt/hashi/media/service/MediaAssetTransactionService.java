@@ -95,7 +95,11 @@ public class MediaAssetTransactionService {
             Map<UUID, OriginalObjectMetadata> metadataByAssetId
     ) {
         Optional<MediaPipelineConfig> config = lockPipelineConfig();
-        List<ImageAsset> lockedAssets = imageAssetRepository.findAllByPublicIdInForUpdate(assetIds);
+        List<Long> internalIds = imageAssetRepository.findIdentitiesByPublicIdIn(assetIds).stream()
+                .map(ImageAssetRepository.AssetIdentity::getId)
+                .sorted()
+                .toList();
+        List<ImageAsset> lockedAssets = imageAssetRepository.findAllByIdInForUpdate(internalIds);
         Map<UUID, ImageAsset> assetsByPublicId = requireOwnedAssets(actor, assetIds, lockedAssets);
         LocalDateTime now = LocalDateTime.now(clock);
 
