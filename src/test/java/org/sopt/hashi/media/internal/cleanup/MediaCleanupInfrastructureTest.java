@@ -136,8 +136,10 @@ class MediaCleanupInfrastructureTest {
     void 인프라_CI와_배포_build에서_정리_권한_검사를_실행한다() throws IOException {
         Node ci = parse(Path.of(".github/workflows/ci-image-pipeline-infra.yml"));
         String testPath = "src/test/java/org/sopt/hashi/media/internal/cleanup/MediaCleanupInfrastructureTest.java";
-        assertThat(values(field(ci, "on", "pull_request", "paths"))).contains(testPath);
-        assertThat(values(field(ci, "on", "push", "paths"))).contains(testPath);
+        assertThat(values(field(ci, "on", "pull_request", "paths"))).contains(testPath, ".env.dev.example");
+        assertThat(values(field(ci, "on", "push", "paths"))).contains(testPath, ".env.dev.example");
+        String build = Files.readString(Path.of("build.gradle")).replace("\r\n", "\n");
+        assertThat(build).contains("inputs.files(\n            '.env.dev.example',\n");
         assertThat(value(field(step(ci, "validate", "Verify backfill and migration contracts"), "run")))
                 .startsWith("bash ./gradlew test ")
                 .contains("--tests org.sopt.hashi.media.internal.cleanup.MediaCleanupInfrastructureTest");
