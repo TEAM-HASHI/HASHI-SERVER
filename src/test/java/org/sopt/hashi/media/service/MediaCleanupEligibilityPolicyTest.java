@@ -28,7 +28,7 @@ class MediaCleanupEligibilityPolicyTest {
     private final MediaRecoveryProperties retention = new MediaRecoveryProperties(false, null, null, 0,
             null, null, 0, 0, 0, null, null, null, null, null);
     private final MediaCleanupProperties cleanup = new MediaCleanupProperties(true, Mode.DELETE,
-            Duration.ofMinutes(30), null, null, 0, 0, 0, 0, null, null);
+            Duration.ofMinutes(30), null, null, 0, 0, 0, 0, null, null, null, null, null);
     private final MediaCleanupEligibilityPolicy policy = new MediaCleanupEligibilityPolicy(retention, cleanup);
 
     @ParameterizedTest

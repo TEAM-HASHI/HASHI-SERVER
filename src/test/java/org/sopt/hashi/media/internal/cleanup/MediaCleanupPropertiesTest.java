@@ -25,6 +25,10 @@ class MediaCleanupPropertiesTest {
             assertThat(properties.uploadSafetyWindow()).isNull();
             assertThat(properties.scanBatchSize()).isEqualTo(25);
             assertThat(properties.storagePageSize()).isEqualTo(1000);
+            assertThat(properties.scanMaxBatches()).isEqualTo(2);
+            assertThat(properties.scanWorkBudget()).isEqualTo(Duration.ofMinutes(2));
+            assertThat(properties.storageWorkBudget()).isEqualTo(Duration.ofMinutes(1));
+            assertThat(properties.shutdownAwait()).isEqualTo(Duration.ofSeconds(20));
         });
     }
 
@@ -63,7 +67,9 @@ class MediaCleanupPropertiesTest {
     @ValueSource(strings = {"upload-safety-window=0s", "upload-safety-window=-1s", "retry-interval=0s",
             "scan-interval=-1s", "scan-batch-size=-1", "scan-batch-size=1001", "scan-max-batches=101",
             "storage-page-size=1001", "storage-max-pages=101", "storage-api-timeout=0s",
-            "storage-attempt-timeout=20s", "mode=UNKNOWN"})
+            "storage-attempt-timeout=20s", "mode=UNKNOWN", "scan-work-budget=0s", "scan-work-budget=31m",
+            "storage-work-budget=-1s", "storage-work-budget=6m", "storage-work-budget=10s",
+            "shutdown-await=0s", "shutdown-await=61s", "shutdown-await=1ns"})
     void 잘못된_실행_설정은_시작할_수_없다(String property) {
         runner.withPropertyValues("hashi.media.cleanup." + property)
                 .run(context -> assertThat(context).hasFailed());

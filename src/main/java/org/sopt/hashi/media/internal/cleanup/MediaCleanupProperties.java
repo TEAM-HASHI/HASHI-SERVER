@@ -15,7 +15,10 @@ public record MediaCleanupProperties(
         int storagePageSize,
         int storageMaxPages,
         Duration storageApiTimeout,
-        Duration storageAttemptTimeout
+        Duration storageAttemptTimeout,
+        Duration scanWorkBudget,
+        Duration storageWorkBudget,
+        Duration shutdownAwait
 ) {
 
     public MediaCleanupProperties {
@@ -36,6 +39,12 @@ public record MediaCleanupProperties(
         storageAttemptTimeout = positiveDuration(storageAttemptTimeout, Duration.ofSeconds(5));
         if (storageAttemptTimeout.compareTo(storageApiTimeout) > 0) {
             throw new IllegalArgumentException("cleanup attempt timeout must not exceed the API timeout");
+        }
+        scanWorkBudget = boundedDuration(scanWorkBudget, Duration.ofMinutes(2), Duration.ofMinutes(30));
+        storageWorkBudget = boundedDuration(storageWorkBudget, Duration.ofMinutes(1), Duration.ofMinutes(5));
+        shutdownAwait = boundedDuration(shutdownAwait, Duration.ofSeconds(20), Duration.ofMinutes(1));
+        if (storageApiTimeout.compareTo(storageWorkBudget) > 0) {
+            throw new IllegalArgumentException("cleanup API timeout must not exceed the storage work budget");
         }
     }
 
@@ -60,6 +69,14 @@ public record MediaCleanupProperties(
         int resolved = value == 0 ? defaultValue : value;
         if (resolved < 1 || resolved > maximum) {
             throw new IllegalArgumentException("media cleanup count is outside the supported range");
+        }
+        return resolved;
+    }
+
+    private static Duration boundedDuration(Duration value, Duration defaultValue, Duration maximum) {
+        Duration resolved = positiveDuration(value, defaultValue);
+        if (resolved.compareTo(maximum) > 0 || resolved.toMillis() < 1) {
+            throw new IllegalArgumentException("media cleanup duration is outside the supported range");
         }
         return resolved;
     }

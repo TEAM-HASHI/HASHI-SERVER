@@ -29,7 +29,7 @@ public class MediaCleanupStorageConfig {
                 .build();
         try {
             return new S3MediaCleanupStorage(client, original.bucket(), delivery.bucket(),
-                    properties.storageMaxPages(), properties.storagePageSize());
+                    properties.storageMaxPages(), properties.storagePageSize(), properties.storageWorkBudget());
         } catch (RuntimeException exception) {
             client.close();
             throw exception;

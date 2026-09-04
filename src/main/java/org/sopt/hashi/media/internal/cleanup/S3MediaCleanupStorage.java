@@ -1,11 +1,13 @@
 package org.sopt.hashi.media.internal.cleanup;
 
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Objects;
 import java.util.Set;
 import java.util.UUID;
+import java.util.function.LongSupplier;
 import org.sopt.hashi.media.internal.cleanup.MediaCleanupStorageException.Reason;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 import software.amazon.awssdk.core.exception.SdkException;
@@ -29,9 +31,22 @@ public class S3MediaCleanupStorage implements MediaCleanupStorage {
     private final String deliveryBucket;
     private final int maxPagesPerPrefix;
     private final int maxKeysPerPage;
+    private final Duration workBudget;
+    private final LongSupplier nanoTime;
 
     public S3MediaCleanupStorage(S3Client s3Client, String originalBucket, String deliveryBucket,
                                  int maxPagesPerPrefix, int maxKeysPerPage) {
+        this(s3Client, originalBucket, deliveryBucket, maxPagesPerPrefix, maxKeysPerPage, Duration.ofMinutes(1));
+    }
+
+    public S3MediaCleanupStorage(S3Client s3Client, String originalBucket, String deliveryBucket,
+                                 int maxPagesPerPrefix, int maxKeysPerPage, Duration workBudget) {
+        this(s3Client, originalBucket, deliveryBucket, maxPagesPerPrefix, maxKeysPerPage,
+                workBudget, System::nanoTime);
+    }
+
+    S3MediaCleanupStorage(S3Client s3Client, String originalBucket, String deliveryBucket,
+                          int maxPagesPerPrefix, int maxKeysPerPage, Duration workBudget, LongSupplier nanoTime) {
         this.s3Client = Objects.requireNonNull(s3Client);
         this.originalBucket = requireBucket(originalBucket);
         this.deliveryBucket = requireBucket(deliveryBucket);
@@ -46,6 +61,11 @@ public class S3MediaCleanupStorage implements MediaCleanupStorage {
         }
         this.maxPagesPerPrefix = maxPagesPerPrefix;
         this.maxKeysPerPage = maxKeysPerPage;
+        this.workBudget = Objects.requireNonNull(workBudget);
+        this.nanoTime = Objects.requireNonNull(nanoTime);
+        if (workBudget.isNegative() || workBudget.isZero() || workBudget.compareTo(Duration.ofMinutes(5)) > 0) {
+            throw new IllegalArgumentException("cleanup storage work budget must be positive and at most 5 minutes");
+        }
     }
 
     @Override
@@ -55,11 +75,12 @@ public class S3MediaCleanupStorage implements MediaCleanupStorage {
             throw new IllegalStateException("media cleanup storage must run outside a DB transaction");
         }
         requireNotInterrupted();
+        MediaCleanupWorkBudget budget = new MediaCleanupWorkBudget(workBudget, nanoTime);
         try {
             MediaObjectPurgeResult original = purgePrefix(
-                    originalBucket, "media/originals/%s/".formatted(assetId));
+                    originalBucket, "media/originals/%s/".formatted(assetId), budget);
             MediaObjectPurgeResult delivery = purgePrefix(
-                    deliveryBucket, "media/renditions/%s/".formatted(assetId));
+                    deliveryBucket, "media/renditions/%s/".formatted(assetId), budget);
             requireNotInterrupted();
             return new MediaObjectPurgeResult(original.complete() && delivery.complete(),
                     original.acknowledgedDeletes() + delivery.acknowledgedDeletes());
@@ -75,10 +96,13 @@ public class S3MediaCleanupStorage implements MediaCleanupStorage {
         s3Client.close();
     }
 
-    private MediaObjectPurgeResult purgePrefix(String bucket, String prefix) {
+    private MediaObjectPurgeResult purgePrefix(String bucket, String prefix, MediaCleanupWorkBudget budget) {
         int acknowledgedDeletes = 0;
         for (int page = 0; page < maxPagesPerPrefix; page++) {
             requireNotInterrupted();
+            if (!budget.hasTimeLeft()) {
+                return new MediaObjectPurgeResult(false, acknowledgedDeletes);
+            }
             // 삭제한 key/version을 다음 페이지 marker로 재사용하지 않고 남은 첫 페이지를 다시 읽는다.
             ListObjectVersionsResponse response = s3Client.listObjectVersions(ListObjectVersionsRequest.builder()
                     .bucket(bucket).prefix(prefix).maxKeys(maxKeysPerPage).build());
@@ -90,6 +114,9 @@ public class S3MediaCleanupStorage implements MediaCleanupStorage {
                 return new MediaObjectPurgeResult(true, acknowledgedDeletes);
             }
             requireNotInterrupted();
+            if (!budget.hasTimeLeft()) {
+                return new MediaObjectPurgeResult(false, acknowledgedDeletes);
+            }
             DeleteObjectsResponse deleted = s3Client.deleteObjects(DeleteObjectsRequest.builder()
                     .bucket(bucket).delete(Delete.builder().objects(objects).quiet(true).build()).build());
             if (deleted == null) {

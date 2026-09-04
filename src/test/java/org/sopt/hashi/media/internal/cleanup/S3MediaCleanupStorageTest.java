@@ -10,8 +10,10 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
+import java.time.Duration;
 import java.util.List;
 import java.util.UUID;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.stream.Stream;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
@@ -297,6 +299,71 @@ class S3MediaCleanupStorageTest {
         storage.close();
 
         verify(client).close();
+    }
+
+    @Test
+    void 목록_조회_중_시간이_끝나면_삭제를_시작하지_않는다() {
+        AtomicLong clock = new AtomicLong();
+        S3MediaCleanupStorage bounded = budgetStorage(clock);
+        when(client.listObjectVersions(any(ListObjectVersionsRequest.class))).thenAnswer(invocation -> {
+            clock.set(Duration.ofSeconds(1).toNanos());
+            return page(version(ORIGINAL_KEY, "v1"));
+        });
+
+        assertThat(bounded.purgeAssetObjects(ASSET_ID)).isEqualTo(new MediaObjectPurgeResult(false, 0));
+        verify(client).listObjectVersions(any(ListObjectVersionsRequest.class));
+        verify(client, never()).deleteObjects(any(DeleteObjectsRequest.class));
+    }
+
+    @Test
+    void 삭제_중_시간이_끝나면_성과는_남기되_다음_호출에서_완료를_확인한다() {
+        AtomicLong clock = new AtomicLong();
+        S3MediaCleanupStorage bounded = budgetStorage(clock);
+        when(client.listObjectVersions(any(ListObjectVersionsRequest.class)))
+                .thenReturn(page(version(ORIGINAL_KEY, "v1")), EMPTY, EMPTY);
+        when(client.deleteObjects(any(DeleteObjectsRequest.class))).thenAnswer(invocation -> {
+            clock.addAndGet(Duration.ofSeconds(1).toNanos());
+            return DELETED;
+        });
+
+        assertThat(bounded.purgeAssetObjects(ASSET_ID)).isEqualTo(new MediaObjectPurgeResult(false, 1));
+        verify(client).listObjectVersions(any(ListObjectVersionsRequest.class));
+        assertThat(bounded.purgeAssetObjects(ASSET_ID)).isEqualTo(new MediaObjectPurgeResult(true, 0));
+        verify(client, times(3)).listObjectVersions(any(ListObjectVersionsRequest.class));
+        verify(client).deleteObjects(any(DeleteObjectsRequest.class));
+    }
+
+    @Test
+    void 원본과_파생본은_별도_시간이_아니라_같은_시간_한도를_사용한다() {
+        AtomicLong clock = new AtomicLong();
+        S3MediaCleanupStorage bounded = budgetStorage(clock);
+        when(client.listObjectVersions(any(ListObjectVersionsRequest.class))).thenAnswer(invocation -> {
+            clock.set(Duration.ofSeconds(1).toNanos());
+            return EMPTY;
+        });
+
+        assertThat(bounded.purgeAssetObjects(ASSET_ID)).isEqualTo(new MediaObjectPurgeResult(false, 0));
+        verify(client).listObjectVersions(any(ListObjectVersionsRequest.class));
+        verify(client, never()).deleteObjects(any(DeleteObjectsRequest.class));
+    }
+
+    @Test
+    void 마지막_빈_목록_응답으로_이미_확인한_완료는_시간_초과로_버리지_않는다() {
+        AtomicLong clock = new AtomicLong();
+        S3MediaCleanupStorage bounded = budgetStorage(clock);
+        when(client.listObjectVersions(any(ListObjectVersionsRequest.class))).thenReturn(EMPTY)
+                .thenAnswer(invocation -> {
+                    clock.set(Duration.ofSeconds(1).toNanos());
+                    return EMPTY;
+                });
+
+        assertThat(bounded.purgeAssetObjects(ASSET_ID)).isEqualTo(new MediaObjectPurgeResult(true, 0));
+        verify(client, times(2)).listObjectVersions(any(ListObjectVersionsRequest.class));
+    }
+
+    private S3MediaCleanupStorage budgetStorage(AtomicLong clock) {
+        return new S3MediaCleanupStorage(client, "test-originals", "test-delivery", 3, 1000,
+                Duration.ofSeconds(1), clock::get);
     }
 
     private static Stream<ListObjectVersionsResponse> invalidPages() {

@@ -118,6 +118,8 @@ class MediaCleanupTransactionIntegrationTest {
     @Autowired
     private MediaCleanupService cleanup;
     @Autowired
+    private MediaCleanupScanService scanner;
+    @Autowired
     private MediaCleanupTransactionService transactions;
     @Autowired
     private MediaCleanupCandidateReader candidateReader;
@@ -286,7 +288,7 @@ class MediaCleanupTransactionIntegrationTest {
         ImageAsset asset = fixture(ImageProcessingStatus.READY, false, false, Duration.ofDays(2));
         MediaCleanupService dryRun = new MediaCleanupService(transactions, storage,
                 new MediaCleanupProperties(true, MediaCleanupProperties.Mode.DRY_RUN,
-                        Duration.ofMinutes(30), null, null, 0, 0, 0, 0, null, null));
+                        Duration.ofMinutes(30), null, null, 0, 0, 0, 0, null, null, null, null, null));
         Map<String, Object> before = row(asset);
 
         assertThat(dryRun.clean(candidate(asset))).isEqualTo(MediaCleanupOutcome.WOULD_PURGE);
@@ -335,9 +337,28 @@ class MediaCleanupTransactionIntegrationTest {
 
         assertThatThrownBy(() -> transactionTemplate.execute(status -> cleanup.clean(candidate(asset))))
                 .isInstanceOf(IllegalTransactionStateException.class);
+        assertThatThrownBy(() -> transactionTemplate.execute(status -> scanner.scan()))
+                .isInstanceOf(IllegalTransactionStateException.class);
 
         assertThat(reload(asset).getCleanupStatus()).isEqualTo(MediaCleanupStatus.ACTIVE);
         verifyNoInteractions(storage);
+    }
+
+    @Test
+    void 실제_스캔은_만료와_미연결_이미지만_지우고_정상_연결과_실패_슬롯은_보존한다() {
+        ImageAsset pending = fixture(ImageProcessingStatus.PENDING_UPLOAD, false, false, Duration.ofDays(2));
+        ImageAsset ready = fixture(ImageProcessingStatus.READY, false, false, Duration.ofDays(2));
+        ImageAsset bound = fixture(ImageProcessingStatus.READY, false, true, Duration.ofDays(2));
+        ImageAsset failed = fixture(ImageProcessingStatus.FAILED, false, true, Duration.ofDays(8));
+
+        int attempted = scanner.scan().attemptedCount() + scanner.scan().attemptedCount();
+
+        assertThat(attempted).isEqualTo(3);
+        assertThat(assets.findById(pending.getId())).isEmpty();
+        assertThat(assets.findById(ready.getId())).isEmpty();
+        assertThat(reload(bound).getCleanupStatus()).isEqualTo(MediaCleanupStatus.ACTIVE);
+        assertThat(reload(failed).getCleanupStatus()).isEqualTo(MediaCleanupStatus.PURGED);
+        verify(storage, times(3)).purgeAssetObjects(any());
     }
 
     @Test

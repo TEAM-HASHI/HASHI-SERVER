@@ -132,6 +132,6 @@ class MediaCleanupServiceTest {
 
     private MediaCleanupService service(boolean enabled, Mode mode) {
         return new MediaCleanupService(transactions, storage, new MediaCleanupProperties(enabled, mode,
-                Duration.ofMinutes(30), null, null, 0, 0, 0, 0, null, null));
+                Duration.ofMinutes(30), null, null, 0, 0, 0, 0, null, null, null, null, null));
     }
 }
