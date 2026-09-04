@@ -1,6 +1,6 @@
 # 식당·메뉴 이미지 backfill 실행기
 
-관련 이슈: #196. [공통 backfill 계약](legacy-backfill-runbook.md)을 사용하는 식당 모듈의
+관련 이슈: #196, #203. [공통 backfill 계약](legacy-backfill-runbook.md)을 사용하는 식당 모듈의
 임시 migration 실행기다. 이 문서는 실행 방법과 중단·복구 기준이며, 실제 AWS 적용이나
 운영 backfill 실행을 승인하지 않는다.
 
@@ -77,7 +77,9 @@ S3 HEAD와 DB 잠금은 서로 다른 시스템이므로 임의의 콘솔 덮어
   같은 쓰기 transaction에서 수행한다. 하나라도 실패하면 연결·claim·cursor가 모두 rollback된다.
 - cursor 갱신은 run ID와 lease token을 대조한다. DB 잠금을 얻은 뒤 새 statement의 DB 시각으로
   만료를 확인하므로 잠금 대기 전 시각으로 lease를 되살리지 않는다.
-- 최대 batch 도달이나 복구 가능한 중단은 `PAUSED`로 남긴다. 같은 run ID로 다음 기동 시 이어간다.
+- 최대 batch 이후 정상 중단은 `PAUSED`다. 중단 요청이 거절되면 `LEASE_LOST`로 보고한다.
+  실행 오류로 중단하면 결과는 `FAILED`이고 checkpoint는 재개를 위해 `PAUSED`로 남긴다.
+  이때도 lease를 잃어 중단 요청이 거절되면 결과는 `LEASE_LOST`다. 재개는 같은 run ID를 사용한다.
 - 강제 종료로 `RUNNING`이 남으면 lease 만료 후 같은 run ID가 인계받는다. 이전 token의 worker는
   cursor를 갱신할 수 없고, ATTACH 변경도 함께 rollback된다.
 - `COMPLETED` run ID는 다시 실행하지 않는다. 변환 대기·실패·동시 수정으로 건너뛴 항목이나
@@ -91,8 +93,9 @@ READY 이후 새 ATTACH run에서 연결한다. terminal identity는 자동으�
 
 ## 6. 결과 확인
 
-로그에는 고정 target·mode·상태와 집계만 기록한다. 원시 association ID·key·asset ID·hash는
-출력하지 않는다. PREPARE/ATTACH 집계는 run 전체 누적값이며 다음 조회로 확인한다.
+로그에는 고정 target·mode·상태·집계·실패 코드와 오류 클래스명만 기록한다.
+원시 association ID·key·asset UUID·hash·예외 payload를 로그나 metric label에 넣지 않는다.
+PREPARE/ATTACH의 DB 집계는 run 전체 누적값이며 다음 조회로 확인한다.
 
 ```sql
 SELECT target, mode, status,
@@ -106,6 +109,15 @@ WHERE run_id = ?;
 - `skipped_count`: 아직 준비되지 않았거나 잠금 아래에서 association이 달라진 항목.
 - `failed_count`: source 실패 또는 terminal media 상태인 항목.
 - `DRY_RUN`은 메모리 내 `scanned/inspected/failed` 집계만 보고하며 영속 상태를 만들지 않는다.
+
+- 결과와 종료 로그의 `sourceFailuresThisExecution`은 현재 실행에서 최종 실패한 source 항목의
+  `SOURCE_MISSING`, `SOURCE_UNREADABLE`, `SOURCE_CHANGED`, `INVALID_SOURCE`, `COPY_CONFLICT`,
+  `STORAGE_UNAVAILABLE`별 건수다. 빈 key는 `INVALID_SOURCE`다.
+- `hashi.restaurant.media.backfill.source.failures` counter는 고정 enum인 `target`, `mode`,
+  `reason`만 label로 사용한다. 재시도 도중 복구된 실패는 제외하고, 최종 실패한 항목만 한 번 센다.
+- 원인 집계는 DB의 누적 `failed_count`와 다르다. 이전 실행의 원인 내역과 terminal media 상태 실패는
+  포함하지 않는다. PREPARE/ATTACH는 FAILED cursor 저장 성공 후 집계하며, metric 장애는
+  후보 처리나 커밋 결과를 바꾸지 않는다. 지표는 운영 관측값이지 영속적인 감사 원장이 아니다.
 
 `STORAGE_UNAVAILABLE`만 제한된 지수 backoff로 재시도한다. 다른 source 실패는 해당 항목을
 기록하고 진행한다. DB·설정·media 불변식 오류는 현재 항목 cursor를 전진하지 않고 실행을 중단한다.
