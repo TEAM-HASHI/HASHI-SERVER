@@ -34,8 +34,9 @@
    반영되어 있어야 하며, 그전에는 운영 backfill을 실행하지 않는다.
 2. SAM `BackfillAccessEnabled=true`로 승인된 source 읽기·private original copy 권한이 필요하다.
 3. Spring `AWS_MEDIA_BACKFILL_ENABLED=true`가 필요하다.
-4. `PREPARE` 전에는 `AWS_MEDIA_QUEUE_ENABLED=true`, worker event source와 Spring result consumer가
-   활성 상태인지 확인한다. request/result queue와 DLQ 지연·오류 alarm도 정상이어야 한다.
+4. `PREPARE` 전에는 `AWS_MEDIA_QUEUE_ENABLED=true`, `AWS_MEDIA_RECOVERY_ENABLED=true`, worker event
+   source와 Spring result consumer가 활성 상태인지 확인한다. request/result queue와 DLQ 지연·오류
+   alarm도 정상이어야 한다.
 5. `PREPARE`는 DB `media_pipeline_config.issuance_enabled=true`와 일치하는 배포 규격이 필요하다.
    조회와 READY `ATTACH`는 issuance pause 상태에서도 가능하다.
 6. 아래 식당 runner 설정을 별도로 opt-in한다. 이 코드 추가나 migration 적용만으로는 실행되지 않는다.
@@ -135,8 +136,9 @@ dev dry-run → 제한 PREPARE → 변환 READY 확인 → 제한 ATTACH → 응
 
 1. 새 실행을 막기 위해 `RESTAURANT_MEDIA_BACKFILL_ENABLED=false`로 배포한다. 실행 중인 background
    task는 정상 종료로 interrupt하고, checkpoint가 `PAUSED`, `COMPLETED` 또는 lease 만료 상태인지 확인한다.
-2. 이미 발급된 변환은 result consumer를 끄지 않은 채 처리한다. target PROCESSING, 미완료 EPR,
-   request/result queue와 두 DLQ가 비었는지 확인하고, 실패 항목은 원인을 분류한 뒤 복구한다.
+2. 이미 발급된 변환은 `AWS_MEDIA_QUEUE_ENABLED=true`, `AWS_MEDIA_RECOVERY_ENABLED=true`와 result
+   consumer를 유지한 채 처리한다. target PROCESSING, 미완료 EPR, request/result queue와 두 DLQ가
+   비었는지 확인하고, 실패 항목은 원인을 분류한 뒤 복구한다.
 3. 더 이상 조사·복사·연결이 없으면 `AWS_MEDIA_BACKFILL_ENABLED=false`로 배포한다.
 4. SAM `BackfillAccessEnabled=false` change set을 검토·적용해 임시 source 읽기·copy 권한을 회수한다.
 5. V22 checkpoint는 실행 이력과 재개 판단을 위해 유지한다. rollback 과정에서 테이블을 삭제하거나
