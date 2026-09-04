@@ -118,6 +118,8 @@ WHERE run_id = ?;
 - 원인 집계는 DB의 누적 `failed_count`와 다르다. 이전 실행의 원인 내역과 terminal media 상태 실패는
   포함하지 않는다. PREPARE/ATTACH는 FAILED cursor 저장 성공 후 집계하며, metric 장애는
   후보 처리나 커밋 결과를 바꾸지 않는다. 지표는 운영 관측값이지 영속적인 감사 원장이 아니다.
+- DRY_RUN이 DB 오류나 종료 interrupt로 중단되면 `FAILED` 부분 결과와 이미 관측한 원인을
+  종료 로그에 남긴다. 이 결과는 전체 조사 완료가 아니며 interrupt flag도 유지한다.
 
 `STORAGE_UNAVAILABLE`만 제한된 지수 backoff로 재시도한다. 다른 source 실패는 해당 항목을
 기록하고 진행한다. DB·설정·media 불변식 오류는 현재 항목 cursor를 전진하지 않고 실행을 중단한다.
