@@ -149,9 +149,9 @@ class UserProfileBackfillRunner {
             if (!hasMore(cursor, lease.upperBoundId())) {
                 return completedSummary(lease);
             }
-            checkpointStore.pause(lease);
+            boolean paused = checkpointStore.pause(lease);
             return UserProfileBackfillSummary.fromSnapshot(
-                    Status.PAUSED, checkpointStore.find(lease.runId()));
+                    paused ? Status.PAUSED : Status.LEASE_LOST, checkpointStore.find(lease.runId()));
         } catch (UserProfileBackfillLeaseLostException exception) {
             return UserProfileBackfillSummary.fromSnapshot(
                     Status.LEASE_LOST, checkpointStore.find(lease.runId()));

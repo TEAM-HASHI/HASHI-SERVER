@@ -18,6 +18,8 @@ import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.sopt.hashi.media.MediaAssetPurpose;
 import org.sopt.hashi.media.MediaBackfillAssetInfo;
 import org.sopt.hashi.media.MediaBackfillAssetInfo.State;
@@ -200,6 +202,35 @@ class UserProfileBackfillRunnerTest {
 
         verify(mediaBackfillPort).inspect(any());
         assertThat(candidate(1L).toString()).doesNotContain("profiles/legacy.jpg", "userId=1");
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {true, false})
+    void 최대_batch_후_pause가_거부되면_PAUSED가_아닌_LEASE_LOST를_보고한다(boolean paused) {
+        UUID runId = UUID.randomUUID();
+        UserProfileBackfillProperties properties = properties(
+                UserProfileBackfillMode.ATTACH, runId.toString(), 1, 1, 3);
+        Lease lease = lease(runId, properties.mode(), 2L);
+        given(candidateReader.findUpperBound()).willReturn(2L);
+        given(checkpointStore.acquire(eq(runId), eq(properties.mode()), eq(2L), any()))
+                .willReturn(new Acquisition(AcquisitionState.ACQUIRED, lease, snapshot(
+                        runId, properties.mode(), Status.RUNNING, 2L, 0L, 0, 0, 0, 0, 0)));
+        given(candidateReader.findBatch(0L, 2L, 1)).willReturn(List.of(candidate(1L)));
+        given(candidateReader.findBatch(1L, 2L, 1)).willReturn(List.of(candidate(2L)));
+        given(mediaBackfillPort.inspect(any())).willReturn(inspection(asset(State.PROCESSING)));
+        given(checkpointStore.pause(lease)).willReturn(paused);
+        given(checkpointStore.find(runId)).willReturn(snapshot(
+                runId, properties.mode(), paused ? Status.PAUSED : Status.RUNNING,
+                2L, 1L, 1, 0, 0, 1, 0));
+
+        UserProfileBackfillSummary summary = runner(properties).execute();
+
+        assertThat(summary.status()).isEqualTo(paused
+                ? UserProfileBackfillSummary.Status.PAUSED : UserProfileBackfillSummary.Status.LEASE_LOST);
+        assertThat(summary.scannedCount()).isEqualTo(1);
+        verify(checkpointStore).pause(lease);
+        verify(checkpointStore, never()).complete(any());
+        verify(mediaBackfillPort).inspect(any());
     }
 
     private UserProfileBackfillRunner runner(UserProfileBackfillProperties properties) {
