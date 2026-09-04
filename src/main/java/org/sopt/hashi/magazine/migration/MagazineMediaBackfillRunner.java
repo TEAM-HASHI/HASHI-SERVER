@@ -1,7 +1,9 @@
 package org.sopt.hashi.magazine.migration;
 
+import io.micrometer.core.instrument.MeterRegistry;
 import java.time.Duration;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.function.Supplier;
 import lombok.extern.slf4j.Slf4j;
@@ -36,19 +38,22 @@ class MagazineMediaBackfillRunner {
     private final MagazineMediaBackfillCheckpointStore checkpointStore;
     private final MagazineMediaBackfillAttachmentService attachmentService;
     private final MediaBackfillPort mediaBackfillPort;
+    private final MeterRegistry meterRegistry;
 
     MagazineMediaBackfillRunner(
             MagazineMediaBackfillProperties properties,
             MagazineMediaBackfillCandidateReader candidateReader,
             MagazineMediaBackfillCheckpointStore checkpointStore,
             MagazineMediaBackfillAttachmentService attachmentService,
-            MediaBackfillPort mediaBackfillPort
+            MediaBackfillPort mediaBackfillPort,
+            MeterRegistry meterRegistry
     ) {
         this.properties = properties;
         this.candidateReader = candidateReader;
         this.checkpointStore = checkpointStore;
         this.attachmentService = attachmentService;
         this.mediaBackfillPort = mediaBackfillPort;
+        this.meterRegistry = meterRegistry;
     }
 
     @Async(MagazineMediaBackfillConfiguration.EXECUTOR)
@@ -58,10 +63,11 @@ class MagazineMediaBackfillRunner {
             MagazineMediaBackfillSummary summary = execute();
             log.info(
                     "Magazine media backfill finished: target={}, mode={}, status={}, "
-                            + "scanned={}, inspected={}, prepared={}, attached={}, skipped={}, failed={}",
+                            + "scanned={}, inspected={}, prepared={}, attached={}, skipped={}, failed={}, "
+                            + "sourceFailuresThisExecution={}",
                     summary.target(), summary.mode(), summary.status(), summary.scannedCount(),
                     summary.inspectedCount(), summary.preparedCount(), summary.attachedCount(),
-                    summary.skippedCount(), summary.failedCount()
+                    summary.skippedCount(), summary.failedCount(), summary.sourceFailuresThisExecution()
             );
         } catch (RuntimeException exception) {
             log.error(
@@ -72,13 +78,14 @@ class MagazineMediaBackfillRunner {
     }
 
     MagazineMediaBackfillSummary execute() {
-        if (properties.mode() == MagazineMediaBackfillMode.DRY_RUN) {
-            return executeDryRun();
-        }
-        return executePersistent();
+        MagazineMediaBackfillSourceFailures sourceFailures = new MagazineMediaBackfillSourceFailures(
+                properties.target(), properties.mode(), meterRegistry);
+        MagazineMediaBackfillSummary summary = properties.mode() == MagazineMediaBackfillMode.DRY_RUN
+                ? executeDryRun(sourceFailures) : executePersistent(sourceFailures);
+        return summary.withSourceFailures(sourceFailures.snapshot());
     }
 
-    private MagazineMediaBackfillSummary executeDryRun() {
+    private MagazineMediaBackfillSummary executeDryRun(MagazineMediaBackfillSourceFailures sourceFailures) {
         long upperBound = candidateReader.findUpperBound(properties.target());
         long cursor = 0L;
         MutableSummary summary = new MutableSummary(properties.target(), properties.mode());
@@ -94,6 +101,7 @@ class MagazineMediaBackfillRunner {
                 summary.scanned++;
                 if (!candidate.hasUsableLegacyKey()) {
                     summary.failed++;
+                    sourceFailures.record(Reason.INVALID_SOURCE);
                     cursor = candidate.magazineId();
                     continue;
                 }
@@ -102,6 +110,7 @@ class MagazineMediaBackfillRunner {
                     summary.inspected++;
                 } catch (MediaBackfillSourceException exception) {
                     summary.failed++;
+                    sourceFailures.record(exception.getReason());
                 }
                 cursor = candidate.magazineId();
             }
@@ -113,7 +122,7 @@ class MagazineMediaBackfillRunner {
         return summary.finish(status);
     }
 
-    private MagazineMediaBackfillSummary executePersistent() {
+    private MagazineMediaBackfillSummary executePersistent(MagazineMediaBackfillSourceFailures sourceFailures) {
         long initialUpperBound = candidateReader.findUpperBound(properties.target());
         Acquisition acquisition = checkpointStore.acquire(
                 properties.requiredRunId(), properties.target(), properties.mode(),
@@ -138,7 +147,7 @@ class MagazineMediaBackfillRunner {
                 }
                 for (MagazineMediaBackfillCandidate candidate : candidates) {
                     requireNotInterrupted();
-                    processAndRecord(candidate, lease);
+                    processAndRecord(candidate, lease, sourceFailures);
                     cursor = candidate.magazineId();
                 }
                 if (candidates.size() < properties.batchSize()) {
@@ -166,11 +175,16 @@ class MagazineMediaBackfillRunner {
         }
     }
 
-    private void processAndRecord(MagazineMediaBackfillCandidate candidate, Lease lease) {
+    private void processAndRecord(
+            MagazineMediaBackfillCandidate candidate,
+            Lease lease,
+            MagazineMediaBackfillSourceFailures sourceFailures
+    ) {
         if (!candidate.hasUsableLegacyKey()) {
             checkpointStore.recordProgress(
                     lease, candidate.magazineId(),
                     MagazineMediaBackfillOutcome.FAILED, properties.leaseDuration());
+            sourceFailures.record(Reason.INVALID_SOURCE);
             return;
         }
         try {
@@ -186,6 +200,7 @@ class MagazineMediaBackfillRunner {
             checkpointStore.recordProgress(
                     lease, candidate.magazineId(),
                     MagazineMediaBackfillOutcome.FAILED, properties.leaseDuration());
+            sourceFailures.record(exception.getReason());
         }
     }
 
@@ -313,7 +328,7 @@ class MagazineMediaBackfillRunner {
 
         private MagazineMediaBackfillSummary finish(Status status) {
             return new MagazineMediaBackfillSummary(
-                    target, mode, status, scanned, inspected, 0L, 0L, 0L, failed);
+                    target, mode, status, scanned, inspected, 0L, 0L, 0L, failed, Map.of());
         }
     }
 }

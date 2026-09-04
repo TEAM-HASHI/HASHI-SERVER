@@ -6,6 +6,8 @@ import static org.mockito.BDDMockito.given;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verifyNoInteractions;
 
+import io.micrometer.core.instrument.MeterRegistry;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import java.time.Duration;
 import java.util.List;
 import java.util.concurrent.CountDownLatch;
@@ -31,6 +33,7 @@ class MagazineMediaBackfillLifecycleTest {
             .withBean(MagazineMediaBackfillCheckpointStore.class, () -> checkpoint)
             .withBean(MagazineMediaBackfillAttachmentService.class, () -> attachment)
             .withBean(MediaBackfillPort.class, () -> port)
+            .withBean(MeterRegistry.class, SimpleMeterRegistry::new)
             .withPropertyValues(
                     "hashi.magazine.media-backfill.target=MAGAZINE_BANNER",
                     "hashi.magazine.media-backfill.mode=DRY_RUN",

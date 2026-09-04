@@ -12,6 +12,10 @@ import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 
+import ch.qos.logback.classic.Logger;
+import ch.qos.logback.classic.spi.ILoggingEvent;
+import ch.qos.logback.core.read.ListAppender;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.List;
@@ -21,6 +25,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.EnumSource;
 import org.junit.jupiter.params.provider.ValueSource;
+import org.slf4j.LoggerFactory;
 import org.sopt.hashi.media.MediaAssetPurpose;
 import org.sopt.hashi.media.MediaBackfillAssetInfo;
 import org.sopt.hashi.media.MediaBackfillAssetInfo.State;
@@ -46,6 +51,7 @@ class MagazineMediaBackfillRunnerTest {
     private final MagazineMediaBackfillAttachmentService attachmentService =
             mock(MagazineMediaBackfillAttachmentService.class);
     private final MediaBackfillPort mediaBackfillPort = mock(MediaBackfillPort.class);
+    private final SimpleMeterRegistry meterRegistry = new SimpleMeterRegistry();
 
     @Test
     void DRY_RUN은_inspect만_수행하고_DB나_asset을_변경하지_않는다() {
@@ -143,6 +149,9 @@ class MagazineMediaBackfillRunnerTest {
         MagazineMediaBackfillSummary summary = runner(properties).execute();
 
         assertThat(summary.failedCount()).isEqualTo(1);
+        assertThat(summary.sourceFailuresThisExecution()).containsOnlyKeys(Reason.STORAGE_UNAVAILABLE)
+                .containsEntry(Reason.STORAGE_UNAVAILABLE, 1L);
+        assertSourceFailureMetric(properties.mode(), Reason.STORAGE_UNAVAILABLE, 1);
         verify(mediaBackfillPort, times(3)).inspect(any());
     }
 
@@ -236,9 +245,195 @@ class MagazineMediaBackfillRunnerTest {
         verifyNoInteractions(checkpointStore, attachmentService);
     }
 
+    @ParameterizedTest
+    @EnumSource(Reason.class)
+    void DRY_RUN은_source_실패_원인을_구분하고_다음_항목을_계속_조사한다(Reason reason) {
+        MagazineMediaBackfillProperties properties = properties(MagazineMediaBackfillMode.DRY_RUN, "", 3, 1, 1);
+        given(candidateReader.findUpperBound(properties.target())).willReturn(2L);
+        given(candidateReader.findBatch(properties.target(), 0L, 2L, 3))
+                .willReturn(List.of(candidate(1L), candidate(2L)));
+        given(mediaBackfillPort.inspect(any()))
+                .willThrow(new MediaBackfillSourceException(reason)).willReturn(unpreparedInspection());
+
+        MagazineMediaBackfillSummary summary = runner(properties).execute();
+
+        assertThat(summary.failedCount()).isEqualTo(1);
+        assertThat(summary.inspectedCount()).isEqualTo(1);
+        assertThat(summary.sourceFailuresThisExecution()).hasSize(1).containsEntry(reason, 1L);
+        assertSourceFailureMetric(properties.mode(), reason, 1);
+        verifyNoInteractions(checkpointStore, attachmentService);
+        verify(mediaBackfillPort, times(2)).inspect(any());
+    }
+
+    @ParameterizedTest
+    @EnumSource(value = MagazineMediaBackfillMode.class, names = {"PREPARE", "ATTACH"})
+    void persistent_실행도_source_실패_cursor와_원인을_기록하고_다음_항목을_계속한다(
+            MagazineMediaBackfillMode mode
+    ) {
+        UUID runId = UUID.randomUUID();
+        MagazineMediaBackfillProperties properties = properties(mode, runId.toString(), 3, 1, 1);
+        Lease lease = lease(runId, mode, 2L);
+        given(candidateReader.findUpperBound(properties.target())).willReturn(2L);
+        given(candidateReader.findBatch(properties.target(), 0L, 2L, 3))
+                .willReturn(List.of(candidate(1L), candidate(2L)));
+        given(checkpointStore.acquire(eq(runId), eq(properties.target()), eq(mode), eq(2L), any()))
+                .willReturn(new Acquisition(AcquisitionState.ACQUIRED, lease,
+                        snapshot(runId, mode, Status.RUNNING, 2L, 0L, 0, 0, 0, 0, 0)));
+        given(mediaBackfillPort.inspect(any()))
+                .willThrow(new MediaBackfillSourceException(Reason.SOURCE_UNREADABLE))
+                .willReturn(unpreparedInspection());
+        boolean prepare = mode == MagazineMediaBackfillMode.PREPARE;
+        if (prepare) {
+            given(mediaBackfillPort.prepare(any(), any())).willReturn(asset(State.PROCESSING));
+        }
+        given(checkpointStore.complete(lease)).willReturn(snapshot(
+                runId, mode, Status.COMPLETED, 2L, 2L, 2, prepare ? 1 : 0, 0, prepare ? 0 : 1, 1));
+
+        MagazineMediaBackfillSummary summary = runner(properties).execute();
+
+        assertThat(summary.status()).isEqualTo(MagazineMediaBackfillSummary.Status.COMPLETED);
+        assertThat(summary.failedCount()).isEqualTo(1);
+        assertThat(summary.sourceFailuresThisExecution()).containsOnlyKeys(Reason.SOURCE_UNREADABLE)
+                .containsEntry(Reason.SOURCE_UNREADABLE, 1L);
+        assertSourceFailureMetric(mode, Reason.SOURCE_UNREADABLE, 1);
+        verify(checkpointStore).recordProgress(lease, 1L, MagazineMediaBackfillOutcome.FAILED,
+                properties.leaseDuration());
+        verify(checkpointStore).recordProgress(lease, 2L, prepare
+                ? MagazineMediaBackfillOutcome.PREPARED : MagazineMediaBackfillOutcome.SKIPPED,
+                properties.leaseDuration());
+        verifyNoInteractions(attachmentService);
+    }
+
+    @Test
+    void PREPARE_copy_실패도_source_조사_실패와_구분해_기록한다() {
+        MagazineMediaBackfillProperties properties = properties(
+                MagazineMediaBackfillMode.PREPARE, UUID.randomUUID().toString(), 2, 1, 3);
+        Lease lease = givenSinglePersistentFailure(properties, candidate(1L));
+        given(mediaBackfillPort.inspect(any())).willReturn(unpreparedInspection());
+        given(mediaBackfillPort.prepare(any(), any()))
+                .willThrow(new MediaBackfillSourceException(Reason.COPY_CONFLICT));
+
+        MagazineMediaBackfillSummary summary = runner(properties).execute();
+
+        assertThat(summary.sourceFailuresThisExecution()).hasSize(1).containsEntry(Reason.COPY_CONFLICT, 1L);
+        assertSourceFailureMetric(properties.mode(), Reason.COPY_CONFLICT, 1);
+        verify(mediaBackfillPort).prepare(any(), any());
+        verify(checkpointStore).recordProgress(lease, 1L, MagazineMediaBackfillOutcome.FAILED,
+                properties.leaseDuration());
+    }
+
+    @Test
+    void 재시도로_복구된_storage_장애는_최종_실패_지표에_넣지_않는다() {
+        MagazineMediaBackfillProperties properties = properties(MagazineMediaBackfillMode.DRY_RUN, "", 2, 1, 3);
+        given(candidateReader.findUpperBound(properties.target())).willReturn(1L);
+        given(candidateReader.findBatch(properties.target(), 0L, 1L, 2)).willReturn(List.of(candidate(1L)));
+        given(mediaBackfillPort.inspect(any())).willThrow(new MediaBackfillSourceException(Reason.STORAGE_UNAVAILABLE))
+                .willReturn(unpreparedInspection());
+
+        MagazineMediaBackfillSummary summary = runner(properties).execute();
+
+        assertThat(summary.failedCount()).isZero();
+        assertThat(summary.inspectedCount()).isEqualTo(1);
+        assertThat(summary.sourceFailuresThisExecution()).isEmpty();
+        assertThat(meterRegistry.getMeters()).isEmpty();
+        verify(mediaBackfillPort, times(2)).inspect(any());
+    }
+
+    @ParameterizedTest
+    @EnumSource(MagazineMediaBackfillMode.class)
+    void 빈_key는_스토리지를_호출하지_않고_INVALID_SOURCE로_집계한다(MagazineMediaBackfillMode mode) {
+        MagazineMediaBackfillProperties properties = properties(mode, UUID.randomUUID().toString(), 2, 1, 1);
+        MagazineMediaBackfillCandidate blank = new MagazineMediaBackfillCandidate(properties.target(), 1L, " ");
+        if (mode.usesCheckpoint()) {
+            givenSinglePersistentFailure(properties, blank);
+        } else {
+            given(candidateReader.findUpperBound(properties.target())).willReturn(1L);
+            given(candidateReader.findBatch(properties.target(), 0L, 1L, 2)).willReturn(List.of(blank));
+        }
+
+        MagazineMediaBackfillSummary summary = runner(properties).execute();
+
+        assertThat(summary.failedCount()).isEqualTo(1);
+        assertThat(summary.sourceFailuresThisExecution()).hasSize(1).containsEntry(Reason.INVALID_SOURCE, 1L);
+        assertSourceFailureMetric(mode, Reason.INVALID_SOURCE, 1);
+        verifyNoInteractions(mediaBackfillPort, attachmentService);
+    }
+
+    @Test
+    void 같은_runner를_다시_실행해도_직전_실행의_원인_집계를_재사용하지_않는다() {
+        MagazineMediaBackfillProperties properties = properties(MagazineMediaBackfillMode.DRY_RUN, "", 2, 1, 1);
+        given(candidateReader.findUpperBound(properties.target())).willReturn(1L);
+        given(candidateReader.findBatch(properties.target(), 0L, 1L, 2)).willReturn(List.of(candidate(1L)));
+        given(mediaBackfillPort.inspect(any())).willThrow(new MediaBackfillSourceException(Reason.SOURCE_MISSING))
+                .willReturn(unpreparedInspection());
+        MagazineMediaBackfillRunner runner = runner(properties);
+
+        MagazineMediaBackfillSummary first = runner.execute();
+        MagazineMediaBackfillSummary second = runner.execute();
+
+        assertThat(first.sourceFailuresThisExecution()).containsEntry(Reason.SOURCE_MISSING, 1L);
+        assertThat(second.sourceFailuresThisExecution()).isEmpty();
+        assertSourceFailureMetric(properties.mode(), Reason.SOURCE_MISSING, 1);
+    }
+
+    @Test
+    void 종료_로그에는_고정_실패_원인만_남기고_원시_후보나_예외_payload를_남기지_않는다() {
+        MagazineMediaBackfillProperties properties = properties(MagazineMediaBackfillMode.DRY_RUN, "", 2, 1, 1);
+        String privateKey = "magazines/private-fixture-do-not-log.jpg";
+        String privatePayload = "fixture-error-payload-do-not-log";
+        MagazineMediaBackfillCandidate candidate = new MagazineMediaBackfillCandidate(
+                properties.target(), 246801357L, privateKey);
+        given(candidateReader.findUpperBound(properties.target())).willReturn(candidate.magazineId());
+        given(candidateReader.findBatch(properties.target(), 0L, candidate.magazineId(), 2))
+                .willReturn(List.of(candidate));
+        MediaBackfillSourceException failure = new MediaBackfillSourceException(Reason.SOURCE_UNREADABLE);
+        failure.initCause(new IllegalStateException(privatePayload));
+        given(mediaBackfillPort.inspect(any())).willThrow(failure);
+        Logger logger = (Logger) LoggerFactory.getLogger(MagazineMediaBackfillRunner.class);
+        ListAppender<ILoggingEvent> appender = new ListAppender<>();
+        appender.start();
+        logger.addAppender(appender);
+        try {
+            runner(properties).runOnStartup();
+
+            assertThat(appender.list).hasSize(1).allSatisfy(event -> {
+                assertThat(event.getFormattedMessage()).contains("sourceFailuresThisExecution={SOURCE_UNREADABLE=1}")
+                        .doesNotContain(privateKey, privatePayload, "246801357", IDENTITY);
+                assertThat(event.getThrowableProxy()).isNull();
+            });
+        } finally {
+            logger.detachAppender(appender);
+            appender.stop();
+        }
+    }
+
+    private Lease givenSinglePersistentFailure(
+            MagazineMediaBackfillProperties properties,
+            MagazineMediaBackfillCandidate candidate
+    ) {
+        UUID runId = properties.requiredRunId();
+        MagazineMediaBackfillMode mode = properties.mode();
+        Lease lease = lease(runId, mode, candidate.magazineId());
+        given(candidateReader.findUpperBound(properties.target())).willReturn(candidate.magazineId());
+        given(candidateReader.findBatch(properties.target(), 0L, candidate.magazineId(), properties.batchSize()))
+                .willReturn(List.of(candidate));
+        given(checkpointStore.acquire(eq(runId), eq(properties.target()), eq(mode), eq(candidate.magazineId()), any()))
+                .willReturn(new Acquisition(AcquisitionState.ACQUIRED, lease,
+                        snapshot(runId, mode, Status.RUNNING, candidate.magazineId(), 0L, 0, 0, 0, 0, 0)));
+        given(checkpointStore.complete(lease)).willReturn(snapshot(
+                runId, mode, Status.COMPLETED, candidate.magazineId(), candidate.magazineId(), 1, 0, 0, 0, 1));
+        return lease;
+    }
+
     private MagazineMediaBackfillRunner runner(MagazineMediaBackfillProperties properties) {
         return new MagazineMediaBackfillRunner(
-                properties, candidateReader, checkpointStore, attachmentService, mediaBackfillPort);
+                properties, candidateReader, checkpointStore, attachmentService, mediaBackfillPort, meterRegistry);
+    }
+
+    private void assertSourceFailureMetric(MagazineMediaBackfillMode mode, Reason reason, double count) {
+        assertThat(meterRegistry.get(MagazineMediaBackfillSourceFailures.METRIC_NAME)
+                .tags("target", MagazineMediaBackfillTarget.MAGAZINE_BANNER.name(),
+                        "mode", mode.name(), "reason", reason.name()).counter().count()).isEqualTo(count);
     }
 
     private MagazineMediaBackfillProperties properties(

@@ -91,8 +91,17 @@ V24 `magazine_media_backfill_checkpoint`에는 run ID·target·mode·ID 범위·
 
 ## 6. 관측과 실패 대응
 
-로그는 target·mode·상태·집계·오류 클래스명만 기록한다. 원시 콘텐츠 ID, key, asset UUID,
+로그는 target·mode·상태·집계·고정 실패 코드·오류 클래스명만 기록한다. 원시 콘텐츠 ID, key, asset UUID,
 source hash와 예외 payload를 로그·이슈·메트릭 label에 넣지 않는다.
+
+- 결과와 종료 로그의 `sourceFailuresThisExecution`은 현재 실행에서 최종 실패한 source 항목의
+  `SOURCE_MISSING`, `SOURCE_UNREADABLE`, `SOURCE_CHANGED`, `INVALID_SOURCE`, `COPY_CONFLICT`,
+  `STORAGE_UNAVAILABLE`별 건수다. 빈 key는 `INVALID_SOURCE`다.
+- `hashi.magazine.media.backfill.source.failures` counter는 고정 enum인 `target`, `mode`, `reason`
+  세 label만 사용한다. 재시도 중 일시 실패는 세지 않고, 재시도 소진 후 실패한 항목만 한 번 센다.
+- 원인 집계는 이번 실행의 관측값이다. checkpoint의 누적 `failed_count`와 달리 이전 기동의 원인
+  내역을 복원하지 않으며 terminal media 상태 실패도 포함하지 않는다. 재개 후 새 관측은 별도로 센다.
+  PREPARE/ATTACH는 FAILED cursor가 기록된 뒤 집계하고, metric 장애가 후보 처리를 중단하지 않는다.
 
 ```sql
 SELECT target, mode, status, scanned_count, prepared_count, attached_count, skipped_count, failed_count
