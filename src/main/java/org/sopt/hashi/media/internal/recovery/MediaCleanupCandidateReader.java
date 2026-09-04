@@ -29,12 +29,32 @@ public class MediaCleanupCandidateReader {
             MediaCleanupCandidateCursor cursor,
             int batchSize
     ) {
+        return findBatch(ImageBindingStatus.UNBOUND, creationOrigin, processingStatuses, updatedBefore,
+                cursor, batchSize);
+    }
+
+    @Transactional(readOnly = true)
+    public List<MediaCleanupCandidate> findFailedBoundBatch(
+            MediaCreationOrigin creationOrigin,
+            LocalDateTime updatedBefore,
+            MediaCleanupCandidateCursor cursor,
+            int batchSize
+    ) {
+        return findBatch(ImageBindingStatus.BOUND, creationOrigin, List.of(ImageProcessingStatus.FAILED),
+                updatedBefore, cursor, batchSize);
+    }
+
+    private List<MediaCleanupCandidate> findBatch(ImageBindingStatus bindingStatus,
+                                                 MediaCreationOrigin creationOrigin,
+                                                 Collection<ImageProcessingStatus> processingStatuses,
+                                                 LocalDateTime updatedBefore,
+                                                 MediaCleanupCandidateCursor cursor, int batchSize) {
         if (processingStatuses == null || processingStatuses.isEmpty()) {
             throw new IllegalArgumentException("processingStatuses must not be empty");
         }
         return imageAssetRepository.findCleanupCandidates(
                         MediaCleanupStatus.ACTIVE,
-                        ImageBindingStatus.UNBOUND,
+                        bindingStatus,
                         List.copyOf(processingStatuses),
                         creationOrigin,
                         updatedBefore,

@@ -57,6 +57,19 @@ hashi:
     presigned-url-expiration: 300s
     max-file-size: 5MB
   media:
+    cleanup:
+      # 별도 운영 승인 후 활성화한다. 유예 시간을 명시하지 않으면 활성화할 수 없다.
+      enabled: ${AWS_MEDIA_CLEANUP_ENABLED:false}
+      mode: ${AWS_MEDIA_CLEANUP_MODE:DRY_RUN}
+      upload-safety-window: ${AWS_MEDIA_CLEANUP_UPLOAD_SAFETY_WINDOW:}
+      retry-interval: ${AWS_MEDIA_CLEANUP_RETRY_INTERVAL:15m}
+      scan-interval: ${AWS_MEDIA_CLEANUP_SCAN_INTERVAL:30m}
+      scan-batch-size: ${AWS_MEDIA_CLEANUP_SCAN_BATCH_SIZE:25}
+      scan-max-batches: ${AWS_MEDIA_CLEANUP_SCAN_MAX_BATCHES:2}
+      storage-page-size: ${AWS_MEDIA_CLEANUP_STORAGE_PAGE_SIZE:1000}
+      storage-max-pages: ${AWS_MEDIA_CLEANUP_STORAGE_MAX_PAGES:10}
+      storage-api-timeout: ${AWS_MEDIA_CLEANUP_STORAGE_API_TIMEOUT:15s}
+      storage-attempt-timeout: ${AWS_MEDIA_CLEANUP_STORAGE_ATTEMPT_TIMEOUT:5s}
     backfill:
       # 승인된 migration 실행 환경에서만 켠다. 일반 media 발급 활성화와 독립된 opt-in이다.
       enabled: ${AWS_MEDIA_BACKFILL_ENABLED:false}

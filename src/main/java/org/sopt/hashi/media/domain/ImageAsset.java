@@ -312,23 +312,26 @@ public class ImageAsset extends BaseTimeEntity {
 
     /** 재시도 시각만 갱신하고 최초 purgeToken과 시작 시각은 유지한다. */
     public boolean resumePurge(UUID token, LocalDateTime attemptedAt, LocalDateTime retryBefore) {
+        if (!canResumePurge(token, attemptedAt, retryBefore)) {
+            return false;
+        }
+        purgeLastAttemptAt = attemptedAt;
+        return true;
+    }
+
+    public boolean canResumePurge(UUID token, LocalDateTime attemptedAt, LocalDateTime retryBefore) {
         Objects.requireNonNull(token, "purge token is required");
         Objects.requireNonNull(attemptedAt, "purge attempt time is required");
         Objects.requireNonNull(retryBefore, "purge retry cutoff is required");
         if (retryBefore.isAfter(attemptedAt)) {
             throw new IllegalArgumentException("purge retry cutoff must not be in the future");
         }
-        boolean resumable = cleanupStatus == MediaCleanupStatus.PURGING
+        return cleanupStatus == MediaCleanupStatus.PURGING
                 && Objects.equals(purgeToken, token)
                 && hasPurgeableContentState()
                 && purgeLastAttemptAt != null
                 && !purgeLastAttemptAt.isAfter(retryBefore)
                 && !attemptedAt.isBefore(purgeLastAttemptAt);
-        if (!resumable) {
-            return false;
-        }
-        purgeLastAttemptAt = attemptedAt;
-        return true;
     }
 
     /**

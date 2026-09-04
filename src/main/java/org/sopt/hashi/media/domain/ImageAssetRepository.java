@@ -140,6 +140,24 @@ public interface ImageAssetRepository extends JpaRepository<ImageAsset, Long> {
     );
 
     @Query("""
+            select asset.id as assetId, asset.publicId as publicId, asset.purgeToken as purgeToken,
+                   asset.purgeLastAttemptAt as lastAttemptAt
+            from ImageAsset asset
+            where asset.cleanupStatus = :cleanupStatus
+              and asset.purgeLastAttemptAt <= :retryBefore
+              and (asset.purgeLastAttemptAt > :cursorAttemptAt
+                   or (asset.purgeLastAttemptAt = :cursorAttemptAt and asset.id > :cursorId))
+            order by asset.purgeLastAttemptAt asc, asset.id asc
+            """)
+    List<PurgeCandidate> findPurgeCandidates(
+            @Param("cleanupStatus") MediaCleanupStatus cleanupStatus,
+            @Param("retryBefore") LocalDateTime retryBefore,
+            @Param("cursorAttemptAt") LocalDateTime cursorAttemptAt,
+            @Param("cursorId") Long cursorId,
+            Limit limit
+    );
+
+    @Query("""
             select asset.processingStatus as status, count(asset) as assetCount
             from ImageAsset asset
             group by asset.processingStatus
@@ -260,5 +278,16 @@ public interface ImageAssetRepository extends JpaRepository<ImageAsset, Long> {
         MediaCreationOrigin getCreationOrigin();
 
         LocalDateTime getUpdatedAt();
+    }
+
+    interface PurgeCandidate {
+
+        Long getAssetId();
+
+        UUID getPublicId();
+
+        UUID getPurgeToken();
+
+        LocalDateTime getLastAttemptAt();
     }
 }

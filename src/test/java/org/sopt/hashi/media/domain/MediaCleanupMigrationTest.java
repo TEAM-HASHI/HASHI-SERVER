@@ -32,7 +32,7 @@ class MediaCleanupMigrationTest {
                       1024, ?, 'EXPIRED', 'UNBOUND', ?, ?, ?, ?, 0, ?, ?)
             """;
     private static final String RESUME_QUERY = """
-            SELECT id, purge_last_attempt_at
+            SELECT id, public_id, purge_token, purge_last_attempt_at
             FROM image_asset
             WHERE cleanup_status = 'PURGING'
               AND purge_last_attempt_at <= ?
