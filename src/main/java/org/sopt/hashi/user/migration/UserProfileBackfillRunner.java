@@ -1,7 +1,9 @@
 package org.sopt.hashi.user.migration;
 
+import io.micrometer.core.instrument.MeterRegistry;
 import java.time.Duration;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.function.Supplier;
 import lombok.extern.slf4j.Slf4j;
@@ -37,19 +39,22 @@ class UserProfileBackfillRunner {
     private final UserProfileBackfillCheckpointStore checkpointStore;
     private final UserProfileBackfillAttachmentService attachmentService;
     private final MediaBackfillPort mediaBackfillPort;
+    private final MeterRegistry meterRegistry;
 
     UserProfileBackfillRunner(
             UserProfileBackfillProperties properties,
             UserProfileBackfillCandidateReader candidateReader,
             UserProfileBackfillCheckpointStore checkpointStore,
             UserProfileBackfillAttachmentService attachmentService,
-            MediaBackfillPort mediaBackfillPort
+            MediaBackfillPort mediaBackfillPort,
+            MeterRegistry meterRegistry
     ) {
         this.properties = properties;
         this.candidateReader = candidateReader;
         this.checkpointStore = checkpointStore;
         this.attachmentService = attachmentService;
         this.mediaBackfillPort = mediaBackfillPort;
+        this.meterRegistry = meterRegistry;
     }
 
     @Async(UserProfileBackfillConfiguration.EXECUTOR)
@@ -59,10 +64,11 @@ class UserProfileBackfillRunner {
             UserProfileBackfillSummary summary = execute();
             log.info(
                     "User profile backfill finished: mode={}, status={}, "
-                            + "scanned={}, inspected={}, prepared={}, attached={}, skipped={}, failed={}",
+                            + "scanned={}, inspected={}, prepared={}, attached={}, skipped={}, failed={}, "
+                            + "sourceFailuresThisExecution={}",
                     summary.mode(), summary.status(), summary.scannedCount(),
                     summary.inspectedCount(), summary.preparedCount(), summary.attachedCount(),
-                    summary.skippedCount(), summary.failedCount()
+                    summary.skippedCount(), summary.failedCount(), summary.sourceFailuresThisExecution()
             );
         } catch (RuntimeException exception) {
             log.error(
@@ -73,13 +79,14 @@ class UserProfileBackfillRunner {
     }
 
     UserProfileBackfillSummary execute() {
-        if (properties.mode() == UserProfileBackfillMode.DRY_RUN) {
-            return executeDryRun();
-        }
-        return executePersistent();
+        UserProfileBackfillSourceFailures sourceFailures = new UserProfileBackfillSourceFailures(
+                properties.mode(), meterRegistry);
+        UserProfileBackfillSummary summary = properties.mode() == UserProfileBackfillMode.DRY_RUN
+                ? executeDryRun(sourceFailures) : executePersistent(sourceFailures);
+        return summary.withSourceFailures(sourceFailures.snapshot());
     }
 
-    private UserProfileBackfillSummary executeDryRun() {
+    private UserProfileBackfillSummary executeDryRun(UserProfileBackfillSourceFailures sourceFailures) {
         long upperBound = candidateReader.findUpperBound();
         long cursor = 0L;
         MutableSummary summary = new MutableSummary(properties.mode());
@@ -95,6 +102,7 @@ class UserProfileBackfillRunner {
                 summary.scanned++;
                 if (!candidate.hasUsableLegacyKey()) {
                     summary.failed++;
+                    sourceFailures.record(Reason.INVALID_SOURCE);
                     cursor = candidate.userId();
                     continue;
                 }
@@ -103,6 +111,7 @@ class UserProfileBackfillRunner {
                     summary.inspected++;
                 } catch (MediaBackfillSourceException exception) {
                     summary.failed++;
+                    sourceFailures.record(exception.getReason());
                 }
                 cursor = candidate.userId();
             }
@@ -114,7 +123,7 @@ class UserProfileBackfillRunner {
         return summary.finish(status);
     }
 
-    private UserProfileBackfillSummary executePersistent() {
+    private UserProfileBackfillSummary executePersistent(UserProfileBackfillSourceFailures sourceFailures) {
         long initialUpperBound = candidateReader.findUpperBound();
         Acquisition acquisition = checkpointStore.acquire(
                 properties.requiredRunId(), properties.mode(),
@@ -139,7 +148,7 @@ class UserProfileBackfillRunner {
                 }
                 for (UserProfileBackfillCandidate candidate : candidates) {
                     requireNotInterrupted();
-                    processAndRecord(candidate, lease);
+                    processAndRecord(candidate, lease, sourceFailures);
                     cursor = candidate.userId();
                 }
                 if (candidates.size() < properties.batchSize()) {
@@ -167,11 +176,16 @@ class UserProfileBackfillRunner {
         }
     }
 
-    private void processAndRecord(UserProfileBackfillCandidate candidate, Lease lease) {
+    private void processAndRecord(
+            UserProfileBackfillCandidate candidate,
+            Lease lease,
+            UserProfileBackfillSourceFailures sourceFailures
+    ) {
         if (!candidate.hasUsableLegacyKey()) {
             checkpointStore.recordProgress(
                     lease, candidate.userId(),
                     UserProfileBackfillOutcome.FAILED, properties.leaseDuration());
+            sourceFailures.record(Reason.INVALID_SOURCE);
             return;
         }
         try {
@@ -187,6 +201,7 @@ class UserProfileBackfillRunner {
             checkpointStore.recordProgress(
                     lease, candidate.userId(),
                     UserProfileBackfillOutcome.FAILED, properties.leaseDuration());
+            sourceFailures.record(exception.getReason());
         }
     }
 
@@ -311,7 +326,7 @@ class UserProfileBackfillRunner {
 
         private UserProfileBackfillSummary finish(Status status) {
             return new UserProfileBackfillSummary(
-                    mode, status, scanned, inspected, 0L, 0L, 0L, failed);
+                    mode, status, scanned, inspected, 0L, 0L, 0L, failed, Map.of());
         }
     }
 }

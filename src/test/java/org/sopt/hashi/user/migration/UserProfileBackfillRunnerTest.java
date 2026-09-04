@@ -12,11 +12,13 @@ import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
@@ -44,6 +46,12 @@ class UserProfileBackfillRunnerTest {
     private final UserProfileBackfillAttachmentService attachmentService =
             mock(UserProfileBackfillAttachmentService.class);
     private final MediaBackfillPort mediaBackfillPort = mock(MediaBackfillPort.class);
+    private final SimpleMeterRegistry meterRegistry = new SimpleMeterRegistry();
+
+    @AfterEach
+    void 지표_레지스트리를_종료한다() {
+        meterRegistry.close();
+    }
 
     @Test
     void DRY_RUN은_inspect만_수행하고_DB나_asset을_변경하지_않는다() {
@@ -235,7 +243,7 @@ class UserProfileBackfillRunnerTest {
 
     private UserProfileBackfillRunner runner(UserProfileBackfillProperties properties) {
         return new UserProfileBackfillRunner(
-                properties, candidateReader, checkpointStore, attachmentService, mediaBackfillPort);
+                properties, candidateReader, checkpointStore, attachmentService, mediaBackfillPort, meterRegistry);
     }
 
     private UserProfileBackfillProperties properties(

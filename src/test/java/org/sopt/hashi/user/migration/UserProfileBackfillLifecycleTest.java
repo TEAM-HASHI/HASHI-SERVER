@@ -6,6 +6,8 @@ import static org.mockito.BDDMockito.given;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verifyNoInteractions;
 
+import io.micrometer.core.instrument.MeterRegistry;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import java.time.Duration;
 import java.util.List;
 import java.util.concurrent.CountDownLatch;
@@ -30,6 +32,7 @@ class UserProfileBackfillLifecycleTest {
             .withBean(UserProfileBackfillCheckpointStore.class, () -> checkpoint)
             .withBean(UserProfileBackfillAttachmentService.class, () -> attachment)
             .withBean(MediaBackfillPort.class, () -> port)
+            .withBean(MeterRegistry.class, SimpleMeterRegistry::new)
             .withPropertyValues(
                     "hashi.user.profile-backfill.mode=DRY_RUN",
                     "hashi.user.profile-backfill.batch-size=50",
