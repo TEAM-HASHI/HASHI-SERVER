@@ -1,6 +1,7 @@
 package org.sopt.hashi.restaurant.migration;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyLong;
@@ -126,7 +127,7 @@ class RestaurantMediaBackfillRunnerTest {
     }
 
     @Test
-    void 일시적인_storage_장애는_제한된_횟수만_재시도한다() {
+    void DRY_RUN의_storage_장애는_제한된_횟수_후_실행을_중단한다() {
         RestaurantMediaBackfillProperties properties = properties(
                 RestaurantMediaBackfillMode.DRY_RUN, "", 2, 1, 3);
         given(candidateReader.findUpperBound(properties.target())).willReturn(1L);
@@ -135,10 +136,72 @@ class RestaurantMediaBackfillRunnerTest {
         given(mediaBackfillPort.inspect(any()))
                 .willThrow(new MediaBackfillSourceException(Reason.STORAGE_UNAVAILABLE));
 
+        assertThatThrownBy(() -> runner(properties).execute())
+                .isInstanceOfSatisfying(MediaBackfillSourceException.class,
+                        exception -> assertThat(exception.getReason())
+                                .isEqualTo(Reason.STORAGE_UNAVAILABLE));
+        verify(mediaBackfillPort, times(3)).inspect(any());
+    }
+
+    @Test
+    void PREPARE의_storage_장애는_cursor를_전진시키지_않고_실행을_중단한다() {
+        UUID runId = UUID.randomUUID();
+        RestaurantMediaBackfillProperties properties = properties(
+                RestaurantMediaBackfillMode.PREPARE, runId.toString(), 1, 1, 3);
+        Lease lease = lease(runId, properties.mode(), 1L);
+        Snapshot running = snapshot(
+                runId, properties.mode(), Status.RUNNING, 1L, 0L, 0, 0, 0, 0, 0);
+        Snapshot paused = snapshot(
+                runId, properties.mode(), Status.PAUSED, 1L, 0L, 0, 0, 0, 0, 0);
+        given(candidateReader.findUpperBound(properties.target())).willReturn(1L);
+        given(checkpointStore.acquire(
+                eq(runId), eq(properties.target()), eq(properties.mode()), eq(1L), any()))
+                .willReturn(new Acquisition(AcquisitionState.ACQUIRED, lease, running));
+        given(candidateReader.findBatch(properties.target(), 0L, 1L, 1))
+                .willReturn(List.of(candidate(1L)));
+        given(mediaBackfillPort.inspect(any()))
+                .willThrow(new MediaBackfillSourceException(Reason.STORAGE_UNAVAILABLE));
+        given(checkpointStore.pause(lease)).willReturn(true);
+        given(checkpointStore.find(runId)).willReturn(paused);
+
         RestaurantMediaBackfillSummary summary = runner(properties).execute();
 
-        assertThat(summary.failedCount()).isEqualTo(1);
+        assertThat(summary.status()).isEqualTo(RestaurantMediaBackfillSummary.Status.FAILED);
+        assertThat(summary.scannedCount()).isZero();
         verify(mediaBackfillPort, times(3)).inspect(any());
+        verify(checkpointStore, never()).recordProgress(any(), anyLong(), any(), any());
+        verify(checkpointStore).pause(lease);
+    }
+
+    @Test
+    void 최대_batch_후_pause가_거절되면_lease_lost로_보고한다() {
+        UUID runId = UUID.randomUUID();
+        RestaurantMediaBackfillProperties properties = properties(
+                RestaurantMediaBackfillMode.PREPARE, runId.toString(), 1, 1, 1);
+        Lease lease = lease(runId, properties.mode(), 2L);
+        RestaurantMediaBackfillCandidate first = candidate(1L);
+        RestaurantMediaBackfillCandidate second = candidate(2L);
+        Snapshot running = snapshot(
+                runId, properties.mode(), Status.RUNNING, 2L, 1L, 1, 1, 0, 0, 0);
+        given(candidateReader.findUpperBound(properties.target())).willReturn(2L);
+        given(checkpointStore.acquire(
+                eq(runId), eq(properties.target()), eq(properties.mode()), eq(2L), any()))
+                .willReturn(new Acquisition(AcquisitionState.ACQUIRED, lease, snapshot(
+                        runId, properties.mode(), Status.RUNNING, 2L, 0L, 0, 0, 0, 0, 0)));
+        given(candidateReader.findBatch(properties.target(), 0L, 2L, 1))
+                .willReturn(List.of(first));
+        given(candidateReader.findBatch(properties.target(), 1L, 2L, 1))
+                .willReturn(List.of(second));
+        given(mediaBackfillPort.inspect(any())).willReturn(unpreparedInspection());
+        given(mediaBackfillPort.prepare(any(), eq(IDENTITY)))
+                .willReturn(asset(State.PROCESSING));
+        given(checkpointStore.pause(lease)).willReturn(false);
+        given(checkpointStore.find(runId)).willReturn(running);
+
+        RestaurantMediaBackfillSummary summary = runner(properties).execute();
+
+        assertThat(summary.status()).isEqualTo(RestaurantMediaBackfillSummary.Status.LEASE_LOST);
+        verify(checkpointStore).pause(lease);
     }
 
     @Test
