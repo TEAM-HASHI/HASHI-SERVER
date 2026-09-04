@@ -159,6 +159,9 @@ public class ImageAsset extends BaseTimeEntity {
     @Column(name = "purge_started_at")
     private LocalDateTime purgeStartedAt;
 
+    @Column(name = "purge_last_attempt_at")
+    private LocalDateTime purgeLastAttemptAt;
+
     @Column(name = "objects_purged_at")
     private LocalDateTime objectsPurgedAt;
 
@@ -287,6 +290,80 @@ public class ImageAsset extends BaseTimeEntity {
         bindingStatus = ImageBindingStatus.RETIRED;
     }
 
+    public boolean canStartPurge() {
+        return cleanupStatus == MediaCleanupStatus.ACTIVE && hasPurgeableContentState();
+    }
+
+    /**
+     * 보존 기간은 잠금 안의 Service가 검사한다. 여기서는 삭제 중 정상 연결이나 변환이
+     * 다시 시작되지 않도록 Aggregate 상태와 작업 식별자를 고정한다.
+     */
+    public void beginPurge(UUID token, LocalDateTime startedAt) {
+        Objects.requireNonNull(token, "purge token is required");
+        Objects.requireNonNull(startedAt, "purge start time is required");
+        if (!canStartPurge()) {
+            throw new IllegalStateException("asset is not eligible for whole-asset purge");
+        }
+        cleanupStatus = MediaCleanupStatus.PURGING;
+        purgeToken = token;
+        purgeStartedAt = startedAt;
+        purgeLastAttemptAt = startedAt;
+    }
+
+    /** 재시도 시각만 갱신하고 최초 purgeToken과 시작 시각은 유지한다. */
+    public boolean resumePurge(UUID token, LocalDateTime attemptedAt, LocalDateTime retryBefore) {
+        Objects.requireNonNull(token, "purge token is required");
+        Objects.requireNonNull(attemptedAt, "purge attempt time is required");
+        Objects.requireNonNull(retryBefore, "purge retry cutoff is required");
+        if (retryBefore.isAfter(attemptedAt)) {
+            throw new IllegalArgumentException("purge retry cutoff must not be in the future");
+        }
+        boolean resumable = cleanupStatus == MediaCleanupStatus.PURGING
+                && Objects.equals(purgeToken, token)
+                && hasPurgeableContentState()
+                && purgeLastAttemptAt != null
+                && !purgeLastAttemptAt.isAfter(retryBefore)
+                && !attemptedAt.isBefore(purgeLastAttemptAt);
+        if (!resumable) {
+            return false;
+        }
+        purgeLastAttemptAt = attemptedAt;
+        return true;
+    }
+
+    /**
+     * 저장소 삭제 완료 후에만 호출한다. 재시도된 같은 완료는 no-op이며 다른 작업의
+     * 완료나 시계 역행은 원본 상태를 바꾸지 않는다.
+     */
+    public boolean completePurge(UUID token, LocalDateTime purgedAt) {
+        Objects.requireNonNull(token, "purge token is required");
+        Objects.requireNonNull(purgedAt, "purge completion time is required");
+        if (!Objects.equals(purgeToken, token)) {
+            return false;
+        }
+        if (cleanupStatus == MediaCleanupStatus.PURGED) {
+            return true;
+        }
+        boolean completable = cleanupStatus == MediaCleanupStatus.PURGING
+                && hasPurgeableContentState()
+                && purgeLastAttemptAt != null
+                && !purgedAt.isBefore(purgeLastAttemptAt);
+        if (!completable) {
+            return false;
+        }
+        // S3 삭제를 orphanRemoval과 연결하지 않는다. 이 시점에는 파일 삭제가 끝난 상태다.
+        renditions.clear();
+        cleanupStatus = MediaCleanupStatus.PURGED;
+        objectsPurgedAt = purgedAt;
+        return true;
+    }
+
+    public boolean mustRetainPurgeTombstone() {
+        return processingStatus == ImageProcessingStatus.FAILED
+                && (bindingStatus == ImageBindingStatus.BOUND
+                || creationOrigin == MediaCreationOrigin.SYSTEM_BACKFILL);
+    }
+
     public boolean hasCurrentProcessingJob(UUID jobId) {
         return cleanupStatus == MediaCleanupStatus.ACTIVE
                 && targetProcessingStatus == TargetProcessingStatus.PROCESSING
@@ -310,6 +387,7 @@ public class ImageAsset extends BaseTimeEntity {
     }
 
     public void expireUpload() {
+        requireActiveCleanup();
         requireState(ImageProcessingStatus.PENDING_UPLOAD);
         processingStatus = ImageProcessingStatus.EXPIRED;
     }
@@ -317,6 +395,7 @@ public class ImageAsset extends BaseTimeEntity {
     public void beginInitialProcessing(String sourceVersionId, String sourceEtag,
                                        int specVersion, String specDigest, UUID jobId,
                                        LocalDateTime startedAt) {
+        requireActiveCleanup();
         requireState(ImageProcessingStatus.PENDING_UPLOAD);
         this.sourceVersionId = requireText(sourceVersionId, "sourceVersionId");
         this.sourceEtag = requireText(sourceEtag, "sourceEtag");
@@ -406,6 +485,35 @@ public class ImageAsset extends BaseTimeEntity {
             this.processingStatus = ImageProcessingStatus.READY;
         }
         clearTargetProcessing();
+    }
+
+    private boolean hasPurgeableContentState() {
+        boolean processingInProgress = processingStatus == ImageProcessingStatus.PROCESSING
+                || targetProcessingStatus != null || targetSpecVersion != null
+                || targetSpecDigest != null || currentJobId != null;
+        if (processingInProgress || bindingStatus == ImageBindingStatus.RETIRED) {
+            return false;
+        }
+        boolean terminalFailure = processingStatus == ImageProcessingStatus.FAILED
+                && activeSpecVersion == null;
+        if (bindingStatus == ImageBindingStatus.BOUND) {
+            return terminalFailure;
+        }
+        if (bindingStatus != ImageBindingStatus.UNBOUND) {
+            return false;
+        }
+        return switch (processingStatus) {
+            case PENDING_UPLOAD, EXPIRED -> activeSpecVersion == null;
+            case READY -> true;
+            case FAILED -> terminalFailure;
+            case PROCESSING -> false;
+        };
+    }
+
+    private void requireActiveCleanup() {
+        if (cleanupStatus != MediaCleanupStatus.ACTIVE) {
+            throw new IllegalStateException("only cleanup-active assets can change upload state");
+        }
     }
 
     private void beginTargetProcessing(int specVersion, String specDigest, UUID jobId,
