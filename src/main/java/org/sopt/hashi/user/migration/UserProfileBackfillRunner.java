@@ -87,9 +87,26 @@ class UserProfileBackfillRunner {
     }
 
     private UserProfileBackfillSummary executeDryRun(UserProfileBackfillSourceFailures sourceFailures) {
+        MutableSummary summary = new MutableSummary(properties.mode());
+        try {
+            return scanDryRun(sourceFailures, summary);
+        } catch (RuntimeException exception) {
+            log.error(
+                    "User profile backfill dry run stopped: mode={}, errorType={}, "
+                            + "sourceFailuresThisExecution={}",
+                    properties.mode(), exception.getClass().getSimpleName(),
+                    sourceFailures.snapshot()
+            );
+            return summary.finish(Status.FAILED);
+        }
+    }
+
+    private UserProfileBackfillSummary scanDryRun(
+            UserProfileBackfillSourceFailures sourceFailures,
+            MutableSummary summary
+    ) {
         long upperBound = candidateReader.findUpperBound();
         long cursor = 0L;
-        MutableSummary summary = new MutableSummary(properties.mode());
 
         for (int batchNumber = 0; batchNumber < properties.maxBatches(); batchNumber++) {
             requireNotInterrupted();
