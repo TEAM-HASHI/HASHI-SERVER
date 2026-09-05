@@ -65,7 +65,7 @@ class MagazineMediaBackfillRunner {
         } catch (RuntimeException exception) {
             log.error(
                     "Magazine media backfill could not start: target={}, mode={}, errorType={}",
-                    properties.target(), properties.mode(), exception.getClass().getSimpleName()
+                    properties.target(), properties.mode(), failureType(exception)
             );
         }
     }
@@ -122,8 +122,9 @@ class MagazineMediaBackfillRunner {
                     inspect(candidate);
                     summary.inspected++;
                 } catch (MediaBackfillSourceException exception) {
-                    summary.failed++;
                     sourceFailures.record(exception.getReason());
+                    rethrowInfrastructureFailure(exception);
+                    summary.failed++;
                 }
                 cursor = candidate.magazineId();
             }
@@ -180,7 +181,7 @@ class MagazineMediaBackfillRunner {
             boolean paused = checkpointStore.pause(lease);
             log.error(
                     "Magazine media backfill stopped: target={}, mode={}, errorType={}",
-                    properties.target(), properties.mode(), exception.getClass().getSimpleName()
+                    properties.target(), properties.mode(), failureType(exception)
             );
             return MagazineMediaBackfillSummary.fromSnapshot(
                     paused ? Status.FAILED : Status.LEASE_LOST,
@@ -210,10 +211,11 @@ class MagazineMediaBackfillRunner {
             }
             attachOrRecord(candidate, inspection, lease);
         } catch (MediaBackfillSourceException exception) {
+            sourceFailures.record(exception.getReason());
+            rethrowInfrastructureFailure(exception);
             checkpointStore.recordProgress(
                     lease, candidate.magazineId(),
                     MagazineMediaBackfillOutcome.FAILED, properties.leaseDuration());
-            sourceFailures.record(exception.getReason());
         }
     }
 
@@ -283,6 +285,19 @@ class MagazineMediaBackfillRunner {
                 attempt++;
             }
         }
+    }
+
+    private void rethrowInfrastructureFailure(MediaBackfillSourceException exception) {
+        if (exception.getReason() == Reason.STORAGE_UNAVAILABLE) {
+            throw exception;
+        }
+    }
+
+    private String failureType(RuntimeException exception) {
+        if (exception instanceof MediaBackfillSourceException sourceException) {
+            return sourceException.getReason().name();
+        }
+        return exception.getClass().getSimpleName();
     }
 
     private Duration backoff(Duration initialDelay, int attempt) {
