@@ -1,6 +1,7 @@
 package org.sopt.hashi.user.migration;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyLong;
@@ -130,7 +131,7 @@ class UserProfileBackfillRunnerTest {
     }
 
     @Test
-    void 일시적인_storage_장애는_제한된_횟수만_재시도한다() {
+    void DRY_RUN의_storage_장애는_제한된_횟수_후_실행을_중단한다() {
         UserProfileBackfillProperties properties = properties(
                 UserProfileBackfillMode.DRY_RUN, "", 2, 1, 3);
         given(candidateReader.findUpperBound()).willReturn(1L);
@@ -139,10 +140,40 @@ class UserProfileBackfillRunnerTest {
         given(mediaBackfillPort.inspect(any()))
                 .willThrow(new MediaBackfillSourceException(Reason.STORAGE_UNAVAILABLE));
 
+        assertThatThrownBy(() -> runner(properties).execute())
+                .isInstanceOfSatisfying(MediaBackfillSourceException.class,
+                        exception -> assertThat(exception.getReason())
+                                .isEqualTo(Reason.STORAGE_UNAVAILABLE));
+        verify(mediaBackfillPort, times(3)).inspect(any());
+    }
+
+    @Test
+    void PREPARE의_storage_장애는_cursor를_전진시키지_않고_실행을_중단한다() {
+        UUID runId = UUID.randomUUID();
+        UserProfileBackfillProperties properties = properties(
+                UserProfileBackfillMode.PREPARE, runId.toString(), 1, 1, 3);
+        Lease lease = lease(runId, properties.mode(), 1L);
+        Snapshot running = snapshot(
+                runId, properties.mode(), Status.RUNNING, 1L, 0L, 0, 0, 0, 0, 0);
+        Snapshot paused = snapshot(
+                runId, properties.mode(), Status.PAUSED, 1L, 0L, 0, 0, 0, 0, 0);
+        given(candidateReader.findUpperBound()).willReturn(1L);
+        given(checkpointStore.acquire(eq(runId), eq(properties.mode()), eq(1L), any()))
+                .willReturn(new Acquisition(AcquisitionState.ACQUIRED, lease, running));
+        given(candidateReader.findBatch(0L, 1L, 1))
+                .willReturn(List.of(candidate(1L)));
+        given(mediaBackfillPort.inspect(any()))
+                .willThrow(new MediaBackfillSourceException(Reason.STORAGE_UNAVAILABLE));
+        given(checkpointStore.pause(lease)).willReturn(true);
+        given(checkpointStore.find(runId)).willReturn(paused);
+
         UserProfileBackfillSummary summary = runner(properties).execute();
 
-        assertThat(summary.failedCount()).isEqualTo(1);
+        assertThat(summary.status()).isEqualTo(UserProfileBackfillSummary.Status.FAILED);
+        assertThat(summary.scannedCount()).isZero();
         verify(mediaBackfillPort, times(3)).inspect(any());
+        verify(checkpointStore, never()).recordProgress(any(), anyLong(), any(), any());
+        verify(checkpointStore).pause(lease);
     }
 
     @Test

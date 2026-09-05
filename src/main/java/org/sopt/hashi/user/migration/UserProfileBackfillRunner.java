@@ -67,7 +67,7 @@ class UserProfileBackfillRunner {
         } catch (RuntimeException exception) {
             log.error(
                     "User profile backfill could not start: mode={}, errorType={}",
-                    properties.mode(), exception.getClass().getSimpleName()
+                    properties.mode(), failureType(exception)
             );
         }
     }
@@ -102,6 +102,7 @@ class UserProfileBackfillRunner {
                     inspect(candidate);
                     summary.inspected++;
                 } catch (MediaBackfillSourceException exception) {
+                    rethrowInfrastructureFailure(exception);
                     summary.failed++;
                 }
                 cursor = candidate.userId();
@@ -159,7 +160,7 @@ class UserProfileBackfillRunner {
             boolean paused = checkpointStore.pause(lease);
             log.error(
                     "User profile backfill stopped: mode={}, errorType={}",
-                    properties.mode(), exception.getClass().getSimpleName()
+                    properties.mode(), failureType(exception)
             );
             return UserProfileBackfillSummary.fromSnapshot(
                     paused ? Status.FAILED : Status.LEASE_LOST,
@@ -184,6 +185,7 @@ class UserProfileBackfillRunner {
             }
             attachOrRecord(candidate, inspection, lease);
         } catch (MediaBackfillSourceException exception) {
+            rethrowInfrastructureFailure(exception);
             checkpointStore.recordProgress(
                     lease, candidate.userId(),
                     UserProfileBackfillOutcome.FAILED, properties.leaseDuration());
@@ -256,6 +258,19 @@ class UserProfileBackfillRunner {
                 attempt++;
             }
         }
+    }
+
+    private void rethrowInfrastructureFailure(MediaBackfillSourceException exception) {
+        if (exception.getReason() == Reason.STORAGE_UNAVAILABLE) {
+            throw exception;
+        }
+    }
+
+    private String failureType(RuntimeException exception) {
+        if (exception instanceof MediaBackfillSourceException sourceException) {
+            return sourceException.getReason().name();
+        }
+        return exception.getClass().getSimpleName();
     }
 
     private Duration backoff(Duration initialDelay, int attempt) {
