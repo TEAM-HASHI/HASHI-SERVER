@@ -241,6 +241,11 @@ class UserProfileBackfillPersistenceIntegrationTest {
                   AND table_name = 'user_profile_backfill_checkpoint'
                   AND referenced_table_name IS NOT NULL
                 """, Integer.class)).isZero();
+        assertThat(jdbcTemplate.queryForObject("""
+                SELECT engine FROM information_schema.tables
+                WHERE table_schema = DATABASE()
+                  AND table_name = 'user_profile_backfill_checkpoint'
+                """, String.class)).isEqualToIgnoringCase("InnoDB");
     }
 
     @Test
