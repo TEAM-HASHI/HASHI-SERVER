@@ -106,7 +106,9 @@ source hash와 예외 payload를 로그·이슈·메트릭 label에 넣지 않�
   세 label만 사용한다. 재시도 중 일시 실패는 세지 않고, 재시도 소진 후 실패한 항목만 한 번 센다.
 - 원인 집계는 이번 실행의 관측값이다. checkpoint의 누적 `failed_count`와 달리 이전 기동의 원인
   내역을 복원하지 않으며 terminal media 상태 실패도 포함하지 않는다. 재개 후 새 관측은 별도로 센다.
-  PREPARE/ATTACH는 FAILED cursor가 기록된 뒤 집계하고, metric 장애가 후보 처리를 중단하지 않는다.
+  PREPARE/ATTACH의 개별 처리 가능한 source 오류는 FAILED cursor가 기록된 뒤 집계한다.
+  재시도를 소진한 `STORAGE_UNAVAILABLE`은 한 번 집계한 뒤 현재 cursor를 보존하고 실행을 중단한다.
+  metric 장애가 후보 처리를 중단하지 않는다.
 
 ```sql
 SELECT target, mode, status, scanned_count, prepared_count, attached_count, skipped_count, failed_count
