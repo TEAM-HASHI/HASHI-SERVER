@@ -7,6 +7,7 @@ import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.BDDMockito.given;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
@@ -187,6 +188,40 @@ class MagazineMediaBackfillRunnerTest {
         verify(mediaBackfillPort, times(3)).inspect(any());
         verify(checkpointStore, never()).recordProgress(any(), anyLong(), any(), any());
         verify(checkpointStore).pause(lease);
+    }
+
+    @ParameterizedTest
+    @EnumSource(value = MagazineMediaBackfillMode.class, names = {"PREPARE", "ATTACH"})
+    void persistent_source_실패의_cursor_기록에서_lease를_잃으면_실패_원인을_집계하지_않는다(
+            MagazineMediaBackfillMode mode
+    ) {
+        UUID runId = UUID.randomUUID();
+        MagazineMediaBackfillProperties properties = properties(mode, runId.toString(), 1, 1, 1);
+        Lease lease = lease(runId, mode, 1L);
+        Snapshot running = snapshot(runId, mode, Status.RUNNING, 1L, 0L, 0, 0, 0, 0, 0);
+        given(candidateReader.findUpperBound(properties.target())).willReturn(1L);
+        given(checkpointStore.acquire(
+                eq(runId), eq(properties.target()), eq(mode), eq(1L), any()))
+                .willReturn(new Acquisition(AcquisitionState.ACQUIRED, lease, running));
+        given(candidateReader.findBatch(properties.target(), 0L, 1L, 1))
+                .willReturn(List.of(candidate(1L)));
+        given(mediaBackfillPort.inspect(any()))
+                .willThrow(new MediaBackfillSourceException(Reason.SOURCE_UNREADABLE));
+        doThrow(new MagazineMediaBackfillLeaseLostException())
+                .when(checkpointStore).recordProgress(
+                        lease, 1L, MagazineMediaBackfillOutcome.FAILED, properties.leaseDuration());
+        given(checkpointStore.find(runId)).willReturn(running);
+
+        MagazineMediaBackfillSummary summary = runner(properties).execute();
+
+        assertThat(summary.status()).isEqualTo(MagazineMediaBackfillSummary.Status.LEASE_LOST);
+        assertThat(summary.sourceFailuresThisExecution()).isEmpty();
+        assertThat(meterRegistry.find(MagazineMediaBackfillSourceFailures.METRIC_NAME)
+                .tags("target", properties.target().name(), "mode", mode.name(),
+                        "reason", Reason.SOURCE_UNREADABLE.name())
+                .counter()).isNull();
+        verify(checkpointStore).recordProgress(
+                lease, 1L, MagazineMediaBackfillOutcome.FAILED, properties.leaseDuration());
     }
 
     @Test

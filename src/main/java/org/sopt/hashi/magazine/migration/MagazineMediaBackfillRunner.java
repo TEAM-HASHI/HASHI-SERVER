@@ -211,11 +211,14 @@ class MagazineMediaBackfillRunner {
             }
             attachOrRecord(candidate, inspection, lease);
         } catch (MediaBackfillSourceException exception) {
-            sourceFailures.record(exception.getReason());
-            rethrowInfrastructureFailure(exception);
+            if (exception.getReason() == Reason.STORAGE_UNAVAILABLE) {
+                sourceFailures.record(exception.getReason());
+                throw exception;
+            }
             checkpointStore.recordProgress(
                     lease, candidate.magazineId(),
                     MagazineMediaBackfillOutcome.FAILED, properties.leaseDuration());
+            sourceFailures.record(exception.getReason());
         }
     }
 
