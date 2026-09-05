@@ -57,19 +57,30 @@ class UserProfileBackfillRunner {
     public void runOnStartup() {
         try {
             UserProfileBackfillSummary summary = execute();
-            log.info(
-                    "User profile backfill finished: mode={}, status={}, "
-                            + "scanned={}, inspected={}, prepared={}, attached={}, skipped={}, failed={}",
-                    summary.mode(), summary.status(), summary.scannedCount(),
-                    summary.inspectedCount(), summary.preparedCount(), summary.attachedCount(),
-                    summary.skippedCount(), summary.failedCount()
-            );
+            logSummary(summary);
         } catch (RuntimeException exception) {
             log.error(
                     "User profile backfill could not start: mode={}, errorType={}",
                     properties.mode(), failureType(exception)
             );
         }
+    }
+
+    private void logSummary(UserProfileBackfillSummary summary) {
+        if (summary.mode() == UserProfileBackfillMode.DRY_RUN) {
+            log.info(
+                    "User profile backfill finished: mode={}, status={}, scanned={}, inspected={}, failed={}",
+                    summary.mode(), summary.status(), summary.scannedCount(),
+                    summary.inspectedCount(), summary.failedCount()
+            );
+            return;
+        }
+        log.info(
+                "User profile backfill finished: mode={}, status={}, "
+                        + "scanned={}, prepared={}, attached={}, skipped={}, failed={}",
+                summary.mode(), summary.status(), summary.scannedCount(), summary.preparedCount(),
+                summary.attachedCount(), summary.skippedCount(), summary.failedCount()
+        );
     }
 
     UserProfileBackfillSummary execute() {
