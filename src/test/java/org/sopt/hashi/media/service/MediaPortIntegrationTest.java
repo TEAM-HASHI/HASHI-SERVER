@@ -7,6 +7,7 @@ import static org.mockito.Mockito.when;
 import jakarta.persistence.EntityManagerFactory;
 import java.sql.Connection;
 import java.sql.DriverManager;
+import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
@@ -79,6 +80,9 @@ class MediaPortIntegrationTest {
 
     @Autowired
     private MediaPort mediaPort;
+
+    @Autowired
+    private MediaAssetTransactionService transactionService;
 
     @Autowired
     private ImageAssetRepository imageAssetRepository;
@@ -193,6 +197,55 @@ class MediaPortIntegrationTest {
                 .containsOnly(ImageBindingStatus.BOUND);
     }
 
+    @Test
+    void 완료와_claim이_경쟁해도_UUID와_반대인_내부_ID_순서로_잠근다() throws Exception {
+        List<ImageAsset> assets = new ArrayList<>();
+        for (int index = 0; index < 1_000; index++) {
+            UUID assetId = new UUID(0L, 1_000L - index);
+            assets.add(index < 10
+                    ? readyAsset(MediaPurpose.RESTAURANT, false, assetId)
+                    : pendingAsset(MediaPurpose.RESTAURANT, assetId));
+        }
+        transactionTemplate.executeWithoutResult(status -> imageAssetRepository.saveAll(assets));
+        jdbcTemplate.execute("ANALYZE TABLE image_asset");
+        List<ImageAsset> requestedAssets = assets.subList(0, 10);
+        List<UUID> requestedIds = requestedAssets.stream().map(ImageAsset::getPublicId).toList();
+        List<MediaAssetUse> claims = requestedIds.stream()
+                .map(assetId -> new MediaAssetUse(assetId, MediaAssetPurpose.RESTAURANT))
+                .toList();
+
+        try (Connection blocker = DriverManager.getConnection(
+                MYSQL.getJdbcUrl(), MYSQL.getUsername(), MYSQL.getPassword());
+             PreparedStatement statement = blocker.prepareStatement(
+                     "SELECT id FROM image_asset WHERE id = ? FOR UPDATE")) {
+            blocker.setAutoCommit(false);
+            statement.setLong(1, requestedAssets.get(4).getId());
+            try (ResultSet rows = statement.executeQuery()) {
+                assertThat(rows.next()).isTrue();
+            }
+
+            Future<List<OwnedAssetSnapshot>> completed = executor.submit(() ->
+                    transactionService.completeAssets(
+                            new CurrentActor(ActorType.ADMIN, 1L), requestedIds, Map.of()));
+            Future<ClaimResult> claimed;
+            try {
+                awaitMySqlRowLockCompetition(1);
+                claimed = executor.submit(() -> claimOnce(claims));
+                awaitMySqlRowLockCompetition(2);
+            } finally {
+                blocker.commit();
+            }
+
+            assertThat(completed.get(20, TimeUnit.SECONDS)).hasSize(10);
+            assertThat(claimed.get(20, TimeUnit.SECONDS)).isEqualTo(ClaimResult.success());
+        }
+
+        assertThat(imageAssetRepository.findAllByPublicIdIn(requestedIds))
+                .hasSize(10)
+                .extracting(ImageAsset::getBindingStatus)
+                .containsOnly(ImageBindingStatus.BOUND);
+    }
+
     private long projectionQueryCount(int count) {
         List<ImageAsset> assets = new ArrayList<>();
         for (int index = 0; index < count; index++) {
@@ -265,15 +318,21 @@ class MediaPortIntegrationTest {
     }
 
     private void awaitMySqlRowLockCompetition() throws InterruptedException, SQLException {
+        awaitMySqlRowLockCompetition(1);
+    }
+
+    private void awaitMySqlRowLockCompetition(int minimumWaitingTransactions)
+            throws InterruptedException, SQLException {
         try (Connection connection = DriverManager.getConnection(
                 MYSQL.getJdbcUrl(), "root", MYSQL.getPassword());
              Statement statement = connection.createStatement()) {
             long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(10);
             while (System.nanoTime() < deadline) {
                 try (ResultSet resultSet = statement.executeQuery(
-                        "SELECT COUNT(*) FROM performance_schema.data_lock_waits")) {
+                        "SELECT COUNT(DISTINCT REQUESTING_ENGINE_TRANSACTION_ID) "
+                                + "FROM performance_schema.data_lock_waits")) {
                     resultSet.next();
-                    if (resultSet.getInt(1) > 0) {
+                    if (resultSet.getInt(1) >= minimumWaitingTransactions) {
                         return;
                     }
                 }
@@ -295,8 +354,11 @@ class MediaPortIntegrationTest {
     }
 
     private ImageAsset readyAsset(MediaPurpose purpose, boolean bound) {
-        UUID assetId = UUID.randomUUID();
-        ImageAsset asset = ImageAsset.createDirectUpload(
+        return readyAsset(purpose, bound, UUID.randomUUID());
+    }
+
+    private ImageAsset pendingAsset(MediaPurpose purpose, UUID assetId) {
+        return ImageAsset.createDirectUpload(
                 assetId,
                 purpose,
                 MediaOwnerType.ADMIN,
@@ -306,6 +368,10 @@ class MediaPortIntegrationTest {
                 1024L,
                 LocalDateTime.now().plusMinutes(5)
         );
+    }
+
+    private ImageAsset readyAsset(MediaPurpose purpose, boolean bound, UUID assetId) {
+        ImageAsset asset = pendingAsset(purpose, assetId);
         UUID jobId = UUID.randomUUID();
         asset.beginInitialProcessing(
                 "version-1", "\"etag-1\"", 1, SPEC_DIGEST, jobId, LocalDateTime.now());

@@ -61,20 +61,33 @@ class MagazineMediaBackfillRunner {
     public void runOnStartup() {
         try {
             MagazineMediaBackfillSummary summary = execute();
-            log.info(
-                    "Magazine media backfill finished: target={}, mode={}, status={}, "
-                            + "scanned={}, inspected={}, prepared={}, attached={}, skipped={}, failed={}, "
-                            + "sourceFailuresThisExecution={}",
-                    summary.target(), summary.mode(), summary.status(), summary.scannedCount(),
-                    summary.inspectedCount(), summary.preparedCount(), summary.attachedCount(),
-                    summary.skippedCount(), summary.failedCount(), summary.sourceFailuresThisExecution()
-            );
+            logSummary(summary);
         } catch (RuntimeException exception) {
             log.error(
                     "Magazine media backfill could not start: target={}, mode={}, errorType={}",
-                    properties.target(), properties.mode(), exception.getClass().getSimpleName()
+                    properties.target(), properties.mode(), failureType(exception)
             );
         }
+    }
+
+    private void logSummary(MagazineMediaBackfillSummary summary) {
+        if (summary.mode() == MagazineMediaBackfillMode.DRY_RUN) {
+            log.info(
+                    "Magazine media backfill finished: target={}, mode={}, status={}, "
+                            + "scanned={}, inspected={}, failed={}, sourceFailuresThisExecution={}",
+                    summary.target(), summary.mode(), summary.status(), summary.scannedCount(),
+                    summary.inspectedCount(), summary.failedCount(), summary.sourceFailuresThisExecution()
+            );
+            return;
+        }
+        log.info(
+                "Magazine media backfill finished: target={}, mode={}, status={}, "
+                        + "scanned={}, prepared={}, attached={}, skipped={}, failed={}, "
+                        + "sourceFailuresThisExecution={}",
+                summary.target(), summary.mode(), summary.status(), summary.scannedCount(),
+                summary.preparedCount(), summary.attachedCount(), summary.skippedCount(),
+                summary.failedCount(), summary.sourceFailuresThisExecution()
+        );
     }
 
     MagazineMediaBackfillSummary execute() {
@@ -93,7 +106,7 @@ class MagazineMediaBackfillRunner {
             log.error(
                     "Magazine media backfill dry run stopped: target={}, mode={}, errorType={}, "
                             + "sourceFailuresThisExecution={}",
-                    properties.target(), properties.mode(), exception.getClass().getSimpleName(),
+                    properties.target(), properties.mode(), failureType(exception),
                     sourceFailures.snapshot()
             );
             return summary.finish(Status.FAILED);
@@ -126,8 +139,9 @@ class MagazineMediaBackfillRunner {
                     inspect(candidate);
                     summary.inspected++;
                 } catch (MediaBackfillSourceException exception) {
-                    summary.failed++;
                     sourceFailures.record(exception.getReason());
+                    rethrowInfrastructureFailure(exception);
+                    summary.failed++;
                 }
                 cursor = candidate.magazineId();
             }
@@ -184,7 +198,7 @@ class MagazineMediaBackfillRunner {
             boolean paused = checkpointStore.pause(lease);
             log.error(
                     "Magazine media backfill stopped: target={}, mode={}, errorType={}",
-                    properties.target(), properties.mode(), exception.getClass().getSimpleName()
+                    properties.target(), properties.mode(), failureType(exception)
             );
             return MagazineMediaBackfillSummary.fromSnapshot(
                     paused ? Status.FAILED : Status.LEASE_LOST,
@@ -214,6 +228,10 @@ class MagazineMediaBackfillRunner {
             }
             attachOrRecord(candidate, inspection, lease);
         } catch (MediaBackfillSourceException exception) {
+            if (exception.getReason() == Reason.STORAGE_UNAVAILABLE) {
+                sourceFailures.record(exception.getReason());
+                throw exception;
+            }
             checkpointStore.recordProgress(
                     lease, candidate.magazineId(),
                     MagazineMediaBackfillOutcome.FAILED, properties.leaseDuration());
@@ -287,6 +305,19 @@ class MagazineMediaBackfillRunner {
                 attempt++;
             }
         }
+    }
+
+    private void rethrowInfrastructureFailure(MediaBackfillSourceException exception) {
+        if (exception.getReason() == Reason.STORAGE_UNAVAILABLE) {
+            throw exception;
+        }
+    }
+
+    private String failureType(RuntimeException exception) {
+        if (exception instanceof MediaBackfillSourceException sourceException) {
+            return sourceException.getReason().name();
+        }
+        return exception.getClass().getSimpleName();
     }
 
     private Duration backoff(Duration initialDelay, int attempt) {

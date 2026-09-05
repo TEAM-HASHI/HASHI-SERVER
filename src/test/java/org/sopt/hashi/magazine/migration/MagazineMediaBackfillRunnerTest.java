@@ -6,6 +6,7 @@ import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.BDDMockito.given;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
@@ -137,7 +138,7 @@ class MagazineMediaBackfillRunnerTest {
     }
 
     @Test
-    void 일시적인_storage_장애는_제한된_횟수만_재시도한다() {
+    void DRY_RUN의_storage_장애는_제한된_횟수_후_실행을_중단한다() {
         MagazineMediaBackfillProperties properties = properties(
                 MagazineMediaBackfillMode.DRY_RUN, "", 2, 1, 3);
         given(candidateReader.findUpperBound(properties.target())).willReturn(1L);
@@ -148,11 +149,79 @@ class MagazineMediaBackfillRunnerTest {
 
         MagazineMediaBackfillSummary summary = runner(properties).execute();
 
-        assertThat(summary.failedCount()).isEqualTo(1);
-        assertThat(summary.sourceFailuresThisExecution()).containsOnlyKeys(Reason.STORAGE_UNAVAILABLE)
+        assertThat(summary.status()).isEqualTo(MagazineMediaBackfillSummary.Status.FAILED);
+        assertThat(summary.sourceFailuresThisExecution())
                 .containsEntry(Reason.STORAGE_UNAVAILABLE, 1L);
         assertSourceFailureMetric(properties.mode(), Reason.STORAGE_UNAVAILABLE, 1);
         verify(mediaBackfillPort, times(3)).inspect(any());
+    }
+
+    @ParameterizedTest
+    @EnumSource(value = MagazineMediaBackfillMode.class, names = {"PREPARE", "ATTACH"})
+    void persistent_storage_장애는_cursor를_전진시키지_않고_실행을_중단한다(
+            MagazineMediaBackfillMode mode
+    ) {
+        UUID runId = UUID.randomUUID();
+        MagazineMediaBackfillProperties properties = properties(mode, runId.toString(), 1, 1, 3);
+        Lease lease = lease(runId, mode, 1L);
+        Snapshot running = snapshot(runId, mode, Status.RUNNING, 1L, 0L, 0, 0, 0, 0, 0);
+        Snapshot paused = snapshot(runId, mode, Status.PAUSED, 1L, 0L, 0, 0, 0, 0, 0);
+        given(candidateReader.findUpperBound(properties.target())).willReturn(1L);
+        given(checkpointStore.acquire(
+                eq(runId), eq(properties.target()), eq(mode), eq(1L), any()))
+                .willReturn(new Acquisition(AcquisitionState.ACQUIRED, lease, running));
+        given(candidateReader.findBatch(properties.target(), 0L, 1L, 1))
+                .willReturn(List.of(candidate(1L)));
+        given(mediaBackfillPort.inspect(any()))
+                .willThrow(new MediaBackfillSourceException(Reason.STORAGE_UNAVAILABLE));
+        given(checkpointStore.pause(lease)).willReturn(true);
+        given(checkpointStore.find(runId)).willReturn(paused);
+
+        MagazineMediaBackfillSummary summary = runner(properties).execute();
+
+        assertThat(summary.status()).isEqualTo(MagazineMediaBackfillSummary.Status.FAILED);
+        assertThat(summary.scannedCount()).isZero();
+        assertThat(summary.sourceFailuresThisExecution())
+                .containsOnlyKeys(Reason.STORAGE_UNAVAILABLE)
+                .containsEntry(Reason.STORAGE_UNAVAILABLE, 1L);
+        assertSourceFailureMetric(mode, Reason.STORAGE_UNAVAILABLE, 1);
+        verify(mediaBackfillPort, times(3)).inspect(any());
+        verify(checkpointStore, never()).recordProgress(any(), anyLong(), any(), any());
+        verify(checkpointStore).pause(lease);
+    }
+
+    @ParameterizedTest
+    @EnumSource(value = MagazineMediaBackfillMode.class, names = {"PREPARE", "ATTACH"})
+    void persistent_source_실패의_cursor_기록에서_lease를_잃으면_실패_원인을_집계하지_않는다(
+            MagazineMediaBackfillMode mode
+    ) {
+        UUID runId = UUID.randomUUID();
+        MagazineMediaBackfillProperties properties = properties(mode, runId.toString(), 1, 1, 1);
+        Lease lease = lease(runId, mode, 1L);
+        Snapshot running = snapshot(runId, mode, Status.RUNNING, 1L, 0L, 0, 0, 0, 0, 0);
+        given(candidateReader.findUpperBound(properties.target())).willReturn(1L);
+        given(checkpointStore.acquire(
+                eq(runId), eq(properties.target()), eq(mode), eq(1L), any()))
+                .willReturn(new Acquisition(AcquisitionState.ACQUIRED, lease, running));
+        given(candidateReader.findBatch(properties.target(), 0L, 1L, 1))
+                .willReturn(List.of(candidate(1L)));
+        given(mediaBackfillPort.inspect(any()))
+                .willThrow(new MediaBackfillSourceException(Reason.SOURCE_UNREADABLE));
+        doThrow(new MagazineMediaBackfillLeaseLostException())
+                .when(checkpointStore).recordProgress(
+                        lease, 1L, MagazineMediaBackfillOutcome.FAILED, properties.leaseDuration());
+        given(checkpointStore.find(runId)).willReturn(running);
+
+        MagazineMediaBackfillSummary summary = runner(properties).execute();
+
+        assertThat(summary.status()).isEqualTo(MagazineMediaBackfillSummary.Status.LEASE_LOST);
+        assertThat(summary.sourceFailuresThisExecution()).isEmpty();
+        assertThat(meterRegistry.find(MagazineMediaBackfillSourceFailures.METRIC_NAME)
+                .tags("target", properties.target().name(), "mode", mode.name(),
+                        "reason", Reason.SOURCE_UNREADABLE.name())
+                .counter()).isNull();
+        verify(checkpointStore).recordProgress(
+                lease, 1L, MagazineMediaBackfillOutcome.FAILED, properties.leaseDuration());
     }
 
     @Test
@@ -246,7 +315,11 @@ class MagazineMediaBackfillRunnerTest {
     }
 
     @ParameterizedTest
-    @EnumSource(Reason.class)
+    @EnumSource(
+            value = Reason.class,
+            names = "STORAGE_UNAVAILABLE",
+            mode = EnumSource.Mode.EXCLUDE
+    )
     void DRY_RUN은_source_실패_원인을_구분하고_다음_항목을_계속_조사한다(Reason reason) {
         MagazineMediaBackfillProperties properties = properties(MagazineMediaBackfillMode.DRY_RUN, "", 3, 1, 1);
         given(candidateReader.findUpperBound(properties.target())).willReturn(2L);
@@ -401,6 +474,88 @@ class MagazineMediaBackfillRunnerTest {
                         .doesNotContain(privateKey, privatePayload, "246801357", IDENTITY);
                 assertThat(event.getThrowableProxy()).isNull();
             });
+        } finally {
+            logger.detachAppender(appender);
+            appender.stop();
+        }
+    }
+
+    @Test
+    void DRY_RUN_storage_중단_로그는_예외_클래스가_아닌_고정_원인을_사용한다() {
+        MagazineMediaBackfillProperties properties = properties(
+                MagazineMediaBackfillMode.DRY_RUN, "", 1, 1, 1);
+        given(candidateReader.findUpperBound(properties.target())).willReturn(1L);
+        given(candidateReader.findBatch(properties.target(), 0L, 1L, 1))
+                .willReturn(List.of(candidate(1L)));
+        given(mediaBackfillPort.inspect(any()))
+                .willThrow(new MediaBackfillSourceException(Reason.STORAGE_UNAVAILABLE));
+
+        Logger logger = (Logger) LoggerFactory.getLogger(MagazineMediaBackfillRunner.class);
+        ListAppender<ILoggingEvent> appender = new ListAppender<>();
+        appender.start();
+        logger.addAppender(appender);
+        try {
+            runner(properties).runOnStartup();
+
+            assertThat(appender.list).hasSize(2);
+            assertThat(appender.list.getFirst().getFormattedMessage())
+                    .contains("errorType=STORAGE_UNAVAILABLE")
+                    .doesNotContain("errorType=MediaBackfillSourceException");
+            assertThat(appender.list.getLast().getFormattedMessage())
+                    .contains("status=FAILED", "sourceFailuresThisExecution={STORAGE_UNAVAILABLE=1}");
+            assertThat(appender.list).allSatisfy(event -> assertThat(event.getThrowableProxy()).isNull());
+            assertSourceFailureMetric(properties.mode(), Reason.STORAGE_UNAVAILABLE, 1);
+        } finally {
+            logger.detachAppender(appender);
+            appender.stop();
+        }
+    }
+
+    @Test
+    void DRY_RUN_종료_로그는_실제_inspected_집계를_포함한다() {
+        MagazineMediaBackfillProperties properties = properties(
+                MagazineMediaBackfillMode.DRY_RUN, "", 1, 1, 1);
+        given(candidateReader.findUpperBound(properties.target())).willReturn(1L);
+        given(candidateReader.findBatch(properties.target(), 0L, 1L, 1))
+                .willReturn(List.of(candidate(1L)));
+        given(mediaBackfillPort.inspect(any())).willReturn(unpreparedInspection());
+
+        ILoggingEvent event = runAndCapture(properties);
+
+        assertThat(event.getFormattedMessage())
+                .contains("mode=DRY_RUN", "scanned=1", "inspected=1", "failed=0",
+                        "sourceFailuresThisExecution={}");
+    }
+
+    @Test
+    void 영속_실행_종료_로그는_복구할_수_없는_inspected_집계를_출력하지_않는다() {
+        UUID runId = UUID.randomUUID();
+        MagazineMediaBackfillProperties properties = properties(
+                MagazineMediaBackfillMode.PREPARE, runId.toString(), 1, 1, 1);
+        Snapshot completed = snapshot(
+                runId, properties.mode(), Status.COMPLETED, 1L, 1L, 1, 1, 0, 0, 0);
+        given(candidateReader.findUpperBound(properties.target())).willReturn(1L);
+        given(checkpointStore.acquire(
+                eq(runId), eq(properties.target()), eq(properties.mode()), eq(1L), any()))
+                .willReturn(new Acquisition(AcquisitionState.COMPLETED, null, completed));
+
+        ILoggingEvent event = runAndCapture(properties);
+
+        assertThat(event.getFormattedMessage())
+                .contains("mode=PREPARE", "scanned=1", "prepared=1", "failed=0",
+                        "sourceFailuresThisExecution={}")
+                .doesNotContain("inspected=");
+    }
+
+    private ILoggingEvent runAndCapture(MagazineMediaBackfillProperties properties) {
+        Logger logger = (Logger) LoggerFactory.getLogger(MagazineMediaBackfillRunner.class);
+        ListAppender<ILoggingEvent> appender = new ListAppender<>();
+        appender.start();
+        logger.addAppender(appender);
+        try {
+            runner(properties).runOnStartup();
+            assertThat(appender.list).hasSize(1);
+            return appender.list.getFirst();
         } finally {
             logger.detachAppender(appender);
             appender.stop();

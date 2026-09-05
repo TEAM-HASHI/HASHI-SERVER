@@ -31,12 +31,16 @@ ATTACH에서 PROCESSING은 건너뛰며, 준비 완료 후 새 ATTACH run으로 
 
 ## 3. 실행 전 확인
 
-1. 공통 media·worker·result pipeline의 승인된 dev E2E를 먼저 완료한다.
+1. 공통 media·worker·result pipeline의 승인된 dev E2E를 먼저 완료한다. 실패 원인별 관측 보완(#203)도
+   반영되어 있어야 하며, 그전에는 운영 backfill을 실행하지 않는다.
 2. SAM `BackfillAccessEnabled`와 Spring `AWS_MEDIA_BACKFILL_ENABLED`의 별도 승인을 확인한다.
-3. PREPARE는 DB `media_pipeline_config.issuance_enabled=true`와 배포 규격 일치가 필요하다.
+3. `PREPARE` 전에는 `AWS_MEDIA_QUEUE_ENABLED=true`, `AWS_MEDIA_RECOVERY_ENABLED=true`, worker event
+   source와 Spring result consumer가 활성 상태인지 확인한다. request/result queue와 DLQ 지연·오류
+   alarm도 정상이어야 한다.
+4. PREPARE는 DB `media_pipeline_config.issuance_enabled=true`와 배포 규격 일치가 필요하다.
    조회와 READY ATTACH는 issuance pause 상태에서도 가능하다.
-4. 프로필 runner 설정을 별도로 opt-in한다. V23 migration 자체는 작업을 실행하지 않는다.
-5. legacy S3 객체를 같은 key로 직접 덮어쓰지 않는다. 이후 사진 변경은 새 key를 사용한다.
+5. 프로필 runner 설정을 별도로 opt-in한다. V23 migration 자체는 작업을 실행하지 않는다.
+6. legacy S3 객체를 같은 key로 직접 덮어쓰지 않는다. 이후 사진 변경은 새 key를 사용한다.
 
 S3 HEAD/copy와 User DB 잠금은 하나의 원자적 작업이 아니다. 조사 이후 source가 바뀌면
 prepare의 identity 검증이나 ATTACH의 잠금 아래 key 재검증으로 이전 사진 연결을 거부한다.
@@ -104,9 +108,11 @@ WHERE run_id = ?;
 ```
 
 PREPARED는 변환 완료가 아니라 준비 단계 처리 수다. SKIPPED는 미준비 또는 변경된 프로필,
-FAILED는 source 오류 또는 terminal media 상태다. DB·설정·불변식 오류는 현재 cursor를 전진시키지
-않고 실행을 중단한다. `STORAGE_UNAVAILABLE`만 정해진 횟수 내에서 재시도한다.
-run ID만 바꿔 장애를 무한 반복하지 말고 원인을 확인한다.
+FAILED는 source 오류 또는 terminal media 상태다. `STORAGE_UNAVAILABLE`만 정해진 횟수 내에서
+재시도하며 마지막 시도도 실패하면 현재 cursor를 전진시키지 않고 실행을 중단한다. DRY_RUN에서
+`SOURCE_UNREADABLE`이 반복되면 source별 실패로 단정하지 말고 IAM과 암호화 권한부터 확인한다.
+DB·설정·불변식 오류도 현재 cursor를 전진시키지 않고 실행을 중단한다. run ID만 바꿔 장애를
+무한 반복하지 말고 원인을 확인한다.
 
 - 결과와 종료 로그의 `sourceFailuresThisExecution`은 현재 실행에서 최종 실패한 source 항목의
   `SOURCE_MISSING`, `SOURCE_UNREADABLE`, `SOURCE_CHANGED`, `INVALID_SOURCE`, `COPY_CONFLICT`,
@@ -135,3 +141,17 @@ Docker가 없어서 건너뛴 결과는 검증 완료가 아니다.
 
 실제 AWS dev dry-run → 제한 PREPARE → READY 확인 → 제한 ATTACH → 프로필 응답·전송량 확인은
 별도 승인 후 실행한다. 운영 범위·일정 승인, legacy 제거, 원본 삭제는 이 PR에서 수행하지 않는다.
+
+## 8. 실행 중단과 임시 권한 회수
+
+1. 새 실행을 막기 위해 `USER_PROFILE_BACKFILL_ENABLED=false`로 배포한다. 실행 중인 background
+   task는 정상 종료로 interrupt하고, checkpoint가 `PAUSED`, `COMPLETED` 또는 lease 만료 상태인지 확인한다.
+2. 이미 발급된 변환은 `AWS_MEDIA_QUEUE_ENABLED=true`, `AWS_MEDIA_RECOVERY_ENABLED=true`, worker
+   event source와 result consumer를 유지한 채 처리한다. target PROCESSING, 미완료 EPR,
+   request/result queue와 두 DLQ가 비었는지 확인하고, 실패 항목은 원인을 분류한 뒤 복구한다.
+3. 더 이상 조사·복사·연결이 없으면 `AWS_MEDIA_BACKFILL_ENABLED=false`로 배포한다.
+4. SAM `BackfillAccessEnabled=false` change set을 검토·적용해 임시 source 읽기·copy 권한을 회수한다.
+5. V23 checkpoint는 실행 이력과 재개 판단을 위해 유지한다. rollback 과정에서 테이블을 삭제하거나
+   과거 migration을 수정하지 않는다. 이미지 pipeline 상태를 모르는 과거 바이너리로
+   되돌려야 한다면 공통 인프라 runbook의 drain 조건을 먼저 만족하고, 조건이 맞지 않으면 현재 계열
+   수정 release를 사용한다.
