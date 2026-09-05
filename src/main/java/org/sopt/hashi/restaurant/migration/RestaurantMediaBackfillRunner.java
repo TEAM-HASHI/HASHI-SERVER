@@ -56,19 +56,32 @@ class RestaurantMediaBackfillRunner {
     public void runOnStartup() {
         try {
             RestaurantMediaBackfillSummary summary = execute();
-            log.info(
-                    "Restaurant media backfill finished: target={}, mode={}, status={}, "
-                            + "scanned={}, inspected={}, prepared={}, attached={}, skipped={}, failed={}",
-                    summary.target(), summary.mode(), summary.status(), summary.scannedCount(),
-                    summary.inspectedCount(), summary.preparedCount(), summary.attachedCount(),
-                    summary.skippedCount(), summary.failedCount()
-            );
+            logSummary(summary);
         } catch (RuntimeException exception) {
             log.error(
                     "Restaurant media backfill could not start: target={}, mode={}, errorType={}",
                     properties.target(), properties.mode(), failureType(exception)
             );
         }
+    }
+
+    private void logSummary(RestaurantMediaBackfillSummary summary) {
+        if (summary.mode() == RestaurantMediaBackfillMode.DRY_RUN) {
+            log.info(
+                    "Restaurant media backfill finished: target={}, mode={}, status={}, "
+                            + "scanned={}, inspected={}, failed={}",
+                    summary.target(), summary.mode(), summary.status(), summary.scannedCount(),
+                    summary.inspectedCount(), summary.failedCount()
+            );
+            return;
+        }
+        log.info(
+                "Restaurant media backfill finished: target={}, mode={}, status={}, "
+                        + "scanned={}, prepared={}, attached={}, skipped={}, failed={}",
+                summary.target(), summary.mode(), summary.status(), summary.scannedCount(),
+                summary.preparedCount(), summary.attachedCount(), summary.skippedCount(),
+                summary.failedCount()
+        );
     }
 
     RestaurantMediaBackfillSummary execute() {

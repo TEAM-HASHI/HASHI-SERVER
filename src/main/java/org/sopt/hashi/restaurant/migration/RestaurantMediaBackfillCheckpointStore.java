@@ -157,6 +157,8 @@ class RestaurantMediaBackfillCheckpointStore {
     @Transactional
     public boolean pause(Lease lease) {
         Objects.requireNonNull(lease, "lease is required");
+        // 잠금 대기 중 lease가 만료될 수 있으므로, 잠금을 얻은 뒤 별도 UPDATE 시각으로 다시 판단한다.
+        findForUpdate(lease.runId());
         return jdbcTemplate.update("""
                         UPDATE restaurant_media_backfill_checkpoint
                         SET status = 'PAUSED',
@@ -168,6 +170,7 @@ class RestaurantMediaBackfillCheckpointStore {
                           AND mode = ?
                           AND status = 'RUNNING'
                           AND lease_token = ?
+                          AND lease_until > CURRENT_TIMESTAMP(6)
                         """,
                 lease.runId().toString(), lease.target().name(), lease.mode().name(),
                 lease.token().toString()) == 1;
