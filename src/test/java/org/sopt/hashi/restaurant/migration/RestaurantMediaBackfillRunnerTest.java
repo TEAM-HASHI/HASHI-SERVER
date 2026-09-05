@@ -12,12 +12,16 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 
+import ch.qos.logback.classic.Logger;
+import ch.qos.logback.classic.spi.ILoggingEvent;
+import ch.qos.logback.core.read.ListAppender;
 import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
+import org.slf4j.LoggerFactory;
 import org.sopt.hashi.media.MediaAssetPurpose;
 import org.sopt.hashi.media.MediaBackfillAssetInfo;
 import org.sopt.hashi.media.MediaBackfillAssetInfo.State;
@@ -221,6 +225,55 @@ class RestaurantMediaBackfillRunnerTest {
         assertThat(summary.status()).isEqualTo(RestaurantMediaBackfillSummary.Status.BUSY);
         verify(candidateReader, never()).findBatch(any(), anyLong(), anyLong(), anyInt());
         verify(mediaBackfillPort, never()).inspect(any());
+    }
+
+    @Test
+    void DRY_RUN_종료_로그는_실제_inspected_집계를_포함한다() {
+        RestaurantMediaBackfillProperties properties = properties(
+                RestaurantMediaBackfillMode.DRY_RUN, "", 1, 1, 1);
+        given(candidateReader.findUpperBound(properties.target())).willReturn(1L);
+        given(candidateReader.findBatch(properties.target(), 0L, 1L, 1))
+                .willReturn(List.of(candidate(1L)));
+        given(mediaBackfillPort.inspect(any())).willReturn(unpreparedInspection());
+
+        ILoggingEvent event = runAndCapture(properties);
+
+        assertThat(event.getFormattedMessage())
+                .contains("mode=DRY_RUN", "scanned=1", "inspected=1", "failed=0");
+    }
+
+    @Test
+    void 영속_실행_종료_로그는_복구할_수_없는_inspected_집계를_출력하지_않는다() {
+        UUID runId = UUID.randomUUID();
+        RestaurantMediaBackfillProperties properties = properties(
+                RestaurantMediaBackfillMode.PREPARE, runId.toString(), 1, 1, 1);
+        Snapshot completed = snapshot(
+                runId, properties.mode(), Status.COMPLETED, 1L, 1L, 1, 1, 0, 0, 0);
+        given(candidateReader.findUpperBound(properties.target())).willReturn(1L);
+        given(checkpointStore.acquire(
+                eq(runId), eq(properties.target()), eq(properties.mode()), eq(1L), any()))
+                .willReturn(new Acquisition(AcquisitionState.COMPLETED, null, completed));
+
+        ILoggingEvent event = runAndCapture(properties);
+
+        assertThat(event.getFormattedMessage())
+                .contains("mode=PREPARE", "scanned=1", "prepared=1", "failed=0")
+                .doesNotContain("inspected=");
+    }
+
+    private ILoggingEvent runAndCapture(RestaurantMediaBackfillProperties properties) {
+        Logger logger = (Logger) LoggerFactory.getLogger(RestaurantMediaBackfillRunner.class);
+        ListAppender<ILoggingEvent> appender = new ListAppender<>();
+        appender.start();
+        logger.addAppender(appender);
+        try {
+            runner(properties).runOnStartup();
+            assertThat(appender.list).hasSize(1);
+            return appender.list.getFirst();
+        } finally {
+            logger.detachAppender(appender);
+            appender.stop();
+        }
     }
 
     private RestaurantMediaBackfillRunner runner(RestaurantMediaBackfillProperties properties) {
