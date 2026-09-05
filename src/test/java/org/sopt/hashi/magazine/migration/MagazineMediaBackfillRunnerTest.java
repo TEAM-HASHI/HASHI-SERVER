@@ -407,6 +407,57 @@ class MagazineMediaBackfillRunnerTest {
         }
     }
 
+    @Test
+    void DRY_RUN_종료_로그는_실제_inspected_집계를_포함한다() {
+        MagazineMediaBackfillProperties properties = properties(
+                MagazineMediaBackfillMode.DRY_RUN, "", 1, 1, 1);
+        given(candidateReader.findUpperBound(properties.target())).willReturn(1L);
+        given(candidateReader.findBatch(properties.target(), 0L, 1L, 1))
+                .willReturn(List.of(candidate(1L)));
+        given(mediaBackfillPort.inspect(any())).willReturn(unpreparedInspection());
+
+        ILoggingEvent event = runAndCapture(properties);
+
+        assertThat(event.getFormattedMessage())
+                .contains("mode=DRY_RUN", "scanned=1", "inspected=1", "failed=0",
+                        "sourceFailuresThisExecution={}");
+    }
+
+    @Test
+    void 영속_실행_종료_로그는_복구할_수_없는_inspected_집계를_출력하지_않는다() {
+        UUID runId = UUID.randomUUID();
+        MagazineMediaBackfillProperties properties = properties(
+                MagazineMediaBackfillMode.PREPARE, runId.toString(), 1, 1, 1);
+        Snapshot completed = snapshot(
+                runId, properties.mode(), Status.COMPLETED, 1L, 1L, 1, 1, 0, 0, 0);
+        given(candidateReader.findUpperBound(properties.target())).willReturn(1L);
+        given(checkpointStore.acquire(
+                eq(runId), eq(properties.target()), eq(properties.mode()), eq(1L), any()))
+                .willReturn(new Acquisition(AcquisitionState.COMPLETED, null, completed));
+
+        ILoggingEvent event = runAndCapture(properties);
+
+        assertThat(event.getFormattedMessage())
+                .contains("mode=PREPARE", "scanned=1", "prepared=1", "failed=0",
+                        "sourceFailuresThisExecution={}")
+                .doesNotContain("inspected=");
+    }
+
+    private ILoggingEvent runAndCapture(MagazineMediaBackfillProperties properties) {
+        Logger logger = (Logger) LoggerFactory.getLogger(MagazineMediaBackfillRunner.class);
+        ListAppender<ILoggingEvent> appender = new ListAppender<>();
+        appender.start();
+        logger.addAppender(appender);
+        try {
+            runner(properties).runOnStartup();
+            assertThat(appender.list).hasSize(1);
+            return appender.list.getFirst();
+        } finally {
+            logger.detachAppender(appender);
+            appender.stop();
+        }
+    }
+
     private Lease givenSinglePersistentFailure(
             MagazineMediaBackfillProperties properties,
             MagazineMediaBackfillCandidate candidate

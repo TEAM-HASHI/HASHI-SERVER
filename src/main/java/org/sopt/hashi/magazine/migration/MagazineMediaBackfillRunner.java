@@ -61,20 +61,33 @@ class MagazineMediaBackfillRunner {
     public void runOnStartup() {
         try {
             MagazineMediaBackfillSummary summary = execute();
-            log.info(
-                    "Magazine media backfill finished: target={}, mode={}, status={}, "
-                            + "scanned={}, inspected={}, prepared={}, attached={}, skipped={}, failed={}, "
-                            + "sourceFailuresThisExecution={}",
-                    summary.target(), summary.mode(), summary.status(), summary.scannedCount(),
-                    summary.inspectedCount(), summary.preparedCount(), summary.attachedCount(),
-                    summary.skippedCount(), summary.failedCount(), summary.sourceFailuresThisExecution()
-            );
+            logSummary(summary);
         } catch (RuntimeException exception) {
             log.error(
                     "Magazine media backfill could not start: target={}, mode={}, errorType={}",
                     properties.target(), properties.mode(), exception.getClass().getSimpleName()
             );
         }
+    }
+
+    private void logSummary(MagazineMediaBackfillSummary summary) {
+        if (summary.mode() == MagazineMediaBackfillMode.DRY_RUN) {
+            log.info(
+                    "Magazine media backfill finished: target={}, mode={}, status={}, "
+                            + "scanned={}, inspected={}, failed={}, sourceFailuresThisExecution={}",
+                    summary.target(), summary.mode(), summary.status(), summary.scannedCount(),
+                    summary.inspectedCount(), summary.failedCount(), summary.sourceFailuresThisExecution()
+            );
+            return;
+        }
+        log.info(
+                "Magazine media backfill finished: target={}, mode={}, status={}, "
+                        + "scanned={}, prepared={}, attached={}, skipped={}, failed={}, "
+                        + "sourceFailuresThisExecution={}",
+                summary.target(), summary.mode(), summary.status(), summary.scannedCount(),
+                summary.preparedCount(), summary.attachedCount(), summary.skippedCount(),
+                summary.failedCount(), summary.sourceFailuresThisExecution()
+        );
     }
 
     MagazineMediaBackfillSummary execute() {
