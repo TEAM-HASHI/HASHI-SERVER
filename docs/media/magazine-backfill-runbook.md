@@ -33,12 +33,17 @@ ATTACH 후에도 두 legacy key는 제거하지 않는다. PROCESSING은 건너�
 
 ## 3. 실행 전 확인
 
-1. 공통 media·worker·result pipeline의 승인된 dev E2E를 먼저 완료한다.
-2. SAM `BackfillAccessEnabled`와 Spring `AWS_MEDIA_BACKFILL_ENABLED`의 별도 승인을 확인한다.
-3. PREPARE에는 DB `media_pipeline_config.issuance_enabled=true`와 배포 규격 일치가 필요하다.
+1. 반복 source 접근 오류의 중단 기준과 오류성 종료 관측을 보완하는 #203을 먼저 반영한다.
+2. Spring의 request publisher·result consumer·recovery가 활성 상태인지 확인한다.
+   `AWS_MEDIA_QUEUE_ENABLED=true`, request/result queue URL과 배포 환경이 일치해야 한다.
+3. Lambda request event source, request/result queue와 각 DLQ, 지연·실패 alarm을 확인한다.
+   alarm 수신과 승인된 DLQ redrive 절차가 검증되지 않았다면 PREPARE를 시작하지 않는다.
+4. 공통 media·worker·result pipeline의 승인된 dev E2E를 완료한다.
+5. SAM `BackfillAccessEnabled`와 Spring `AWS_MEDIA_BACKFILL_ENABLED`의 별도 승인을 확인한다.
+6. PREPARE에는 DB `media_pipeline_config.issuance_enabled=true`와 배포 규격 일치가 필요하다.
    조회와 READY ATTACH는 issuance가 일시 중지된 상태에서도 가능하다.
-4. 매거진 runner를 별도로 opt-in한다. V24 migration 적용만으로 작업이 시작되지 않는다.
-5. legacy 객체를 같은 S3 key로 덮어쓰지 않는다. 사진 변경에는 새 key를 사용한다.
+7. 매거진 runner를 별도로 opt-in한다. V24 migration 적용만으로 작업이 시작되지 않는다.
+8. legacy 객체를 같은 S3 key로 덮어쓰지 않는다. 사진 변경에는 새 key를 사용한다.
 
 S3 HEAD/copy와 Magazine DB 잠금은 원자적이지 않다. 준비 시 source identity를, 연결 시 잠금 아래
 현재 key를 재검증한다. 같은 key를 콘솔에서 직접 덮어쓰는 작업까지 막아 주지는 않는다.
@@ -127,3 +132,15 @@ CI에서는 식당·프로필·매거진 MySQL suite 모두 실행 수 > 0, 실�
 
 dev 제한 DRY_RUN → PREPARE → READY 확인 → ATTACH → 실제 응답·전송량 확인은 별도 승인 후 실행한다.
 운영 배포·범위·일정 승인, legacy 제거, 원본 삭제와 머지는 이 PR 범위 밖이다.
+
+마지막 ATTACH와 정합성 확인을 마친 뒤에는 다음 순서로 임시 접근을 회수한다.
+
+1. `MAGAZINE_MEDIA_BACKFILL_ENABLED=false`를 적용해 새 매거진 실행을 막는다.
+2. backfill 대상 asset, 미완료 EPR, request/result queue와 각 DLQ가 비었거나 승인된 복구 대상으로
+   분류됐는지 확인한다. `PAUSED`만 보고 재개하지 않고 같은 실행의 종료 로그·지표와 대조한다.
+3. `AWS_MEDIA_BACKFILL_ENABLED=false`를 적용해 Spring의 backfill adapter를 비활성화한다.
+4. dev는 `MEDIA_DEV_BACKFILL_ACCESS_ENABLED=false`, prod는 대응하는 승인 절차로 SAM
+   `BackfillAccessEnabled=false`를 배포하고 EC2 role에서 임시 backfill policy가 제거됐는지 확인한다.
+
+일반 이미지 업로드와 변환에 사용하는 queue publisher, result consumer, recovery와 worker event source는
+backfill 종료만을 이유로 끄지 않는다. 해당 구성의 중지는 별도 media 운영 절차를 따른다.
