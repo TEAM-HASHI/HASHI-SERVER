@@ -56,19 +56,32 @@ class RestaurantMediaBackfillRunner {
     public void runOnStartup() {
         try {
             RestaurantMediaBackfillSummary summary = execute();
-            log.info(
-                    "Restaurant media backfill finished: target={}, mode={}, status={}, "
-                            + "scanned={}, inspected={}, prepared={}, attached={}, skipped={}, failed={}",
-                    summary.target(), summary.mode(), summary.status(), summary.scannedCount(),
-                    summary.inspectedCount(), summary.preparedCount(), summary.attachedCount(),
-                    summary.skippedCount(), summary.failedCount()
-            );
+            logSummary(summary);
         } catch (RuntimeException exception) {
             log.error(
                     "Restaurant media backfill could not start: target={}, mode={}, errorType={}",
-                    properties.target(), properties.mode(), exception.getClass().getSimpleName()
+                    properties.target(), properties.mode(), failureType(exception)
             );
         }
+    }
+
+    private void logSummary(RestaurantMediaBackfillSummary summary) {
+        if (summary.mode() == RestaurantMediaBackfillMode.DRY_RUN) {
+            log.info(
+                    "Restaurant media backfill finished: target={}, mode={}, status={}, "
+                            + "scanned={}, inspected={}, failed={}",
+                    summary.target(), summary.mode(), summary.status(), summary.scannedCount(),
+                    summary.inspectedCount(), summary.failedCount()
+            );
+            return;
+        }
+        log.info(
+                "Restaurant media backfill finished: target={}, mode={}, status={}, "
+                        + "scanned={}, prepared={}, attached={}, skipped={}, failed={}",
+                summary.target(), summary.mode(), summary.status(), summary.scannedCount(),
+                summary.preparedCount(), summary.attachedCount(), summary.skippedCount(),
+                summary.failedCount()
+        );
     }
 
     RestaurantMediaBackfillSummary execute() {
@@ -101,6 +114,7 @@ class RestaurantMediaBackfillRunner {
                     inspect(candidate);
                     summary.inspected++;
                 } catch (MediaBackfillSourceException exception) {
+                    rethrowInfrastructureFailure(exception);
                     summary.failed++;
                 }
                 cursor = candidate.associationId();
@@ -148,9 +162,10 @@ class RestaurantMediaBackfillRunner {
             if (!hasMore(cursor, lease.upperBoundId())) {
                 return completedSummary(lease);
             }
-            checkpointStore.pause(lease);
+            boolean paused = checkpointStore.pause(lease);
             return RestaurantMediaBackfillSummary.fromSnapshot(
-                    Status.PAUSED, checkpointStore.find(lease.runId()));
+                    paused ? Status.PAUSED : Status.LEASE_LOST,
+                    checkpointStore.find(lease.runId()));
         } catch (RestaurantMediaBackfillLeaseLostException exception) {
             return RestaurantMediaBackfillSummary.fromSnapshot(
                     Status.LEASE_LOST, checkpointStore.find(lease.runId()));
@@ -158,7 +173,7 @@ class RestaurantMediaBackfillRunner {
             boolean paused = checkpointStore.pause(lease);
             log.error(
                     "Restaurant media backfill stopped: target={}, mode={}, errorType={}",
-                    properties.target(), properties.mode(), exception.getClass().getSimpleName()
+                    properties.target(), properties.mode(), failureType(exception)
             );
             return RestaurantMediaBackfillSummary.fromSnapshot(
                     paused ? Status.FAILED : Status.LEASE_LOST,
@@ -183,6 +198,7 @@ class RestaurantMediaBackfillRunner {
             }
             attachOrRecord(candidate, inspection, lease);
         } catch (MediaBackfillSourceException exception) {
+            rethrowInfrastructureFailure(exception);
             checkpointStore.recordProgress(
                     lease, candidate.associationId(),
                     RestaurantMediaBackfillOutcome.FAILED, properties.leaseDuration());
@@ -255,6 +271,19 @@ class RestaurantMediaBackfillRunner {
                 attempt++;
             }
         }
+    }
+
+    private void rethrowInfrastructureFailure(MediaBackfillSourceException exception) {
+        if (exception.getReason() == Reason.STORAGE_UNAVAILABLE) {
+            throw exception;
+        }
+    }
+
+    private String failureType(RuntimeException exception) {
+        if (exception instanceof MediaBackfillSourceException sourceException) {
+            return sourceException.getReason().name();
+        }
+        return exception.getClass().getSimpleName();
     }
 
     private Duration backoff(Duration initialDelay, int attempt) {
