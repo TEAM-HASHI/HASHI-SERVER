@@ -171,6 +171,19 @@ class RestaurantMediaBackfillPersistenceIntegrationTest {
     }
 
     @Test
+    void 만료된_lease는_새_worker가_인계하기_전에도_pause할_수_없다() {
+        UUID runId = UUID.randomUUID();
+        Lease lease = acquire(runId, RestaurantMediaBackfillTarget.RESTAURANT_IMAGE, 100L);
+        expire(lease);
+
+        assertThat(checkpointStore.pause(lease)).isFalse();
+
+        Snapshot snapshot = checkpointStore.find(runId);
+        assertThat(snapshot.status()).isEqualTo(RestaurantMediaBackfillCheckpointStore.Status.RUNNING);
+        assertThat(snapshot.cursorId()).isZero();
+    }
+
+    @Test
     void checkpoint_잠금_대기_중_만료된_lease는_갱신하지_않는다() throws Exception {
         UUID runId = UUID.randomUUID();
         Lease lease = checkpointStore.acquire(
@@ -207,6 +220,44 @@ class RestaurantMediaBackfillPersistenceIntegrationTest {
 
         assertThat(checkpointStore.find(runId).scannedCount()).isZero();
         assertThat(checkpointStore.find(runId).cursorId()).isZero();
+    }
+
+    @Test
+    void checkpoint_잠금_대기_중_만료된_lease는_pause하지_않는다() throws Exception {
+        UUID runId = UUID.randomUUID();
+        Lease lease = checkpointStore.acquire(
+                runId, RestaurantMediaBackfillTarget.RESTAURANT_IMAGE,
+                RestaurantMediaBackfillMode.ATTACH, 10L, Duration.ofSeconds(3)).lease();
+        ExecutorService executor = Executors.newSingleThreadExecutor();
+
+        try (Connection connection = DriverManager.getConnection(
+                MYSQL.getJdbcUrl(), MYSQL.getUsername(), MYSQL.getPassword())) {
+            connection.setAutoCommit(false);
+            try (PreparedStatement statement = connection.prepareStatement("""
+                    SELECT run_id FROM restaurant_media_backfill_checkpoint WHERE run_id = ? FOR UPDATE
+                    """)) {
+                statement.setString(1, runId.toString());
+                try (ResultSet ignored = statement.executeQuery()) {
+                    assertThat(ignored.next()).isTrue();
+                }
+            }
+            Future<Boolean> pause = executor.submit(() -> checkpointStore.pause(lease));
+            try {
+                awaitTableLockWait("restaurant_media_backfill_checkpoint");
+                awaitLeaseExpiry(runId);
+            } finally {
+                connection.commit();
+            }
+
+            assertThat(pause.get(10, TimeUnit.SECONDS)).isFalse();
+        } finally {
+            executor.shutdownNow();
+            executor.awaitTermination(5, TimeUnit.SECONDS);
+        }
+
+        Snapshot snapshot = checkpointStore.find(runId);
+        assertThat(snapshot.status()).isEqualTo(RestaurantMediaBackfillCheckpointStore.Status.RUNNING);
+        assertThat(snapshot.cursorId()).isZero();
     }
 
     @Test
