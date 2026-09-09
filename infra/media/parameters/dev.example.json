@@ -10,5 +10,6 @@
   {"ParameterKey": "WorkerReservedConcurrency", "ParameterValue": "5"},
   {"ParameterKey": "WorkerEventSourceEnabled", "ParameterValue": "false"},
   {"ParameterKey": "BackfillAccessEnabled", "ParameterValue": "false"},
+  {"ParameterKey": "CleanupAccessEnabled", "ParameterValue": "false"},
   {"ParameterKey": "WorkerLogRetentionDays", "ParameterValue": "30"}
 ]

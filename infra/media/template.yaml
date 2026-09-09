@@ -70,6 +70,14 @@ Parameters:
       - "false"
     Description: Temporary read and version-list permissions for an approved legacy backfill
 
+  CleanupAccessEnabled:
+    Type: String
+    Default: "false"
+    AllowedValues:
+      - "true"
+      - "false"
+    Description: Version-list and delete permissions for approved media cleanup only
+
   WorkerLogRetentionDays:
     Type: Number
     Default: 30
@@ -103,6 +111,9 @@ Conditions:
     - "true"
   IsBackfillAccessEnabled: !Equals
     - !Ref BackfillAccessEnabled
+    - "true"
+  IsCleanupAccessEnabled: !Equals
+    - !Ref CleanupAccessEnabled
     - "true"
 
 Resources:
@@ -412,6 +423,45 @@ Resources:
             Action:
               - s3:PutObjectTagging
             Resource: !Sub "${OriginalImageBucket.Arn}/media/originals/*"
+
+  SpringApplicationCleanupPolicy:
+    Type: AWS::IAM::ManagedPolicy
+    Condition: IsCleanupAccessEnabled
+    Properties:
+      Description: Scoped version discovery and deletion for HASHI media cleanup
+      Roles:
+        - !Ref SpringApplicationRoleName
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Sid: ListPrivateOriginalVersionsForCleanup
+            Effect: Allow
+            Action:
+              - s3:ListBucketVersions
+            Resource: !GetAtt OriginalImageBucket.Arn
+            Condition:
+              StringLike:
+                s3:prefix: "media/originals/*"
+          - Sid: ListRenditionVersionsForCleanup
+            Effect: Allow
+            Action:
+              - s3:ListBucketVersions
+            Resource: !Sub "arn:${AWS::Partition}:s3:::${DeliveryBucketName}"
+            Condition:
+              StringLike:
+                s3:prefix: "media/renditions/*"
+          - Sid: DeletePrivateOriginalVersionsForCleanup
+            Effect: Allow
+            Action:
+              - s3:DeleteObject
+              - s3:DeleteObjectVersion
+            Resource: !Sub "${OriginalImageBucket.Arn}/media/originals/*"
+          - Sid: DeleteRenditionVersionsForCleanup
+            Effect: Allow
+            Action:
+              - s3:DeleteObject
+              - s3:DeleteObjectVersion
+            Resource: !Sub "arn:${AWS::Partition}:s3:::${DeliveryBucketName}/media/renditions/*"
 
   TransformRequestAgeAlarm:
     Type: AWS::CloudWatch::Alarm

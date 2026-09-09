@@ -3,20 +3,24 @@ name: Image Pipeline Infrastructure CI
 on:
   pull_request:
     paths:
+      - ".env.dev.example"
       - ".github/workflows/ci-image-pipeline-infra.yml"
       - ".github/workflows/deploy-image-pipeline.yml"
       - "infra/media/**"
       - "src/test/java/org/sopt/hashi/media/internal/backfill/MediaBackfillInfrastructureTest.java"
+      - "src/test/java/org/sopt/hashi/media/internal/cleanup/MediaCleanupInfrastructureTest.java"
       - "media-specs/**"
       - "worker/image-transform/**"
   push:
     branches:
       - develop
     paths:
+      - ".env.dev.example"
       - ".github/workflows/ci-image-pipeline-infra.yml"
       - ".github/workflows/deploy-image-pipeline.yml"
       - "infra/media/**"
       - "src/test/java/org/sopt/hashi/media/internal/backfill/MediaBackfillInfrastructureTest.java"
+      - "src/test/java/org/sopt/hashi/media/internal/cleanup/MediaCleanupInfrastructureTest.java"
       - "media-specs/**"
       - "worker/image-transform/**"
 
@@ -55,6 +59,7 @@ jobs:
           --tests org.sopt.hashi.media.domain.MediaSchemaValidationTest
           --tests org.sopt.hashi.media.domain.ProfileMagazineMediaUpgradeTest
           --tests 'org.sopt.hashi.media.internal.backfill.*'
+          --tests org.sopt.hashi.media.internal.cleanup.MediaCleanupInfrastructureTest
           --tests 'org.sopt.hashi.media.service.MediaBackfill*'
           --tests org.sopt.hashi.migration.FlywayMigrationTest
           --tests org.sopt.hashi.migration.MediaPipelineConfigLifecycleTest

@@ -91,6 +91,7 @@ dev workflow에는 아래 repository variable이 필요하다.
 | `MEDIA_DEV_ALARM_NOTIFICATION_TOPIC_ARN` | 기존 dev alarm SNS topic |
 | `MEDIA_DEV_WORKER_EVENT_SOURCE_ENABLED` | `true` 또는 `false`. 생략 시 안전하게 `false` |
 | `MEDIA_DEV_BACKFILL_ACCESS_ENABLED` | 승인된 legacy backfill용 임시 S3 권한. 생략 시 안전하게 `false` |
+| `MEDIA_DEV_CLEANUP_ACCESS_ENABLED` | 승인된 asset 정리용 S3 권한. 생략 시 안전하게 `false` |
 
 stack 이름은 variable로 받지 않고 `hashi-dev-media-pipeline`, `hashi-prod-media-pipeline`으로 고정한다.
 dev workflow와 prod 운영자는 기존 stack의 `EnvironmentName` parameter와 `Project`, `Component`,
@@ -136,7 +137,7 @@ execution role을 확인한 뒤 같은 신뢰 경계에서 생성·실행한다.
 인프라 관련 변경 PR에서는 다음 작업이 자동 실행된다.
 
 1. Node.js 24, JDK 21과 SAM CLI `1.165.0` 설치 및 버전 확인
-2. 임시 backfill IAM 범위와 기본 비활성화 계약 test
+2. backfill·cleanup IAM 범위와 기본 비활성화 계약 test
 3. delivery lifecycle과 worker IAM 검사기의 반례 test
 4. worker exact dependency 설치와 fixture test
 5. Linux x64 production package 생성
@@ -205,6 +206,26 @@ IAM 허용만으로 backfill이 실행되지는 않는다. 별도로 Spring의
 발급하려면 DB의 `issuance_enabled`도 활성화되어야 한다. dry-run과 실행·연결의 경계는
 [legacy backfill runbook](../../docs/media/legacy-backfill-runbook.md)을 따른다.
 실행 종료 후에는 Spring opt-in과 추가 IAM flag를 모두 끄는 운영 변경을 별도 승인·적용한다.
+
+### Asset 정리의 추가 권한
+
+`CleanupAccessEnabled=false`가 기본값이다. 승인된 dev 배포에서
+`MEDIA_DEV_CLEANUP_ACCESS_ENABLED=true`를 명시한 경우에만 별도의
+`SpringApplicationCleanupPolicy`를 기존 Spring EC2 role에 연결한다.
+
+- original의 `media/originals/*`, delivery의 `media/renditions/*`에만 version 목록과 삭제를 허용한다.
+  목록은 bucket ARN에 prefix 조건을 두고, 삭제는 해당 object ARN에 `DeleteObject`와
+  `DeleteObjectVersion`을 부여한다. legacy 삭제, worker 권한과 bucket 설정 변경은 포함하지 않는다.
+- 이 policy는 flag를 끌 때 회수할 수 있도록 Retain하지 않는다. 다른 경로로 이미 부여된 권한은
+  회수하지 않으므로 활성화 전 EC2 role의 전체 유효 권한을 별도로 확인한다.
+- Spring 실행은 별도 `AWS_MEDIA_CLEANUP_ENABLED=false`, `AWS_MEDIA_CLEANUP_MODE=DRY_RUN`이
+  기본값이다. 양수인 업로드 만료 후 유예 시간도 운영 설정으로 명시해야 활성화할 수 있다.
+- 특정 version 삭제는 영구 삭제다. stack의 bucket Retain은 애플리케이션에 의한 object 삭제를
+  막거나 이미 삭제한 version을 복구해 주지 않는다.
+
+기본 처리량은 프로세스당 한 실행에서 최대 50개 asset이다. 검증·중단·재시도·지표 해석은
+[asset cleanup runbook](../../docs/media/asset-cleanup-runbook.md)을 따른다. DB 미참조 object와
+폐기 spec의 reconciliation은 별도 구현이며, 두 정리 작업과 dev E2E 전에는 issuance를 켜지 않는다.
 
 정체 복구는 기본적으로 처리 시작 10분 뒤부터 같은 결정적 job ID를 15분 간격, 최대 3회
 재발행한다. 값은 `AWS_MEDIA_PROCESSING_STALE_AGE`,
