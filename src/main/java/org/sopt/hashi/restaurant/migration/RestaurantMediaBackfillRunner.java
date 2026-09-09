@@ -1,7 +1,9 @@
 package org.sopt.hashi.restaurant.migration;
 
+import io.micrometer.core.instrument.MeterRegistry;
 import java.time.Duration;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.function.Supplier;
 import lombok.extern.slf4j.Slf4j;
@@ -36,19 +38,22 @@ class RestaurantMediaBackfillRunner {
     private final RestaurantMediaBackfillCheckpointStore checkpointStore;
     private final RestaurantMediaBackfillAttachmentService attachmentService;
     private final MediaBackfillPort mediaBackfillPort;
+    private final MeterRegistry meterRegistry;
 
     RestaurantMediaBackfillRunner(
             RestaurantMediaBackfillProperties properties,
             RestaurantMediaBackfillCandidateReader candidateReader,
             RestaurantMediaBackfillCheckpointStore checkpointStore,
             RestaurantMediaBackfillAttachmentService attachmentService,
-            MediaBackfillPort mediaBackfillPort
+            MediaBackfillPort mediaBackfillPort,
+            MeterRegistry meterRegistry
     ) {
         this.properties = properties;
         this.candidateReader = candidateReader;
         this.checkpointStore = checkpointStore;
         this.attachmentService = attachmentService;
         this.mediaBackfillPort = mediaBackfillPort;
+        this.meterRegistry = meterRegistry;
     }
 
     @Async(RestaurantMediaBackfillConfiguration.EXECUTOR)
@@ -69,32 +74,51 @@ class RestaurantMediaBackfillRunner {
         if (summary.mode() == RestaurantMediaBackfillMode.DRY_RUN) {
             log.info(
                     "Restaurant media backfill finished: target={}, mode={}, status={}, "
-                            + "scanned={}, inspected={}, failed={}",
+                            + "scanned={}, inspected={}, failed={}, sourceFailuresThisExecution={}",
                     summary.target(), summary.mode(), summary.status(), summary.scannedCount(),
-                    summary.inspectedCount(), summary.failedCount()
+                    summary.inspectedCount(), summary.failedCount(), summary.sourceFailuresThisExecution()
             );
             return;
         }
         log.info(
                 "Restaurant media backfill finished: target={}, mode={}, status={}, "
-                        + "scanned={}, prepared={}, attached={}, skipped={}, failed={}",
+                        + "scanned={}, prepared={}, attached={}, skipped={}, failed={}, "
+                        + "sourceFailuresThisExecution={}",
                 summary.target(), summary.mode(), summary.status(), summary.scannedCount(),
                 summary.preparedCount(), summary.attachedCount(), summary.skippedCount(),
-                summary.failedCount()
+                summary.failedCount(), summary.sourceFailuresThisExecution()
         );
     }
 
     RestaurantMediaBackfillSummary execute() {
-        if (properties.mode() == RestaurantMediaBackfillMode.DRY_RUN) {
-            return executeDryRun();
-        }
-        return executePersistent();
+        RestaurantMediaBackfillSourceFailures sourceFailures = new RestaurantMediaBackfillSourceFailures(
+                properties.target(), properties.mode(), meterRegistry);
+        RestaurantMediaBackfillSummary summary = properties.mode() == RestaurantMediaBackfillMode.DRY_RUN
+                ? executeDryRun(sourceFailures) : executePersistent(sourceFailures);
+        return summary.withSourceFailures(sourceFailures.snapshot());
     }
 
-    private RestaurantMediaBackfillSummary executeDryRun() {
+    private RestaurantMediaBackfillSummary executeDryRun(RestaurantMediaBackfillSourceFailures sourceFailures) {
+        MutableSummary summary = new MutableSummary(properties.target(), properties.mode());
+        try {
+            return scanDryRun(sourceFailures, summary);
+        } catch (RuntimeException exception) {
+            log.error(
+                    "Restaurant media backfill dry run stopped: target={}, mode={}, errorType={}, "
+                            + "sourceFailuresThisExecution={}",
+                    properties.target(), properties.mode(), failureType(exception),
+                    sourceFailures.snapshot()
+            );
+            return summary.finish(Status.FAILED);
+        }
+    }
+
+    private RestaurantMediaBackfillSummary scanDryRun(
+            RestaurantMediaBackfillSourceFailures sourceFailures,
+            MutableSummary summary
+    ) {
         long upperBound = candidateReader.findUpperBound(properties.target());
         long cursor = 0L;
-        MutableSummary summary = new MutableSummary(properties.target(), properties.mode());
 
         for (int batchNumber = 0; batchNumber < properties.maxBatches(); batchNumber++) {
             requireNotInterrupted();
@@ -107,6 +131,7 @@ class RestaurantMediaBackfillRunner {
                 summary.scanned++;
                 if (!candidate.hasUsableLegacyKey()) {
                     summary.failed++;
+                    sourceFailures.record(Reason.INVALID_SOURCE);
                     cursor = candidate.associationId();
                     continue;
                 }
@@ -114,6 +139,7 @@ class RestaurantMediaBackfillRunner {
                     inspect(candidate);
                     summary.inspected++;
                 } catch (MediaBackfillSourceException exception) {
+                    sourceFailures.record(exception.getReason());
                     rethrowInfrastructureFailure(exception);
                     summary.failed++;
                 }
@@ -127,7 +153,7 @@ class RestaurantMediaBackfillRunner {
         return summary.finish(status);
     }
 
-    private RestaurantMediaBackfillSummary executePersistent() {
+    private RestaurantMediaBackfillSummary executePersistent(RestaurantMediaBackfillSourceFailures sourceFailures) {
         long initialUpperBound = candidateReader.findUpperBound(properties.target());
         Acquisition acquisition = checkpointStore.acquire(
                 properties.requiredRunId(), properties.target(), properties.mode(),
@@ -152,7 +178,7 @@ class RestaurantMediaBackfillRunner {
                 }
                 for (RestaurantMediaBackfillCandidate candidate : candidates) {
                     requireNotInterrupted();
-                    processAndRecord(candidate, lease);
+                    processAndRecord(candidate, lease, sourceFailures);
                     cursor = candidate.associationId();
                 }
                 if (candidates.size() < properties.batchSize()) {
@@ -181,11 +207,16 @@ class RestaurantMediaBackfillRunner {
         }
     }
 
-    private void processAndRecord(RestaurantMediaBackfillCandidate candidate, Lease lease) {
+    private void processAndRecord(
+            RestaurantMediaBackfillCandidate candidate,
+            Lease lease,
+            RestaurantMediaBackfillSourceFailures sourceFailures
+    ) {
         if (!candidate.hasUsableLegacyKey()) {
             checkpointStore.recordProgress(
                     lease, candidate.associationId(),
                     RestaurantMediaBackfillOutcome.FAILED, properties.leaseDuration());
+            sourceFailures.record(Reason.INVALID_SOURCE);
             return;
         }
         try {
@@ -198,10 +229,14 @@ class RestaurantMediaBackfillRunner {
             }
             attachOrRecord(candidate, inspection, lease);
         } catch (MediaBackfillSourceException exception) {
-            rethrowInfrastructureFailure(exception);
+            if (exception.getReason() == Reason.STORAGE_UNAVAILABLE) {
+                sourceFailures.record(exception.getReason());
+                throw exception;
+            }
             checkpointStore.recordProgress(
                     lease, candidate.associationId(),
                     RestaurantMediaBackfillOutcome.FAILED, properties.leaseDuration());
+            sourceFailures.record(exception.getReason());
         }
     }
 
@@ -342,7 +377,7 @@ class RestaurantMediaBackfillRunner {
 
         private RestaurantMediaBackfillSummary finish(Status status) {
             return new RestaurantMediaBackfillSummary(
-                    target, mode, status, scanned, inspected, 0L, 0L, 0L, failed);
+                    target, mode, status, scanned, inspected, 0L, 0L, 0L, failed, Map.of());
         }
     }
 }

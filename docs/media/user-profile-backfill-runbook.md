@@ -1,6 +1,6 @@
 # 프로필 이미지 backfill 실행기
 
-관련 이슈: #199. [공통 backfill 계약](legacy-backfill-runbook.md)을 사용하는 `user.migration`의
+관련 이슈: #199, #203. [공통 backfill 계약](legacy-backfill-runbook.md)을 사용하는 `user.migration`의
 임시 실행기다. 코드 배포와 이 문서는 실제 AWS 적용, 운영 backfill, 개인정보 삭제를 승인하지 않는다.
 
 ## 1. 대상과 소유 경계
@@ -84,7 +84,8 @@ PII, legacy key, asset UUID 또는 source hash를 저장하지 않는다. run ID
   같은 transaction에서 처리한다. 연결·claim·cursor 중 하나라도 실패하면 모두 롤백한다.
 - 탈퇴나 source 변경이 먼저 커밋되면 해당 항목을 SKIPPED로 기록한다. 새로운 사진으로 덮어쓰지 않는다.
 - checkpoint 잠금 뒤 별도 SQL의 DB 시각으로 lease 만료를 판단한다. 대기 전에 읽은 시각으로 연장하지 않는다.
-- 최대 batch 도달은 PAUSED다. 같은 run ID로 다음 기동에서 이어간다. 강제 종료로 RUNNING이 남으면
+- 최대 batch 이후 정상 중단은 PAUSED다. 중단 요청이 거절되면 LEASE_LOST로 보고한다.
+  같은 run ID로 다음 기동에서 이어간다. 강제 종료로 RUNNING이 남으면
   만료 후 새로운 token으로 인계받고, 이전 실행기는 진행 위치를 갱신하거나 새 lease를 해제할 수 없다.
 - COMPLETED는 **정해진 ID 범위의 순회 완료**다. 전체 프로필 전환 완료를 뜻하지 않는다.
   변환 대기·실패·동시 수정으로 남은 항목은 원인을 확인하고 새로운 run에서 처리한다.
@@ -96,8 +97,9 @@ PII, legacy key, asset UUID 또는 source hash를 저장하지 않는다. run ID
 
 ## 6. 관측과 실패 대응
 
-로그에는 mode·상태·집계와 오류 클래스명 또는 고정 실패 원인만 남긴다. 원시 User ID, key, asset UUID, hash,
-개인정보 또는 예외 payload를 출력하지 않는다. PREPARE/ATTACH 결과는 다음 집계로 확인한다.
+로그에는 mode·상태·집계·고정 실패 코드와 오류 클래스명만 남긴다. 원시 User ID, key, asset UUID,
+hash, 개인정보 또는 예외 payload를 로그나 metric label에 넣지 않는다.
+PREPARE/ATTACH의 DB 집계는 run 전체 누적값이며 다음 조회로 확인한다.
 
 ```sql
 SELECT mode, status, scanned_count, prepared_count, attached_count, skipped_count, failed_count
@@ -111,6 +113,17 @@ FAILED는 source 오류 또는 terminal media 상태다. `STORAGE_UNAVAILABLE`�
 `SOURCE_UNREADABLE`이 반복되면 source별 실패로 단정하지 말고 IAM과 암호화 권한부터 확인한다.
 DB·설정·불변식 오류도 현재 cursor를 전진시키지 않고 실행을 중단한다. run ID만 바꿔 장애를
 무한 반복하지 말고 원인을 확인한다.
+
+- 결과와 종료 로그의 `sourceFailuresThisExecution`은 현재 실행에서 최종 실패한 source 항목의
+  `SOURCE_MISSING`, `SOURCE_UNREADABLE`, `SOURCE_CHANGED`, `INVALID_SOURCE`, `COPY_CONFLICT`,
+  `STORAGE_UNAVAILABLE`별 건수다. 빈 key는 `INVALID_SOURCE`다.
+- `hashi.user.profile.backfill.source.failures` counter는 고정된 `target=USER_PROFILE`과 enum인
+  `mode`, `reason`만 label로 사용한다. 재시도 도중 복구된 실패는 제외하고, 최종 실패 항목만 한 번 센다.
+- 원인 집계는 DB의 누적 `failed_count`와 다르다. 이전 실행의 원인 내역과 terminal media 상태 실패는
+  포함하지 않는다. PREPARE/ATTACH는 FAILED cursor 저장 성공 후 집계하며, metric 장애는
+  후보 처리나 커밋 결과를 바꾸지 않는다. 지표는 운영 관측값이지 영속적인 감사 원장이 아니다.
+- DRY_RUN이 DB 오류나 종료 interrupt로 중단되면 `FAILED` 부분 결과와 이미 관측한 원인을
+  종료 로그에 남긴다. 이 결과는 전체 조사 완료가 아니며 interrupt flag도 유지한다.
 
 ## 7. 검증과 전환
 

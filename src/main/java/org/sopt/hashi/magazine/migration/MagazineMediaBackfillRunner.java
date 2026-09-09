@@ -99,9 +99,26 @@ class MagazineMediaBackfillRunner {
     }
 
     private MagazineMediaBackfillSummary executeDryRun(MagazineMediaBackfillSourceFailures sourceFailures) {
+        MutableSummary summary = new MutableSummary(properties.target(), properties.mode());
+        try {
+            return scanDryRun(sourceFailures, summary);
+        } catch (RuntimeException exception) {
+            log.error(
+                    "Magazine media backfill dry run stopped: target={}, mode={}, errorType={}, "
+                            + "sourceFailuresThisExecution={}",
+                    properties.target(), properties.mode(), failureType(exception),
+                    sourceFailures.snapshot()
+            );
+            return summary.finish(Status.FAILED);
+        }
+    }
+
+    private MagazineMediaBackfillSummary scanDryRun(
+            MagazineMediaBackfillSourceFailures sourceFailures,
+            MutableSummary summary
+    ) {
         long upperBound = candidateReader.findUpperBound(properties.target());
         long cursor = 0L;
-        MutableSummary summary = new MutableSummary(properties.target(), properties.mode());
 
         for (int batchNumber = 0; batchNumber < properties.maxBatches(); batchNumber++) {
             requireNotInterrupted();

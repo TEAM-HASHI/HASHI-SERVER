@@ -1,6 +1,6 @@
 # 매거진 이미지 backfill 실행기
 
-관련 이슈: #201. [공통 backfill 계약](legacy-backfill-runbook.md)을 사용하는 `magazine.migration`의
+관련 이슈: #201, #203. [공통 backfill 계약](legacy-backfill-runbook.md)을 사용하는 `magazine.migration`의
 임시 실행기다. 코드 배포와 이 문서는 AWS 적용, 실제 backfill, 원본 삭제나 운영 전환을 승인하지 않는다.
 
 ## 1. 대상과 소유 경계
@@ -109,6 +109,8 @@ source hash와 예외 payload를 로그·이슈·메트릭 label에 넣지 않�
   PREPARE/ATTACH의 개별 처리 가능한 source 오류는 FAILED cursor가 기록된 뒤 집계한다.
   재시도를 소진한 `STORAGE_UNAVAILABLE`은 한 번 집계한 뒤 현재 cursor를 보존하고 실행을 중단한다.
   metric 장애가 후보 처리를 중단하지 않는다.
+- DRY_RUN이 DB 오류나 종료 interrupt로 중단되면 `FAILED` 부분 결과와 이미 관측한 원인을
+  종료 로그에 남긴다. 이 결과는 전체 조사 완료가 아니며 interrupt flag도 유지한다.
 
 ```sql
 SELECT target, mode, status, scanned_count, prepared_count, attached_count, skipped_count, failed_count
