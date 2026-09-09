@@ -4,8 +4,9 @@
 [Image Delivery Contract v1](image-delivery-contract-v1.md)이다.
 
 이 문서는 공통 기반의 사용 경계와 후속 runner의 요구사항이다. 실제 AWS 적용이나 운영
-backfill을 승인하지 않는다. 도메인별 dry-run, checkpoint, batch runner와 운영 전환 검증은
-후속 작업이며, 리뷰 도메인 연동은 #179 병합 후 진행한다.
+backfill을 승인하지 않는다. 식당·메뉴의 dry-run, checkpoint와 bounded runner는
+[식당·메뉴 실행기](restaurant-menu-backfill-runbook.md)를 따른다. 다른 도메인 runner와 운영 전환
+검증은 후속 작업이며, 리뷰 도메인 연동은 #179 병합 후 진행한다.
 
 ## 1. 소유 경계
 
@@ -151,6 +152,7 @@ WHERE creation_origin = 'SYSTEM_BACKFILL'
 CloudFront 전달 E2E가 완료됐다고 보고하지 않는다. 배포 전에는 dev의 제한된 테스트 source로
 IAM과 전체 변환·연결 흐름을 별도 검증해야 한다.
 
-후속 작업은 도메인 runner의 keyset batch·checkpoint·dry-run 보고서, 기존 도메인의 동시 수정
-경합, 안전한 cleanup/reconciliation, dev E2E와 운영 승인이다. legacy 필드 제거와 원본 삭제는
+식당·메뉴 runner의 keyset batch·checkpoint·dry-run과 동시 수정 검증은 별도 실행기 문서를 따른다.
+후속 작업은 다른 도메인 runner, 안전한 cleanup/reconciliation, dev E2E와 운영 승인이다.
+legacy 필드 제거와 원본 삭제는
 별도 종료 조건과 승인을 충족하기 전에는 실행하지 않는다.

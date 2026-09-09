@@ -102,11 +102,15 @@ tasks.named('jar') {
 
 tasks.named('test') {
     useJUnitPlatform()
+    testLogging {
+        exceptionFormat = 'full'
+    }
     inputs.files(
             'infra/media/template.yaml',
             'infra/media/parameters/dev.example.json',
             'infra/media/parameters/prod.example.json',
             '.github/workflows/ci-image-pipeline-infra.yml',
+            '.github/workflows/ci-restaurant-media-backfill.yml',
             '.github/workflows/deploy-image-pipeline.yml'
     ).withPropertyName('mediaBackfillInfrastructure')
 }

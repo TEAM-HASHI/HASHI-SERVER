@@ -22,6 +22,7 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
+import java.util.UUID;
 import lombok.AccessLevel;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
@@ -262,6 +263,32 @@ public class Restaurant extends BaseTimeEntity {
 
     public void sortImagesByDisplayOrder() {
         this.images.sort(Comparator.comparingInt(RestaurantImage::getDisplayOrder));
+    }
+
+    /** legacy 이미지 association이 그대로일 때만 backfill asset을 연결한다. */
+    public boolean attachBackfilledImage(long imageId, String expectedFileKey, UUID imageAssetId) {
+        return images.stream()
+                .filter(image -> image.getId() != null && image.getId() == imageId)
+                .filter(image -> image.hasUnchangedLegacySource(expectedFileKey))
+                .findFirst()
+                .map(image -> {
+                    image.attachBackfilledAsset(imageAssetId);
+                    return true;
+                })
+                .orElse(false);
+    }
+
+    /** legacy 메뉴 이미지 association과 나머지 메뉴 필드를 유지한 채 backfill asset만 연결한다. */
+    public boolean attachBackfilledMenuImage(long menuId, String expectedImageKey, UUID imageAssetId) {
+        return menus.stream()
+                .filter(menu -> menu.getId() != null && menu.getId() == menuId)
+                .filter(menu -> menu.hasUnchangedLegacySource(expectedImageKey))
+                .findFirst()
+                .map(menu -> {
+                    menu.attachBackfilledAsset(imageAssetId);
+                    return true;
+                })
+                .orElse(false);
     }
 
     public void replaceBusinessHours(List<RestaurantBusinessHour> businessHours) {
