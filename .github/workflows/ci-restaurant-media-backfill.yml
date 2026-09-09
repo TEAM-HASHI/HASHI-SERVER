@@ -8,10 +8,13 @@ on:
       - "src/test/java/org/sopt/hashi/restaurant/**"
       - "src/main/java/org/sopt/hashi/user/**"
       - "src/test/java/org/sopt/hashi/user/**"
+      - "src/main/java/org/sopt/hashi/magazine/**"
+      - "src/test/java/org/sopt/hashi/magazine/**"
       - "src/main/resources/db/migration/**"
       - "src/main/resources/application.yml"
       - "docs/media/restaurant-menu-backfill-runbook.md"
       - "docs/media/user-profile-backfill-runbook.md"
+      - "docs/media/magazine-backfill-runbook.md"
       - "docs/media/legacy-backfill-runbook.md"
       - "build.gradle"
 
@@ -56,6 +59,7 @@ jobs:
           reports = (
               "TEST-org.sopt.hashi.restaurant.migration.RestaurantMediaBackfillPersistenceIntegrationTest.xml",
               "TEST-org.sopt.hashi.user.migration.UserProfileBackfillPersistenceIntegrationTest.xml",
+              "TEST-org.sopt.hashi.magazine.migration.MagazineMediaBackfillPersistenceIntegrationTest.xml",
           )
           for name in reports:
               report = Path("build/test-results/test") / name
