@@ -1,6 +1,7 @@
 package org.sopt.hashi.user.dto;
 
 import io.swagger.v3.oas.annotations.media.Schema;
+import jakarta.validation.constraints.AssertTrue;
 import jakarta.validation.constraints.Email;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
@@ -8,6 +9,7 @@ import jakarta.validation.constraints.Past;
 import jakarta.validation.constraints.Pattern;
 import jakarta.validation.constraints.Size;
 import java.time.LocalDate;
+import java.util.UUID;
 
 /** 온보딩(가입) 요청 — 영문 이름·프로필 사진은 선택. profileImageKey는 업로드 완료된 S3 object key. */
 public record CompleteOnboardingRequest(
@@ -23,5 +25,25 @@ public record CompleteOnboardingRequest(
         @Schema(description = "이메일", example = "hashi@example.com")
         @NotBlank(message = "이메일은 필수입니다") @Email @Size(max = 255) String email,
         @Schema(description = "프로필 사진 S3 key(선택) — presigned URL로 업로드를 마친 key", example = "profiles/a1b2c3-profile.jpg")
-        @Size(max = 500) String profileImageKey) {
+        @Size(max = 500) String profileImageKey,
+        @Schema(description = "프로필 사진 public asset ID(선택)",
+                example = "a3af06f1-4ef2-46f8-a489-2347fb840447")
+        UUID profileImageAssetId) {
+
+    public CompleteOnboardingRequest(
+            String nickname,
+            String nameEng,
+            LocalDate birthDate,
+            String phone,
+            String email,
+            String profileImageKey
+    ) {
+        this(nickname, nameEng, birthDate, phone, email, profileImageKey, null);
+    }
+
+    @AssertTrue(message = "프로필 이미지는 profileImageKey 또는 profileImageAssetId 중 하나만 사용할 수 있습니다")
+    public boolean isProfileImageSourceValid() {
+        boolean keyValid = profileImageKey == null || !profileImageKey.isBlank();
+        return keyValid && (profileImageKey == null || profileImageAssetId == null);
+    }
 }

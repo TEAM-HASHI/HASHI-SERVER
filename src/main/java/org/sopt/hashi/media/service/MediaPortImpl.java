@@ -116,6 +116,35 @@ class MediaPortImpl implements MediaPort {
     }
 
     @Override
+    @Transactional(propagation = Propagation.MANDATORY)
+    public void claimOnboardingProfile(UUID assetId, Long newUserId) {
+        Objects.requireNonNull(assetId, "assetId must not be null");
+        if (newUserId == null || newUserId < 1) {
+            throw new IllegalArgumentException("newUserId must be positive");
+        }
+
+        CurrentActor actor = currentActorProvider.currentActor();
+        if (actor.type() != ActorType.ONBOARDING) {
+            throw new BusinessException(MediaErrorCode.PURPOSE_FORBIDDEN);
+        }
+        requirePurposeAllowed(actor, MediaAssetPurpose.PROFILE);
+
+        ImageAssetRepository.AssetIdentity identity = imageAssetRepository
+                .findIdentitiesByPublicIdIn(Set.of(assetId)).stream()
+                .findFirst()
+                .orElseThrow(() -> new BusinessException(MediaErrorCode.ASSET_NOT_FOUND));
+        ImageAsset asset = imageAssetRepository.findByIdForUpdate(identity.getId())
+                .orElseThrow(() -> new BusinessException(MediaErrorCode.ASSET_NOT_FOUND));
+        requireClaimOwner(asset, MediaOwnerType.ONBOARDING, actor.subjectId());
+        validateClaimState(asset, MediaAssetPurpose.PROFILE);
+        asset.handoffOwnerAndBind(
+                MediaOwnerType.ONBOARDING,
+                actor.subjectId(),
+                MediaOwnerType.USER,
+                newUserId);
+    }
+
+    @Override
     public Map<MediaImageRequest, MediaImage> findImages(Collection<MediaImageRequest> requests) {
         List<MediaImageRequest> normalized = copyRequests(requests);
         if (normalized.isEmpty()) {

@@ -13,6 +13,7 @@ import static org.mockito.Mockito.when;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -205,6 +206,39 @@ class MediaPortImplTest {
         verify(foreign, never()).bind();
         verify(banner, never()).retire();
         verify(foreign, never()).retire();
+    }
+
+    @Test
+    void 온보딩_PROFILE_asset은_새_USER에게_인계하며_BIND한다() {
+        UUID assetId = UUID.randomUUID();
+        ImageAsset asset = asset(
+                assetId, MediaPurpose.PROFILE, MediaOwnerType.ONBOARDING, 99L,
+                ImageProcessingStatus.READY, ImageBindingStatus.UNBOUND,
+                MediaCleanupStatus.ACTIVE);
+        when(currentActorProvider.currentActor())
+                .thenReturn(new CurrentActor(ActorType.ONBOARDING, 99L));
+        when(purposeAccessPolicy.isAllowed(ActorType.ONBOARDING, MediaPurpose.PROFILE))
+                .thenReturn(true);
+        when(imageAssetRepository.findIdentitiesByPublicIdIn(Set.of(assetId)))
+                .thenReturn(List.of(identity(5L, assetId)));
+        when(imageAssetRepository.findByIdForUpdate(5L)).thenReturn(java.util.Optional.of(asset));
+
+        mediaPort.claimOnboardingProfile(assetId, 7L);
+
+        verify(asset).handoffOwnerAndBind(
+                MediaOwnerType.ONBOARDING, 99L, MediaOwnerType.USER, 7L);
+    }
+
+    @Test
+    void 정식_USER는_온보딩_PROFILE_인계_API를_사용할_수_없다() {
+        when(currentActorProvider.currentActor())
+                .thenReturn(new CurrentActor(ActorType.USER, 7L));
+
+        assertThatThrownBy(() -> mediaPort.claimOnboardingProfile(UUID.randomUUID(), 7L))
+                .isInstanceOf(BusinessException.class)
+                .hasFieldOrPropertyWithValue("errorCode", MediaErrorCode.PURPOSE_FORBIDDEN);
+
+        verify(imageAssetRepository, never()).findIdentitiesByPublicIdIn(anyCollection());
     }
 
     @Test

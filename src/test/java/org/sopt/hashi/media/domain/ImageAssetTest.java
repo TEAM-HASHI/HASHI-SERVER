@@ -237,6 +237,22 @@ class ImageAssetTest {
     }
 
     @Test
+    void 온보딩_asset은_creator를_보존하며_USER에게_인계하고_BIND한다() {
+        ImageAsset asset = createDirectUpload(MediaOwnerType.ONBOARDING, 99L);
+
+        asset.handoffOwnerAndBind(
+                MediaOwnerType.ONBOARDING, 99L, MediaOwnerType.USER, 7L);
+
+        assertThat(asset.getCreatorActorType()).isEqualTo(MediaOwnerType.ONBOARDING);
+        assertThat(asset.getCreatorSubjectId()).isEqualTo(99L);
+        assertThat(asset.isOwnedBy(MediaOwnerType.USER, 7L)).isTrue();
+        assertThat(asset.getBindingStatus()).isEqualTo(ImageBindingStatus.BOUND);
+        assertThatThrownBy(() -> asset.handoffOwnerAndBind(
+                MediaOwnerType.USER, 7L, MediaOwnerType.USER, 8L))
+                .isInstanceOf(IllegalStateException.class);
+    }
+
+    @Test
     void BOUND_asset은_RETIRED로_전이한다() {
         ImageAsset asset = readyAsset();
         asset.bind();
