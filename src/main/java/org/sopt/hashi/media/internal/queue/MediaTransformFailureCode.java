@@ -9,5 +9,6 @@ public enum MediaTransformFailureCode {
     SOURCE_FILE_TOO_LARGE,
     SOURCE_MIME_MISMATCH,
     SOURCE_SIZE_MISMATCH,
+    SOURCE_TOO_SMALL,
     UNSUPPORTED_IMAGE_TYPE
 }

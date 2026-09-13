@@ -8,6 +8,8 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.sopt.hashi.media.domain.ImageRole;
 
 class MediaTransformResultParserTest {
@@ -39,6 +41,33 @@ class MediaTransformResultParserTest {
         assertThat(result).isInstanceOf(MediaTransformFailedResult.class);
         assertThat(((MediaTransformFailedResult) result).failureCode())
                 .isEqualTo(MediaTransformFailureCode.INVALID_IMAGE_DATA);
+    }
+
+    @Test
+    void worker의_SOURCE_TOO_SMALL_golden_fixture를_같은_계약으로_읽는다() throws IOException {
+        MediaTransformResult result = parser.parse(
+                fixture("transform-failed-source-too-small-v1.json"));
+
+        assertThat(result).isInstanceOf(MediaTransformFailedResult.class);
+        assertThat(((MediaTransformFailedResult) result).failureCode())
+                .isEqualTo(MediaTransformFailureCode.SOURCE_TOO_SMALL);
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {
+            "SOURCE_FILE_TOO_LARGE",
+            "IMAGE_DIMENSION_LIMIT_EXCEEDED",
+            "IMAGE_PIXEL_LIMIT_EXCEEDED"
+    })
+    void 기존_대용량_이미지_failureCode도_계속_허용한다(String failureCode) throws IOException {
+        String body = fixture("transform-failed-v1.json")
+                .replace("INVALID_IMAGE_DATA", failureCode);
+
+        MediaTransformResult result = parser.parse(body);
+
+        assertThat(result).isInstanceOf(MediaTransformFailedResult.class);
+        assertThat(((MediaTransformFailedResult) result).failureCode().name())
+                .isEqualTo(failureCode);
     }
 
     @Test
