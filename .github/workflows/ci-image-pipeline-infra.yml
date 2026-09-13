@@ -4,6 +4,7 @@ on:
   pull_request:
     paths:
       - ".github/workflows/ci-image-pipeline-infra.yml"
+      - ".github/workflows/ci-image-transform-worker.yml"
       - ".github/workflows/deploy-image-pipeline.yml"
       - "infra/media/**"
       - "media-specs/**"
@@ -13,6 +14,7 @@ on:
       - develop
     paths:
       - ".github/workflows/ci-image-pipeline-infra.yml"
+      - ".github/workflows/ci-image-transform-worker.yml"
       - ".github/workflows/deploy-image-pipeline.yml"
       - "infra/media/**"
       - "media-specs/**"
@@ -54,6 +56,9 @@ jobs:
           echo "${sam_version}"
           [[ "${sam_version}" == "SAM CLI, version 1.165.0" ]]
 
+      - name: Test CI trigger and validation ownership
+        run: node --test infra/media/scripts/check-ci-triggers.test.mjs
+
       - name: Test delivery lifecycle policy checker
         run: node --test infra/media/scripts/check-delivery-lifecycle.test.mjs
 
@@ -73,10 +78,6 @@ jobs:
       - name: Install exact worker dependencies
         working-directory: worker/image-transform
         run: npm ci
-
-      - name: Test worker
-        working-directory: worker/image-transform
-        run: npm test
 
       - name: Build production Lambda package
         working-directory: worker/image-transform
