@@ -296,6 +296,37 @@ test("rejects APNG inputs", async () => {
   );
 });
 
+test("PNG 헤더의 픽셀 상한 초과를 디코더 사전 차단 오류로 분류한다", async () => {
+  const headerOnlyOversizedSource = await sharp({
+    create: { width: 1, height: 1, channels: 3, background: "white" },
+  })
+    .png()
+    .toBuffer();
+
+  // Only IHDR dimensions and CRC are changed: this is not a valid 40 MP pixel payload.
+  // It exercises the native metadata guard without allocating or decoding a large image.
+  assert.equal(headerOnlyOversizedSource.toString("ascii", 12, 16), "IHDR");
+  headerOnlyOversizedSource.writeUInt32BE(IMAGE_LIMITS.maxDimension, 16);
+  headerOnlyOversizedSource.writeUInt32BE(4_001, 20);
+  let crc = 0xffffffff;
+  for (const byte of headerOnlyOversizedSource.subarray(12, 29)) {
+    crc ^= byte;
+    for (let bit = 0; bit < 8; bit += 1) {
+      crc = (crc >>> 1) ^ (0xedb88320 & -(crc & 1));
+    }
+  }
+  headerOnlyOversizedSource.writeUInt32BE((crc ^ 0xffffffff) >>> 0, 29);
+
+  await assert.rejects(
+    inspectSource(headerOnlyOversizedSource, "image/png", headerOnlyOversizedSource.length),
+    (error: unknown) =>
+      error instanceof PermanentImageError &&
+      error.failureCode === "IMAGE_PIXEL_LIMIT_EXCEEDED" &&
+      error.cause instanceof Error &&
+      error.cause.message === "Input image exceeds pixel limit",
+  );
+});
+
 test("enforces per-dimension, per-frame and total decode pixel limits", () => {
   for (const dimensions of [
     { width: IMAGE_LIMITS.maxDimension, height: 1 },
