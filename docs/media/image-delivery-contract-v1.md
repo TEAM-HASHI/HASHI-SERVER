@@ -943,13 +943,13 @@ media/renditions/{assetId}/v{specVersion}/{role}/{width}.webp
 ```json
 {
   "contractVersion": 1,
-  "jobId": "f57dbf16-f7ca-46ec-8d80-8142be93d12a",
+  "jobId": "ebb9b9d8-c427-564b-a70e-0fd4e1925e5a",
   "assetId": "a3af06f1-4ef2-46f8-a489-2347fb840447",
   "purpose": "REVIEW",
   "specVersion": 1,
   "specDigest": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
   "originalKey": "media/originals/a3af.../original",
-  "sourceVersionId": "3Lg...",
+  "sourceVersionId": "version-1",
   "sourceETag": "etag-value",
   "declaredContentType": "image/jpeg",
   "declaredByteSize": 1048576
@@ -960,18 +960,20 @@ media/renditions/{assetId}/v{specVersion}/{role}/{width}.webp
 worker가 만들 필수 role 집합은 request의 `purpose`와 canonical manifest만으로 결정한다. queue
 request는 `roles`를 중복 전달하지 않는다. purpose가 manifest에 없거나 asset snapshot과 다르면
 사용자 이미지 FAILED가 아니라 contract mismatch로 retry, DLQ와 운영 알람에 남긴다.
+`sourceVersionId`는 빈 문자열을 허용하지 않고 UTF-8 기준 최대 1,024바이트다. `specVersion`은
+DB `INT`와 UUIDv5 canonical encoding에 맞춰 1 이상 signed 32-bit 최댓값 이하로 제한한다.
 
 ### 13.2 성공 결과
 
 ```json
 {
   "contractVersion": 1,
-  "jobId": "f57dbf16-f7ca-46ec-8d80-8142be93d12a",
+  "jobId": "ebb9b9d8-c427-564b-a70e-0fd4e1925e5a",
   "assetId": "a3af06f1-4ef2-46f8-a489-2347fb840447",
   "specVersion": 1,
   "specDigest": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
   "status": "SUCCEEDED",
-  "sourceVersionId": "3Lg...",
+  "sourceVersionId": "version-1",
   "sourceETag": "etag-value",
   "verifiedSource": {
     "mimeType": "image/jpeg",
@@ -1008,12 +1010,12 @@ request는 `roles`를 중복 전달하지 않는다. purpose가 manifest에 없�
 ```json
 {
   "contractVersion": 1,
-  "jobId": "f57dbf16-f7ca-46ec-8d80-8142be93d12a",
+  "jobId": "ebb9b9d8-c427-564b-a70e-0fd4e1925e5a",
   "assetId": "a3af06f1-4ef2-46f8-a489-2347fb840447",
   "specVersion": 1,
   "specDigest": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
   "status": "FAILED",
-  "sourceVersionId": "3Lg...",
+  "sourceVersionId": "version-1",
   "sourceETag": "etag-value",
   "failureCode": "INVALID_IMAGE_DATA"
 }
@@ -1025,12 +1027,31 @@ failure message에는 사용자 파일명, URL, stack trace와 원본 metadata�
 unknown specVersion과 specDigest mismatch도 FAILED 결과로 확정하지 않고 invocation을 실패시켜
 재시도와 DLQ로 보낸 뒤 운영 알람을 발생시킨다.
 
+크기 관련 영구 실패는 다음처럼 구분한다. 기존 업로드 제한이나 최소 크기를 새로 변경하는
+규칙은 아니며, 실패 원인을 구분하기 위한 코드다.
+
+| failureCode | 의미 |
+| --- | --- |
+| SOURCE_FILE_TOO_LARGE | 원본 파일의 바이트 수가 제한을 초과함 |
+| IMAGE_DIMENSION_LIMIT_EXCEEDED | 원본의 한 변 길이가 제한을 초과함 |
+| IMAGE_PIXEL_LIMIT_EXCEEDED | 디코딩할 픽셀 수가 제한을 초과함 |
+| SOURCE_TOO_SMALL | 원본을 확대하지 않고는 해당 role의 유효한 파생본을 만들 수 없음 |
+
+Spring 결과 consumer에 `SOURCE_TOO_SMALL` 지원을 먼저 배포한 뒤, 이 코드를 보내는 worker를
+활성화한다. 이전 consumer는 알 수 없는 코드를 거부할 수 있다. 결과 메시지의 형식과
+`contractVersion`은 유지하며, 양쪽 테스트에서 같은 실패 golden fixture를 사용한다.
+
 ### 13.4 멱등성
 
 - request queue와 result queue는 Standard queue로 두고 각각 DLQ를 연결한다. 중복과 순서
   역전을 전제로 한다.
-- job ID는 assetId, sourceVersionId와 specVersion으로 계산한 UUIDv5 또는 동등한 결정적
-  idempotency key다. 동일 job을 재발행할 때 DB에 저장된 같은 ID를 사용한다.
+- v1 job ID는 assetId, sourceVersionId와 specVersion으로 계산한 UUIDv5다. namespace는
+  `5d167dc9-9bfd-5f4e-a7a0-46b10b4de90d`로 고정한다. UUID name bytes는 asset UUID의
+  16-byte network order, sourceVersionId UTF-8 byte 길이의 4-byte big-endian signed integer,
+  sourceVersionId UTF-8 bytes, specVersion의 4-byte big-endian signed integer 순서로 연결한다.
+  예를 들어 assetId `a3af06f1-4ef2-46f8-a489-2347fb840447`, sourceVersionId `version-1`,
+  specVersion `1`의 job ID는 `ebb9b9d8-c427-564b-a70e-0fd4e1925e5a`다. 동일 job을 재발행할
+  때 DB에 저장된 같은 ID를 사용한다.
 - 동일 asset, sourceVersionId와 specVersion의 job은 결정적 job ID와 object key를 사용한다.
   terminal 또는 obsolete spec은 같은 asset에서 재사용하지 않으며 재처리는 더 높은 spec으로만
   시작한다.
