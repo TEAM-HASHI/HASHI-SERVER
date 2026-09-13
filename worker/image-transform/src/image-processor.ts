@@ -129,6 +129,14 @@ export async function inspectSource(
   try {
     metadata = await sharp(bytes, sharpInputOptions(true)).metadata();
   } catch (error) {
+    // Exact native guard message from the pinned Sharp version; keep other decode errors distinct.
+    if (error instanceof Error && error.message === "Input image exceeds pixel limit") {
+      throw new PermanentImageError(
+        "IMAGE_PIXEL_LIMIT_EXCEEDED",
+        "Source pixel count exceeds decoder limit",
+        { cause: error },
+      );
+    }
     throw new PermanentImageError("INVALID_IMAGE_DATA", "Source metadata cannot be decoded", {
       cause: error,
     });
@@ -248,7 +256,7 @@ export function selectRenditionDimensions(
   }
 
   throw new PermanentImageError(
-    "IMAGE_DIMENSION_LIMIT_EXCEEDED",
+    "SOURCE_TOO_SMALL",
     "Source is too small to create a no-upscale rendition",
   );
 }
