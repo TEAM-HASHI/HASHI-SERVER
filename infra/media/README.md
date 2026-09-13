@@ -136,9 +136,14 @@ PR에서는 다음 작업이 자동 실행된다.
 
 1. Node.js 24와 SAM CLI `1.165.0` 설치 및 버전 확인
 2. delivery lifecycle과 worker IAM 검사기의 반례 test
-3. worker exact dependency 설치와 fixture test
+3. worker exact dependency 설치. fixture test는 별도 worker CI에서 실행한다.
 4. Linux x64 production package 생성
 5. `sam validate --lint`와 `sam build`
+
+worker와 규격 파일이 바뀌어도 인프라 CI를 실행한다. SAM의 `CodeUri`가 worker package를 직접
+참조하므로 새 코드로 배포 묶음을 만들 수 있는지 함께 확인해야 한다. worker 테스트는 worker CI가
+담당하고, 인프라 CI는 필요한 package 생성과 smoke test, SAM 검증을 유지한다. ZIP 빌드 일부는
+의도적으로 겹친다. 다른 workflow의 artifact를 전달받도록 연결하는 복잡성은 현재 추가하지 않는다.
 
 dev 배포와 prod artifact 생성은 `Build or Deploy Image Pipeline` workflow를 수동 실행한다.
 
@@ -191,3 +196,28 @@ Spring 상태 연동 이슈에서 추가하며, 그 전에는 stack output만 �
 
 prod에서 alarm topic 없이 배포할 수 없으며, dev에서도 topic을 연결하지 않으면 alarm은 생성되지만
 외부 알림은 발송되지 않는다.
+
+## 오래된 Lambda 버전 보관과 정리
+
+`live` alias는 현재 사용할 버전을 가리키는 이름이다. alias를 새 버전으로 옮기는 것만으로
+예전 버전이 정리되지는 않는다. 아래 기준은 이미지 원본이나 파생본이 아닌 Lambda 코드 버전에만
+적용한다. v1에서는 자동 삭제 작업이나 배포 역할의 삭제 권한을 추가하지 않는다.
+
+- dev/prod 각각 매월, 그리고 Lambda 코드 저장 용량 경고가 있으면 버전 목록과 계정·리전의
+  사용 용량을 확인한다. 운영 담당자는 활성화 전에 점검 담당자와 일정을 운영 기록에 지정한다.
+- 최신 게시 버전 5개와 게시 후 30일이 지나지 않은 버전은 보관한다. 5개는 무조건 지워서 맞추는
+  상한이 아니라 최소 보관 수다. `$LATEST`는 삭제 후보에 포함하지 않는다.
+- 모든 alias가 참조하는 버전(가중치 라우팅 대상 포함), 현재 CloudFormation stack이 관리하는 버전,
+  rollback 대상으로 기록한 버전, event source나 다른 호출자가 직접 참조하는 버전은 개수·기간과
+  관계없이 보관한다. 연결 여부를 확인하지 못하면 삭제하지 않는다.
+- 배포·rollback·alias 변경과 정리를 동시에 진행하지 않는다. 담당자가 보호 대상을 제외한 후보를
+  조회하고, 함수·환경·버전 번호와 보관 이유를 운영 기록에 남긴 뒤 별도 승인을 받는다.
+- 승인 후에도 삭제 직전에 alias와 stack 참조를 다시 확인한다. CloudFormation 관리에서 벗어난
+  버전만 별도 운영 권한으로 특정 버전 번호를 지정해 삭제한다. 함수 전체 삭제는 하지 않는다.
+- 진행 중인 작업과 규격 호환성 확인 없이 오래된 버전을 rollback에 사용하지 않는다. 이전 버전
+  보관과 그 버전으로 안전하게 되돌릴 수 있다는 판단은 별개다.
+
+이 PR은 보관·점검 절차만 정하며 실제 버전 조회·삭제·자동 정리는 실행하지 않는다.
+
+참고: [AWS Lambda 버전 관리](https://docs.aws.amazon.com/lambda/latest/dg/configuration-versions.html),
+[특정 버전 삭제](https://docs.aws.amazon.com/lambda/latest/api/API_DeleteFunction.html)
