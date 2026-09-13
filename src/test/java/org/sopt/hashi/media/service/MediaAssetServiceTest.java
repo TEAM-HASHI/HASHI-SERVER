@@ -5,6 +5,8 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.BDDMockito.given;
+import static org.mockito.BDDMockito.willThrow;
+import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
@@ -21,6 +23,10 @@ import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.EnumSource;
+import org.junit.jupiter.params.provider.ValueSource;
+import org.mockito.InOrder;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.sopt.hashi.auth.ActorType;
@@ -182,22 +188,55 @@ class MediaAssetServiceTest {
         verify(transactionService, never()).completeAssets(eq(USER), anyList(), org.mockito.ArgumentMatchers.anyMap());
     }
 
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    void PENDING이_포함된_complete는_pipeline_중지시_HEAD_전에_거부한다(boolean includeProcessing) {
+        UUID pendingId = UUID.randomUUID();
+        UUID processingId = UUID.randomUUID();
+        List<UUID> assetIds = includeProcessing ? List.of(pendingId, processingId) : List.of(pendingId);
+        List<OwnedAssetSnapshot> snapshots = includeProcessing
+                ? List.of(pending(pendingId), snapshot(processingId, ImageProcessingStatus.PROCESSING))
+                : List.of(pending(pendingId));
+        given(currentActorProvider.currentActor()).willReturn(USER);
+        given(transactionService.loadOwnedAssets(USER, assetIds)).willReturn(snapshots);
+        willThrow(new BusinessException(MediaErrorCode.PIPELINE_UNAVAILABLE))
+                .given(transactionService).assertIssuanceAvailable();
+
+        assertThatThrownBy(() -> service.completeAssets(new CompleteMediaAssetsRequest(assetIds)))
+                .isInstanceOf(BusinessException.class)
+                .hasFieldOrPropertyWithValue("errorCode", MediaErrorCode.PIPELINE_UNAVAILABLE);
+
+        verify(transactionService).assertIssuanceAvailable();
+        verifyNoInteractions(originalStorage);
+        verify(transactionService, never()).completeAssets(eq(USER), anyList(), org.mockito.ArgumentMatchers.anyMap());
+    }
+
     @Test
-    void PROCESSING_complete_재호출은_HEAD없이_현재_상태를_반환한다() {
+    void 타인_asset의_complete는_pipeline_확인보다_소유권_거부가_우선한다() {
         UUID assetId = UUID.randomUUID();
-        OwnedAssetSnapshot processing = new OwnedAssetSnapshot(
-                assetId,
-                objectKey(assetId),
-                "image/jpeg",
-                1024L,
-                LocalDateTime.now(CLOCK).plusMinutes(5),
-                ImageProcessingStatus.PROCESSING,
-                MediaCleanupStatus.ACTIVE
-        );
         given(currentActorProvider.currentActor()).willReturn(USER);
         given(transactionService.loadOwnedAssets(USER, List.of(assetId)))
-                .willReturn(List.of(processing));
-        given(transactionService.completeAssets(USER, List.of(assetId), Map.of()))
+                .willThrow(new BusinessException(MediaErrorCode.ASSET_NOT_FOUND));
+
+        assertThatThrownBy(() -> service.completeAssets(new CompleteMediaAssetsRequest(List.of(assetId))))
+                .isInstanceOf(BusinessException.class)
+                .hasFieldOrPropertyWithValue("errorCode", MediaErrorCode.ASSET_NOT_FOUND);
+
+        verify(transactionService, never()).assertIssuanceAvailable();
+        verify(transactionService, never()).completeAssets(eq(USER), anyList(), org.mockito.ArgumentMatchers.anyMap());
+        verifyNoInteractions(originalStorage);
+    }
+
+    @Test
+    void 정상_PENDING_complete는_pipeline_확인_HEAD_전이_순서로_처리한다() {
+        UUID assetId = UUID.randomUUID();
+        OriginalObjectMetadata metadata = metadata(assetId, 1024L, "image/jpeg");
+        OwnedAssetSnapshot processing = snapshot(assetId, ImageProcessingStatus.PROCESSING);
+        given(currentActorProvider.currentActor()).willReturn(USER);
+        given(transactionService.loadOwnedAssets(USER, List.of(assetId)))
+                .willReturn(List.of(pending(assetId)));
+        given(originalStorage.findObjectMetadata(objectKey(assetId))).willReturn(Optional.of(metadata));
+        given(transactionService.completeAssets(USER, List.of(assetId), Map.of(assetId, metadata)))
                 .willReturn(List.of(processing));
 
         MediaAssetStatusesResponse response = service.completeAssets(
@@ -205,6 +244,31 @@ class MediaAssetServiceTest {
 
         assertThat(response.assets()).singleElement().satisfies(status ->
                 assertThat(status.status()).isEqualTo(ImageProcessingStatus.PROCESSING));
+        InOrder order = inOrder(transactionService, originalStorage);
+        order.verify(transactionService).loadOwnedAssets(USER, List.of(assetId));
+        order.verify(transactionService).assertIssuanceAvailable();
+        order.verify(originalStorage).findObjectMetadata(objectKey(assetId));
+        order.verify(transactionService).completeAssets(USER, List.of(assetId), Map.of(assetId, metadata));
+    }
+
+    @ParameterizedTest
+    @EnumSource(value = ImageProcessingStatus.class, names = {"PROCESSING", "READY"})
+    void 완료된_asset의_complete_재호출은_pipeline과_HEAD없이_현재_상태를_반환한다(
+            ImageProcessingStatus processingStatus) {
+        UUID assetId = UUID.randomUUID();
+        OwnedAssetSnapshot completed = snapshot(assetId, processingStatus);
+        given(currentActorProvider.currentActor()).willReturn(USER);
+        given(transactionService.loadOwnedAssets(USER, List.of(assetId)))
+                .willReturn(List.of(completed));
+        given(transactionService.completeAssets(USER, List.of(assetId), Map.of()))
+                .willReturn(List.of(completed));
+
+        MediaAssetStatusesResponse response = service.completeAssets(
+                new CompleteMediaAssetsRequest(List.of(assetId)));
+
+        assertThat(response.assets()).singleElement().satisfies(status ->
+                assertThat(status.status()).isEqualTo(processingStatus));
+        verify(transactionService, never()).assertIssuanceAvailable();
         verifyNoInteractions(originalStorage);
     }
 
@@ -216,13 +280,17 @@ class MediaAssetServiceTest {
     }
 
     private OwnedAssetSnapshot pending(UUID assetId) {
+        return snapshot(assetId, ImageProcessingStatus.PENDING_UPLOAD);
+    }
+
+    private OwnedAssetSnapshot snapshot(UUID assetId, ImageProcessingStatus processingStatus) {
         return new OwnedAssetSnapshot(
                 assetId,
                 objectKey(assetId),
                 "image/jpeg",
                 1024L,
                 LocalDateTime.now(CLOCK).plusMinutes(5),
-                ImageProcessingStatus.PENDING_UPLOAD,
+                processingStatus,
                 MediaCleanupStatus.ACTIVE
         );
     }
