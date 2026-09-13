@@ -46,6 +46,13 @@ hashi:
     cloudfront-domain: ${CLOUDFRONT_DOMAIN:}
     presigned-url-expiration: 300s
     max-file-size: 5MB
+  media:
+    original-storage:
+      region: ${AWS_REGION:ap-northeast-2}
+      bucket: ${AWS_MEDIA_ORIGINAL_BUCKET:hashi-local-media-originals}
+      presigned-url-expiration: 300s
+      max-file-size: 5MB
+      max-files-per-request: 10
 
 management:
   endpoints:
