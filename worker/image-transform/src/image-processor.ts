@@ -248,7 +248,7 @@ export function selectRenditionDimensions(
   }
 
   throw new PermanentImageError(
-    "IMAGE_DIMENSION_LIMIT_EXCEEDED",
+    "SOURCE_TOO_SMALL",
     "Source is too small to create a no-upscale rendition",
   );
 }

@@ -1027,6 +1027,20 @@ failure message에는 사용자 파일명, URL, stack trace와 원본 metadata�
 unknown specVersion과 specDigest mismatch도 FAILED 결과로 확정하지 않고 invocation을 실패시켜
 재시도와 DLQ로 보낸 뒤 운영 알람을 발생시킨다.
 
+크기 관련 영구 실패는 다음처럼 구분한다. 기존 업로드 제한이나 최소 크기를 새로 변경하는
+규칙은 아니며, 실패 원인을 구분하기 위한 코드다.
+
+| failureCode | 의미 |
+| --- | --- |
+| SOURCE_FILE_TOO_LARGE | 원본 파일의 바이트 수가 제한을 초과함 |
+| IMAGE_DIMENSION_LIMIT_EXCEEDED | 원본의 한 변 길이가 제한을 초과함 |
+| IMAGE_PIXEL_LIMIT_EXCEEDED | 디코딩할 픽셀 수가 제한을 초과함 |
+| SOURCE_TOO_SMALL | 원본을 확대하지 않고는 해당 role의 유효한 파생본을 만들 수 없음 |
+
+Spring 결과 consumer에 `SOURCE_TOO_SMALL` 지원을 먼저 배포한 뒤, 이 코드를 보내는 worker를
+활성화한다. 이전 consumer는 알 수 없는 코드를 거부할 수 있다. 결과 메시지의 형식과
+`contractVersion`은 유지하며, 양쪽 테스트에서 같은 실패 golden fixture를 사용한다.
+
 ### 13.4 멱등성
 
 - request queue와 result queue는 Standard queue로 두고 각각 DLQ를 연결한다. 중복과 순서

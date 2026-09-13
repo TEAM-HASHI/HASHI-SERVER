@@ -115,6 +115,31 @@ test("rejects warning-level corrupt JPEG data without writing renditions", async
   }
 });
 
+test("1x1 배너는 파생 이미지를 저장하지 않고 SOURCE_TOO_SMALL 실패를 발행한다", async () => {
+  const source = await jpegSource(1, 1);
+  const storage = new FakeStorage(original(source));
+  const publisher = new FakePublisher();
+  const worker = new ImageTransformWorker(storage, publisher);
+
+  await worker.processMessage(requestBody(source, { purpose: "MAGAZINE_BANNER" }));
+
+  assert.equal(storage.readRequests.length, 1);
+  assert.equal(storage.writes.length, 0);
+  assert.deepEqual(publisher.results, [
+    {
+      contractVersion: 1,
+      jobId: JOB_ID,
+      assetId: ASSET_ID,
+      specVersion: 1,
+      specDigest: SPEC_DIGEST,
+      sourceVersionId: VERSION_ID,
+      sourceETag: ETAG,
+      status: "FAILED",
+      failureCode: "SOURCE_TOO_SMALL",
+    },
+  ]);
+});
+
 test("retries contract mismatches instead of publishing user failure", async () => {
   const source = await jpegSource(32, 32);
   const mismatched = { ...original(source), eTag: '"different"' };

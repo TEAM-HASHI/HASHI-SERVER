@@ -106,6 +106,57 @@ test("applies EXIF orientation and strips source metadata", async () => {
   assert.equal(outputMetadata.exif, undefined);
 });
 
+test("1x1 배너 원본은 거부하고 2x1 경계 원본은 확대 없이 변환한다", async () => {
+  for (const width of [1, 2]) {
+    const source = await sharp({
+      create: { width, height: 1, channels: 3, background: "white" },
+    })
+      .png()
+      .toBuffer();
+    const request = {
+      bytes: source,
+      declaredByteSize: source.length,
+      declaredContentType: "image/png",
+      purpose: "MAGAZINE_BANNER",
+      spec,
+    };
+
+    if (width === 1) {
+      await assert.rejects(
+        processImage(request),
+        (error: unknown) =>
+          error instanceof PermanentImageError && error.failureCode === "SOURCE_TOO_SMALL",
+      );
+    } else {
+      const result = await processImage(request);
+      assert.deepEqual(
+        result.renditions.map(({ role, width, height }) => ({ role, width, height })),
+        [{ role: "MAGAZINE_BANNER", width: 2, height: 1 }],
+      );
+      const metadata = await sharp(result.renditions[0]!.bytes).metadata();
+      assert.equal(metadata.width, 2);
+      assert.equal(metadata.height, 1);
+    }
+  }
+});
+
+test("바이트 상한값은 허용하고 상한 초과 원본은 별도 오류로 분류한다", async () => {
+  const atLimit = Buffer.alloc(IMAGE_LIMITS.maxBytes);
+  atLimit.set([0xff, 0xd8, 0xff]);
+  await assert.rejects(
+    inspectSource(atLimit, "image/jpeg", atLimit.length),
+    (error: unknown) =>
+      error instanceof PermanentImageError && error.failureCode === "INVALID_IMAGE_DATA",
+  );
+
+  const overLimit = Buffer.alloc(IMAGE_LIMITS.maxBytes + 1);
+  await assert.rejects(
+    inspectSource(overLimit, "image/jpeg", overLimit.length),
+    (error: unknown) =>
+      error instanceof PermanentImageError && error.failureCode === "SOURCE_FILE_TOO_LARGE",
+  );
+});
+
 test("produces deterministic bytes for an identical source and spec", async () => {
   const source = await sharp({
     create: {
@@ -246,6 +297,23 @@ test("rejects APNG inputs", async () => {
 });
 
 test("enforces per-dimension, per-frame and total decode pixel limits", () => {
+  for (const dimensions of [
+    { width: IMAGE_LIMITS.maxDimension, height: 1 },
+    { width: 1, height: IMAGE_LIMITS.maxDimension },
+    { width: IMAGE_LIMITS.maxDimension, height: 4_000 },
+  ]) {
+    assert.doesNotThrow(() => assertImageMetadataWithinLimits(dimensions as Metadata));
+  }
+  assert.throws(
+    () =>
+      assertImageMetadataWithinLimits({
+        width: 1,
+        height: IMAGE_LIMITS.maxDimension + 1,
+      } as Metadata),
+    (error: unknown) =>
+      error instanceof PermanentImageError &&
+      error.failureCode === "IMAGE_DIMENSION_LIMIT_EXCEEDED",
+  );
   assert.throws(
     () =>
       assertImageMetadataWithinLimits({
@@ -259,8 +327,8 @@ test("enforces per-dimension, per-frame and total decode pixel limits", () => {
   assert.throws(
     () =>
       assertImageMetadataWithinLimits({
-        width: 8_000,
-        height: 8_000,
+        width: IMAGE_LIMITS.maxDimension,
+        height: 4_001,
       } as Metadata),
     (error: unknown) =>
       error instanceof PermanentImageError &&
