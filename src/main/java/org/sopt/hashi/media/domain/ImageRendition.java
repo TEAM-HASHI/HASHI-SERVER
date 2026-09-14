@@ -11,6 +11,7 @@ import jakarta.persistence.Id;
 import jakarta.persistence.JoinColumn;
 import jakarta.persistence.ManyToOne;
 import jakarta.persistence.Table;
+import java.util.Objects;
 import lombok.AccessLevel;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
@@ -55,4 +56,32 @@ public class ImageRendition extends BaseTimeEntity {
 
     @Column(name = "object_key", length = 500, nullable = false, updatable = false, unique = true)
     private String objectKey;
+
+    static ImageRendition create(ImageAsset imageAsset, ImageRole role, int specVersion,
+                                 ImageFormat format, int width, int height, long bytes,
+                                 String objectKey) {
+        if (specVersion < 1 || width < 1 || height < 1 || bytes < 1) {
+            throw new IllegalArgumentException("rendition values must be positive");
+        }
+        ImageRendition rendition = new ImageRendition();
+        rendition.imageAsset = Objects.requireNonNull(imageAsset);
+        rendition.role = Objects.requireNonNull(role);
+        rendition.specVersion = specVersion;
+        rendition.format = Objects.requireNonNull(format);
+        rendition.mimeType = switch (format) {
+            case WEBP -> "image/webp";
+        };
+        rendition.width = width;
+        rendition.height = height;
+        rendition.bytes = bytes;
+        rendition.objectKey = requireText(objectKey, "objectKey");
+        return rendition;
+    }
+
+    private static String requireText(String value, String fieldName) {
+        if (value == null || value.isBlank()) {
+            throw new IllegalArgumentException(fieldName + " must not be blank");
+        }
+        return value;
+    }
 }
