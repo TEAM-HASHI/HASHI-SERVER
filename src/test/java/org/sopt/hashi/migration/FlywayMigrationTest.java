@@ -54,9 +54,41 @@ class FlywayMigrationTest {
         assertThatThrownBy(() -> flyway().migrate())
                 .isInstanceOf(FlywayException.class);
 
-        assertThat(columnExists("target_processing_started_at")).isFalse();
-        assertThat(columnExists("last_recovery_requested_at")).isFalse();
-        assertThat(columnExists("processing_recovery_attempts")).isFalse();
+        assertThat(columnExists("image_asset", "target_processing_started_at")).isFalse();
+        assertThat(columnExists("image_asset", "last_recovery_requested_at")).isFalse();
+        assertThat(columnExists("image_asset", "processing_recovery_attempts")).isFalse();
+    }
+
+    @Test
+    void V18과_V19는_테이블별_복구_경계를_분리한다() throws SQLException {
+        Flyway throughV18 = Flyway.configure()
+                .dataSource(MYSQL.getJdbcUrl(), MYSQL.getUsername(), MYSQL.getPassword())
+                .locations("classpath:db/migration")
+                .target(MigrationVersion.fromVersion("18"))
+                .validateOnMigrate(true)
+                .baselineOnMigrate(false)
+                .cleanDisabled(false)
+                .load();
+        throughV18.clean();
+        throughV18.migrate();
+
+        assertThat(columnExists("restaurant_image", "image_asset_id")).isTrue();
+        assertThat(columnExists("restaurant_menu", "image_asset_id")).isFalse();
+        assertThat(migrationSucceeded("18")).isTrue();
+
+        execute("ALTER TABLE restaurant_menu ADD COLUMN image_asset_id VARCHAR(10) NULL");
+        Flyway remaining = flyway();
+        assertThatThrownBy(remaining::migrate).isInstanceOf(FlywayException.class);
+
+        assertThat(columnExists("restaurant_image", "image_asset_id")).isTrue();
+        assertThat(migrationSucceeded("18")).isTrue();
+
+        execute("ALTER TABLE restaurant_menu DROP COLUMN image_asset_id");
+        remaining.repair();
+        remaining.migrate();
+
+        assertThat(columnExists("restaurant_menu", "image_asset_id")).isTrue();
+        assertThat(migrationSucceeded("19")).isTrue();
     }
 
     private Flyway flyway() {
@@ -104,20 +136,44 @@ class FlywayMigrationTest {
         }
     }
 
-    private boolean columnExists(String columnName) throws SQLException {
+    private boolean columnExists(String tableName, String columnName) throws SQLException {
         try (Connection connection = connection();
              var statement = connection.prepareStatement("""
                      SELECT COUNT(*)
                      FROM information_schema.columns
                      WHERE table_schema = DATABASE()
-                       AND table_name = 'image_asset'
+                       AND table_name = ?
                        AND column_name = ?
                      """)) {
-            statement.setString(1, columnName);
+            statement.setString(1, tableName);
+            statement.setString(2, columnName);
             try (ResultSet result = statement.executeQuery()) {
                 result.next();
                 return result.getInt(1) > 0;
             }
+        }
+    }
+
+    private boolean migrationSucceeded(String version) throws SQLException {
+        try (Connection connection = connection();
+             var statement = connection.prepareStatement("""
+                     SELECT COUNT(*)
+                     FROM flyway_schema_history
+                     WHERE version = ?
+                       AND success = TRUE
+                     """)) {
+            statement.setString(1, version);
+            try (ResultSet result = statement.executeQuery()) {
+                result.next();
+                return result.getInt(1) == 1;
+            }
+        }
+    }
+
+    private void execute(String sql) throws SQLException {
+        try (Connection connection = connection();
+             var statement = connection.createStatement()) {
+            statement.execute(sql);
         }
     }
 

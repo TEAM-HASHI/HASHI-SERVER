@@ -9,6 +9,12 @@ import java.util.Objects;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 import org.sopt.hashi.auth.CurrentUserProvider;
+import org.sopt.hashi.media.ImageReference;
+import org.sopt.hashi.media.MediaImage;
+import org.sopt.hashi.media.MediaImageRequest;
+import org.sopt.hashi.media.MediaImageRole;
+import org.sopt.hashi.media.MediaImageStatus;
+import org.sopt.hashi.media.MediaPort;
 import org.sopt.hashi.point.PointPort;
 import org.sopt.hashi.point.PointSourceType;
 import org.sopt.hashi.reservation.ReservationPort;
@@ -41,6 +47,7 @@ public class ReviewReservationQueryService {
     private final ReviewRepository reviewRepository;
     private final ReservationPort reservationPort;
     private final RestaurantPort restaurantPort;
+    private final MediaPort mediaPort;
     private final PointPort pointPort;
     private final CurrentUserProvider currentUserProvider;
 
@@ -48,12 +55,14 @@ public class ReviewReservationQueryService {
             ReviewRepository reviewRepository,
             ReservationPort reservationPort,
             RestaurantPort restaurantPort,
+            MediaPort mediaPort,
             PointPort pointPort,
             CurrentUserProvider currentUserProvider
     ) {
         this.reviewRepository = reviewRepository;
         this.reservationPort = reservationPort;
         this.restaurantPort = restaurantPort;
+        this.mediaPort = mediaPort;
         this.pointPort = pointPort;
         this.currentUserProvider = currentUserProvider;
     }
@@ -64,6 +73,10 @@ public class ReviewReservationQueryService {
                 .getReviewInfoByIdAndUserId(reservationId, userId);
 
         RestaurantDisplay restaurant = findRestaurantDisplay(reservation);
+        MediaProjection mediaProjection = loadThumbnailProjection(
+                referenceList(restaurant.thumbnailImageReference()));
+        ProjectedImage thumbnail = projectThumbnail(
+                restaurant.thumbnailImageReference(), mediaProjection);
         boolean hasReviewHistory = reservation.supportsReview()
                 && reservation.reservationStatus() == ReservationStatus.VISITED
                 && reviewRepository.existsByReservationId(reservation.id());
@@ -73,7 +86,8 @@ public class ReviewReservationQueryService {
                 reservation.id(),
                 restaurant.id(),
                 restaurant.name(),
-                restaurant.thumbnailUrl(),
+                thumbnail.url(),
+                thumbnail.image(),
                 reservation.reservedAt(),
                 reservation.adultCount(),
                 reservation.teenCount(),
@@ -134,6 +148,10 @@ public class ReviewReservationQueryService {
                 : null;
 
         Map<Long, RestaurantInfo> restaurantById = findRestaurants(contentReservations);
+        MediaProjection mediaProjection = loadThumbnailProjection(
+                restaurantById.values().stream()
+                        .map(RestaurantInfo::thumbnailImageReference)
+                        .toList());
         Map<Long, Long> earnedPointByReservationId = findEarnedPoints(
                 contentReservations,
                 reviewByReservationId);
@@ -142,7 +160,8 @@ public class ReviewReservationQueryService {
                         reservation,
                         restaurantById,
                         reviewByReservationId,
-                        earnedPointByReservationId))
+                        earnedPointByReservationId,
+                        mediaProjection))
                 .toList();
 
         return new VisitedReservationListResponse(content, totalCount, nextCursor, hasNext);
@@ -154,7 +173,10 @@ public class ReviewReservationQueryService {
         }
         RestaurantInfo restaurant = restaurantPort.findSummaryById(reservation.restaurantId())
                 .orElseThrow(() -> new BusinessException(ReviewErrorCode.RESTAURANT_NOT_FOUND));
-        return new RestaurantDisplay(restaurant.id(), restaurant.name(), restaurant.imageUrl());
+        return new RestaurantDisplay(
+                restaurant.id(),
+                restaurant.name(),
+                restaurant.thumbnailImageReference());
     }
 
     private ReviewUnavailableReason unavailableReason(
@@ -281,9 +303,12 @@ public class ReviewReservationQueryService {
             ReservationReviewInfo reservation,
             Map<Long, RestaurantInfo> restaurantById,
             Map<Long, Review> reviewByReservationId,
-            Map<Long, Long> earnedPointByReservationId
+            Map<Long, Long> earnedPointByReservationId,
+            MediaProjection mediaProjection
     ) {
         RestaurantDisplay restaurant = toRestaurantDisplay(reservation, restaurantById);
+        ProjectedImage thumbnail = projectThumbnail(
+                restaurant.thumbnailImageReference(), mediaProjection);
         Review review = reviewByReservationId.get(reservation.id());
         boolean hasReviewHistory = review != null;
         boolean activeReview = hasReviewHistory && !review.isDeleted();
@@ -293,7 +318,8 @@ public class ReviewReservationQueryService {
                 reservation.id(),
                 restaurant.id(),
                 restaurant.name(),
-                restaurant.thumbnailUrl(),
+                thumbnail.url(),
+                thumbnail.image(),
                 reservation.reservedAt(),
                 reservation.adultCount(),
                 reservation.teenCount(),
@@ -329,13 +355,79 @@ public class ReviewReservationQueryService {
                     "예약(id=%d)에 연결된 식당(id=%d)을 찾을 수 없습니다."
                             .formatted(reservation.id(), reservation.restaurantId()));
         }
-        return new RestaurantDisplay(restaurant.id(), restaurant.name(), restaurant.imageUrl());
+        return new RestaurantDisplay(
+                restaurant.id(),
+                restaurant.name(),
+                restaurant.thumbnailImageReference());
     }
 
     private VisitedReservationListResponse emptyResponse() {
         return new VisitedReservationListResponse(List.of(), 0L, null, false);
     }
 
-    private record RestaurantDisplay(Long id, String name, String thumbnailUrl) {
+    private MediaProjection loadThumbnailProjection(Collection<ImageReference> references) {
+        List<MediaImageRequest> requests = references.stream()
+                .filter(Objects::nonNull)
+                .map(ImageReference::assetId)
+                .filter(Objects::nonNull)
+                .map(assetId -> new MediaImageRequest(
+                        assetId, MediaImageRole.RESTAURANT_THUMBNAIL))
+                .distinct()
+                .toList();
+        if (requests.isEmpty()) {
+            return MediaProjection.empty();
+        }
+        return new MediaProjection(mediaPort.findImages(requests));
+    }
+
+    private List<ImageReference> referenceList(ImageReference reference) {
+        return reference == null ? List.of() : List.of(reference);
+    }
+
+    private ProjectedImage projectThumbnail(
+            ImageReference reference,
+            MediaProjection mediaProjection
+    ) {
+        if (reference == null) {
+            return ProjectedImage.empty();
+        }
+        if (reference.assetId() == null) {
+            return new ProjectedImage(reference.legacyUrl(), null);
+        }
+        MediaImage mediaImage = mediaProjection.find(reference);
+        String url = mediaImage != null && mediaImage.status() == MediaImageStatus.READY
+                ? mediaImage.defaultSource().url()
+                : null;
+        return new ProjectedImage(url, mediaImage);
+    }
+
+    private record RestaurantDisplay(
+            Long id,
+            String name,
+            ImageReference thumbnailImageReference
+    ) {
+    }
+
+    private record MediaProjection(Map<MediaImageRequest, MediaImage> images) {
+
+        private MediaProjection {
+            images = Map.copyOf(images);
+        }
+
+        private static MediaProjection empty() {
+            return new MediaProjection(Map.of());
+        }
+
+        private MediaImage find(ImageReference reference) {
+            return images.get(new MediaImageRequest(
+                    reference.assetId(), MediaImageRole.RESTAURANT_THUMBNAIL));
+        }
+    }
+
+    private record ProjectedImage(String url, MediaImage image) {
+
+        private static ProjectedImage empty() {
+            return new ProjectedImage(null, null);
+        }
     }
 }

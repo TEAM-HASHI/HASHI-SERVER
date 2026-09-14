@@ -91,6 +91,7 @@ public class MediaSpecRegistry {
             MediaRoleSpec previous = roleSpecs.put(role, new MediaRoleSpec(
                     requirePositiveInt(aspectRatio, "width"),
                     requirePositiveInt(aspectRatio, "height"),
+                    requirePositiveInt(roleNode, "defaultWidth"),
                     requirePositiveInt(fallback, "minimumWidth"),
                     candidates
             ));
