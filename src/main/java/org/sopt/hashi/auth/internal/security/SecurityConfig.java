@@ -34,6 +34,8 @@ public class SecurityConfig {
     static final String AUTH_ME_PATH = "/api/v1/auth/me";
     /** presigned URL 발급 — 온보딩(프로필 사진 업로드) 단계에서도 필요해 임시 권한까지 허용한다. */
     private static final String UPLOAD_PATH = "/api/v1/uploads/**";
+    /** 상태를 가진 신규 이미지 업로드 — purpose별 세부 인가는 media Service가 담당한다. */
+    static final String MEDIA_PATH = "/api/v1/media/**";
     /** 공개 경로 단일 소스 — {@link SwaggerAuthorizationCustomizer}가 같은 목록으로 문서 자물쇠를 판정한다. */
     static final String[] PUBLIC_PATHS = {
             "/swagger-ui/**",
@@ -71,6 +73,7 @@ public class SecurityConfig {
                         .requestMatchers(PUBLIC_PATHS).permitAll()
                         .requestMatchers(ONBOARDING_PATH).hasRole("ONBOARDING")
                         .requestMatchers(UPLOAD_PATH).hasAnyRole("USER", "ADMIN", "ONBOARDING")
+                        .requestMatchers(MEDIA_PATH).hasAnyRole("USER", "ADMIN", "ONBOARDING")
                         .requestMatchers("/api/v1/admin/**").hasRole("ADMIN")
                         // 역할을 명시해 온보딩 임시 권한(ROLE_ONBOARDING)의 일반 API 접근을 차단하고(auth.md §4),
                         // 어드민 토큰도 일반 사용자 API를 호출하지 못하게 한다(adminId가 userId로 오인되는 것 방지 —
