@@ -8,6 +8,7 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.function.Function;
 import java.util.stream.Collectors;
+import org.sopt.hashi.media.ImageReference;
 import org.sopt.hashi.shared.storage.FileStorage;
 import org.sopt.hashi.user.AdminUserInfo;
 import org.sopt.hashi.user.AdminUserSortType;
@@ -96,7 +97,7 @@ class UserPortImpl implements UserPort {
         return new UserProfileInfo(
                 user.getId(),
                 user.getNickname(),
-                resolveProfileImageUrl(user.getProfileImageKey()));
+                toProfileImageReference(user));
     }
 
     private AdminUserInfo toAdminInfo(User user) {
@@ -107,7 +108,7 @@ class UserPortImpl implements UserPort {
                 user.getBirthDate(),
                 user.getPhone(),
                 user.getEmail(),
-                resolveProfileImageUrl(user.getProfileImageKey()),
+                toProfileImageReference(user),
                 user.getCreatedAt());
     }
 
@@ -122,10 +123,14 @@ class UserPortImpl implements UserPort {
         return Math.min(size, MAX_PAGE_SIZE);
     }
 
-    private String resolveProfileImageUrl(String profileImageKey) {
-        if (profileImageKey == null || profileImageKey.isBlank()) {
+    private ImageReference toProfileImageReference(User user) {
+        String profileImageKey = user.getProfileImageKey();
+        if (profileImageKey == null && user.getProfileImageAssetId() == null) {
             return null;
         }
-        return fileStorage.resolveFileUrl(profileImageKey);
+        String legacyUrl = profileImageKey == null
+                ? null
+                : fileStorage.resolveFileUrl(profileImageKey);
+        return new ImageReference(user.getProfileImageAssetId(), legacyUrl);
     }
 }

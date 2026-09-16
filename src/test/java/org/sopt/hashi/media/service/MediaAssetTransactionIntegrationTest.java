@@ -126,7 +126,8 @@ class MediaAssetTransactionIntegrationTest {
         assertThat(eventCollector.events()).hasSize(1);
 
         ImageAsset asset = imageAssetRepository.findByPublicId(assetId).orElseThrow();
-        assertThat(asset.getCurrentJobId()).isNotNull();
+        assertThat(asset.getCurrentJobId())
+                .isEqualTo(MediaProcessingJobId.from(assetId, "version-1", 1));
         assertThat(eventCollector.events().getFirst().jobId()).isEqualTo(asset.getCurrentJobId());
         assertThat(asset.getLastIssuedSpecVersion()).isEqualTo(1);
     }

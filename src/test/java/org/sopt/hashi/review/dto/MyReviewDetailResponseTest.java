@@ -18,6 +18,7 @@ class MyReviewDetailResponseTest {
                 1L,
                 "하시 스시",
                 "https://cdn.example.com/restaurants/1/thumbnail.jpg",
+                null,
                 LocalDateTime.of(2026, 7, 1, 12, 0),
                 2,
                 0,

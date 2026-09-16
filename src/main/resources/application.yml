@@ -8,6 +8,16 @@ spring:
     name: hashi
   profiles:
     active: local
+  cloud:
+    aws:
+      sqs:
+        # dev E2E가 끝날 때까지 listener와 SQS client 자동 구성을 시작하지 않는다.
+        enabled: ${hashi.media.queue.enabled}
+        region: ${AWS_REGION:ap-northeast-2}
+  modulith:
+    events:
+      # 성공한 publication은 즉시 제거하고 실패한 publication만 재전송 대상으로 남긴다.
+      completion-mode: delete
   data:
     redis:
       timeout: 3s
@@ -47,12 +57,73 @@ hashi:
     presigned-url-expiration: 300s
     max-file-size: 5MB
   media:
+    backfill:
+      # 승인된 migration 실행 환경에서만 켠다. 일반 media 발급 활성화와 독립된 opt-in이다.
+      enabled: ${AWS_MEDIA_BACKFILL_ENABLED:false}
+    recovery:
+      enabled: ${AWS_MEDIA_RECOVERY_ENABLED:true}
+      epr-resubmit-age: ${AWS_MEDIA_EPR_RESUBMIT_AGE:1m}
+      epr-resubmit-interval: ${AWS_MEDIA_EPR_RESUBMIT_INTERVAL:1m}
+      epr-resubmit-batch-size: ${AWS_MEDIA_EPR_RESUBMIT_BATCH_SIZE:50}
+      processing-stale-age: ${AWS_MEDIA_PROCESSING_STALE_AGE:10m}
+      processing-retry-interval: ${AWS_MEDIA_PROCESSING_RETRY_INTERVAL:15m}
+      processing-max-attempts: ${AWS_MEDIA_PROCESSING_MAX_ATTEMPTS:3}
+      scan-batch-size: ${AWS_MEDIA_RECOVERY_SCAN_BATCH_SIZE:100}
+      scan-max-batches: ${AWS_MEDIA_RECOVERY_SCAN_MAX_BATCHES:10}
+      metrics-refresh-interval: ${AWS_MEDIA_METRICS_REFRESH_INTERVAL:30s}
+      pending-retention: ${AWS_MEDIA_PENDING_RETENTION:24h}
+      direct-unbound-ready-retention: ${AWS_MEDIA_DIRECT_UNBOUND_READY_RETENTION:24h}
+      backfill-unbound-retention: ${AWS_MEDIA_BACKFILL_UNBOUND_RETENTION:7d}
+      failed-retention: ${AWS_MEDIA_FAILED_RETENTION:7d}
+    queue:
+      enabled: ${AWS_MEDIA_QUEUE_ENABLED:false}
+      request-queue-url: ${AWS_MEDIA_REQUEST_QUEUE_URL:}
+      result-queue-url: ${AWS_MEDIA_RESULT_QUEUE_URL:}
+      publisher-core-pool-size: ${AWS_MEDIA_PUBLISHER_CORE_POOL_SIZE:2}
+      publisher-max-pool-size: ${AWS_MEDIA_PUBLISHER_MAX_POOL_SIZE:4}
+      publisher-queue-capacity: ${AWS_MEDIA_PUBLISHER_QUEUE_CAPACITY:100}
+      publisher-shutdown-await: ${AWS_MEDIA_PUBLISHER_SHUTDOWN_AWAIT:20s}
     original-storage:
       region: ${AWS_REGION:ap-northeast-2}
       bucket: ${AWS_MEDIA_ORIGINAL_BUCKET:hashi-local-media-originals}
       presigned-url-expiration: 300s
       max-file-size: 5MB
       max-files-per-request: 10
+  magazine:
+    media-backfill:
+      # 활성 매거진의 배너 또는 썸네일을 처리하는 승인된 one-shot 실행에서 별도로 켠다.
+      enabled: ${MAGAZINE_MEDIA_BACKFILL_ENABLED:false}
+      run-id: ${MAGAZINE_MEDIA_BACKFILL_RUN_ID:}
+      target: ${MAGAZINE_MEDIA_BACKFILL_TARGET:MAGAZINE_BANNER}
+      mode: ${MAGAZINE_MEDIA_BACKFILL_MODE:DRY_RUN}
+      batch-size: ${MAGAZINE_MEDIA_BACKFILL_BATCH_SIZE:50}
+      max-batches: ${MAGAZINE_MEDIA_BACKFILL_MAX_BATCHES:10}
+      lease-duration: ${MAGAZINE_MEDIA_BACKFILL_LEASE_DURATION:5m}
+      max-attempts: ${MAGAZINE_MEDIA_BACKFILL_MAX_ATTEMPTS:3}
+      retry-initial-delay: ${MAGAZINE_MEDIA_BACKFILL_RETRY_INITIAL_DELAY:200ms}
+  user:
+    profile-backfill:
+      # 활성 회원의 프로필만 처리하는 승인된 one-shot 실행에서 별도로 켠다.
+      enabled: ${USER_PROFILE_BACKFILL_ENABLED:false}
+      run-id: ${USER_PROFILE_BACKFILL_RUN_ID:}
+      mode: ${USER_PROFILE_BACKFILL_MODE:DRY_RUN}
+      batch-size: ${USER_PROFILE_BACKFILL_BATCH_SIZE:50}
+      max-batches: ${USER_PROFILE_BACKFILL_MAX_BATCHES:10}
+      lease-duration: ${USER_PROFILE_BACKFILL_LEASE_DURATION:5m}
+      max-attempts: ${USER_PROFILE_BACKFILL_MAX_ATTEMPTS:3}
+      retry-initial-delay: ${USER_PROFILE_BACKFILL_RETRY_INITIAL_DELAY:200ms}
+  restaurant:
+    media-backfill:
+      # 승인된 one-shot 실행에서만 켠다. PREPARE/ATTACH는 재시작 가능한 고유 run-id가 필수다.
+      enabled: ${RESTAURANT_MEDIA_BACKFILL_ENABLED:false}
+      run-id: ${RESTAURANT_MEDIA_BACKFILL_RUN_ID:}
+      target: ${RESTAURANT_MEDIA_BACKFILL_TARGET:RESTAURANT_IMAGE}
+      mode: ${RESTAURANT_MEDIA_BACKFILL_MODE:DRY_RUN}
+      batch-size: ${RESTAURANT_MEDIA_BACKFILL_BATCH_SIZE:50}
+      max-batches: ${RESTAURANT_MEDIA_BACKFILL_MAX_BATCHES:10}
+      lease-duration: ${RESTAURANT_MEDIA_BACKFILL_LEASE_DURATION:5m}
+      max-attempts: ${RESTAURANT_MEDIA_BACKFILL_MAX_ATTEMPTS:3}
+      retry-initial-delay: ${RESTAURANT_MEDIA_BACKFILL_RETRY_INITIAL_DELAY:200ms}
 
 management:
   endpoints:

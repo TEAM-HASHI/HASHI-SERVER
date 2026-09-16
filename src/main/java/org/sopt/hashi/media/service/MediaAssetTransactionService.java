@@ -95,7 +95,11 @@ public class MediaAssetTransactionService {
             Map<UUID, OriginalObjectMetadata> metadataByAssetId
     ) {
         Optional<MediaPipelineConfig> config = lockPipelineConfig();
-        List<ImageAsset> lockedAssets = imageAssetRepository.findAllByPublicIdInForUpdate(assetIds);
+        List<Long> internalIds = imageAssetRepository.findIdentitiesByPublicIdIn(assetIds).stream()
+                .map(ImageAssetRepository.AssetIdentity::getId)
+                .sorted()
+                .toList();
+        List<ImageAsset> lockedAssets = imageAssetRepository.findAllByIdInForUpdate(internalIds);
         Map<UUID, ImageAsset> assetsByPublicId = requireOwnedAssets(actor, assetIds, lockedAssets);
         LocalDateTime now = LocalDateTime.now(clock);
 
@@ -107,7 +111,7 @@ public class MediaAssetTransactionService {
 
         if (!pendingAssets.isEmpty()) {
             MediaSpecSnapshot spec = requireAvailableSpec(config);
-            pendingAssets.forEach(asset -> beginProcessing(asset, metadataByAssetId, spec));
+            pendingAssets.forEach(asset -> beginProcessing(asset, metadataByAssetId, spec, now));
         }
 
         return assetIds.stream()
@@ -166,7 +170,8 @@ public class MediaAssetTransactionService {
 
     private void beginProcessing(ImageAsset asset,
                                  Map<UUID, OriginalObjectMetadata> metadataByAssetId,
-                                 MediaSpecSnapshot spec) {
+                                 MediaSpecSnapshot spec,
+                                 LocalDateTime startedAt) {
         OriginalObjectMetadata metadata = metadataByAssetId.get(asset.getPublicId());
         if (metadata == null) {
             throw new BusinessException(MediaErrorCode.UPLOAD_NOT_FOUND);
@@ -183,7 +188,8 @@ public class MediaAssetTransactionService {
                 metadata.eTag(),
                 spec.version(),
                 spec.digest(),
-                jobId
+                jobId,
+                startedAt
         );
         eventPublisher.publishEvent(new MediaProcessingRequestedEvent(asset.getPublicId(), jobId));
     }

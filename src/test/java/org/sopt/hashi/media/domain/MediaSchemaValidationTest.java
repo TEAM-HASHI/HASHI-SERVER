@@ -1,10 +1,14 @@
 package org.sopt.hashi.media.domain;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
 import java.sql.SQLException;
+import java.time.LocalDateTime;
+import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -41,6 +45,9 @@ class MediaSchemaValidationTest {
 
     @Autowired
     private JdbcTemplate jdbcTemplate;
+
+    @Autowired
+    private ImageAssetRepository imageAssetRepository;
 
     @Test
     void Flyway_스키마와_JPA_매핑이_일치한다() {
@@ -247,6 +254,191 @@ class MediaSchemaValidationTest {
         assertThat(serializedEventLength).isEqualTo(4000);
         assertThat(listenerIdLength).isEqualTo(512);
         assertThat(completionDateIndexCount).isEqualTo(1);
+    }
+
+    @Test
+    void source_version과_SHA256은_worker_wire_계약_길이로_저장한다() {
+        Integer sourceVersionLength = columnLength("source_version_id");
+        Integer checksumLength = columnLength("source_checksum_sha256");
+
+        assertThat(sourceVersionLength).isEqualTo(1024);
+        assertThat(checksumLength).isEqualTo(44);
+    }
+
+    @Test
+    void source_SHA256은_44자_Base64만_허용한다() {
+        UUID assetId = UUID.randomUUID();
+        ImageAsset asset = ImageAsset.createDirectUpload(
+                assetId,
+                MediaPurpose.REVIEW,
+                MediaOwnerType.USER,
+                1L,
+                "media/originals/%s/original".formatted(assetId),
+                "image/jpeg",
+                1024L,
+                LocalDateTime.now().plusMinutes(5)
+        );
+        imageAssetRepository.saveAndFlush(asset);
+
+        assertThatThrownBy(() -> updateVerifiedSource(assetId, "a".repeat(64)))
+                .isInstanceOf(DataAccessException.class);
+        assertThat(updateVerifiedSource(assetId, "A".repeat(43) + "=")).isEqualTo(1);
+    }
+
+    @Test
+    void verified_source의_부분_NULL_상태를_거부한다() {
+        UUID assetId = savePendingAsset();
+
+        assertThatThrownBy(() -> jdbcTemplate.update("""
+                UPDATE image_asset
+                SET actual_content_type = 'image/jpeg',
+                    actual_bytes = NULL,
+                    source_width = 100,
+                    source_height = 100,
+                    source_checksum_sha256 = ?
+                WHERE public_id = ?
+                """, "A".repeat(43) + "=", assetId.toString()))
+                .isInstanceOf(DataAccessException.class);
+        assertThatThrownBy(() -> jdbcTemplate.update("""
+                UPDATE image_asset
+                SET actual_content_type = 'image/jpeg',
+                    actual_bytes = 1024,
+                    source_width = 100,
+                    source_height = 100,
+                    source_checksum_sha256 = NULL
+                WHERE public_id = ?
+                """, assetId.toString()))
+                .isInstanceOf(DataAccessException.class);
+    }
+
+    @Test
+    void PROCESSING_recovery_상태와_keyset_index를_DB_제약으로_고정한다() {
+        UUID assetId = UUID.randomUUID();
+        ImageAsset asset = ImageAsset.createDirectUpload(
+                assetId,
+                MediaPurpose.REVIEW,
+                MediaOwnerType.USER,
+                1L,
+                "media/originals/%s/original".formatted(assetId),
+                "image/jpeg",
+                1024L,
+                LocalDateTime.now().plusMinutes(5)
+        );
+        imageAssetRepository.saveAndFlush(asset);
+        UUID jobId = UUID.randomUUID();
+
+        assertThatThrownBy(() -> jdbcTemplate.update("""
+                UPDATE image_asset
+                SET processing_status = 'PROCESSING',
+                    source_version_id = 'version-1',
+                    source_etag = '"etag-1"',
+                    target_spec_version = 1,
+                    target_spec_digest = ?,
+                    target_processing_status = 'PROCESSING',
+                    current_job_id = ?,
+                    last_issued_spec_version = 1
+                WHERE public_id = ?
+                """, SPEC_DIGEST, jobId.toString(), assetId.toString()))
+                .isInstanceOf(DataAccessException.class);
+
+        assertThatThrownBy(() -> jdbcTemplate.update("""
+                UPDATE image_asset
+                SET target_processing_started_at = CURRENT_TIMESTAMP(6)
+                WHERE public_id = ?
+                """, assetId.toString()))
+                .isInstanceOf(DataAccessException.class);
+
+        assertThat(jdbcTemplate.update("""
+                UPDATE image_asset
+                SET processing_status = 'PROCESSING',
+                    source_version_id = 'version-1',
+                    source_etag = '"etag-1"',
+                    target_spec_version = 1,
+                    target_spec_digest = ?,
+                    target_processing_status = 'PROCESSING',
+                    target_processing_started_at = CURRENT_TIMESTAMP(6),
+                    current_job_id = ?,
+                    last_issued_spec_version = 1
+                WHERE public_id = ?
+                """, SPEC_DIGEST, jobId.toString(), assetId.toString())).isEqualTo(1);
+
+        assertThatThrownBy(() -> jdbcTemplate.update("""
+                UPDATE image_asset
+                SET processing_recovery_attempts = 1
+                WHERE public_id = ?
+                """, assetId.toString()))
+                .isInstanceOf(DataAccessException.class);
+
+        assertThat(indexColumns("idx_image_asset_processing_scan")).containsExactly(
+                "cleanup_status",
+                "target_processing_status",
+                "target_processing_started_at",
+                "id"
+        );
+        assertThat(indexColumns("idx_image_asset_cleanup_scan")).containsExactly(
+                "cleanup_status",
+                "binding_status",
+                "creation_origin",
+                "target_processing_status",
+                "updated_at",
+                "id",
+                "processing_status"
+        );
+        assertThat(indexColumns("idx_image_asset_status_cleanup_scan")).containsExactly(
+                "cleanup_status",
+                "processing_status",
+                "updated_at",
+                "id"
+        );
+    }
+
+    private UUID savePendingAsset() {
+        UUID assetId = UUID.randomUUID();
+        ImageAsset asset = ImageAsset.createDirectUpload(
+                assetId,
+                MediaPurpose.REVIEW,
+                MediaOwnerType.USER,
+                1L,
+                "media/originals/%s/original".formatted(assetId),
+                "image/jpeg",
+                1024L,
+                LocalDateTime.now().plusMinutes(5)
+        );
+        imageAssetRepository.saveAndFlush(asset);
+        return assetId;
+    }
+
+    private int updateVerifiedSource(UUID assetId, String checksum) {
+        return jdbcTemplate.update("""
+                UPDATE image_asset
+                SET actual_content_type = 'image/jpeg',
+                    actual_bytes = 1024,
+                    source_width = 100,
+                    source_height = 100,
+                    source_checksum_sha256 = ?
+                WHERE public_id = ?
+                """, checksum, assetId.toString());
+    }
+
+    private Integer columnLength(String columnName) {
+        return jdbcTemplate.queryForObject("""
+                SELECT character_maximum_length
+                FROM information_schema.columns
+                WHERE table_schema = DATABASE()
+                  AND table_name = 'image_asset'
+                  AND column_name = ?
+                """, Integer.class, columnName);
+    }
+
+    private List<String> indexColumns(String indexName) {
+        return jdbcTemplate.queryForList("""
+                SELECT column_name
+                FROM information_schema.statistics
+                WHERE table_schema = DATABASE()
+                  AND table_name = 'image_asset'
+                  AND index_name = ?
+                ORDER BY seq_in_index
+                """, String.class, indexName);
     }
 
     private void assertDirectUploadConstraintViolation(

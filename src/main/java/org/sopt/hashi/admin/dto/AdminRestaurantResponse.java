@@ -3,11 +3,14 @@ package org.sopt.hashi.admin.dto;
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.List;
+import org.sopt.hashi.media.MediaImage;
 import org.sopt.hashi.restaurant.AdminRestaurantInfo;
+import org.sopt.hashi.restaurant.RestaurantImageInfo;
 
 /**
- * 어드민 식당 단건 응답(등록·수정 결과). thumbnailUrl·imageUrls·메뉴 imageUrl은 저장된 키를
- * 변환한 조회 URL이다. genre·curationTypes는 사용자 API와 같은 소문자 케밥 값이다.
+ * 어드민 식당 단건 응답(등록·수정 결과). 기존 URL 필드는 legacy 또는 READY media 호환용이며,
+ * 신규 이미지 필드는 상태와 반응형 후보를 전달한다. genre·curationTypes는 사용자 API와 같은
+ * 소문자 케밥 값이다.
  */
 public record AdminRestaurantResponse(
         Long restaurantId,
@@ -20,11 +23,13 @@ public record AdminRestaurantResponse(
         String genre,
         String foodCategory,
         String thumbnailUrl,
+        RestaurantImageInfo thumbnailImage,
         String priceCurrency,
         BigDecimal minPrice,
         BigDecimal maxPrice,
         boolean deleted,
         List<String> imageUrls,
+        List<RestaurantImageInfo> heroImages,
         List<AdminRestaurantMenuResponse> menus,
         List<String> hashtags,
         List<String> curationTypes,
@@ -43,11 +48,13 @@ public record AdminRestaurantResponse(
                 info.genre(),
                 info.foodCategory(),
                 info.thumbnailUrl(),
+                info.thumbnailImage(),
                 info.priceCurrency(),
                 info.minPrice(),
                 info.maxPrice(),
                 info.deleted(),
                 info.imageUrls(),
+                info.heroImages(),
                 info.menus().stream()
                         .map(AdminRestaurantMenuResponse::from)
                         .toList(),
@@ -64,6 +71,7 @@ public record AdminRestaurantResponse(
             String name,
             String description,
             String imageUrl,
+            MediaImage listImage,
             String priceCurrency,
             BigDecimal priceAmount,
             boolean main) {
@@ -74,6 +82,7 @@ public record AdminRestaurantResponse(
                     info.name(),
                     info.description(),
                     info.imageUrl(),
+                    info.listImage(),
                     info.priceCurrency(),
                     info.priceAmount(),
                     info.main());

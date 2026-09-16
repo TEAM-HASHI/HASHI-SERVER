@@ -6,15 +6,38 @@ package org.sopt.hashi.magazine;
  */
 public interface MagazinePort {
 
-    /** 어드민 매거진 등록 — 배너·썸네일 이미지는 업로드 완료된 S3 키(bannerKey·thumbnailKey)로 받는다. */
-    MagazineInfo createByAdmin(String title, String bannerKey, String thumbnailKey, String instagramRedirectUrl);
+    /** 어드민 매거진 등록 — 배너·썸네일은 legacy key 또는 public asset ID로 받는다. */
+    MagazineInfo createByAdmin(AdminMagazineCommand command);
+
+    /** 기존 key 기반 호출부의 점진 전환을 위한 호환 계약. */
+    default MagazineInfo createByAdmin(
+            String title, String bannerKey, String thumbnailKey, String instagramRedirectUrl
+    ) {
+        return createByAdmin(new AdminMagazineCommand(
+                title,
+                new AdminMagazineCommand.ImageCommand(bannerKey, null),
+                new AdminMagazineCommand.ImageCommand(thumbnailKey, null),
+                instagramRedirectUrl));
+    }
 
     /**
      * 어드민 매거진 수정 — 부분 수정(PATCH). null 필드는 변경하지 않는다.
      * 매거진이 없으면 BusinessException(MAGAZINE-001 NOT_FOUND).
      */
-    MagazineInfo updateByAdmin(Long magazineId, String title, String bannerKey, String thumbnailKey,
-                               String instagramRedirectUrl);
+    MagazineInfo updateByAdmin(Long magazineId, AdminMagazineCommand command);
+
+    /** 기존 key 기반 PATCH 호출부의 점진 전환을 위한 호환 계약. */
+    default MagazineInfo updateByAdmin(
+            Long magazineId, String title, String bannerKey, String thumbnailKey,
+            String instagramRedirectUrl
+    ) {
+        return updateByAdmin(magazineId, new AdminMagazineCommand(
+                title,
+                bannerKey == null ? null : new AdminMagazineCommand.ImageCommand(bannerKey, null),
+                thumbnailKey == null ? null
+                        : new AdminMagazineCommand.ImageCommand(thumbnailKey, null),
+                instagramRedirectUrl));
+    }
 
     /** 어드민 매거진 삭제 — 매거진이 없으면 BusinessException(MAGAZINE-001 NOT_FOUND). */
     void deleteByAdmin(Long magazineId);
