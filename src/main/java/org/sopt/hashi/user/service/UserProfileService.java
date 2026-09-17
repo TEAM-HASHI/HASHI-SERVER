@@ -7,7 +7,7 @@ import org.sopt.hashi.media.ImageReference;
 import org.sopt.hashi.media.MediaImage;
 import org.sopt.hashi.media.MediaImageRequest;
 import org.sopt.hashi.media.MediaImageRole;
-import org.sopt.hashi.media.MediaImageStatus;
+import org.sopt.hashi.media.MediaImageSelection;
 import org.sopt.hashi.media.MediaPort;
 import org.sopt.hashi.shared.error.BusinessException;
 import org.sopt.hashi.shared.storage.FileStorage;
@@ -65,20 +65,15 @@ public class UserProfileService {
 
     private ProjectedImage projectProfileImage(User user) {
         ImageReference reference = toProfileImageReference(user);
-        if (reference == null) {
-            return ProjectedImage.empty();
+        MediaImage image = null;
+        if (reference != null && reference.assetId() != null) {
+            MediaImageRequest request = new MediaImageRequest(
+                    reference.assetId(), MediaImageRole.PROFILE_AVATAR);
+            Map<MediaImageRequest, MediaImage> projection = mediaPort.findImages(List.of(request));
+            image = projection.get(request);
         }
-        if (reference.assetId() == null) {
-            return new ProjectedImage(reference.legacyUrl(), null);
-        }
-        MediaImageRequest request = new MediaImageRequest(
-                reference.assetId(), MediaImageRole.PROFILE_AVATAR);
-        Map<MediaImageRequest, MediaImage> projection = mediaPort.findImages(List.of(request));
-        MediaImage image = projection.get(request);
-        String url = image != null && image.status() == MediaImageStatus.READY
-                ? image.defaultSource().url()
-                : null;
-        return new ProjectedImage(url, image);
+        MediaImageSelection selection = MediaImageSelection.from(reference, image);
+        return new ProjectedImage(selection.url(), selection.image());
     }
 
     private ImageReference toProfileImageReference(User user) {
@@ -92,9 +87,5 @@ public class UserProfileService {
     }
 
     private record ProjectedImage(String url, MediaImage image) {
-
-        private static ProjectedImage empty() {
-            return new ProjectedImage(null, null);
-        }
     }
 }
