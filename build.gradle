@@ -20,6 +20,7 @@ repositories {
 
 ext {
     set('springModulithVersion', '1.4.3')
+    set('springCloudAwsVersion', '3.4.2')
 }
 
 dependencies {
@@ -57,7 +58,8 @@ dependencies {
     runtimeOnly 'io.netty:netty-transport-native-epoll::linux-aarch_64'
 
     // aws
-    implementation 'software.amazon.awssdk:s3:2.25.60'
+    implementation 'software.amazon.awssdk:s3'
+    implementation 'io.awspring.cloud:spring-cloud-aws-starter-sqs'
 
     // validation
     implementation 'org.springframework.boot:spring-boot-starter-validation'
@@ -86,6 +88,7 @@ dependencies {
 dependencyManagement {
     imports {
         mavenBom "org.springframework.modulith:spring-modulith-bom:${springModulithVersion}"
+        mavenBom "io.awspring.cloud:spring-cloud-aws-dependencies:${springCloudAwsVersion}"
     }
 }
 
@@ -99,6 +102,18 @@ tasks.named('jar') {
 
 tasks.named('test') {
     useJUnitPlatform()
+    testLogging {
+        exceptionFormat = 'full'
+    }
+    inputs.files(
+            '.env.dev.example',
+            'infra/media/template.yaml',
+            'infra/media/parameters/dev.example.json',
+            'infra/media/parameters/prod.example.json',
+            '.github/workflows/ci-image-pipeline-infra.yml',
+            '.github/workflows/ci-restaurant-media-backfill.yml',
+            '.github/workflows/deploy-image-pipeline.yml'
+    ).withPropertyName('mediaBackfillInfrastructure')
 }
 
 tasks.named('processResources') {

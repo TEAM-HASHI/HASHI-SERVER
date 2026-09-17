@@ -6,23 +6,36 @@ import java.time.DayOfWeek;
 import java.time.LocalDate;
 import java.time.LocalTime;
 import java.time.format.DateTimeFormatter;
+import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.Deque;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
+import java.util.UUID;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 import lombok.extern.slf4j.Slf4j;
+import org.sopt.hashi.media.MediaAssetPurpose;
+import org.sopt.hashi.media.MediaAssetUse;
+import org.sopt.hashi.media.MediaImage;
+import org.sopt.hashi.media.MediaImageRequest;
+import org.sopt.hashi.media.MediaImageRole;
+import org.sopt.hashi.media.MediaImageStatus;
+import org.sopt.hashi.media.MediaPort;
 import org.sopt.hashi.restaurant.AdminRestaurantCommand;
 import org.sopt.hashi.restaurant.AdminRestaurantCommand.BusinessHourCommand;
+import org.sopt.hashi.restaurant.AdminRestaurantCommand.ImageCommand;
 import org.sopt.hashi.restaurant.AdminRestaurantCommand.MenuCommand;
 import org.sopt.hashi.restaurant.AdminRestaurantInfo;
 import org.sopt.hashi.restaurant.AdminRestaurantInfo.AdminRestaurantBusinessHourInfo;
 import org.sopt.hashi.restaurant.AdminRestaurantInfo.AdminRestaurantMenuInfo;
+import org.sopt.hashi.restaurant.RestaurantImageInfo;
 import org.sopt.hashi.restaurant.code.RestaurantErrorCode;
 import org.sopt.hashi.restaurant.domain.Restaurant;
 import org.sopt.hashi.restaurant.domain.RestaurantCurationType;
@@ -87,15 +100,18 @@ public class RestaurantService {
 
     private final RestaurantRepository restaurantRepository;
     private final FileStorage fileStorage;
+    private final MediaPort mediaPort;
     private final Clock japanClock;
 
     public RestaurantService(
             RestaurantRepository restaurantRepository,
             FileStorage fileStorage,
+            MediaPort mediaPort,
             @Qualifier("japanClock") Clock japanClock
     ) {
         this.restaurantRepository = restaurantRepository;
         this.fileStorage = fileStorage;
+        this.mediaPort = mediaPort;
         this.japanClock = japanClock;
     }
 
@@ -134,13 +150,16 @@ public class RestaurantService {
                 pageContent,
                 businessDate.getDayOfWeek()
         );
+        MediaProjection mediaProjection = loadRestaurantProjection(
+                pageContent, MediaImageRole.RESTAURANT_CARD, 3);
 
         return new RestaurantListResponse(
                 pageContent.stream()
                         .map(restaurant -> toSummaryResponse(
                                 restaurant,
                                 businessDate,
-                                businessHours.get(restaurant.getId())
+                                businessHours.get(restaurant.getId()),
+                                mediaProjection
                         ))
                         .toList(),
                 nextCursor,
@@ -192,6 +211,15 @@ public class RestaurantService {
     public RestaurantMainResponse getRestaurantSummary(Long restaurantId) {
         Restaurant restaurant = restaurantRepository.findActiveByIdWithImages(restaurantId)
                 .orElseThrow(() -> new BusinessException(RestaurantErrorCode.NOT_FOUND));
+        MediaProjection mediaProjection = loadRestaurantProjection(
+                List.of(restaurant), MediaImageRole.RESTAURANT_HERO, Integer.MAX_VALUE);
+        List<RestaurantImage> orderedImages = orderedImages(restaurant, Integer.MAX_VALUE);
+        ProjectedImage thumbnail = orderedImages.isEmpty()
+                ? ProjectedImage.empty()
+                : projectImage(
+                        orderedImages.getFirst(),
+                        MediaImageRole.RESTAURANT_THUMBNAIL,
+                        mediaProjection);
 
         return new RestaurantMainResponse(
                 restaurant.getId(),
@@ -202,8 +230,10 @@ public class RestaurantService {
                 restaurant.getSummary(),
                 restaurant.getFoodCategory(),
                 restaurant.getAddress(),
-                fileStorage.resolveFileUrl(restaurant.getThumbnailFileKey()),
-                toImageUrls(restaurant),
+                thumbnail.url(),
+                toImageInfo(orderedImages.isEmpty() ? null : orderedImages.getFirst(), thumbnail),
+                toImageUrls(orderedImages, MediaImageRole.RESTAURANT_HERO, mediaProjection),
+                toImageInfos(orderedImages, MediaImageRole.RESTAURANT_HERO, mediaProjection),
                 RestaurantReservationPolicy.RESERVATION_FEE
         );
     }
@@ -253,10 +283,12 @@ public class RestaurantService {
                 ? new ArrayList<>(menus.subList(0, pageSize))
                 : menus;
         Long nextCursor = hasNext ? pageContent.getLast().getId() : null;
+        MediaProjection mediaProjection = loadMenuProjection(
+                pageContent, MediaImageRole.MENU_LIST);
 
         return new RestaurantMenuListResponse(
                 pageContent.stream()
-                        .map(this::toMenuResponse)
+                        .map(menu -> toMenuResponse(menu, mediaProjection))
                         .toList(),
                 nextCursor,
                 hasNext
@@ -267,12 +299,17 @@ public class RestaurantService {
         RestaurantMenu menu = restaurantRepository.findMenuByRestaurantIdAndMenuId(restaurantId, menuId)
                 .orElseThrow(() -> menuNotFoundException(restaurantId));
         long otherMenuCount = restaurantRepository.countOtherMenusByRestaurantId(restaurantId, menuId);
+        MediaProjection mediaProjection = loadMenuProjection(
+                List.of(menu), MediaImageRole.MENU_DETAIL);
+        ProjectedImage menuImage = projectMenuImage(
+                menu, MediaImageRole.MENU_DETAIL, mediaProjection);
 
         return new RestaurantMenuDetailResponse(
                 menu.getId(),
                 menu.getName(),
                 menu.getDescription(),
-                fileStorage.resolveFileUrl(menu.getImageKey()),
+                menuImage.url(),
+                menuImage.image(),
                 menu.getPriceCurrency() == null ? null : menu.getPriceCurrency().value(),
                 toWholeAmount(menu.getPriceAmount()),
                 menu.isMain(),
@@ -284,6 +321,22 @@ public class RestaurantService {
     @Transactional
     public AdminRestaurantInfo createByAdmin(AdminRestaurantCommand command) {
         validateRequiredForCreate(command);
+
+        List<RestaurantImage> images = toImagesForCreate(command);
+        List<RestaurantMenu> menus = toMenus(command.menus());
+        List<RestaurantBusinessHour> businessHours = toBusinessHours(command.businessHours());
+        List<RestaurantCurationType> curationTypes = toCurationTypes(command.curationTypes());
+        List<MediaAssetUse> claims = new ArrayList<>();
+        images.stream()
+                .map(RestaurantImage::getImageAssetId)
+                .filter(Objects::nonNull)
+                .map(assetId -> new MediaAssetUse(assetId, MediaAssetPurpose.RESTAURANT))
+                .forEach(claims::add);
+        menus.stream()
+                .map(RestaurantMenu::getImageAssetId)
+                .filter(Objects::nonNull)
+                .map(assetId -> new MediaAssetUse(assetId, MediaAssetPurpose.RESTAURANT_MENU))
+                .forEach(claims::add);
 
         Restaurant restaurant = Restaurant.create(
                 command.name(),
@@ -297,14 +350,16 @@ public class RestaurantService {
                 toPriceCurrency(command.priceCurrency()),
                 command.minPrice(),
                 command.maxPrice());
-        restaurant.replaceImages(toImages(command.imageKeys()));
-        restaurant.replaceMenus(toMenus(command.menus()));
+        restaurant.replaceImages(images);
+        restaurant.replaceMenus(menus);
         restaurant.replaceHashtags(command.hashtags());
-        restaurant.replaceCurationTypes(toCurationTypes(command.curationTypes()));
-        restaurant.replaceBusinessHours(toBusinessHours(command.businessHours()));
+        restaurant.replaceCurationTypes(curationTypes);
+        restaurant.replaceBusinessHours(businessHours);
         validatePriceRange(restaurant);
 
+        reconcileMediaBindings(claims, List.of());
         Restaurant saved = restaurantRepository.save(restaurant);
+        restaurantRepository.flush();
         // 생성된 id는 응답 body에만 있어 로그로 남겨야 추적 가능하다 (adminId는 MDC)
         log.info("어드민 식당 등록. restaurantId={}", saved.getId());
         return toAdminInfo(saved);
@@ -313,12 +368,41 @@ public class RestaurantService {
     /** 어드민 식당 수정 — 부분 수정(PATCH). null 필드는 유지하고, 컬렉션은 전체 교체한다. */
     @Transactional
     public AdminRestaurantInfo updateByAdmin(Long restaurantId, AdminRestaurantCommand command) {
+        validateImageFieldsForUpdate(command);
         validateNonBlankIfPresent(command.localName());
         // 자유 텍스트 전환(#145) 후에도 값 비우기 불가 정책 유지 — enum 시절엔 빈 값이 변환 단계에서 거부됐다
         validateNonBlankIfPresent(command.foodCategory());
         validateNonEmptyIfPresent(command.imageKeys());
+        validateNonEmptyIfPresent(command.images());
         validateNonEmptyIfPresent(command.hashtags());
-        Restaurant restaurant = findRestaurantForAdmin(restaurantId);
+        validateExclusiveImageCollections(command.imageKeys(), command.images());
+        Restaurant restaurant = findRestaurantForAdminUpdate(restaurantId);
+
+        RestaurantGenre genre = command.genre() == null ? null : toGenre(command.genre());
+        PriceCurrency priceCurrency = command.priceCurrency() == null
+                ? null
+                : toPriceCurrency(command.priceCurrency());
+        BigDecimal nextMinPrice = command.minPrice() == null
+                ? restaurant.getMinPrice()
+                : command.minPrice();
+        BigDecimal nextMaxPrice = command.maxPrice() == null
+                ? restaurant.getMaxPrice()
+                : command.maxPrice();
+        validatePriceRange(nextMinPrice, nextMaxPrice);
+        List<RestaurantCurationType> curationTypes = command.curationTypes() == null
+                ? null
+                : toCurationTypes(command.curationTypes());
+        List<RestaurantBusinessHour> businessHours = command.businessHours() == null
+                ? null
+                : toBusinessHours(command.businessHours());
+        RestaurantImageUpdatePlan imagePlan = planImageUpdate(restaurant, command);
+        RestaurantMenuUpdatePlan menuPlan = planMenuUpdate(restaurant, command.menus());
+
+        List<MediaAssetUse> claims = new ArrayList<>(imagePlan.claims());
+        claims.addAll(menuPlan.claims());
+        List<MediaAssetUse> retires = new ArrayList<>(imagePlan.retires());
+        retires.addAll(menuPlan.retires());
+        reconcileMediaBindings(claims, retires);
 
         restaurant.updateBasicInfo(
                 command.name(),
@@ -327,27 +411,22 @@ public class RestaurantService {
                 command.description(),
                 command.address(),
                 command.area(),
-                command.genre() == null ? null : toGenre(command.genre()),
+                genre,
                 command.foodCategory(),
-                command.priceCurrency() == null ? null : toPriceCurrency(command.priceCurrency()),
+                priceCurrency,
                 command.minPrice(),
                 command.maxPrice());
-        validatePriceRange(restaurant);
 
-        if (command.imageKeys() != null) {
-            replaceImagesWithFlush(restaurant, command.imageKeys());
-        }
-        if (command.menus() != null) {
-            synchronizeMenus(restaurant, command.menus());
-        }
+        applyImageUpdate(restaurant, imagePlan);
+        applyMenuUpdate(restaurant, menuPlan);
         if (command.hashtags() != null) {
             restaurant.replaceHashtags(command.hashtags());
         }
         if (command.curationTypes() != null) {
-            restaurant.replaceCurationTypes(toCurationTypes(command.curationTypes()));
+            restaurant.replaceCurationTypes(curationTypes);
         }
-        if (command.businessHours() != null) {
-            replaceBusinessHoursWithFlush(restaurant, command.businessHours());
+        if (businessHours != null) {
+            replaceBusinessHoursWithFlush(restaurant, businessHours);
         }
 
         restaurantRepository.flush();
@@ -357,7 +436,7 @@ public class RestaurantService {
     /** 어드민 식당 삭제 — soft delete(deleted=true). 예약·리뷰가 참조하는 데이터는 보존한다. */
     @Transactional
     public void deleteByAdmin(Long restaurantId) {
-        Restaurant restaurant = findRestaurantForAdmin(restaurantId);
+        Restaurant restaurant = findRestaurantForAdminUpdate(restaurantId);
         restaurant.softDelete();
         // 노출 종료 전이 — 예약·리뷰가 계속 참조하므로 언제 내려갔는지 기록이 필요하다 (adminId는 MDC)
         log.info("어드민 식당 삭제(soft). restaurantId={}", restaurantId);
@@ -451,14 +530,25 @@ public class RestaurantService {
     private RestaurantSummaryResponse toSummaryResponse(
             Restaurant restaurant,
             LocalDate businessDate,
-            RestaurantBusinessHour businessHour
+            RestaurantBusinessHour businessHour,
+            MediaProjection mediaProjection
     ) {
+        List<RestaurantImage> orderedImages = orderedImages(restaurant, 3);
+        ProjectedImage thumbnail = orderedImages.isEmpty()
+                ? ProjectedImage.empty()
+                : projectImage(
+                        orderedImages.getFirst(),
+                        MediaImageRole.RESTAURANT_THUMBNAIL,
+                        mediaProjection);
+
         return new RestaurantSummaryResponse(
                 restaurant.getId(),
                 restaurant.getName(),
                 restaurant.getRating(),
-                fileStorage.resolveFileUrl(restaurant.getThumbnailFileKey()),
-                toImageUrls(restaurant, 3),
+                thumbnail.url(),
+                toImageInfo(orderedImages.isEmpty() ? null : orderedImages.getFirst(), thumbnail),
+                toImageUrls(orderedImages, MediaImageRole.RESTAURANT_CARD, mediaProjection),
+                toImageInfos(orderedImages, MediaImageRole.RESTAURANT_CARD, mediaProjection),
                 restaurant.getArea(),
                 restaurant.getGenre().description(),
                 restaurant.getFoodCategory(),
@@ -485,17 +575,138 @@ public class RestaurantService {
         );
     }
 
-    private List<String> toImageUrls(Restaurant restaurant) {
-        return toImageUrls(restaurant, Integer.MAX_VALUE);
+    private MediaProjection loadRestaurantProjection(
+            List<Restaurant> restaurants,
+            MediaImageRole collectionRole,
+            int imageLimit
+    ) {
+        List<MediaImageRequest> requests = new ArrayList<>();
+        for (Restaurant restaurant : restaurants) {
+            List<RestaurantImage> images = orderedImages(restaurant, imageLimit);
+            images.stream()
+                    .map(RestaurantImage::getImageAssetId)
+                    .filter(Objects::nonNull)
+                    .map(assetId -> new MediaImageRequest(assetId, collectionRole))
+                    .forEach(requests::add);
+            if (!images.isEmpty() && images.getFirst().getImageAssetId() != null) {
+                requests.add(new MediaImageRequest(
+                        images.getFirst().getImageAssetId(),
+                        MediaImageRole.RESTAURANT_THUMBNAIL));
+            }
+        }
+        return loadProjection(requests);
     }
 
-    private List<String> toImageUrls(Restaurant restaurant, int limit) {
+    private MediaProjection loadMenuProjection(
+            List<RestaurantMenu> menus,
+            MediaImageRole role
+    ) {
+        return loadProjection(menus.stream()
+                .map(RestaurantMenu::getImageAssetId)
+                .filter(Objects::nonNull)
+                .map(assetId -> new MediaImageRequest(assetId, role))
+                .toList());
+    }
+
+    private MediaProjection loadAdminProjection(
+            List<RestaurantImage> images,
+            List<RestaurantMenu> menus
+    ) {
+        List<MediaImageRequest> requests = new ArrayList<>();
+        images.stream()
+                .map(RestaurantImage::getImageAssetId)
+                .filter(Objects::nonNull)
+                .map(assetId -> new MediaImageRequest(assetId, MediaImageRole.RESTAURANT_HERO))
+                .forEach(requests::add);
+        if (!images.isEmpty() && images.getFirst().getImageAssetId() != null) {
+            requests.add(new MediaImageRequest(
+                    images.getFirst().getImageAssetId(),
+                    MediaImageRole.RESTAURANT_THUMBNAIL));
+        }
+        menus.stream()
+                .map(RestaurantMenu::getImageAssetId)
+                .filter(Objects::nonNull)
+                .map(assetId -> new MediaImageRequest(assetId, MediaImageRole.MENU_LIST))
+                .forEach(requests::add);
+        return loadProjection(requests);
+    }
+
+    private MediaProjection loadProjection(List<MediaImageRequest> requests) {
+        List<MediaImageRequest> distinctRequests = requests.stream().distinct().toList();
+        if (distinctRequests.isEmpty()) {
+            return MediaProjection.empty();
+        }
+        return new MediaProjection(mediaPort.findImages(distinctRequests));
+    }
+
+    private List<RestaurantImage> orderedImages(Restaurant restaurant, int limit) {
         return restaurant.getImages().stream()
                 .sorted(Comparator.comparingInt(RestaurantImage::getDisplayOrder))
                 .limit(limit)
-                .map(RestaurantImage::getFileKey)
-                .map(fileStorage::resolveFileUrl)
                 .toList();
+    }
+
+    private List<String> toImageUrls(
+            List<RestaurantImage> images,
+            MediaImageRole role,
+            MediaProjection mediaProjection
+    ) {
+        return images.stream()
+                .map(image -> projectImage(image, role, mediaProjection).url())
+                .filter(Objects::nonNull)
+                .toList();
+    }
+
+    private List<RestaurantImageInfo> toImageInfos(
+            List<RestaurantImage> images,
+            MediaImageRole role,
+            MediaProjection mediaProjection
+    ) {
+        return images.stream()
+                .map(image -> toImageInfo(image, projectImage(image, role, mediaProjection)))
+                .toList();
+    }
+
+    private RestaurantImageInfo toImageInfo(RestaurantImage image, ProjectedImage projectedImage) {
+        if (image == null) {
+            return null;
+        }
+        return new RestaurantImageInfo(
+                image.getId(), image.getDisplayOrder(), projectedImage.image());
+    }
+
+    private ProjectedImage projectImage(
+            RestaurantImage image,
+            MediaImageRole role,
+            MediaProjection mediaProjection
+    ) {
+        if (image.getImageAssetId() == null) {
+            return new ProjectedImage(resolveLegacyUrl(image.getFileKey()), null);
+        }
+        MediaImage mediaImage = mediaProjection.find(image.getImageAssetId(), role);
+        return new ProjectedImage(readyUrl(mediaImage), mediaImage);
+    }
+
+    private ProjectedImage projectMenuImage(
+            RestaurantMenu menu,
+            MediaImageRole role,
+            MediaProjection mediaProjection
+    ) {
+        if (menu.getImageAssetId() == null) {
+            return new ProjectedImage(resolveLegacyUrl(menu.getImageKey()), null);
+        }
+        MediaImage mediaImage = mediaProjection.find(menu.getImageAssetId(), role);
+        return new ProjectedImage(readyUrl(mediaImage), mediaImage);
+    }
+
+    private String resolveLegacyUrl(String fileKey) {
+        return fileKey == null ? null : fileStorage.resolveFileUrl(fileKey);
+    }
+
+    private String readyUrl(MediaImage mediaImage) {
+        return mediaImage != null && mediaImage.status() == MediaImageStatus.READY
+                ? mediaImage.defaultSource().url()
+                : null;
     }
 
     private BusinessHourResponse toBusinessHourResponse(RestaurantBusinessHour businessHour) {
@@ -509,12 +720,18 @@ public class RestaurantService {
         );
     }
 
-    private RestaurantMenuResponse toMenuResponse(RestaurantMenu menu) {
+    private RestaurantMenuResponse toMenuResponse(
+            RestaurantMenu menu,
+            MediaProjection mediaProjection
+    ) {
+        ProjectedImage menuImage = projectMenuImage(
+                menu, MediaImageRole.MENU_LIST, mediaProjection);
         return new RestaurantMenuResponse(
                 menu.getId(),
                 menu.getName(),
                 menu.getDescription(),
-                fileStorage.resolveFileUrl(menu.getImageKey()),
+                menuImage.url(),
+                menuImage.image(),
                 menu.getPriceCurrency() == null ? null : menu.getPriceCurrency().value(),
                 toWholeAmount(menu.getPriceAmount()),
                 menu.isMain()
@@ -528,8 +745,8 @@ public class RestaurantService {
         return new BusinessException(RestaurantErrorCode.MENU_NOT_FOUND);
     }
 
-    private Restaurant findRestaurantForAdmin(Long restaurantId) {
-        return restaurantRepository.findById(restaurantId)
+    private Restaurant findRestaurantForAdminUpdate(Long restaurantId) {
+        return restaurantRepository.findByIdForUpdate(restaurantId)
                 .orElseThrow(() -> new BusinessException(RestaurantErrorCode.NOT_FOUND));
     }
 
@@ -540,7 +757,8 @@ public class RestaurantService {
                 || command.area() == null || command.genre() == null
                 || command.foodCategory() == null || command.foodCategory().isBlank()
                 || command.priceCurrency() == null || command.minPrice() == null || command.maxPrice() == null
-                || command.imageKeys() == null || command.imageKeys().isEmpty()
+                || command.images() != null
+                || !hasExactlyOneCreateImageSource(command.imageKeys(), command.imageAssetIds())
                 || command.hashtags() == null || command.hashtags().isEmpty();
         if (missingRequired) {
             throw new BusinessException(CommonErrorCode.INVALID_INPUT);
@@ -560,27 +778,51 @@ public class RestaurantService {
     }
 
     private void validatePriceRange(Restaurant restaurant) {
-        BigDecimal minPrice = restaurant.getMinPrice();
-        BigDecimal maxPrice = restaurant.getMaxPrice();
+        validatePriceRange(restaurant.getMinPrice(), restaurant.getMaxPrice());
+    }
+
+    private void validatePriceRange(BigDecimal minPrice, BigDecimal maxPrice) {
         boolean invalidRange = minPrice != null && maxPrice != null && minPrice.compareTo(maxPrice) > 0;
         if (invalidRange) {
             throw new BusinessException(CommonErrorCode.INVALID_INPUT);
         }
     }
 
-    // (restaurant_id, display_order) 유니크 제약이 있어, Hibernate가 delete보다 insert를 먼저 실행하면
-    // 같은 순서 값끼리 충돌한다. 기존 이미지를 비워 flush로 delete를 먼저 내보낸 뒤 새 이미지를 넣는다.
-    private void replaceImagesWithFlush(Restaurant restaurant, List<String> imageKeys) {
-        restaurant.replaceImages(List.of());
-        restaurantRepository.flush();
-        restaurant.replaceImages(toImages(imageKeys));
+    private void validateImageFieldsForUpdate(AdminRestaurantCommand command) {
+        if (command.imageAssetIds() != null) {
+            throw new BusinessException(CommonErrorCode.INVALID_INPUT);
+        }
+    }
+
+    private boolean hasExactlyOneCreateImageSource(
+            List<String> imageKeys,
+            List<UUID> imageAssetIds
+    ) {
+        boolean legacyProvided = imageKeys != null;
+        boolean assetsProvided = imageAssetIds != null;
+        if (legacyProvided == assetsProvided) {
+            return false;
+        }
+        return legacyProvided ? !imageKeys.isEmpty() : !imageAssetIds.isEmpty();
+    }
+
+    private void validateExclusiveImageCollections(
+            List<String> imageKeys,
+            List<ImageCommand> images
+    ) {
+        if (imageKeys != null && images != null) {
+            throw new BusinessException(CommonErrorCode.INVALID_INPUT);
+        }
     }
 
     // (restaurant_id, day_of_week) 유니크 제약도 이미지와 동일한 insert-before-delete 충돌이 있어 같은 방식으로 교체한다.
-    private void replaceBusinessHoursWithFlush(Restaurant restaurant, List<BusinessHourCommand> businessHours) {
+    private void replaceBusinessHoursWithFlush(
+            Restaurant restaurant,
+            List<RestaurantBusinessHour> businessHours
+    ) {
         restaurant.replaceBusinessHours(List.of());
         restaurantRepository.flush();
-        restaurant.replaceBusinessHours(toBusinessHours(businessHours));
+        restaurant.replaceBusinessHours(businessHours);
     }
 
     private RestaurantGenre toGenre(String value) {
@@ -593,12 +835,23 @@ public class RestaurantService {
                 .orElseThrow(() -> new BusinessException(CommonErrorCode.INVALID_INPUT));
     }
 
-    private List<RestaurantImage> toImages(List<String> imageKeys) {
-        if (imageKeys == null) {
-            return List.of();
+    private List<RestaurantImage> toImagesForCreate(AdminRestaurantCommand command) {
+        if (!hasExactlyOneCreateImageSource(command.imageKeys(), command.imageAssetIds())) {
+            throw new BusinessException(CommonErrorCode.INVALID_INPUT);
         }
+        if (command.imageKeys() != null) {
+            return toLegacyImages(command.imageKeys());
+        }
+        return IntStream.range(0, command.imageAssetIds().size())
+                .mapToObj(index -> RestaurantImage.createAsset(
+                        requireAssetId(command.imageAssetIds().get(index)), index + 1))
+                .toList();
+    }
+
+    private List<RestaurantImage> toLegacyImages(List<String> imageKeys) {
         return IntStream.range(0, imageKeys.size())
-                .mapToObj(index -> RestaurantImage.create(imageKeys.get(index), index + 1))
+                .mapToObj(index -> RestaurantImage.createLegacy(
+                        requireLegacyKey(imageKeys.get(index)), index + 1))
                 .toList();
     }
 
@@ -606,57 +859,320 @@ public class RestaurantService {
         if (menus == null) {
             return List.of();
         }
+        if (menus.stream().anyMatch(Objects::isNull)) {
+            throw new BusinessException(CommonErrorCode.INVALID_INPUT);
+        }
         if (menus.stream().anyMatch(menu -> menu.menuId() != null)) {
             throw new BusinessException(CommonErrorCode.INVALID_INPUT);
         }
         return menus.stream()
-                .map(menu -> RestaurantMenu.create(menu.name(), menu.description(), menu.imageKey(),
-                        toPriceCurrency(menu.priceCurrency()), menu.priceAmount(), menu.main()))
+                .map(this::toNewMenu)
                 .toList();
     }
 
-    private void synchronizeMenus(Restaurant restaurant, List<MenuCommand> commands) {
-        Map<Long, RestaurantMenu> existingMenusById = restaurant.getMenus().stream()
-                .filter(menu -> menu.getId() != null)
-                .collect(Collectors.toMap(RestaurantMenu::getId, Function.identity()));
-        Set<Long> retainedMenuIds = new HashSet<>();
+    private RestaurantMenu toNewMenu(MenuCommand command) {
+        validateMenuImageSource(command);
+        PriceCurrency currency = toPriceCurrency(command.priceCurrency());
+        if (command.imageAssetId() != null) {
+            return RestaurantMenu.createWithAsset(
+                    command.name(),
+                    command.description(),
+                    requireAssetId(command.imageAssetId()),
+                    currency,
+                    command.priceAmount(),
+                    command.main()
+            );
+        }
+        return RestaurantMenu.create(
+                command.name(),
+                command.description(),
+                command.imageKey() == null ? null : requireLegacyKey(command.imageKey()),
+                currency,
+                command.priceAmount(),
+                command.main()
+        );
+    }
 
-        for (MenuCommand command : commands) {
-            if (command.menuId() == null) {
-                continue;
-            }
-            if (!retainedMenuIds.add(command.menuId())) {
-                throw new BusinessException(CommonErrorCode.INVALID_INPUT);
-            }
-            if (!existingMenusById.containsKey(command.menuId())) {
-                throw new BusinessException(RestaurantErrorCode.MENU_NOT_FOUND);
+    private RestaurantImageUpdatePlan planImageUpdate(
+            Restaurant restaurant,
+            AdminRestaurantCommand command
+    ) {
+        if (command.imageKeys() == null && command.images() == null) {
+            return RestaurantImageUpdatePlan.unchanged();
+        }
+        List<RestaurantImage> existingImages = restaurant.getImages().stream()
+                .sorted(Comparator.comparingInt(RestaurantImage::getDisplayOrder))
+                .toList();
+        if (command.imageKeys() != null) {
+            return planLegacyImageUpdate(existingImages, command.imageKeys());
+        }
+        return planAssetImageUpdate(existingImages, command.images());
+    }
+
+    private RestaurantImageUpdatePlan planLegacyImageUpdate(
+            List<RestaurantImage> existingImages,
+            List<String> imageKeys
+    ) {
+        if (existingImages.stream().anyMatch(image -> image.getFileKey() == null)) {
+            throw new BusinessException(CommonErrorCode.INVALID_INPUT);
+        }
+        Map<String, Deque<RestaurantImage>> imagesByKey = new LinkedHashMap<>();
+        existingImages.forEach(image -> imagesByKey
+                .computeIfAbsent(image.getFileKey(), ignored -> new ArrayDeque<>())
+                .addLast(image));
+
+        List<RestaurantImage> finalImages = new ArrayList<>();
+        Set<Long> retainedIds = new HashSet<>();
+        for (String rawKey : imageKeys) {
+            String imageKey = requireLegacyKey(rawKey);
+            Deque<RestaurantImage> candidates = imagesByKey.get(imageKey);
+            RestaurantImage retained = candidates == null ? null : candidates.pollFirst();
+            if (retained == null) {
+                finalImages.add(RestaurantImage.createLegacy(imageKey, 1));
+            } else {
+                finalImages.add(retained);
+                retainedIds.add(retained.getId());
             }
         }
-        commands.forEach(command -> toPriceCurrency(command.priceCurrency()));
+        List<MediaAssetUse> retires = existingImages.stream()
+                .filter(image -> !retainedIds.contains(image.getId()))
+                .map(RestaurantImage::getImageAssetId)
+                .filter(Objects::nonNull)
+                .map(assetId -> new MediaAssetUse(assetId, MediaAssetPurpose.RESTAURANT))
+                .toList();
+        return new RestaurantImageUpdatePlan(
+                true, finalImages, retainedIds, List.of(), retires);
+    }
 
-        commands.stream()
-                .filter(command -> command.menuId() != null)
-                .forEach(command -> existingMenusById.get(command.menuId()).update(
-                        command.name(),
-                        command.description(),
-                        command.imageKey(),
-                        toPriceCurrency(command.priceCurrency()),
-                        command.priceAmount(),
-                        command.main()
+    private RestaurantImageUpdatePlan planAssetImageUpdate(
+            List<RestaurantImage> existingImages,
+            List<ImageCommand> commands
+    ) {
+        if (commands == null || commands.isEmpty()) {
+            throw new BusinessException(CommonErrorCode.INVALID_INPUT);
+        }
+        Map<Long, RestaurantImage> existingById = existingImages.stream()
+                .collect(Collectors.toMap(RestaurantImage::getId, Function.identity()));
+        Set<Long> retainedIds = new HashSet<>();
+        List<RestaurantImage> finalImages = new ArrayList<>();
+        List<MediaAssetUse> claims = new ArrayList<>();
+
+        for (ImageCommand image : commands) {
+            if (image == null
+                    || (image.restaurantImageId() == null) == (image.imageAssetId() == null)) {
+                throw new BusinessException(CommonErrorCode.INVALID_INPUT);
+            }
+            if (image.restaurantImageId() != null) {
+                if (!retainedIds.add(image.restaurantImageId())) {
+                    throw new BusinessException(CommonErrorCode.INVALID_INPUT);
+                }
+                RestaurantImage retained = existingById.get(image.restaurantImageId());
+                if (retained == null) {
+                    throw new BusinessException(CommonErrorCode.INVALID_INPUT);
+                }
+                finalImages.add(retained);
+                continue;
+            }
+            UUID assetId = requireAssetId(image.imageAssetId());
+            finalImages.add(RestaurantImage.createAsset(assetId, 1));
+            claims.add(new MediaAssetUse(assetId, MediaAssetPurpose.RESTAURANT));
+        }
+
+        List<MediaAssetUse> retires = existingImages.stream()
+                .filter(image -> !retainedIds.contains(image.getId()))
+                .map(RestaurantImage::getImageAssetId)
+                .filter(Objects::nonNull)
+                .map(assetId -> new MediaAssetUse(assetId, MediaAssetPurpose.RESTAURANT))
+                .toList();
+        return new RestaurantImageUpdatePlan(
+                true, finalImages, retainedIds, claims, retires);
+    }
+
+    private void applyImageUpdate(
+            Restaurant restaurant,
+            RestaurantImageUpdatePlan plan
+    ) {
+        if (!plan.requested()) {
+            return;
+        }
+        int maxCurrentOrder = restaurant.getImages().stream()
+                .mapToInt(RestaurantImage::getDisplayOrder)
+                .max()
+                .orElse(0);
+        int temporaryStart = Math.addExact(
+                Math.max(maxCurrentOrder, plan.finalImages().size()), 1);
+        restaurant.moveImagesToTemporaryOrders(temporaryStart);
+        restaurantRepository.flush();
+
+        restaurant.removeImagesNotIn(plan.retainedImageIds());
+        plan.finalImages().stream()
+                .filter(image -> image.getId() == null)
+                .forEach(restaurant::addImage);
+        IntStream.range(0, plan.finalImages().size())
+                .forEach(index -> plan.finalImages().get(index).setDisplayOrder(index + 1));
+        restaurant.sortImagesByDisplayOrder();
+        restaurantRepository.flush();
+    }
+
+    private RestaurantMenuUpdatePlan planMenuUpdate(
+            Restaurant restaurant,
+            List<MenuCommand> commands
+    ) {
+        if (commands == null) {
+            return RestaurantMenuUpdatePlan.unchanged();
+        }
+        Map<Long, RestaurantMenu> existingById = restaurant.getMenus().stream()
+                .filter(menu -> menu.getId() != null)
+                .collect(Collectors.toMap(RestaurantMenu::getId, Function.identity()));
+        Set<Long> retainedIds = new HashSet<>();
+        List<MenuMutation> mutations = new ArrayList<>();
+        List<MediaAssetUse> claims = new ArrayList<>();
+        List<MediaAssetUse> retires = new ArrayList<>();
+
+        for (MenuCommand command : commands) {
+            if (command == null) {
+                throw new BusinessException(CommonErrorCode.INVALID_INPUT);
+            }
+            validateMenuImageSource(command);
+            PriceCurrency currency = toPriceCurrency(command.priceCurrency());
+            if (command.menuId() == null) {
+                UUID newAssetId = command.imageAssetId() == null
+                        ? null
+                        : requireAssetId(command.imageAssetId());
+                if (newAssetId != null) {
+                    claims.add(new MediaAssetUse(
+                            newAssetId, MediaAssetPurpose.RESTAURANT_MENU));
+                }
+                mutations.add(new MenuMutation(
+                        null,
+                        command,
+                        command.imageKey() == null ? null : requireLegacyKey(command.imageKey()),
+                        newAssetId,
+                        currency
                 ));
+                continue;
+            }
 
-        restaurant.removeMenusNotIn(retainedMenuIds);
-        commands.stream()
-                .filter(command -> command.menuId() == null)
-                .map(command -> RestaurantMenu.create(
-                        command.name(),
-                        command.description(),
-                        command.imageKey(),
-                        toPriceCurrency(command.priceCurrency()),
-                        command.priceAmount(),
-                        command.main()
-                ))
+            if (!retainedIds.add(command.menuId())) {
+                throw new BusinessException(CommonErrorCode.INVALID_INPUT);
+            }
+            RestaurantMenu existing = existingById.get(command.menuId());
+            if (existing == null) {
+                throw new BusinessException(RestaurantErrorCode.MENU_NOT_FOUND);
+            }
+            ResolvedMenuImage image = resolveMenuImage(existing, command, claims, retires);
+            mutations.add(new MenuMutation(
+                    existing, command, image.imageKey(), image.imageAssetId(), currency));
+        }
+
+        existingById.values().stream()
+                .filter(menu -> !retainedIds.contains(menu.getId()))
+                .map(RestaurantMenu::getImageAssetId)
+                .filter(Objects::nonNull)
+                .map(assetId -> new MediaAssetUse(assetId, MediaAssetPurpose.RESTAURANT_MENU))
+                .forEach(retires::add);
+        return new RestaurantMenuUpdatePlan(
+                true, mutations, retainedIds, claims, retires);
+    }
+
+    private ResolvedMenuImage resolveMenuImage(
+            RestaurantMenu existing,
+            MenuCommand command,
+            List<MediaAssetUse> claims,
+            List<MediaAssetUse> retires
+    ) {
+        UUID currentAssetId = existing.getImageAssetId();
+        if (command.imageAssetId() != null) {
+            UUID nextAssetId = requireAssetId(command.imageAssetId());
+            if (Objects.equals(currentAssetId, nextAssetId)) {
+                return new ResolvedMenuImage(existing.getImageKey(), currentAssetId);
+            }
+            addMenuRetire(currentAssetId, retires);
+            claims.add(new MediaAssetUse(nextAssetId, MediaAssetPurpose.RESTAURANT_MENU));
+            return new ResolvedMenuImage(null, nextAssetId);
+        }
+        if (command.imageKey() != null) {
+            String nextImageKey = requireLegacyKey(command.imageKey());
+            if (Objects.equals(existing.getImageKey(), nextImageKey)) {
+                return new ResolvedMenuImage(existing.getImageKey(), currentAssetId);
+            }
+            addMenuRetire(currentAssetId, retires);
+            return new ResolvedMenuImage(nextImageKey, null);
+        }
+        addMenuRetire(currentAssetId, retires);
+        return new ResolvedMenuImage(null, null);
+    }
+
+    private void applyMenuUpdate(
+            Restaurant restaurant,
+            RestaurantMenuUpdatePlan plan
+    ) {
+        if (!plan.requested()) {
+            return;
+        }
+        plan.mutations().stream()
+                .filter(mutation -> mutation.existing() != null)
+                .forEach(mutation -> mutation.existing().update(
+                        mutation.command().name(),
+                        mutation.command().description(),
+                        mutation.imageKey(),
+                        mutation.imageAssetId(),
+                        mutation.currency(),
+                        mutation.command().priceAmount(),
+                        mutation.command().main()
+                ));
+        restaurant.removeMenusNotIn(plan.retainedMenuIds());
+        plan.mutations().stream()
+                .filter(mutation -> mutation.existing() == null)
+                .map(this::toNewMenu)
                 .forEach(restaurant::addMenu);
+    }
+
+    private RestaurantMenu toNewMenu(MenuMutation mutation) {
+        MenuCommand command = mutation.command();
+        if (mutation.imageAssetId() != null) {
+            return RestaurantMenu.createWithAsset(
+                    command.name(), command.description(), mutation.imageAssetId(),
+                    mutation.currency(), command.priceAmount(), command.main());
+        }
+        return RestaurantMenu.create(
+                command.name(), command.description(), mutation.imageKey(),
+                mutation.currency(), command.priceAmount(), command.main());
+    }
+
+    private void validateMenuImageSource(MenuCommand command) {
+        if (command.imageKey() != null && command.imageAssetId() != null) {
+            throw new BusinessException(CommonErrorCode.INVALID_INPUT);
+        }
+    }
+
+    private void addMenuRetire(UUID assetId, List<MediaAssetUse> retires) {
+        if (assetId != null) {
+            retires.add(new MediaAssetUse(assetId, MediaAssetPurpose.RESTAURANT_MENU));
+        }
+    }
+
+    private String requireLegacyKey(String imageKey) {
+        if (imageKey == null || imageKey.isBlank()) {
+            throw new BusinessException(CommonErrorCode.INVALID_INPUT);
+        }
+        return imageKey;
+    }
+
+    private UUID requireAssetId(UUID assetId) {
+        if (assetId == null) {
+            throw new BusinessException(CommonErrorCode.INVALID_INPUT);
+        }
+        return assetId;
+    }
+
+    private void reconcileMediaBindings(
+            List<MediaAssetUse> claims,
+            List<MediaAssetUse> retires
+    ) {
+        if (!claims.isEmpty() || !retires.isEmpty()) {
+            mediaPort.reconcileBindings(claims, retires);
+        }
     }
 
     private List<RestaurantBusinessHour> toBusinessHours(List<BusinessHourCommand> businessHours) {
@@ -699,6 +1215,16 @@ public class RestaurantService {
     }
 
     private AdminRestaurantInfo toAdminInfo(Restaurant restaurant) {
+        List<RestaurantImage> orderedImages = orderedImages(restaurant, Integer.MAX_VALUE);
+        List<RestaurantMenu> menus = List.copyOf(restaurant.getMenus());
+        MediaProjection mediaProjection = loadAdminProjection(orderedImages, menus);
+        ProjectedImage thumbnail = orderedImages.isEmpty()
+                ? ProjectedImage.empty()
+                : projectImage(
+                        orderedImages.getFirst(),
+                        MediaImageRole.RESTAURANT_THUMBNAIL,
+                        mediaProjection);
+
         return new AdminRestaurantInfo(
                 restaurant.getId(),
                 restaurant.getName(),
@@ -709,17 +1235,16 @@ public class RestaurantService {
                 restaurant.getArea(),
                 restaurant.getGenre().value(),
                 restaurant.getFoodCategory(),
-                fileStorage.resolveFileUrl(restaurant.getThumbnailFileKey()),
+                thumbnail.url(),
+                toImageInfo(orderedImages.isEmpty() ? null : orderedImages.getFirst(), thumbnail),
                 restaurant.getPriceCurrency().value(),
                 restaurant.getMinPrice(),
                 restaurant.getMaxPrice(),
                 restaurant.isDeleted(),
-                restaurant.getImages().stream()
-                        .map(RestaurantImage::getFileKey)
-                        .map(fileStorage::resolveFileUrl)
-                        .toList(),
-                restaurant.getMenus().stream()
-                        .map(this::toAdminMenuInfo)
+                toImageUrls(orderedImages, MediaImageRole.RESTAURANT_HERO, mediaProjection),
+                toImageInfos(orderedImages, MediaImageRole.RESTAURANT_HERO, mediaProjection),
+                menus.stream()
+                        .map(menu -> toAdminMenuInfo(menu, mediaProjection))
                         .toList(),
                 List.copyOf(restaurant.getHashtags()),
                 restaurant.getCurationTypes().stream()
@@ -742,15 +1267,97 @@ public class RestaurantService {
                 businessHour.isClosed());
     }
 
-    private AdminRestaurantMenuInfo toAdminMenuInfo(RestaurantMenu menu) {
+    private AdminRestaurantMenuInfo toAdminMenuInfo(
+            RestaurantMenu menu,
+            MediaProjection mediaProjection
+    ) {
+        ProjectedImage menuImage = projectMenuImage(
+                menu, MediaImageRole.MENU_LIST, mediaProjection);
         return new AdminRestaurantMenuInfo(
                 menu.getId(),
                 menu.getName(),
                 menu.getDescription(),
-                fileStorage.resolveFileUrl(menu.getImageKey()),
+                menuImage.url(),
+                menuImage.image(),
                 menu.getPriceCurrency() == null ? null : menu.getPriceCurrency().value(),
                 menu.getPriceAmount(),
                 menu.isMain());
+    }
+
+    private record RestaurantImageUpdatePlan(
+            boolean requested,
+            List<RestaurantImage> finalImages,
+            Set<Long> retainedImageIds,
+            List<MediaAssetUse> claims,
+            List<MediaAssetUse> retires
+    ) {
+
+        private RestaurantImageUpdatePlan {
+            finalImages = List.copyOf(finalImages);
+            retainedImageIds = Set.copyOf(retainedImageIds);
+            claims = List.copyOf(claims);
+            retires = List.copyOf(retires);
+        }
+
+        private static RestaurantImageUpdatePlan unchanged() {
+            return new RestaurantImageUpdatePlan(
+                    false, List.of(), Set.of(), List.of(), List.of());
+        }
+    }
+
+    private record RestaurantMenuUpdatePlan(
+            boolean requested,
+            List<MenuMutation> mutations,
+            Set<Long> retainedMenuIds,
+            List<MediaAssetUse> claims,
+            List<MediaAssetUse> retires
+    ) {
+
+        private RestaurantMenuUpdatePlan {
+            mutations = List.copyOf(mutations);
+            retainedMenuIds = Set.copyOf(retainedMenuIds);
+            claims = List.copyOf(claims);
+            retires = List.copyOf(retires);
+        }
+
+        private static RestaurantMenuUpdatePlan unchanged() {
+            return new RestaurantMenuUpdatePlan(
+                    false, List.of(), Set.of(), List.of(), List.of());
+        }
+    }
+
+    private record MenuMutation(
+            RestaurantMenu existing,
+            MenuCommand command,
+            String imageKey,
+            UUID imageAssetId,
+            PriceCurrency currency
+    ) {
+    }
+
+    private record ResolvedMenuImage(String imageKey, UUID imageAssetId) {
+    }
+
+    private record MediaProjection(Map<MediaImageRequest, MediaImage> images) {
+
+        private MediaProjection {
+            images = Map.copyOf(images);
+        }
+
+        private static MediaProjection empty() {
+            return new MediaProjection(Map.of());
+        }
+
+        private MediaImage find(UUID assetId, MediaImageRole role) {
+            return images.get(new MediaImageRequest(assetId, role));
+        }
+    }
+
+    private record ProjectedImage(String url, MediaImage image) {
+
+        private static ProjectedImage empty() {
+            return new ProjectedImage(null, null);
+        }
     }
 
     private String formatTime(LocalTime time) {

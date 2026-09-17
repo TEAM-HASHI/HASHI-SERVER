@@ -281,23 +281,62 @@ v1은 Node.js와 Sharp를 Lambda ZIP으로 배포한다.
   동일 fixture benchmark와 ZIP smoke test를 통과한 별도 spec version에서 검토한다.
 - Sharp와 모든 Node dependency는 `package-lock.json`으로 exact version을 고정한다. Lambda
   Layer나 runtime 내장 AWS SDK에 의존하지 않고 production ZIP에 필요한 package를 포함한다.
-- 초기 Lambda 설정은 memory 1536MB, timeout 60초, request SQS batch size 1이다. 실제 대표
-  이미지 benchmark에서 memory, timeout과 concurrency만 조정할 수 있으며 출력 bytes에 영향을
-  주는 Sharp와 encoder 설정 변경은 `specVersion`을 올린다.
+- 초기 Lambda 설정은 memory 1536MB, timeout 60초, request SQS batch size 1과 reserved
+  concurrency 5다. SAM은 모든 function property 변경에 새 worker version을 만들고 `live` alias로
+  발행한다. 최초 stack 배포에서는 request event source를 비활성화하고, Spring result consumer와
+  alarm 준비를 확인한 뒤 승인된 dev 절차에서 명시적으로 활성화한다. 실제 대표 이미지 benchmark에서
+  memory, timeout과 concurrency만 조정할 수 있으며 출력 bytes에 영향을 주는 Sharp와 encoder 설정
+  변경은 `specVersion`을 올린다.
 
 GitHub Actions Linux runner에서 Lambda 환경과 호환되는 Sharp package를 포함한 ZIP을 만든다.
 worker source는 HASHI-SERVER 저장소 안의 별도 디렉터리와 독립 Node package로 관리한다.
 Gradle과 Spring runtime dependency에는 포함하지 않고 worker 변경에만 별도 CI와 배포를
 실행한다. 팀과 배포 주기가 실제로 분리될 때 별도 저장소 이전을 검토한다.
 
-AWS 리소스는 AWS SAM으로 표현하고 CloudFormation stack을 dev와 prod로 분리한다. GitHub
-Actions는 environment별 OIDC role을 assume하며 장기 AWS access key를 repository나 GitHub
-Secrets에 추가하지 않는다. SAM stack은 private original bucket, request와 result SQS 및
-각 DLQ, Lambda, event source mapping, 최소 권한 IAM과 CloudWatch alarm을 소유한다. 기존
-delivery bucket과 CloudFront distribution은 parameter로 참조하고 stack의 관리 대상으로
-가져오지 않아 기존 리소스의 교체나 삭제 위험을 막는다. original bucket에는 deletion과
-replacement 방지를 위한 retain 정책을 적용한다. prod stack apply와 issuance 활성화는 dev
-E2E와 별도 운영 승인을 통과한 뒤 수행한다.
+AWS 리소스는 AWS SAM으로 표현하고 CloudFormation stack을 dev와 prod로 분리한다. CI와 배포는
+동일한 SAM CLI `1.165.0`을 사용한다. GitHub Actions는 dev 배포에서 `develop` branch가 고정된 OIDC
+role을 assume하며 장기 AWS access key를 repository나 GitHub Secrets에 추가하지 않는다. prod build
+job은 AWS credential을 요청하지 않고 별도 AWS 운영자가 검토한 artifact를 배포한다. 현재 private
+GitHub Free 저장소에서는 required reviewer, protected branch와 environment variable을 강제할 수
+없으므로 dev AWS 값만 `MEDIA_DEV_*` repository variable로 두고, stack 이름을
+`hashi-{environment}-media-pipeline`으로 결정적으로 만든다. dev workflow와 prod 운영 절차는 기존
+stack의 environment parameter와 tag가 target과 다르면 change set을 만들지 않는다. 이 plan에서는
+write와 workflow 실행 권한자를 dev
+배포 신뢰 경계로 보고 dev AWS 권한과 data를 prod에서 격리한다. prod workflow에는 AWS 권한이 없으므로
+이 경계를 prod AWS 권한으로 확대하지 않는다.
+
+worker dependency 설치, test, ZIP 생성과 SAM 검증은 `id-token` 권한이 없는 build job에서 수행한다.
+build job은 immutable artifact 이름과 build ZIP SHA-256을 output으로 전달한다. dev deploy job은 그
+이름으로 artifact를 복원해 digest, 안전한 ZIP 경로와 필수 파일 구조만 확인한다. OIDC 권한이 있는
+deploy job에서는 artifact의 JavaScript나 native module을 실행하지 않는다. Sharp, handler와 manifest
+smoke test는 build job에서 끝낸다. source commit과 build ZIP SHA-256은 stack parameter, tag와 output으로
+남긴다. 이 digest는
+SAM이 directory를 다시 package한 최종 ZIP의 byte digest라고 주장하지 않으며, 검증된 build 입력물의
+추적값이다. prod 운영자는 exact commit과 GitHub artifact를 확인한 뒤 별도 AWS 세션에서 change set을
+생성·검토·실행한다.
+
+SAM stack은 private original bucket, request와 result SQS 및 각 DLQ, Lambda, event source mapping,
+최소 권한 IAM과 CloudWatch alarm을 소유한다. Lambda worker에는 명시적인 execution role을 연결하고
+request queue, 전용 log group, original/rendition prefix와 result queue만 허용한다. SAM이 생성하는
+광범위 SQS managed policy를 사용하지 않는다. 기존 delivery bucket과 CloudFront distribution은
+parameter로 참조하고 stack의 관리 대상으로 가져오지 않아 기존 리소스의 교체나 삭제 위험을 막는다.
+original bucket과 TLS 강제 bucket policy에는 deletion과 replacement 방지를 위한 retain 정책을
+적용한다.
+
+dev OIDC deploy role과 CloudFormation execution role은 분리하고 같은 ARN을 거부한다. execution role은
+CloudFormation service만 신뢰한다. dev OIDC role과 prod 운영자 세션은 자기 환경의 정확한 execution
+role만 CloudFormation에 `iam:PassRole`로 전달할 수 있고 `iam:PassedToService`와
+`cloudformation:RoleARN` 조건으로 제한한다. 각 CloudFormation execution role은 결정적인 이름의
+`hashi-{environment}-media-image-transform-lambda` role만 `lambda.amazonaws.com`에
+`iam:PassRole`할 수 있다. version-controlled 별도 bootstrap template이 만드는 permissions boundary를
+execution role에 붙여 다른 identity policy가 이 상한을 넓히지 못하게 한다. 배포 전에는 boundary ARN,
+최신 policy document와 exact role의 유효 grant를 모두 검사하며 AWS 조회 오류도 실패로 처리한다.
+dev workflow는 stack을 적용할 수 있다. prod workflow는 GitHub artifact만 생성하고, 별도 AWS 운영자가
+dev E2E와 운영 승인을 확인한 뒤 `--no-execute-changeset`으로 change set을 생성·검토·실행한다. prod
+issuance 활성화도 cleanup, alarm과 E2E gate를 통과한 뒤 별도로 수행한다.
+
+prod에서는 `AlarmNotificationTopicArn`이 비어 있으면 CloudFormation Rule이 change set 생성을 거부한다.
+dev는 빈 값을 허용하지만, 외부 알림이 없다는 사실을 배포자가 확인해야 한다.
 
 Spring Boot 3.5.x 애플리케이션의 SQS publisher와 result consumer는 Spring Cloud AWS 3.4.2를
 사용한다. listener는 media Service의 transaction이 commit된 뒤에만 ack하고, listener container
@@ -347,6 +386,8 @@ vN compatibility를 확인한다. config의 `(oldVersion, oldDigest, false)`를
 - 신규 원본은 별도 private original bucket에 저장한다.
 - original bucket은 versioning을 활성화한다. 완료 확인 시점의 version ID와 ETag를 job에
   고정하고 worker는 해당 version만 읽는다.
+- original bucket에서 versioning을 처음 활성화한 stack 생성은 첫 PUT 또는 DELETE 전에 15분을
+  기다린다. 이미 versioning이 활성화된 기존 stack update에는 이 대기를 반복하지 않는다.
 - 신규 presigned PUT은 서명된 `If-None-Match: *`로 첫 write만 허용한다. 동일 URL의 두 번째
   write는 412나 409로 거부된다.
 - `media/originals/*`에는 무조건적인 `NoncurrentVersionExpiration`을 설정하지 않는다. backfill
@@ -377,6 +418,11 @@ vN compatibility를 확인한다. config의 `(oldVersion, oldDigest, false)`를
   PURGING asset을 거부한다. S3 삭제는 transaction 밖에서 purgeToken 기준으로 멱등 실행하고,
   별도 transaction에서 PURGED tombstone 또는 row 삭제로 마무리한다. 중단된 PURGING은 같은
   token으로 재개하며 DB lock을 S3 호출 동안 유지하지 않는다.
+- asset 전체 정리는 기본 비활성·DRY_RUN이며, 삭제 IAM과 Spring 실행 설정을 별도로 허용한다.
+  IAM은 지정한 original/rendition media prefix로만 제한하고 worker와 legacy 삭제 권한은 늘리지 않는다.
+  기본 처리량은 프로세스당 실행 1회 최대 50개 asset이다. upload safety window를 명시해야 실행할 수
+  있으며, 중지와 재개는 [asset cleanup runbook](../media/asset-cleanup-runbook.md)을 따른다.
+  배포만으로 삭제를 시작하지 않고 실제 실행·보존 기간 변경은 별도 운영 승인을 받는다.
 - terminal FAILED target의 partial object는 asset cleanupStatus를 바꾸지 않는 object-only
   reconciliation으로 정리한다. target 전체 성공 transaction만 rendition manifest와 active
   pointer를 함께 저장하므로 실패 target의 partial object는 manifest가 없는 orphan이다. 삭제
@@ -387,6 +433,9 @@ vN compatibility를 확인한다. config의 `(oldVersion, oldDigest, false)`를
   manifest는 v1에서 자동 삭제하지 않는다.
 - original bucket은 CloudFront origin으로 연결하지 않는다.
 - 기존 S3 bucket은 WebP 파생본 delivery에 사용한다.
+- 배포 전 기존 delivery bucket의 enabled lifecycle rule을 확인한다. tag 없는
+  `media/renditions/*`와 겹치는 current object expiration 또는 storage transition이 있으면 배포를
+  차단한다.
 - 기존 CloudFront distribution을 유지한다.
 - 전환 기간에는 기존 CloudFront OAC의 legacy delivery prefix 읽기 권한을 유지하고
   `media/renditions/*`를 추가 허용한다. backfill, 클라이언트 전환과 legacy fallback 사용량 0을
@@ -550,6 +599,9 @@ HASHI는 화면 role과 후보 폭이 제한돼 있으므로 업로드 후 비�
 구현 전 별도 확인:
 
 - 기존 AWS 리소스와 배포 인증 방식
+- private GitHub Free의 dev 신뢰 경계와 dev/prod AWS 권한 및 data 격리
+- dev branch OIDC trust, 두 단계 exact `iam:PassRole`, `cloudformation:RoleARN`과 worker runtime 최소 권한
+- source commit과 worker build ZIP SHA-256을 prod artifact 및 change set과 대조하는 운영 절차
 - role별 WebP quality와 보안 제한 benchmark
 - SQS와 Lambda의 실제 운영 수치
 - 일반 삭제, 회원 탈퇴와 신고 이미지의 물리 삭제 보존 정책

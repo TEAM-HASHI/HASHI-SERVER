@@ -11,7 +11,9 @@ import static org.mockito.Mockito.verifyNoInteractions;
 
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
+import java.util.UUID;
 import java.util.stream.LongStream;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -19,6 +21,15 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.sopt.hashi.restaurant.RestaurantPort;
+import org.sopt.hashi.media.ImageReference;
+import org.sopt.hashi.media.MediaImage;
+import org.sopt.hashi.media.MediaImage.Candidate;
+import org.sopt.hashi.media.MediaImage.Source;
+import org.sopt.hashi.media.MediaImage.SourceSet;
+import org.sopt.hashi.media.MediaImageRequest;
+import org.sopt.hashi.media.MediaImageRole;
+import org.sopt.hashi.media.MediaImageStatus;
+import org.sopt.hashi.media.MediaPort;
 import org.sopt.hashi.review.code.ReviewErrorCode;
 import org.sopt.hashi.review.domain.Review;
 import org.sopt.hashi.review.domain.ReviewImage;
@@ -50,6 +61,9 @@ class ReviewServiceTest {
     @Mock
     private FileStorage fileStorage;
 
+    @Mock
+    private MediaPort mediaPort;
+
     private ReviewService reviewService;
 
     @BeforeEach
@@ -58,7 +72,8 @@ class ReviewServiceTest {
                 reviewRepository,
                 restaurantPort,
                 userPort,
-                fileStorage);
+                fileStorage,
+                mediaPort);
     }
 
     @Test
@@ -77,12 +92,20 @@ class ReviewServiceTest {
                 ratingCount(4, 3L),
                 ratingCount(3, 1L)
         ));
+        UUID profileAssetId = UUID.randomUUID();
+        MediaImage profileImage = readyProfileImage(profileAssetId);
+        MediaImageRequest profileRequest = new MediaImageRequest(
+                profileAssetId, MediaImageRole.PROFILE_AVATAR);
         given(userPort.findProfiles(List.of(1L, 2L, 3L, 4L, 5L))).willReturn(List.of(
-                userProfile(1L, "하루", "https://cdn.example.com/users/1/profile.jpg"),
+                userProfile(1L, "하루", ImageReference.asset(profileAssetId)),
                 userProfile(2L, "소라", null),
-                userProfile(4L, "민", "https://cdn.example.com/users/4/profile.jpg"),
-                userProfile(5L, "유나", "https://cdn.example.com/users/5/profile.jpg")
+                userProfile(4L, "민", ImageReference.legacy(
+                        "https://cdn.example.com/users/4/profile.jpg")),
+                userProfile(5L, "유나", ImageReference.legacy(
+                        "https://cdn.example.com/users/5/profile.jpg"))
         ));
+        given(mediaPort.findImages(List.of(profileRequest)))
+                .willReturn(Map.of(profileRequest, profileImage));
         given(fileStorage.resolveFileUrl(anyString()))
                 .willAnswer(invocation -> "https://cdn.example.com/" + invocation.getArgument(0));
 
@@ -104,7 +127,9 @@ class ReviewServiceTest {
         assertThat(response.content()).hasSize(5);
         assertThat(response.content().getFirst().reviewerNickname()).isEqualTo("하루");
         assertThat(response.content().getFirst().reviewerProfileImageUrl())
-                .isEqualTo("https://cdn.example.com/users/1/profile.jpg");
+                .isEqualTo(profileImage.defaultSource().url());
+        assertThat(response.content().getFirst().reviewerProfileImage())
+                .isEqualTo(profileImage);
         assertThat(response.content().get(1).reviewerProfileImageUrl()).isNull();
         assertThat(response.content().get(2).reviewerNickname()).isEqualTo("탈퇴한 회원");
         assertThat(response.content().get(2).reviewerProfileImageUrl()).isNull();
@@ -119,6 +144,7 @@ class ReviewServiceTest {
         assertThat(response.nextCursor()).isEqualTo(5L);
         assertThat(response.hasNext()).isTrue();
         verify(userPort).findProfiles(List.of(1L, 2L, 3L, 4L, 5L));
+        verify(mediaPort).findImages(List.of(profileRequest));
         verify(userPort, never()).findById(anyLong());
     }
 
@@ -222,8 +248,20 @@ class ReviewServiceTest {
         return review;
     }
 
-    private UserProfileInfo userProfile(Long id, String nickname, String profileImageUrl) {
-        return new UserProfileInfo(id, nickname, profileImageUrl);
+    private UserProfileInfo userProfile(Long id, String nickname, ImageReference imageReference) {
+        return new UserProfileInfo(id, nickname, imageReference);
+    }
+
+    private MediaImage readyProfileImage(UUID assetId) {
+        String url = "https://cdn.example.com/users/profile/96.webp";
+        return new MediaImage(
+                assetId,
+                MediaImageRole.PROFILE_AVATAR,
+                MediaImageStatus.READY,
+                new Source(url, 96, 96, "image/webp"),
+                List.of(new SourceSet(
+                        "image/webp",
+                        List.of(new Candidate(url, 96, 96)))));
     }
 
     private RatingCount ratingCount(Integer rating, Long count) {

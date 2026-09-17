@@ -1,0 +1,125 @@
+name: Image Pipeline Infrastructure CI
+
+on:
+  pull_request:
+    paths:
+      - ".env.dev.example"
+      - ".github/workflows/ci-image-pipeline-infra.yml"
+      - ".github/workflows/deploy-image-pipeline.yml"
+      - "infra/media/**"
+      - "src/test/java/org/sopt/hashi/media/internal/backfill/MediaBackfillInfrastructureTest.java"
+      - "src/test/java/org/sopt/hashi/media/internal/cleanup/MediaCleanupInfrastructureTest.java"
+      - "media-specs/**"
+      - "worker/image-transform/**"
+  push:
+    branches:
+      - develop
+    paths:
+      - ".env.dev.example"
+      - ".github/workflows/ci-image-pipeline-infra.yml"
+      - ".github/workflows/deploy-image-pipeline.yml"
+      - "infra/media/**"
+      - "src/test/java/org/sopt/hashi/media/internal/backfill/MediaBackfillInfrastructureTest.java"
+      - "src/test/java/org/sopt/hashi/media/internal/cleanup/MediaCleanupInfrastructureTest.java"
+      - "media-specs/**"
+      - "worker/image-transform/**"
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    name: Validate and build SAM stack
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout source code
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
+      - name: Set up Node.js 24
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: worker/image-transform/package-lock.json
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@dd06d9cba3e5552c54d9f8ea23572deb30010f7c # v6.0.0
+        with:
+          distribution: temurin
+          java-version: "21"
+          cache: gradle
+
+      - name: Verify backfill and migration contracts
+        run: >-
+          bash ./gradlew test
+          --tests 'org.sopt.hashi.media.MediaBackfill*'
+          --tests org.sopt.hashi.media.domain.ImageAssetTest
+          --tests org.sopt.hashi.media.domain.MediaSchemaValidationTest
+          --tests org.sopt.hashi.media.domain.ProfileMagazineMediaUpgradeTest
+          --tests 'org.sopt.hashi.media.internal.backfill.*'
+          --tests org.sopt.hashi.media.internal.cleanup.MediaCleanupInfrastructureTest
+          --tests 'org.sopt.hashi.media.service.MediaBackfill*'
+          --tests org.sopt.hashi.migration.FlywayMigrationTest
+          --tests org.sopt.hashi.migration.MediaPipelineConfigLifecycleTest
+          --tests org.sopt.hashi.ModularityTests
+          --no-daemon
+
+      - name: Set up AWS SAM CLI 1.165.0
+        uses: aws-actions/setup-sam@89ddb14d60e682855e3fea4be85b3c56485de310 # v3
+        with:
+          version: "1.165.0"
+          use-installer: true
+          token: ${{ github.token }}
+
+      - name: Verify build tools
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --version
+          sam_version="$(sam --version)"
+          echo "${sam_version}"
+          [[ "${sam_version}" == "SAM CLI, version 1.165.0" ]]
+
+      - name: Test delivery lifecycle policy checker
+        run: node --test infra/media/scripts/check-delivery-lifecycle.test.mjs
+
+      - name: Test and enforce worker IAM boundary
+        run: |
+          node --test infra/media/scripts/check-cloudformation-pass-role.test.mjs
+          node --test infra/media/scripts/check-template-guardrails.test.mjs
+          node infra/media/scripts/check-template-guardrails.mjs \
+            infra/media/template.yaml \
+            infra/media/bootstrap/cloudformation-execution-boundary.yaml \
+            infra/media/parameters/prod.example.json
+          node --test infra/media/scripts/check-deploy-workflow-trust.test.mjs
+          node infra/media/scripts/check-deploy-workflow-trust.mjs .github/workflows/deploy-image-pipeline.yml
+          node --test infra/media/scripts/check-worker-iam.test.mjs
+          node infra/media/scripts/check-worker-iam.mjs infra/media/template.yaml
+
+      - name: Install exact worker dependencies
+        working-directory: worker/image-transform
+        run: npm ci
+
+      - name: Test worker
+        working-directory: worker/image-transform
+        run: npm test
+
+      - name: Build production Lambda package
+        working-directory: worker/image-transform
+        run: |
+          npm run package:lambda
+          node scripts/verify-package.mjs artifacts/package
+
+      - name: Lint SAM template
+        run: |
+          sam validate --lint --region ap-northeast-2 --template-file infra/media/template.yaml
+          sam validate --lint --region ap-northeast-2 \
+            --template-file infra/media/bootstrap/cloudformation-execution-boundary.yaml
+
+      - name: Build SAM stack
+        run: >-
+          sam build
+          --template-file infra/media/template.yaml
+          --build-dir .aws-sam/media-build

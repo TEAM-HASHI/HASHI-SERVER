@@ -50,14 +50,30 @@ WebP 단일 제공은 합의된 최소 지원 환경인 Safari와 iOS 16.4 이�
 - 기존 Spring Boot 애플리케이션과 Docker, EC2 배포 구조는 유지한다.
 - 변환 worker는 `nodejs24.x`, `x86_64`, Sharp 기반 Lambda ZIP으로 배포한다.
 - worker용 EC2, ECS, ECR과 운영 Docker image를 추가하지 않는다.
-- 초기 Lambda 설정은 memory 1536MB, timeout 60초, request batch size 1이다.
+- 초기 Lambda 설정은 memory 1536MB, timeout 60초, request batch size 1, reserved concurrency
+  5다. 모든 function property 변경에 새 version을 만들고 `live` alias로 발행하며, 최초 request
+  event source는 비활성화한다.
 - private original bucket, SQS와 DLQ, Lambda, IAM, alarm은 AWS SAM/CloudFormation의 dev와
   prod stack으로 관리한다.
-- GitHub Actions는 environment별 OIDC role을 사용하고 장기 AWS access key를 저장하지 않는다.
+- CI와 배포는 SAM CLI `1.165.0`을 사용한다. GitHub Actions는 dev 배포에만 `develop` branch가
+  고정된 OIDC role을 사용하고 장기 AWS access key를 저장하지 않는다. prod build job은 AWS
+  credential을 요청하지 않으며 별도 AWS 운영자가 검토된 artifact를 배포한다.
+- worker는 stack이 직접 정의한 execution role로 request queue, 전용 log group, original/rendition
+  prefix와 result queue만 접근한다. SAM이 자동 부착하는 광범위 SQS managed policy는 사용하지 않는다.
+- worker build와 검증은 OIDC 권한이 없는 job에서 수행한다. dev deploy job은 build job이 output으로
+  넘긴 immutable artifact 이름과 build ZIP SHA-256, 안전한 경로와 파일 구조만 확인한다. OIDC 권한이
+  있는 job에서는 worker JavaScript와 native module을 실행하지 않는다.
+- 현재 private GitHub Free 저장소에서 강제할 수 없는 required reviewer와 protected branch를 전제로
+  하지 않는다. dev AWS 권한과 data를 prod에서 격리하고, dev workflow만 stack을 적용한다. prod
+  workflow는 검토할 source commit과 artifact digest가 있는 GitHub artifact만 생성한다. 별도 AWS
+  운영자가 exact commit과 artifact를 확인하고 prod change set을 생성·검토·실행한다.
 - 기존 delivery bucket과 CloudFront는 새 stack이 소유하지 않고 parameter로 참조한다.
 - Spring의 SQS 연동은 Spring Boot 3.5.x와 호환되는 Spring Cloud AWS 3.4.2를 사용한다.
 - prod stack 적용과 `media_pipeline_config.issuance_enabled=true` 전환은 dev E2E 이후 별도
   운영 승인 대상으로 둔다.
+- prod의 alarm SNS topic은 CloudFormation Rule로 필수화하며 빈 값의 change set을 거부한다.
+- request event source는 Spring result consumer와 alarm 준비를 확인한 뒤 승인된 dev 배포에서만
+  명시적으로 활성화한다. 설정이 누락되면 활성화하지 않는다.
 
 ## 3. 용어
 
@@ -211,7 +227,7 @@ UNBOUND -> BOUND -> RETIRED
   `SYSTEM_BACKFILL` 이미지도 권한 있는 콘텐츠 Service가 현재 association을 제거할 때 retire할
   수 있다. 현재 association에 없는 임의 asset ID는 retire 대상으로 사용할 수 없다.
 - 콘텐츠 soft delete와 복구 가능 기간에는 기존 연결을 유지한다.
-- 일반 S3 물리 삭제 자동화는 v1에서 제외하지만 논리적인 RETIRED 전이는 v1에 포함한다.
+- 정상 연결·RETIRED 이미지의 물리 삭제 자동화는 v1에서 제외하지만 논리적인 RETIRED 전이는 v1에 포함한다.
 - backfill asset은 필수 rendition이 READY될 때까지 UNBOUND로 둔다. domain별 backfill runner가
   source identity와 association을 다시 확인한 뒤 trusted `MediaBackfillPort`로
   `SYSTEM_BACKFILL`, purpose, READY, UNBOUND와 cleanup 상태를 검증하고 public asset ID 저장과
@@ -264,6 +280,13 @@ UNBOUND -> BOUND -> RETIRED
   남긴다.
 - 개인정보 hard delete 자동화 전에는 승인된 운영 runbook으로 원본, 파생본과 필요한 CDN
   cache를 함께 정리한다.
+
+asset 전체 정리 실행은 기본 비활성이고 DRY_RUN으로 시작한다. 삭제 권한의
+`CleanupAccessEnabled`와 Spring의 `AWS_MEDIA_CLEANUP_ENABLED`는 별도 설정이다.
+업로드 만료 후 safety window를 명시해야 활성화할 수 있다. 기본 처리량은 프로세스당 한 실행에
+최대 50개 asset이며, 작업 중단 시 같은 purgeToken으로 재개한다. 설정·승인·실패 복구 절차는
+[asset cleanup runbook](asset-cleanup-runbook.md)을 따른다. 이 실행기는 DB 미참조 파일이나 실패한
+재변환 spec의 object-only reconciliation을 대체하지 않는다. 두 작업과 dev E2E 전에는 issuance를 켜지 않는다.
 
 ### 6.4 specVersion 활성화
 
@@ -1169,6 +1192,10 @@ backfill 항목부터 점진적으로 전환하고, 미전환 항목은 `assetId
   upgrade의 새 job 발급을 서비스 일시 불가로 차단한다. 새 job이 필요 없는 PROCESSING 또는 READY
   complete 멱등 재호출, 이미 발급된 job의 EPR publish, result consume, redrive와 drain, READY 이미지
   조회, legacy upload와 legacy read는 계속 동작한다.
+- processing recovery column과 제약을 추가하는 최초 migration은 `issuance_enabled=false`이고 target
+  PROCESSING asset이 0건인 상태에서만 적용한다. 현재 단일 EC2의 Spring 컨테이너를 완전히 교체하며,
+  migration 이후 상태 연동을 모르는 과거 바이너리로 단순 rollback하지 않는다. 예상하지 않은
+  PROCESSING row가 있으면 단일 `ALTER TABLE` 전체를 실패시켜 부분 schema를 남기지 않는다.
 - `restaurant_image.file_key`, `review_image.file_key`, `magazine.banner_key`,
   `magazine.thumbnail_key`는 media-backed write를 위해 nullable로 완화한다.
 - restaurant image와 review image의 각 row는 legacy key 또는 public asset ID 중 최소 하나를
@@ -1229,6 +1256,9 @@ snapshot을 DB에서 조회해 queue payload를 만들며, listener ID는
 `media-processing-sqs-publisher-v1`으로 고정한다. 시작 시 미완료 publication을 재전송하고
 실행 중에도 오래된 미완료 건을 주기적으로 재전송한다. 완료 mode는 v1에서 `delete`다.
 여러 instance의 동시 재전송은 결정적 job ID를 가진 중복 메시지로 흡수한다.
+한 주기에는 설정된 batch 수만 listener에 다시 제출한다. Spring Modulith 1.4가 조회 단계에서 전체
+미완료 publication을 메모리에 적재하는 한계는 지표로 감시하고, backlog가 지속적으로 커지면 bounded
+DB claim을 지원하는 framework version 또는 별도 claim 구현으로 전환한다.
 
 publisher가 event를 재처리할 때 asset의 currentJobId가 event jobId와 다르거나 현재 target이
 없으면 해당 job은 이미 terminal 또는 superseded된 것으로 판단해 SQS를 보내지 않고 정상
@@ -1268,6 +1298,7 @@ publisher가 event를 재처리할 때 asset의 currentJobId가 event jobId와 �
   golden fixture를 읽고 specDigest를 포함한 queue wire 계약을 동일하게 해석하는 테스트를 둔다.
 - Java publisher와 Node worker가 모든 append-only spec manifest와 같은 manifest JSON Schema를
   읽고 version, digest, purpose별 role, exact 산출 규격을 동일하게 해석하는 계약 테스트를 둔다.
+  양쪽 모두 worker revision, output constants, 지원 purpose와 role 집합을 job 발급 전에 검증한다.
 - no-upscale 경계값은 공통 golden fixture로 검증한다. `REVIEW_PREVIEW`의 270×270 원본에서는
   135와 270 width 후보를 생성하고 405는 제외한다. 원본과 같은 크기는 확대가 아니다.
 - 기존 manifest 수정과 삭제는 CI가 거부하는지, current v5 request와 result의 digest가 target과
@@ -1362,8 +1393,17 @@ benchmark에 따라 memory, timeout과 concurrency를 조정한다. 출력 bytes
 바꾸면 §11의 `specVersion` 변경 규칙을 따른다.
 
 - 실제 region, bucket, queue, Lambda 이름과 ARN
-- 기존 bucket policy, OAC, CORS, encryption, versioning, lifecycle
-- SAM stack parameter와 environment별 OIDC role의 trust policy 및 최소 권한
+- 기존 bucket의 expected owner, policy, OAC의 S3/SigV4/always-signing, CORS, encryption,
+  versioning과 `media/renditions/*`에 겹치지 않는 lifecycle
+- 최초 original bucket versioning 활성화 뒤 첫 PUT 또는 DELETE 전 15분 대기 여부
+- 결정적인 dev/prod stack 이름, environment parameter와 tag 일치 여부
+- dev OIDC role의 trust policy와 private GitHub Free의 dev 배포 신뢰 경계
+- dev/prod AWS 권한과 data 격리, deploy role과 CloudFormation execution role 분리 및 최소 권한
+- deploy 주체에서 CloudFormation으로, CloudFormation에서 exact Lambda worker role로 이어지는 두 단계
+  `iam:PassRole`, version-controlled permissions boundary, `cloudformation:RoleARN`, worker runtime
+  role과 SQS resource 제한
+- source commit과 worker build ZIP SHA-256을 prod GitHub artifact 및 운영자 change set과 대조하는 절차
+- prod change set 별도 검토·실행, termination protection과 실제 alarm 수신 절차
 - Lambda 초기 memory와 timeout의 적정성, concurrency 상한
 - SQS visibility timeout, retention, retry, DLQ redrive 값
 - WebP quality와 최대 픽셀 수
@@ -1371,3 +1411,4 @@ benchmark에 따라 memory, timeout과 concurrency를 조정한다. 출력 bytes
 - 운영 backfill 대상 수, 누락 object 수, 예상 비용
 - actor와 purpose별 asset 생성, byte, 동시 처리와 polling 제한 값
 - media event publisher 전용 executor의 pool, queue, shutdown 대기 값과 재발행 주기
+- issuance 활성화 전 cleanup과 reconciliation의 보존 기간, 실행 주기, 실패 alarm과 복구 절차

@@ -1,5 +1,6 @@
 package org.sopt.hashi.user.dto;
 
+import org.sopt.hashi.media.MediaImage;
 import org.sopt.hashi.user.domain.User;
 
 /**
@@ -8,9 +9,14 @@ import org.sopt.hashi.user.domain.User;
  */
 public record ProfileSummaryResponse(
         String nickname,
-        String profileImageUrl) {
+        String profileImageUrl,
+        MediaImage profileImage) {
 
-    public static ProfileSummaryResponse of(User user, String profileImageUrl) {
-        return new ProfileSummaryResponse(user.getNickname(), profileImageUrl);
+    public static ProfileSummaryResponse of(
+            User user,
+            String profileImageUrl,
+            MediaImage profileImage
+    ) {
+        return new ProfileSummaryResponse(user.getNickname(), profileImageUrl, profileImage);
     }
 }
