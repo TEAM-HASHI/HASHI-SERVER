@@ -1,0 +1,553 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Transform: AWS::Serverless-2016-10-31
+Description: HASHI media image transform pipeline
+
+Parameters:
+  EnvironmentName:
+    Type: String
+    AllowedValues:
+      - dev
+      - prod
+    Description: Deployment environment identifier
+
+  DeliveryBucketName:
+    Type: String
+    MinLength: 3
+    Description: Existing private bucket served by the existing CloudFront distribution
+
+  CloudFrontDistributionId:
+    Type: String
+    MinLength: 1
+    Description: Existing CloudFront distribution binding; this stack does not modify it
+
+  SourceCommitSha:
+    Type: String
+    AllowedPattern: "^[0-9a-f]{40}$"
+    Description: Reviewed repository commit that produced this deployment
+
+  WorkerBuildArtifactSha256:
+    Type: String
+    AllowedPattern: "^[0-9a-f]{64}$"
+    Description: SHA-256 of the verified build ZIP supplied as input to SAM
+
+  SpringApplicationRoleName:
+    Type: String
+    MinLength: 1
+    Description: Existing EC2 instance role that runs the Spring application
+
+  UploadAllowedOrigins:
+    Type: CommaDelimitedList
+    Description: Exact browser origins allowed to upload originals by presigned PUT
+
+  AlarmNotificationTopicArn:
+    Type: String
+    Default: ""
+    AllowedPattern: "^$|^arn:[a-z0-9-]+:sns:[a-z0-9-]+:[0-9]{12}:[A-Za-z0-9_+=,.@/-]+$"
+    Description: Existing SNS topic ARN for alarm notifications; required in prod
+
+  WorkerReservedConcurrency:
+    Type: Number
+    Default: 5
+    MinValue: 5
+    MaxValue: 100
+    Description: Shared concurrency ceiling for the function and SQS event source
+
+  WorkerEventSourceEnabled:
+    Type: String
+    Default: "false"
+    AllowedValues:
+      - "true"
+      - "false"
+    Description: Enables or pauses request queue consumption without deleting resources
+
+  WorkerLogRetentionDays:
+    Type: Number
+    Default: 30
+    AllowedValues:
+      - 7
+      - 14
+      - 30
+      - 60
+      - 90
+    Description: CloudWatch Logs retention
+
+Rules:
+  ProductionAlarmTopicRequired:
+    RuleCondition: !Equals
+      - !Ref EnvironmentName
+      - prod
+    Assertions:
+      - Assert: !Not
+          - !Equals
+            - !Ref AlarmNotificationTopicArn
+            - ""
+        AssertDescription: AlarmNotificationTopicArn is required for production
+
+Conditions:
+  HasAlarmNotificationTopic: !Not
+    - !Equals
+      - !Ref AlarmNotificationTopicArn
+      - ""
+  IsWorkerEventSourceEnabled: !Equals
+    - !Ref WorkerEventSourceEnabled
+    - "true"
+
+Resources:
+  OriginalImageBucket:
+    Type: AWS::S3::Bucket
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+      LifecycleConfiguration:
+        Rules:
+          - Id: AbortIncompleteMultipartUploads
+            Status: Enabled
+            AbortIncompleteMultipartUpload:
+              DaysAfterInitiation: 7
+      CorsConfiguration:
+        CorsRules:
+          - AllowedHeaders:
+              - content-type
+              - if-none-match
+              - x-amz-*
+            AllowedMethods:
+              - PUT
+            AllowedOrigins: !Ref UploadAllowedOrigins
+            ExposedHeaders:
+              - ETag
+              - x-amz-version-id
+            MaxAge: 300
+      OwnershipControls:
+        Rules:
+          - ObjectOwnership: BucketOwnerEnforced
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      VersioningConfiguration:
+        Status: Enabled
+      Tags:
+        - Key: Component
+          Value: media
+        - Key: Environment
+          Value: !Ref EnvironmentName
+        - Key: Purpose
+          Value: private-originals
+
+  OriginalImageBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      Bucket: !Ref OriginalImageBucket
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Sid: DenyInsecureTransport
+            Effect: Deny
+            Principal: "*"
+            Action: s3:*
+            Resource:
+              - !GetAtt OriginalImageBucket.Arn
+              - !Sub "${OriginalImageBucket.Arn}/*"
+            Condition:
+              Bool:
+                aws:SecureTransport: "false"
+
+  TransformRequestDeadLetterQueue:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: !Sub "hashi-${EnvironmentName}-media-transform-request-dlq"
+      MessageRetentionPeriod: 1209600
+      RedriveAllowPolicy:
+        redrivePermission: byQueue
+        sourceQueueArns:
+          - !Sub "arn:${AWS::Partition}:sqs:${AWS::Region}:${AWS::AccountId}:hashi-${EnvironmentName}-media-transform-request"
+      SqsManagedSseEnabled: true
+      Tags:
+        - Key: Component
+          Value: media
+        - Key: Environment
+          Value: !Ref EnvironmentName
+
+  TransformRequestQueue:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: !Sub "hashi-${EnvironmentName}-media-transform-request"
+      MessageRetentionPeriod: 345600
+      RedrivePolicy:
+        deadLetterTargetArn: !GetAtt TransformRequestDeadLetterQueue.Arn
+        maxReceiveCount: 5
+      SqsManagedSseEnabled: true
+      VisibilityTimeout: 360
+      Tags:
+        - Key: Component
+          Value: media
+        - Key: Environment
+          Value: !Ref EnvironmentName
+
+  TransformResultDeadLetterQueue:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: !Sub "hashi-${EnvironmentName}-media-transform-result-dlq"
+      MessageRetentionPeriod: 1209600
+      RedriveAllowPolicy:
+        redrivePermission: byQueue
+        sourceQueueArns:
+          - !Sub "arn:${AWS::Partition}:sqs:${AWS::Region}:${AWS::AccountId}:hashi-${EnvironmentName}-media-transform-result"
+      SqsManagedSseEnabled: true
+      Tags:
+        - Key: Component
+          Value: media
+        - Key: Environment
+          Value: !Ref EnvironmentName
+
+  TransformResultQueue:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: !Sub "hashi-${EnvironmentName}-media-transform-result"
+      MessageRetentionPeriod: 345600
+      RedrivePolicy:
+        deadLetterTargetArn: !GetAtt TransformResultDeadLetterQueue.Arn
+        maxReceiveCount: 5
+      SqsManagedSseEnabled: true
+      VisibilityTimeout: 180
+      Tags:
+        - Key: Component
+          Value: media
+        - Key: Environment
+          Value: !Ref EnvironmentName
+
+  ImageTransformFunctionLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub "/aws/lambda/hashi-${EnvironmentName}-image-transform"
+      RetentionInDays: !Ref WorkerLogRetentionDays
+      Tags:
+        - Key: Component
+          Value: media
+        - Key: Environment
+          Value: !Ref EnvironmentName
+
+  ImageTransformFunctionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "hashi-${EnvironmentName}-media-image-transform-lambda"
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - lambda.amazonaws.com
+            Action:
+              - sts:AssumeRole
+      Policies:
+        - PolicyName: image-transform-runtime
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Sid: WriteFunctionLogs
+                Effect: Allow
+                Action:
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource: !GetAtt ImageTransformFunctionLogGroup.Arn
+              - Sid: ConsumeTransformRequests
+                Effect: Allow
+                Action:
+                  - sqs:DeleteMessage
+                  - sqs:GetQueueAttributes
+                  - sqs:ReceiveMessage
+                Resource: !GetAtt TransformRequestQueue.Arn
+              - Sid: ReadFixedOriginalVersion
+                Effect: Allow
+                Action:
+                  - s3:GetObjectVersion
+                Resource: !Sub "${OriginalImageBucket.Arn}/media/originals/*"
+              - Sid: CreateAndVerifyRenditions
+                Effect: Allow
+                Action:
+                  - s3:GetObject
+                  - s3:PutObject
+                Resource: !Sub "arn:${AWS::Partition}:s3:::${DeliveryBucketName}/media/renditions/*"
+              - Sid: PublishTransformResult
+                Effect: Allow
+                Action:
+                  - sqs:SendMessage
+                Resource: !GetAtt TransformResultQueue.Arn
+      Tags:
+        - Key: Component
+          Value: media
+        - Key: Environment
+          Value: !Ref EnvironmentName
+
+  ImageTransformFunction:
+    Type: AWS::Serverless::Function
+    DependsOn:
+      - ImageTransformFunctionLogGroup
+    Properties:
+      FunctionName: !Sub "hashi-${EnvironmentName}-image-transform"
+      Description: Validates private originals and creates immutable WebP renditions
+      CodeUri: ../../worker/image-transform/artifacts/package
+      Handler: dist/handler.handler
+      Runtime: nodejs24.x
+      Role: !GetAtt ImageTransformFunctionRole.Arn
+      Architectures:
+        - x86_64
+      AutoPublishAlias: live
+      AutoPublishAliasAllProperties: true
+      MemorySize: 1536
+      Timeout: 60
+      ReservedConcurrentExecutions: !Ref WorkerReservedConcurrency
+      Environment:
+        Variables:
+          MEDIA_DELIVERY_BUCKET: !Ref DeliveryBucketName
+          MEDIA_ORIGINAL_BUCKET: !Ref OriginalImageBucket
+          MEDIA_RESULT_QUEUE_URL: !Ref TransformResultQueue
+          MEDIA_SPECS_DIRECTORY: media-specs
+          NODE_OPTIONS: --enable-source-maps
+      Events:
+        TransformRequest:
+          Type: SQS
+          Properties:
+            BatchSize: 1
+            Enabled: !If
+              - IsWorkerEventSourceEnabled
+              - true
+              - false
+            FunctionResponseTypes:
+              - ReportBatchItemFailures
+            Queue: !GetAtt TransformRequestQueue.Arn
+            ScalingConfig:
+              MaximumConcurrency: !Ref WorkerReservedConcurrency
+      Tags:
+        Component: media
+        Environment: !Ref EnvironmentName
+        SourceCommit: !Ref SourceCommitSha
+        WorkerBuildArtifactSha256: !Ref WorkerBuildArtifactSha256
+
+  SpringApplicationMediaPolicy:
+    Type: AWS::IAM::ManagedPolicy
+    Properties:
+      Description: Least-privilege media upload and queue access for the HASHI Spring application
+      Roles:
+        - !Ref SpringApplicationRoleName
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Sid: CreatePrivateOriginals
+            Effect: Allow
+            Action:
+              - s3:PutObject
+            Resource: !Sub "${OriginalImageBucket.Arn}/media/originals/*"
+          - Sid: InspectPrivateOriginals
+            Effect: Allow
+            Action:
+              - s3:GetObject
+              - s3:GetObjectVersion
+            Resource: !Sub "${OriginalImageBucket.Arn}/media/originals/*"
+          - Sid: PublishTransformRequests
+            Effect: Allow
+            Action:
+              - sqs:GetQueueAttributes
+              - sqs:GetQueueUrl
+              - sqs:SendMessage
+            Resource: !GetAtt TransformRequestQueue.Arn
+          - Sid: ConsumeTransformResults
+            Effect: Allow
+            Action:
+              - sqs:ChangeMessageVisibility
+              - sqs:DeleteMessage
+              - sqs:GetQueueAttributes
+              - sqs:GetQueueUrl
+              - sqs:ReceiveMessage
+            Resource: !GetAtt TransformResultQueue.Arn
+
+  TransformRequestAgeAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmDescription: Image transform request queue is delayed
+      AlarmActions: !If
+        - HasAlarmNotificationTopic
+        - - !Ref AlarmNotificationTopicArn
+        - []
+      ComparisonOperator: GreaterThanThreshold
+      DatapointsToAlarm: 1
+      Dimensions:
+        - Name: QueueName
+          Value: !GetAtt TransformRequestQueue.QueueName
+      EvaluationPeriods: 2
+      MetricName: ApproximateAgeOfOldestMessage
+      Namespace: AWS/SQS
+      Period: 60
+      Statistic: Maximum
+      Threshold: 300
+      TreatMissingData: notBreaching
+
+  TransformResultAgeAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmDescription: Image transform result queue is delayed
+      AlarmActions: !If
+        - HasAlarmNotificationTopic
+        - - !Ref AlarmNotificationTopicArn
+        - []
+      ComparisonOperator: GreaterThanThreshold
+      DatapointsToAlarm: 1
+      Dimensions:
+        - Name: QueueName
+          Value: !GetAtt TransformResultQueue.QueueName
+      EvaluationPeriods: 2
+      MetricName: ApproximateAgeOfOldestMessage
+      Namespace: AWS/SQS
+      Period: 60
+      Statistic: Maximum
+      Threshold: 300
+      TreatMissingData: notBreaching
+
+  TransformRequestDeadLetterAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmDescription: Image transform request DLQ contains a message
+      AlarmActions: !If
+        - HasAlarmNotificationTopic
+        - - !Ref AlarmNotificationTopicArn
+        - []
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      DatapointsToAlarm: 1
+      Dimensions:
+        - Name: QueueName
+          Value: !GetAtt TransformRequestDeadLetterQueue.QueueName
+      EvaluationPeriods: 1
+      MetricName: ApproximateNumberOfMessagesVisible
+      Namespace: AWS/SQS
+      Period: 60
+      Statistic: Maximum
+      Threshold: 1
+      TreatMissingData: notBreaching
+
+  TransformResultDeadLetterAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmDescription: Image transform result DLQ contains a message
+      AlarmActions: !If
+        - HasAlarmNotificationTopic
+        - - !Ref AlarmNotificationTopicArn
+        - []
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      DatapointsToAlarm: 1
+      Dimensions:
+        - Name: QueueName
+          Value: !GetAtt TransformResultDeadLetterQueue.QueueName
+      EvaluationPeriods: 1
+      MetricName: ApproximateNumberOfMessagesVisible
+      Namespace: AWS/SQS
+      Period: 60
+      Statistic: Maximum
+      Threshold: 1
+      TreatMissingData: notBreaching
+
+  ImageTransformFunctionErrorAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmDescription: Image transform Lambda invocation failed
+      AlarmActions: !If
+        - HasAlarmNotificationTopic
+        - - !Ref AlarmNotificationTopicArn
+        - []
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      DatapointsToAlarm: 1
+      Dimensions:
+        - Name: FunctionName
+          Value: !Ref ImageTransformFunction
+      EvaluationPeriods: 1
+      MetricName: Errors
+      Namespace: AWS/Lambda
+      Period: 60
+      Statistic: Sum
+      Threshold: 1
+      TreatMissingData: notBreaching
+
+  ImageTransformFunctionThrottleAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmDescription: Image transform Lambda was throttled
+      AlarmActions: !If
+        - HasAlarmNotificationTopic
+        - - !Ref AlarmNotificationTopicArn
+        - []
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      DatapointsToAlarm: 1
+      Dimensions:
+        - Name: FunctionName
+          Value: !Ref ImageTransformFunction
+      EvaluationPeriods: 1
+      MetricName: Throttles
+      Namespace: AWS/Lambda
+      Period: 60
+      Statistic: Sum
+      Threshold: 1
+      TreatMissingData: notBreaching
+
+Outputs:
+  OriginalBucketName:
+    Description: Private source bucket name for AWS_MEDIA_ORIGINAL_BUCKET
+    Value: !Ref OriginalImageBucket
+
+  TransformRequestQueueUrl:
+    Description: Request queue URL for the Spring publisher
+    Value: !Ref TransformRequestQueue
+
+  TransformRequestQueueArn:
+    Description: Request queue ARN
+    Value: !GetAtt TransformRequestQueue.Arn
+
+  TransformResultQueueUrl:
+    Description: Result queue URL for the Spring listener
+    Value: !Ref TransformResultQueue
+
+  TransformResultQueueArn:
+    Description: Result queue ARN
+    Value: !GetAtt TransformResultQueue.Arn
+
+  TransformRequestDeadLetterQueueUrl:
+    Description: Request DLQ URL for operator redrive
+    Value: !Ref TransformRequestDeadLetterQueue
+
+  TransformResultDeadLetterQueueUrl:
+    Description: Result DLQ URL for operator redrive
+    Value: !Ref TransformResultDeadLetterQueue
+
+  ImageTransformFunctionName:
+    Description: Image transform Lambda function name
+    Value: !Ref ImageTransformFunction
+
+  DeployedSourceCommitSha:
+    Description: Reviewed repository commit recorded on the Lambda function
+    Value: !Ref SourceCommitSha
+
+  RecordedWorkerBuildArtifactSha256:
+    Description: SHA-256 of the verified build ZIP supplied as input to SAM
+    Value: !Ref WorkerBuildArtifactSha256
+
+  ImageTransformFunctionRoleArn:
+    Description: Exact worker role that the CloudFormation execution role passes to Lambda
+    Value: !GetAtt ImageTransformFunctionRole.Arn
+
+  SpringApplicationMediaPolicyArn:
+    Description: Managed policy attached to the existing Spring EC2 role
+    Value: !Ref SpringApplicationMediaPolicy
+
+  BoundDeliveryBucketName:
+    Description: Existing delivery bucket referenced without stack ownership
+    Value: !Ref DeliveryBucketName
+
+  BoundCloudFrontDistributionId:
+    Description: Existing CloudFront distribution referenced without stack ownership
+    Value: !Ref CloudFrontDistributionId

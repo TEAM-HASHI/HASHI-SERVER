@@ -1,0 +1,587 @@
+name: Build or Deploy Image Pipeline
+
+on:
+  workflow_dispatch:
+    inputs:
+      target:
+        description: Environment to deploy or prepare
+        required: true
+        type: choice
+        options:
+          - dev
+          - prod
+      production_confirmation:
+        description: Type prepare-prod-artifact to build the production artifact without AWS access
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy-image-pipeline-${{ inputs.target }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: Build and verify image transform artifact
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    outputs:
+      artifact_name: ${{ steps.package_metadata.outputs.artifact_name }}
+      lambda_package_sha256: ${{ steps.package_metadata.outputs.sha256 }}
+
+    steps:
+      - name: Validate requested operation
+        shell: bash
+        env:
+          TARGET: ${{ inputs.target }}
+          PRODUCTION_CONFIRMATION: ${{ inputs.production_confirmation }}
+          DEPLOYMENT_REF: ${{ github.ref }}
+        run: |
+          set -euo pipefail
+
+          if [[ "${TARGET}" == "dev" ]]; then
+            [[ "${DEPLOYMENT_REF}" == "refs/heads/develop" ]] || {
+              echo "Dev deployment must run from refs/heads/develop."
+              exit 1
+            }
+          elif [[ "${TARGET}" == "prod" ]]; then
+            [[ "${DEPLOYMENT_REF}" == "refs/heads/main" ]] || {
+              echo "Production artifact preparation must run from refs/heads/main."
+              exit 1
+            }
+            [[ "${PRODUCTION_CONFIRMATION}" == "prepare-prod-artifact" ]] || {
+              echo "Production artifact preparation requires the exact confirmation string."
+              exit 1
+            }
+          else
+            echo "Unsupported target: ${TARGET}"
+            exit 1
+          fi
+
+      - name: Checkout source code
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+
+      - name: Set up Node.js 24
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: worker/image-transform/package-lock.json
+
+      - name: Set up AWS SAM CLI 1.165.0
+        uses: aws-actions/setup-sam@89ddb14d60e682855e3fea4be85b3c56485de310 # v3
+        with:
+          version: "1.165.0"
+          use-installer: true
+          token: ${{ github.token }}
+
+      - name: Verify build tools
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --version
+          sam_version="$(sam --version)"
+          echo "${sam_version}"
+          [[ "${sam_version}" == "SAM CLI, version 1.165.0" ]]
+
+      - name: Test infrastructure policy checkers
+        run: |
+          node --test infra/media/scripts/check-cloudformation-pass-role.test.mjs
+          node --test infra/media/scripts/check-template-guardrails.test.mjs
+          node infra/media/scripts/check-template-guardrails.mjs \
+            infra/media/template.yaml \
+            infra/media/bootstrap/cloudformation-execution-boundary.yaml \
+            infra/media/parameters/prod.example.json
+          node --test infra/media/scripts/check-deploy-workflow-trust.test.mjs
+          node infra/media/scripts/check-deploy-workflow-trust.mjs .github/workflows/deploy-image-pipeline.yml
+          node --test infra/media/scripts/check-delivery-lifecycle.test.mjs
+          node --test infra/media/scripts/check-worker-iam.test.mjs
+          node infra/media/scripts/check-worker-iam.mjs infra/media/template.yaml
+
+      - name: Install and test worker
+        working-directory: worker/image-transform
+        run: |
+          npm ci
+          npm test
+
+      - name: Build production Lambda package
+        working-directory: worker/image-transform
+        run: |
+          npm run package:lambda
+          node scripts/verify-package.mjs artifacts/package
+
+      - name: Record Lambda package identity
+        id: package_metadata
+        shell: bash
+        run: |
+          set -euo pipefail
+          artifact_name="image-transform-${GITHUB_SHA}-${GITHUB_RUN_ATTEMPT}"
+          package_sha256="$(sha256sum worker/image-transform/artifacts/image-transform.zip | cut -d ' ' -f 1)"
+          [[ "${package_sha256}" =~ ^[0-9a-f]{64}$ ]]
+          echo "artifact_name=${artifact_name}" >> "${GITHUB_OUTPUT}"
+          echo "sha256=${package_sha256}" >> "${GITHUB_OUTPUT}"
+          {
+            echo "### Image transform artifact"
+            echo "- Source commit: \`${GITHUB_SHA}\`"
+            echo "- GitHub artifact: \`${artifact_name}\`"
+            echo "- Build artifact ZIP SHA-256: \`${package_sha256}\`"
+          } >> "${GITHUB_STEP_SUMMARY}"
+
+      - name: Validate and build SAM template
+        shell: bash
+        run: |
+          set -euo pipefail
+          sam validate --lint --region ap-northeast-2 --template-file infra/media/template.yaml
+          sam validate --lint --region ap-northeast-2 \
+            --template-file infra/media/bootstrap/cloudformation-execution-boundary.yaml
+          sam build --template-file infra/media/template.yaml --build-dir .aws-sam/media-build
+
+      - name: Upload immutable Lambda build artifact
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ${{ steps.package_metadata.outputs.artifact_name }}
+          path: worker/image-transform/artifacts/image-transform.zip
+          if-no-files-found: error
+          retention-days: 7
+          compression-level: 0
+
+      - name: Record production handoff boundary
+        if: inputs.target == 'prod'
+        shell: bash
+        run: |
+          echo "Production AWS was not accessed. A separate AWS operator must verify and deploy this exact artifact." \
+            >> "${GITHUB_STEP_SUMMARY}"
+
+  deploy:
+    name: Deploy dev image pipeline
+    needs: build
+    if: inputs.target == 'dev'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      SOURCE_COMMIT_SHA: ${{ github.sha }}
+      WORKER_BUILD_ARTIFACT_SHA256: ${{ needs.build.outputs.lambda_package_sha256 }}
+
+    steps:
+      - name: Checkout source code
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+
+      - name: Select and validate repository configuration
+        shell: bash
+        env:
+          DEPLOYMENT_REF: ${{ github.ref }}
+          MEDIA_DEV_AWS_ACCOUNT_ID: ${{ vars.MEDIA_DEV_AWS_ACCOUNT_ID }}
+          MEDIA_DEV_AWS_REGION: ${{ vars.MEDIA_DEV_AWS_REGION }}
+          MEDIA_DEV_AWS_DEPLOY_ROLE_ARN: ${{ vars.MEDIA_DEV_AWS_DEPLOY_ROLE_ARN }}
+          MEDIA_DEV_AWS_CLOUDFORMATION_EXECUTION_ROLE_ARN: ${{ vars.MEDIA_DEV_AWS_CLOUDFORMATION_EXECUTION_ROLE_ARN }}
+          MEDIA_DEV_AWS_SAM_ARTIFACT_BUCKET: ${{ vars.MEDIA_DEV_AWS_SAM_ARTIFACT_BUCKET }}
+          MEDIA_DEV_DELIVERY_BUCKET_NAME: ${{ vars.MEDIA_DEV_DELIVERY_BUCKET_NAME }}
+          MEDIA_DEV_CLOUDFRONT_DISTRIBUTION_ID: ${{ vars.MEDIA_DEV_CLOUDFRONT_DISTRIBUTION_ID }}
+          MEDIA_DEV_SPRING_APPLICATION_ROLE_NAME: ${{ vars.MEDIA_DEV_SPRING_APPLICATION_ROLE_NAME }}
+          MEDIA_DEV_UPLOAD_ALLOWED_ORIGINS: ${{ vars.MEDIA_DEV_UPLOAD_ALLOWED_ORIGINS }}
+          MEDIA_DEV_ALARM_NOTIFICATION_TOPIC_ARN: ${{ vars.MEDIA_DEV_ALARM_NOTIFICATION_TOPIC_ARN }}
+          MEDIA_DEV_WORKER_EVENT_SOURCE_ENABLED: ${{ vars.MEDIA_DEV_WORKER_EVENT_SOURCE_ENABLED }}
+        run: |
+          set -euo pipefail
+
+          if [[ "${DEPLOYMENT_REF}" != "refs/heads/develop" ]]; then
+            echo "Dev deployment must run from refs/heads/develop."
+            exit 1
+          fi
+
+          declare -A selected
+          mappings=(
+            "AWS_ACCOUNT_ID:AWS_ACCOUNT_ID"
+            "AWS_REGION:AWS_REGION"
+            "AWS_DEPLOY_ROLE_ARN:AWS_DEPLOY_ROLE_ARN"
+            "AWS_CLOUDFORMATION_EXECUTION_ROLE_ARN:AWS_CLOUDFORMATION_EXECUTION_ROLE_ARN"
+            "AWS_SAM_ARTIFACT_BUCKET:AWS_SAM_ARTIFACT_BUCKET"
+            "DELIVERY_BUCKET_NAME:MEDIA_DELIVERY_BUCKET_NAME"
+            "CLOUDFRONT_DISTRIBUTION_ID:MEDIA_CLOUDFRONT_DISTRIBUTION_ID"
+            "SPRING_APPLICATION_ROLE_NAME:MEDIA_SPRING_APPLICATION_ROLE_NAME"
+            "UPLOAD_ALLOWED_ORIGINS:MEDIA_UPLOAD_ALLOWED_ORIGINS"
+          )
+          for mapping in "${mappings[@]}"; do
+            source_suffix="${mapping%%:*}"
+            destination="${mapping##*:}"
+            source_name="MEDIA_DEV_${source_suffix}"
+            value="${!source_name:-}"
+            if [[ -z "${value}" ]]; then
+              echo "Missing required repository variable: ${source_name}"
+              exit 1
+            fi
+            if [[ "${value}" == *$'\n'* || "${value}" == *$'\r'* ]]; then
+              echo "Repository variable ${source_name} cannot contain a newline."
+              exit 1
+            fi
+            selected["${destination}"]="${value}"
+          done
+
+          selected[MEDIA_ALARM_NOTIFICATION_TOPIC_ARN]="${MEDIA_DEV_ALARM_NOTIFICATION_TOPIC_ARN:-}"
+          selected[MEDIA_WORKER_EVENT_SOURCE_ENABLED]="${MEDIA_DEV_WORKER_EVENT_SOURCE_ENABLED:-false}"
+          for optional_name in MEDIA_ALARM_NOTIFICATION_TOPIC_ARN MEDIA_WORKER_EVENT_SOURCE_ENABLED; do
+            if [[ "${selected[${optional_name}]}" == *$'\n'* || "${selected[${optional_name}]}" == *$'\r'* ]]; then
+              echo "Optional repository variables cannot contain a newline."
+              exit 1
+            fi
+          done
+          selected[MEDIA_PIPELINE_STACK_NAME]="hashi-dev-media-pipeline"
+          selected[MEDIA_WORKER_EXECUTION_ROLE_NAME]="hashi-dev-media-image-transform-lambda"
+          selected[TARGET]="dev"
+
+          if [[ ! "${selected[AWS_ACCOUNT_ID]}" =~ ^[0-9]{12}$ ]]; then
+            echo "AWS_ACCOUNT_ID must contain exactly 12 digits."
+            exit 1
+          fi
+          if [[ ! "${selected[AWS_REGION]}" =~ ^[a-z]{2}(-[a-z]+)+-[0-9]+$ ]]; then
+            echo "AWS_REGION is invalid."
+            exit 1
+          fi
+
+          expected_role_prefix="arn:aws:iam::${selected[AWS_ACCOUNT_ID]}:role/"
+          if [[ "${selected[AWS_DEPLOY_ROLE_ARN]}" != "${expected_role_prefix}"* ]]; then
+            echo "AWS_DEPLOY_ROLE_ARN must be an IAM role in AWS_ACCOUNT_ID."
+            exit 1
+          fi
+          if [[ "${selected[AWS_CLOUDFORMATION_EXECUTION_ROLE_ARN]}" != "${expected_role_prefix}"* ]]; then
+            echo "AWS_CLOUDFORMATION_EXECUTION_ROLE_ARN must be an IAM role in AWS_ACCOUNT_ID."
+            exit 1
+          fi
+          if [[ "${selected[AWS_DEPLOY_ROLE_ARN]}" == "${selected[AWS_CLOUDFORMATION_EXECUTION_ROLE_ARN]}" ]]; then
+            echo "The OIDC deploy role and CloudFormation execution role must be different."
+            exit 1
+          fi
+          selected[MEDIA_WORKER_EXECUTION_ROLE_ARN]="${expected_role_prefix}${selected[MEDIA_WORKER_EXECUTION_ROLE_NAME]}"
+          selected[MEDIA_CLOUDFORMATION_EXECUTION_BOUNDARY_ARN]="arn:aws:iam::${selected[AWS_ACCOUNT_ID]}:policy/hashi-dev-media-cloudformation-execution-boundary"
+
+          if [[ ! "${selected[MEDIA_SPRING_APPLICATION_ROLE_NAME]}" =~ ^[A-Za-z0-9+=,.@_-]{1,64}$ ]]; then
+            echo "MEDIA_SPRING_APPLICATION_ROLE_NAME is invalid."
+            exit 1
+          fi
+          if [[ ! "${selected[MEDIA_CLOUDFRONT_DISTRIBUTION_ID]}" =~ ^[A-Z0-9]+$ ]]; then
+            echo "MEDIA_CLOUDFRONT_DISTRIBUTION_ID is invalid."
+            exit 1
+          fi
+          if [[ "${selected[MEDIA_UPLOAD_ALLOWED_ORIGINS]}" == *"*"* ]]; then
+            echo "Upload origins must be exact and cannot contain a wildcard."
+            exit 1
+          fi
+
+          IFS=',' read -ra origins <<< "${selected[MEDIA_UPLOAD_ALLOWED_ORIGINS]}"
+          for origin in "${origins[@]}"; do
+            if [[ ! "${origin}" =~ ^https?://[A-Za-z0-9.-]+(:[0-9]{1,5})?$ ]]; then
+              echo "Every upload origin must be an exact HTTP(S) origin without a path."
+              exit 1
+            fi
+          done
+
+          worker_enabled="${selected[MEDIA_WORKER_EVENT_SOURCE_ENABLED]}"
+          if [[ "${worker_enabled}" != "true" && "${worker_enabled}" != "false" ]]; then
+            echo "MEDIA_WORKER_EVENT_SOURCE_ENABLED must be true or false."
+            exit 1
+          fi
+
+          alarm_topic="${selected[MEDIA_ALARM_NOTIFICATION_TOPIC_ARN]}"
+          if [[ -n "${alarm_topic}" ]]; then
+            expected_topic_prefix="arn:aws:sns:${selected[AWS_REGION]}:${selected[AWS_ACCOUNT_ID]}:"
+            if [[ "${alarm_topic}" != "${expected_topic_prefix}"* ]]; then
+              echo "MEDIA_ALARM_NOTIFICATION_TOPIC_ARN must be in the selected account and region."
+              exit 1
+            fi
+          fi
+
+          for name in "${!selected[@]}"; do
+            printf '%s=%s\n' "${name}" "${selected[${name}]}" >> "${GITHUB_ENV}"
+          done
+
+      - name: Download verified Lambda package
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: ${{ needs.build.outputs.artifact_name }}
+          path: worker/image-transform/artifacts
+
+      - name: Verify Lambda build artifact digest
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "${WORKER_BUILD_ARTIFACT_SHA256}" =~ ^[0-9a-f]{64}$ ]]
+          actual_sha256="$(sha256sum worker/image-transform/artifacts/image-transform.zip | cut -d ' ' -f 1)"
+          if [[ "${actual_sha256}" != "${WORKER_BUILD_ARTIFACT_SHA256}" ]]; then
+            echo "Downloaded Lambda package digest does not match the build job output."
+            exit 1
+          fi
+
+      - name: Set up Node.js 24
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "24"
+
+      - name: Restore Lambda package without executing artifact code
+        shell: bash
+        run: |
+          set -euo pipefail
+          test ! -e worker/image-transform/artifacts/package
+          while IFS= read -r entry; do
+            case "${entry}" in
+              /*|../*|*/../*|*\\*)
+                echo "Lambda package contains an unsafe path."
+                exit 1
+                ;;
+            esac
+          done < <(unzip -Z1 worker/image-transform/artifacts/image-transform.zip)
+          mkdir -p worker/image-transform/artifacts/package
+          unzip -q worker/image-transform/artifacts/image-transform.zip \
+            -d worker/image-transform/artifacts/package
+          test -f worker/image-transform/artifacts/package/package.json
+          test -f worker/image-transform/artifacts/package/dist/handler.js
+          test -f worker/image-transform/artifacts/package/media-specs/v1.json
+
+      - name: Set up AWS SAM CLI 1.165.0
+        uses: aws-actions/setup-sam@89ddb14d60e682855e3fea4be85b3c56485de310 # v3
+        with:
+          version: "1.165.0"
+          use-installer: true
+          token: ${{ github.token }}
+
+      - name: Verify deploy tools
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --version
+          sam_version="$(sam --version)"
+          echo "${sam_version}"
+          [[ "${sam_version}" == "SAM CLI, version 1.165.0" ]]
+
+      - name: Configure short-lived dev AWS credentials
+        uses: aws-actions/configure-aws-credentials@e6de054238d6b7531b4efff3b6587d9aade6a06c # v6.2.3
+        with:
+          role-to-assume: ${{ vars.MEDIA_DEV_AWS_DEPLOY_ROLE_ARN }}
+          role-session-name: hashi-media-dev-${{ github.run_id }}
+          aws-region: ${{ vars.MEDIA_DEV_AWS_REGION }}
+          allowed-account-ids: ${{ vars.MEDIA_DEV_AWS_ACCOUNT_ID }}
+          mask-aws-account-id: true
+          unset-current-credentials: true
+
+      - name: Verify AWS identity and existing dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          caller_account="$(aws sts get-caller-identity --query Account --output text)"
+          if [[ "${caller_account}" != "${AWS_ACCOUNT_ID}" ]]; then
+            echo "OIDC credentials resolved to an unexpected AWS account."
+            exit 1
+          fi
+
+          bucket_region() {
+            local bucket="$1"
+            local location
+            location="$(aws s3api get-bucket-location \
+              --bucket "${bucket}" \
+              --expected-bucket-owner "${AWS_ACCOUNT_ID}" \
+              --query LocationConstraint \
+              --output text)"
+            case "${location}" in
+              None|null) echo "us-east-1" ;;
+              EU) echo "eu-west-1" ;;
+              *) echo "${location}" ;;
+            esac
+          }
+
+          verify_private_bucket() {
+            local bucket="$1"
+            aws s3api head-bucket \
+              --bucket "${bucket}" \
+              --expected-bucket-owner "${AWS_ACCOUNT_ID}" >/dev/null
+            aws s3api get-public-access-block \
+              --bucket "${bucket}" \
+              --expected-bucket-owner "${AWS_ACCOUNT_ID}" \
+              --output json \
+              | jq -e '
+                  .PublicAccessBlockConfiguration
+                  | .BlockPublicAcls == true
+                    and .BlockPublicPolicy == true
+                    and .IgnorePublicAcls == true
+                    and .RestrictPublicBuckets == true
+                ' >/dev/null
+          }
+
+          verify_delivery_lifecycle() {
+            local lifecycle_json
+            local lifecycle_error
+            lifecycle_json="$(mktemp)"
+            lifecycle_error="$(mktemp)"
+
+            if aws s3api get-bucket-lifecycle-configuration \
+              --bucket "${MEDIA_DELIVERY_BUCKET_NAME}" \
+              --expected-bucket-owner "${AWS_ACCOUNT_ID}" \
+              --output json >"${lifecycle_json}" 2>"${lifecycle_error}"; then
+              node infra/media/scripts/check-delivery-lifecycle.mjs <"${lifecycle_json}"
+            elif ! grep -q "NoSuchLifecycleConfiguration" "${lifecycle_error}"; then
+              rm -f "${lifecycle_json}" "${lifecycle_error}"
+              echo "Unable to verify the delivery bucket lifecycle configuration."
+              exit 1
+            fi
+            rm -f "${lifecycle_json}" "${lifecycle_error}"
+          }
+
+          verify_private_bucket "${AWS_SAM_ARTIFACT_BUCKET}"
+          verify_private_bucket "${MEDIA_DELIVERY_BUCKET_NAME}"
+          verify_delivery_lifecycle
+
+          if [[ "$(bucket_region "${AWS_SAM_ARTIFACT_BUCKET}")" != "${AWS_REGION}" ]]; then
+            echo "The SAM artifact bucket must be in AWS_REGION."
+            exit 1
+          fi
+          if [[ "$(bucket_region "${MEDIA_DELIVERY_BUCKET_NAME}")" != "${AWS_REGION}" ]]; then
+            echo "The delivery bucket must be in AWS_REGION."
+            exit 1
+          fi
+
+          aws iam get-role --role-name "${MEDIA_SPRING_APPLICATION_ROLE_NAME}" >/dev/null
+
+          node infra/media/scripts/check-cloudformation-pass-role.mjs \
+            "${AWS_CLOUDFORMATION_EXECUTION_ROLE_ARN}" \
+            "${MEDIA_CLOUDFORMATION_EXECUTION_BOUNDARY_ARN}" \
+            "${MEDIA_WORKER_EXECUTION_ROLE_ARN}"
+
+          if [[ -n "${MEDIA_ALARM_NOTIFICATION_TOPIC_ARN}" ]]; then
+            aws sns get-topic-attributes \
+              --topic-arn "${MEDIA_ALARM_NOTIFICATION_TOPIC_ARN}" >/dev/null
+            aws sns list-subscriptions-by-topic \
+              --topic-arn "${MEDIA_ALARM_NOTIFICATION_TOPIC_ARN}" \
+              --output json \
+              | jq -e '
+                  [.Subscriptions[]?
+                    | select(
+                        .SubscriptionArn != "PendingConfirmation"
+                        and .SubscriptionArn != "Deleted"
+                      )]
+                  | length > 0
+                ' >/dev/null || {
+                  echo "The alarm topic must have at least one confirmed subscription."
+                  exit 1
+                }
+          fi
+
+          distribution="$(aws cloudfront get-distribution \
+            --id "${MEDIA_CLOUDFRONT_DISTRIBUTION_ID}" \
+            --output json)"
+          regional_origin="${MEDIA_DELIVERY_BUCKET_NAME}.s3.${AWS_REGION}.amazonaws.com"
+          global_origin="${MEDIA_DELIVERY_BUCKET_NAME}.s3.amazonaws.com"
+          oac_id="$(jq -r \
+            --arg regional "${regional_origin}" \
+            --arg global "${global_origin}" '
+              if .Distribution.Status != "Deployed"
+                or .Distribution.DistributionConfig.Enabled != true
+              then empty
+              else
+                [
+                  .Distribution.DistributionConfig.Origins.Items[]?
+                  | select(
+                      (.DomainName == $regional or .DomainName == $global)
+                      and ((.OriginAccessControlId // "") != "")
+                    )
+                  | .OriginAccessControlId
+                ][0] // empty
+              end
+            ' <<< "${distribution}")"
+          if [[ -z "${oac_id}" ]]; then
+            echo "CloudFront must be deployed, enabled, and use the exact delivery S3 origin through OAC."
+            exit 1
+          fi
+
+          aws cloudfront get-origin-access-control --id "${oac_id}" --output json \
+            | jq -e '
+                .OriginAccessControl.OriginAccessControlConfig
+                | .OriginAccessControlOriginType == "s3"
+                  and .SigningBehavior == "always"
+                  and .SigningProtocol == "sigv4"
+              ' >/dev/null || {
+                echo "CloudFront OAC must always sign the S3 origin with SigV4."
+                exit 1
+              }
+
+          stack_json="$(mktemp)"
+          stack_error="$(mktemp)"
+          trap 'rm -f "${stack_json}" "${stack_error}"' EXIT
+          if aws cloudformation describe-stacks \
+            --stack-name "${MEDIA_PIPELINE_STACK_NAME}" \
+            --region "${AWS_REGION}" \
+            --output json >"${stack_json}" 2>"${stack_error}"; then
+            jq -e --arg target "${TARGET}" '
+                .Stacks | length == 1
+                and (
+                  .[0].Parameters
+                  | any(.ParameterKey == "EnvironmentName" and .ParameterValue == $target)
+                )
+                and (
+                  .[0].Tags
+                  | any(.Key == "Project" and .Value == "HASHI")
+                )
+                and (
+                  .[0].Tags
+                  | any(.Key == "Component" and .Value == "media")
+                )
+                and (
+                  .[0].Tags
+                  | any(.Key == "Environment" and .Value == $target)
+                )
+              ' "${stack_json}" >/dev/null || {
+                echo "The existing stack identity does not match the selected environment."
+                exit 1
+              }
+          elif ! grep -q "does not exist" "${stack_error}"; then
+            echo "Unable to verify the existing CloudFormation stack identity."
+            exit 1
+          fi
+
+      - name: Deploy dev stack
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          parameters=(
+            "EnvironmentName=${TARGET}"
+            "DeliveryBucketName=${MEDIA_DELIVERY_BUCKET_NAME}"
+            "CloudFrontDistributionId=${MEDIA_CLOUDFRONT_DISTRIBUTION_ID}"
+            "SpringApplicationRoleName=${MEDIA_SPRING_APPLICATION_ROLE_NAME}"
+            "UploadAllowedOrigins=${MEDIA_UPLOAD_ALLOWED_ORIGINS}"
+            "WorkerEventSourceEnabled=${MEDIA_WORKER_EVENT_SOURCE_ENABLED}"
+            "SourceCommitSha=${SOURCE_COMMIT_SHA}"
+            "WorkerBuildArtifactSha256=${WORKER_BUILD_ARTIFACT_SHA256}"
+          )
+          if [[ -n "${MEDIA_ALARM_NOTIFICATION_TOPIC_ARN}" ]]; then
+            parameters+=("AlarmNotificationTopicArn=${MEDIA_ALARM_NOTIFICATION_TOPIC_ARN}")
+          fi
+
+          deploy_args=(
+            --template-file infra/media/template.yaml
+            --stack-name "${MEDIA_PIPELINE_STACK_NAME}"
+            --region "${AWS_REGION}"
+            --s3-bucket "${AWS_SAM_ARTIFACT_BUCKET}"
+            --s3-prefix "media-pipeline/${TARGET}/${SOURCE_COMMIT_SHA}/${WORKER_BUILD_ARTIFACT_SHA256}"
+            --role-arn "${AWS_CLOUDFORMATION_EXECUTION_ROLE_ARN}"
+            --capabilities CAPABILITY_NAMED_IAM
+            --parameter-overrides "${parameters[@]}"
+            --tags Project=HASHI Component=media Environment="${TARGET}" ManagedBy=SAM SourceCommit="${SOURCE_COMMIT_SHA}" WorkerBuildArtifactSha256="${WORKER_BUILD_ARTIFACT_SHA256}"
+            --no-confirm-changeset
+            --no-fail-on-empty-changeset
+          )
+
+          sam deploy "${deploy_args[@]}"
+          aws cloudformation update-termination-protection \
+            --stack-name "${MEDIA_PIPELINE_STACK_NAME}" \
+            --region "${AWS_REGION}" \
+            --enable-termination-protection >/dev/null
