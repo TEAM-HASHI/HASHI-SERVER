@@ -21,7 +21,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 /**
  * 내 프로필 조회. 대상은 항상 {@link CurrentUserProvider}의 현재 사용자다(auth.md §2 — 파라미터 userId 신뢰 금지).
- * asset이 있으면 media 조회 결과를 사용하고, asset이 없는 기존 사진만 {@link FileStorage}로 URL을 만든다.
+ * asset이 있으면 media 조회 결과를 사용하고, asset이 없는 기존 사진만 {@link FileStorage}로 만든 기존 URL을 응답에 사용한다.
  * 변환 중이거나 실패한 asset은 기존 사진 URL로 우회하지 않는다.
  */
 @Service
