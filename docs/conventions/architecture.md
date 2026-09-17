@@ -190,6 +190,9 @@
 - **MUST**: 신규 최적화 이미지는 상태를 가진 지원 도메인 `media`가 관리한다. `ImageAsset`은 Aggregate Root, `ImageRendition`은 그 자식이다.
 - **MUST**: 콘텐츠 도메인은 asset 식별자 값만 보관하고 일반 요청 경로에서는 공개 `MediaPort`로 검증, claim, bulk 조회한다. §2-2 통합 Port 원칙의 명시적 migration-only 예외로 association을 소유한 도메인의 backfill runner만 `MediaBackfillPort`를 사용할 수 있으며 Controller와 일반 Service에서는 사용하지 않는다. media 테이블과 JPA 관계, 모듈 간 FK, DB join을 만들지 않는다.
 - **MUST**: 이미지의 콘텐츠 소속과 표시 순서는 기존 콘텐츠 Aggregate가 계속 소유한다. media는 콘텐츠 도메인을 되참조하지 않는다.
+- **MAY**: 최종 응답 Service는 공개 값 타입 `MediaImageSelection.from(ImageReference, MediaImage)`으로
+  기존 URL 허용 여부와 READY URL 선택을 공유한다. 이 타입은 DB·외부 호출이 없는 순수 변환이며
+  추가 Service facade가 아니다. role·정렬·개수와 `MediaPort` bulk 조회는 호출 Service가 소유한다.
 - **MUST**: 원본 확인, 변환과 삭제 같은 S3 작업은 DB 트랜잭션 안에서 실행하지 않는다. 외부 변환 요청은 commit 이후 재시도 가능한 event publication 또는 outbox로 전달한다.
 - 상세 결정과 외부 계약은 [`ADR 0001`](../adr/0001-media-module-and-image-pipeline.md)과 [`Image Delivery Contract v1`](../media/image-delivery-contract-v1.md)을 따른다.
 
