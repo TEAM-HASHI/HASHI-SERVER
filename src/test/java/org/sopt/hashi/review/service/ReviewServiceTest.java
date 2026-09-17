@@ -2,12 +2,15 @@ package org.sopt.hashi.review.service;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.anyCollection;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
+import static org.mockito.Mockito.verifyNoMoreInteractions;
 
 import java.time.LocalDateTime;
 import java.util.List;
@@ -18,6 +21,9 @@ import java.util.stream.LongStream;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.EnumSource;
+import org.junit.jupiter.params.provider.NullSource;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.sopt.hashi.restaurant.RestaurantPort;
@@ -233,6 +239,53 @@ class ReviewServiceTest {
         assertThatThrownBy(() -> reviewService.getRestaurantReviews(RESTAURANT_ID, "latest", 99L, 5))
                 .isInstanceOfSatisfying(BusinessException.class, exception ->
                         assertThat(exception.getErrorCode()).isEqualTo(CommonErrorCode.INVALID_INPUT));
+    }
+
+    @ParameterizedTest
+    @NullSource
+    @EnumSource(value = MediaImageStatus.class, names = {"PROCESSING", "FAILED"})
+    void 준비되지_않거나_조회되지_않은_작성자_asset은_기존_URL로_우회하지_않는다(MediaImageStatus status) {
+        UUID firstAssetId = UUID.randomUUID();
+        UUID secondAssetId = UUID.randomUUID();
+        MediaImageRequest firstRequest = new MediaImageRequest(firstAssetId, MediaImageRole.PROFILE_AVATAR);
+        MediaImageRequest secondRequest = new MediaImageRequest(secondAssetId, MediaImageRole.PROFILE_AVATAR);
+        MediaImage firstImage = status == null ? null
+                : new MediaImage(firstAssetId, MediaImageRole.PROFILE_AVATAR, status, null, List.of());
+        MediaImage secondImage = status == null ? null
+                : new MediaImage(secondAssetId, MediaImageRole.PROFILE_AVATAR, status, null, List.of());
+        LocalDateTime createdAt = LocalDateTime.of(2026, 7, 1, 12, 0);
+        given(restaurantPort.existsById(RESTAURANT_ID)).willReturn(true);
+        given(reviewRepository.findLatestPage(RESTAURANT_ID, null, null, PageRequest.of(0, 5)))
+                .willReturn(List.of(
+                        createReview(1L, 1L, 5, createdAt),
+                        createReview(2L, 1L, 4, createdAt),
+                        createReview(3L, 2L, 3, createdAt),
+                        createReview(4L, 3L, 2, createdAt)));
+        given(userPort.findProfiles(List.of(1L, 2L, 3L))).willReturn(List.of(
+                userProfile(1L, "첫작성자", new ImageReference(firstAssetId, "https://legacy/first.jpg")),
+                userProfile(2L, "둘째작성자", new ImageReference(secondAssetId, "https://legacy/second.jpg")),
+                userProfile(3L, "기존작성자", ImageReference.legacy("https://legacy/third.jpg"))));
+        given(mediaPort.findImages(anyCollection())).willReturn(status == null
+                ? Map.of() : Map.of(firstRequest, firstImage, secondRequest, secondImage));
+        given(fileStorage.resolveFileUrl(anyString()))
+                .willAnswer(invocation -> "https://cdn.example.com/" + invocation.getArgument(0));
+
+        var response = reviewService.getRestaurantReviews(RESTAURANT_ID, null, null, 4);
+
+        assertThat(response.content()).hasSize(4);
+        assertThat(response.content().get(0).reviewerProfileImageUrl()).isNull();
+        assertThat(response.content().get(0).reviewerProfileImage()).isEqualTo(firstImage);
+        assertThat(response.content().get(1).reviewerProfileImageUrl()).isNull();
+        assertThat(response.content().get(1).reviewerProfileImage()).isEqualTo(firstImage);
+        assertThat(response.content().get(2).reviewerProfileImageUrl()).isNull();
+        assertThat(response.content().get(2).reviewerProfileImage()).isEqualTo(secondImage);
+        assertThat(response.content().get(3).reviewerProfileImageUrl()).isEqualTo("https://legacy/third.jpg");
+        assertThat(response.content().get(3).reviewerProfileImage()).isNull();
+        verify(userPort).findProfiles(List.of(1L, 2L, 3L));
+        verifyNoMoreInteractions(userPort);
+        verify(mediaPort).findImages(argThat(requests -> requests.size() == 2
+                && requests.containsAll(List.of(firstRequest, secondRequest))));
+        verifyNoMoreInteractions(mediaPort);
     }
 
     private Review createReview(Long id, Long reviewerId, int rating, LocalDateTime createdAt) {
