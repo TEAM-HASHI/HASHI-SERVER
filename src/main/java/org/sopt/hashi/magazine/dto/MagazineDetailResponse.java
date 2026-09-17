@@ -5,7 +5,7 @@ import java.time.LocalDateTime;
 import java.util.List;
 
 /**
- * 매거진 상세 응답(MAG-002). cardNewsImageUrls는 캐러셀 순서대로의 카드뉴스 이미지 조회 URL이고,
+ * 매거진 상세 응답. cardNewsImageUrls는 캐러셀 순서대로의 카드뉴스 이미지 조회 URL이고,
  * liked는 로그인 회원의 좋아요 여부(비로그인은 false)다. restaurants는 연결 식당 카드로,
  * 삭제된 식당은 제외되며 연결 식당이 없으면 빈 목록이다.
  */

@@ -43,7 +43,7 @@ public class MagazineController {
         return SuccessResponse.of(CommonSuccessCode.OK, magazineService.getMagazines(cursor, size));
     }
 
-    /** 매거진 상세 조회(MAG-002) — 비로그인 허용. 로그인 회원이면 liked에 내 좋아요 여부가 실린다. */
+    /** 매거진 상세 조회 — 비로그인 허용. 로그인 회원이면 liked에 내 좋아요 여부가 실린다. */
     @ApiException(value = CommonErrorCode.class, codes = {"INVALID_INPUT"})
     @ApiException(value = MagazineErrorCode.class, codes = {"NOT_FOUND"})
     @GetMapping("/{magazineId}")
