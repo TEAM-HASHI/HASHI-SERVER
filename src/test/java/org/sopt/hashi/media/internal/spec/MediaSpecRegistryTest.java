@@ -1,22 +1,29 @@
 package org.sopt.hashi.media.internal.spec;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import java.io.IOException;
 import java.io.InputStream;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
+import java.util.List;
 import java.util.Map;
 import org.junit.jupiter.api.Test;
+import org.sopt.hashi.media.domain.ImageRole;
+import org.sopt.hashi.media.domain.MediaPurpose;
 import org.springframework.core.io.ClassPathResource;
 
 class MediaSpecRegistryTest {
 
+    private final ObjectMapper objectMapper = new ObjectMapper();
+
     @Test
     void v1_manifest의_정확한_LF_bytes_digest를_사용한다() {
-        MediaSpecRegistry registry = new MediaSpecRegistry(new ObjectMapper());
+        MediaSpecRegistry registry = new MediaSpecRegistry(objectMapper);
 
         assertThat(registry.find(1)).contains(new MediaSpecSnapshot(
                 1,
@@ -26,8 +33,55 @@ class MediaSpecRegistryTest {
     }
 
     @Test
+    void source보다_크지_않은_purpose별_표준_rendition을_선택한다() {
+        MediaSpecDefinition spec = new MediaSpecRegistry(objectMapper)
+                .findDefinition(1)
+                .orElseThrow();
+
+        assertThat(spec.expectedRenditions(MediaPurpose.REVIEW, 3024, 4032))
+                .containsExactly(
+                        expected(ImageRole.REVIEW_PREVIEW, 135, 135),
+                        expected(ImageRole.REVIEW_PREVIEW, 270, 270),
+                        expected(ImageRole.REVIEW_PREVIEW, 405, 405),
+                        expected(ImageRole.REVIEW_DETAIL, 430, 628),
+                        expected(ImageRole.REVIEW_DETAIL, 860, 1256),
+                        expected(ImageRole.REVIEW_DETAIL, 1290, 1884)
+                );
+    }
+
+    @Test
+    void 표준_후보보다_작은_source는_worker와_같은_half_up_fallback을_선택한다() {
+        MediaSpecDefinition spec = new MediaSpecRegistry(objectMapper)
+                .findDefinition(1)
+                .orElseThrow();
+
+        assertThat(spec.expectedRenditions(MediaPurpose.REVIEW, 100, 100))
+                .containsExactly(
+                        expected(ImageRole.REVIEW_PREVIEW, 100, 100),
+                        expected(ImageRole.REVIEW_DETAIL, 68, 99)
+                );
+    }
+
+    @Test
+    void 같은_role의_candidate_width는_중복될_수_없다() {
+        assertThatThrownBy(() -> new MediaRoleSpec(
+                1,
+                1,
+                1,
+                List.of(
+                        new MediaRenditionDimensions(100, 50),
+                        new MediaRenditionDimensions(100, 60)
+                )
+        )).isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("media role candidate widths must be unique");
+    }
+
+    private MediaExpectedRendition expected(ImageRole role, int width, int height) {
+        return new MediaExpectedRendition(role, width, height);
+    }
+
+    @Test
     void 모든_candidate_높이는_aspect_ratio를_half_up으로_계산한다() throws IOException {
-        ObjectMapper objectMapper = new ObjectMapper();
         try (InputStream inputStream = new ClassPathResource("media-specs/v1.json").getInputStream()) {
             JsonNode manifest = objectMapper.readTree(inputStream);
             assertThat(manifest.path("output").path("dimensionRounding").asText()).isEqualTo("half-up");
@@ -47,5 +101,63 @@ class MediaSpecRegistryTest {
                 }
             }
         }
+    }
+
+    @Test
+    void worker가_지원하지_않는_processor_revision은_서버도_거부한다() throws IOException {
+        ObjectNode manifest = manifest();
+        manifest.put("processorRevision", "future-worker-v2");
+
+        assertInvalid(manifest, "processorRevision");
+    }
+
+    @Test
+    void worker와_다른_output_계약은_서버도_거부한다() throws IOException {
+        ObjectNode manifest = manifest();
+        ((ObjectNode) manifest.path("output")).put("metadata", "keep");
+
+        assertInvalid(manifest, "metadata");
+    }
+
+    @Test
+    void 서버_enum과_다른_purpose나_role_목록은_발급_전에_거부한다() throws IOException {
+        ObjectNode missingPurpose = manifest();
+        ((ObjectNode) missingPurpose.path("purposes")).remove("REVIEW");
+        assertInvalid(missingPurpose, "purposes");
+
+        ObjectNode unknownRole = manifest();
+        ((ObjectNode) unknownRole.path("roles")).set(
+                "FUTURE_ROLE", unknownRole.path("roles").path("PROFILE_AVATAR").deepCopy());
+        assertInvalid(unknownRole, "roles");
+    }
+
+    @Test
+    void role의_crop_품질_default와_candidate_계약을_모두_검증한다() throws IOException {
+        ObjectNode unsupportedFit = manifest();
+        ((ObjectNode) unsupportedFit.path("roles").path("PROFILE_AVATAR"))
+                .put("fit", "contain");
+        assertInvalid(unsupportedFit, "fit");
+
+        ObjectNode invalidDefault = manifest();
+        ((ObjectNode) invalidDefault.path("roles").path("PROFILE_AVATAR"))
+                .put("defaultWidth", 100);
+        assertInvalid(invalidDefault, "defaultWidth");
+
+        ObjectNode invalidCandidate = manifest();
+        ((ObjectNode) invalidCandidate.path("roles").path("PROFILE_AVATAR")
+                .path("candidates").get(0)).put("height", 47);
+        assertInvalid(invalidCandidate, "aspectRatio");
+    }
+
+    private ObjectNode manifest() throws IOException {
+        try (InputStream inputStream = new ClassPathResource("media-specs/v1.json").getInputStream()) {
+            return (ObjectNode) objectMapper.readTree(inputStream);
+        }
+    }
+
+    private void assertInvalid(ObjectNode manifest, String messagePart) {
+        assertThatThrownBy(() -> MediaSpecManifestValidator.validate(manifest, 1))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining(messagePart);
     }
 }

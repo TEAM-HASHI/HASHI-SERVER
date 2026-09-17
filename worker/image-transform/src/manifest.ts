@@ -48,6 +48,26 @@ export interface LoadedMediaSpec {
 }
 
 const cache = new Map<string, LoadedMediaSpec>();
+const SUPPORTED_PURPOSES = [
+  "PROFILE",
+  "REVIEW",
+  "RESTAURANT",
+  "RESTAURANT_MENU",
+  "MAGAZINE_BANNER",
+  "MAGAZINE_THUMBNAIL",
+] as const;
+const SUPPORTED_ROLES = [
+  "PROFILE_AVATAR",
+  "RESTAURANT_THUMBNAIL",
+  "RESTAURANT_CARD",
+  "RESTAURANT_HERO",
+  "MENU_LIST",
+  "MENU_DETAIL",
+  "REVIEW_PREVIEW",
+  "REVIEW_DETAIL",
+  "MAGAZINE_BANNER",
+  "MAGAZINE_THUMBNAIL",
+] as const;
 
 export function loadMediaSpec(specVersion: number, specsDirectory?: string): LoadedMediaSpec {
   if (!Number.isSafeInteger(specVersion) || specVersion < 1) {
@@ -84,6 +104,9 @@ export function loadMediaSpec(specVersion: number, specsDirectory?: string): Loa
     if (manifest.processorRevision !== "sharp-webp-v1") {
       throw new ContractMismatchError("Worker does not support the manifest processor revision");
     }
+    assertExactKeys(manifest.purposes, SUPPORTED_PURPOSES, "purposes");
+    assertExactKeys(manifest.roles, SUPPORTED_ROLES, "roles");
+    assertUniqueCandidateWidths(manifest);
 
     const loaded = Object.freeze({
       digest: createHash("sha256").update(rawBytes).digest("hex"),
@@ -99,6 +122,32 @@ export function loadMediaSpec(specVersion: number, specsDirectory?: string): Loa
     throw new ContractMismatchError(`Unable to load media spec v${specVersion}`, {
       cause: error,
     });
+  }
+}
+
+function assertExactKeys(
+  value: Readonly<Record<string, unknown>>,
+  expected: readonly string[],
+  subject: string,
+): void {
+  const actual = Object.keys(value).sort();
+  const supported = [...expected].sort();
+  if (actual.length !== supported.length || actual.some((key, index) => key !== supported[index])) {
+    throw new ContractMismatchError(
+      `Media spec ${subject} do not match worker capabilities`,
+    );
+  }
+}
+
+function assertUniqueCandidateWidths(manifest: MediaSpecManifest): void {
+  for (const role of Object.values(manifest.roles)) {
+    const widths = new Set<number>();
+    for (const candidate of role.candidates) {
+      if (widths.has(candidate.width)) {
+        throw new ContractMismatchError("Media role candidate widths must be unique");
+      }
+      widths.add(candidate.width);
+    }
   }
 }
 

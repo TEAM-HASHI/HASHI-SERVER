@@ -9,6 +9,9 @@ export interface MessageProcessor {
 
 let defaultWorker: ImageTransformWorker | undefined;
 
+const RECORD_FAILURE_METRIC = "ImageTransformRecordFailures";
+const METRIC_NAMESPACE = "HASHI/Media";
+
 export async function handler(event: SQSEvent): Promise<SQSBatchResponse> {
   return handleSqsEvent(event, getDefaultWorker());
 }
@@ -54,11 +57,29 @@ function requiredEnvironment(name: string): string {
 
 function logSafeFailure(record: SQSRecord, error: unknown): void {
   const errorName = error instanceof Error ? error.name : "UnknownError";
+  const environment = workerEnvironment();
   console.error(
     JSON.stringify({
+      _aws: {
+        Timestamp: Date.now(),
+        CloudWatchMetrics: [
+          {
+            Namespace: METRIC_NAMESPACE,
+            Dimensions: [["Environment"]],
+            Metrics: [{ Name: RECORD_FAILURE_METRIC, Unit: "Count" }],
+          },
+        ],
+      },
+      Environment: environment,
+      [RECORD_FAILURE_METRIC]: 1,
       event: "image_transform_record_failed",
       errorName,
       messageId: record.messageId,
     }),
   );
+}
+
+function workerEnvironment(): "dev" | "prod" | "unknown" {
+  const value = process.env.MEDIA_ENVIRONMENT;
+  return value === "dev" || value === "prod" ? value : "unknown";
 }

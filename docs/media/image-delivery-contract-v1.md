@@ -1185,6 +1185,10 @@ backfill 항목부터 점진적으로 전환하고, 미전환 항목은 `assetId
   upgrade의 새 job 발급을 서비스 일시 불가로 차단한다. 새 job이 필요 없는 PROCESSING 또는 READY
   complete 멱등 재호출, 이미 발급된 job의 EPR publish, result consume, redrive와 drain, READY 이미지
   조회, legacy upload와 legacy read는 계속 동작한다.
+- processing recovery column과 제약을 추가하는 최초 migration은 `issuance_enabled=false`이고 target
+  PROCESSING asset이 0건인 상태에서만 적용한다. 현재 단일 EC2의 Spring 컨테이너를 완전히 교체하며,
+  migration 이후 상태 연동을 모르는 과거 바이너리로 단순 rollback하지 않는다. 예상하지 않은
+  PROCESSING row가 있으면 단일 `ALTER TABLE` 전체를 실패시켜 부분 schema를 남기지 않는다.
 - `restaurant_image.file_key`, `review_image.file_key`, `magazine.banner_key`,
   `magazine.thumbnail_key`는 media-backed write를 위해 nullable로 완화한다.
 - restaurant image와 review image의 각 row는 legacy key 또는 public asset ID 중 최소 하나를
@@ -1245,6 +1249,9 @@ snapshot을 DB에서 조회해 queue payload를 만들며, listener ID는
 `media-processing-sqs-publisher-v1`으로 고정한다. 시작 시 미완료 publication을 재전송하고
 실행 중에도 오래된 미완료 건을 주기적으로 재전송한다. 완료 mode는 v1에서 `delete`다.
 여러 instance의 동시 재전송은 결정적 job ID를 가진 중복 메시지로 흡수한다.
+한 주기에는 설정된 batch 수만 listener에 다시 제출한다. Spring Modulith 1.4가 조회 단계에서 전체
+미완료 publication을 메모리에 적재하는 한계는 지표로 감시하고, backlog가 지속적으로 커지면 bounded
+DB claim을 지원하는 framework version 또는 별도 claim 구현으로 전환한다.
 
 publisher가 event를 재처리할 때 asset의 currentJobId가 event jobId와 다르거나 현재 target이
 없으면 해당 job은 이미 terminal 또는 superseded된 것으로 판단해 SQS를 보내지 않고 정상
@@ -1284,6 +1291,7 @@ publisher가 event를 재처리할 때 asset의 currentJobId가 event jobId와 �
   golden fixture를 읽고 specDigest를 포함한 queue wire 계약을 동일하게 해석하는 테스트를 둔다.
 - Java publisher와 Node worker가 모든 append-only spec manifest와 같은 manifest JSON Schema를
   읽고 version, digest, purpose별 role, exact 산출 규격을 동일하게 해석하는 계약 테스트를 둔다.
+  양쪽 모두 worker revision, output constants, 지원 purpose와 role 집합을 job 발급 전에 검증한다.
 - no-upscale 경계값은 공통 golden fixture로 검증한다. `REVIEW_PREVIEW`의 270×270 원본에서는
   135와 270 width 후보를 생성하고 405는 제외한다. 원본과 같은 크기는 확대가 아니다.
 - 기존 manifest 수정과 삭제는 CI가 거부하는지, current v5 request와 result의 digest가 target과

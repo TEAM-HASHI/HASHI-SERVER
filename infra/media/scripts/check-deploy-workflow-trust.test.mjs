@@ -4,7 +4,9 @@ import test from "node:test";
 
 import { validateDeployWorkflowTrust } from "./check-deploy-workflow-trust.mjs";
 
-const workflow = fs.readFileSync(".github/workflows/deploy-image-pipeline.yml", "utf8");
+const workflow = fs
+  .readFileSync(".github/workflows/deploy-image-pipeline.yml", "utf8")
+  .replaceAll("\r\n", "\n");
 
 test("accepts the reviewed dev-only AWS trust boundary", () => {
   assert.doesNotThrow(() => validateDeployWorkflowTrust(workflow));
