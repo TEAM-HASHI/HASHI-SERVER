@@ -89,7 +89,7 @@ auth/
    ├─ onboarding/ OnboardingJwtIssuer(응답 후처리로 정식 JWT 부착)
    ├─ admin/      Admin · AdminRepository · AdminAuthService · AdminAuthController   # 어드민 ID/PW 로그인·로그아웃
    ├─ web/        AuthController
-   └─ UserAuthService                              # 로그인·재발급 오케스트레이터
+   └─ UserAuthService                              # 로그인·재발급·로그아웃 오케스트레이터
 ```
 
 > ⚠️ 예정: 가입 SMS 인증(MVP 제외)은 도입 시 관심사 하위 패키지(`sms/`)에 둔다.
@@ -99,7 +99,8 @@ auth/
 - **회전(rotation)**: 재발급 시 리프레시 토큰을 갱신(Redis 교체)한다. **폐기된 리프레시 토큰이 재사용되면 해당 사용자 세션 전체를 무효화**한다.
 - 리프레시 토큰·온보딩 임시 토큰은 Redis에 **TTL과 함께** 보관한다.
 - **토큰 무효화**: 리프레시 토큰은 Redis에서 삭제한다. 액세스 토큰(무상태 JWT)은 삭제할 수 없으므로 **Redis 블랙리스트**에 등록하고(TTL = 토큰 잔여 만료시간), `JwtAuthenticationFilter`가 매 요청 대조해 차단한다.
-- **사용자 로그아웃 API는 MVP 제외**(어드민 로그아웃은 별도 존재). 사용자 측 토큰 무효화는 **회원 탈퇴 시에만** 발생한다 — 탈퇴(`DELETE /api/v1/users/me`)는 `user` 소유이며, `user`가 발행한 `UserWithdrawnEvent`를 `auth`가 구독해 (리프레시 삭제 + 액세스 블랙리스트 등록)로 처리한다.
+- **사용자 로그아웃**(`POST /api/v1/auth/logout`): 리프레시 쿠키를 받아 유저 리프레시 토큰만 수용하고 Redis에서 삭제한 뒤 쿠키를 만료시킨다(어드민 로그아웃과 동일 패턴). 쿠키 기반 엔드포인트라 reissue와 같이 **Origin 검증**(CSRF 방어)을 거친다. 액세스 토큰은 무상태 JWT라 잔여 만료까지 유효하며 로그아웃은 블랙리스트에 등록하지 않는다.
+- **회원 탈퇴 시 토큰 무효화**: 탈퇴(`DELETE /api/v1/users/me`)는 `user` 소유이며, `user`가 발행한 `UserWithdrawnEvent`를 `auth`가 구독해 (리프레시 삭제 + 액세스 블랙리스트 등록)로 처리한다.
 
 ---
 

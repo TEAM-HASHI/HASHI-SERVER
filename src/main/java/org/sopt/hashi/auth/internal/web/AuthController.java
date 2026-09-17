@@ -26,7 +26,7 @@ import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
-/** 사용자 인증 API — 카카오 로그인·토큰 재발급·인증 상태 조회. */
+/** 사용자 인증 API — 카카오 로그인·토큰 재발급·로그아웃·인증 상태 조회. */
 @RestController
 @RequestMapping("/api/v1/auth")
 public class AuthController {
@@ -83,6 +83,23 @@ public class AuthController {
         return SuccessResponse.of(AuthSuccessCode.TOKEN_REISSUED);
     }
 
+    /** 로그아웃 — 리프레시 토큰을 폐기(Redis 삭제)하고 쿠키를 만료시킨다. */
+    @ApiException(value = AuthErrorCode.class,
+            codes = {"INVALID_TOKEN", "EXPIRED_TOKEN", "REFRESH_TOKEN_NOT_FOUND"})
+    @ApiException(value = CommonErrorCode.class, codes = {"FORBIDDEN"})
+    @ApiSuccess(value = AuthSuccessCode.class, codes = {"LOGOUT_SUCCESS"})
+    @PostMapping("/logout")
+    public SuccessResponse<Void> logout(@RequestHeader(value = HttpHeaders.ORIGIN, required = false) String origin,
+                                        HttpServletRequest request,
+                                        HttpServletResponse response) {
+        validateOrigin(origin);
+        String presentedRefreshToken = cookieUtil.extractRefreshToken(request)
+                .orElseThrow(() -> new BusinessException(AuthErrorCode.REFRESH_TOKEN_NOT_FOUND));
+        userAuthService.logout(presentedRefreshToken);
+        response.addHeader(HttpHeaders.SET_COOKIE, cookieUtil.expireRefreshTokenCookie().toString());
+        return SuccessResponse.of(AuthSuccessCode.LOGOUT_SUCCESS);
+    }
+
     /** 현재 인증 상태 조회 — role(USER/ADMIN/ONBOARDING)로 라우팅 분기용. 온보딩 토큰은 subjectId가 null. */
     @ApiException(value = CommonErrorCode.class, codes = {"UNAUTHORIZED"})
     @ApiException(value = AuthErrorCode.class, codes = {"INVALID_TOKEN", "EXPIRED_TOKEN", "INVALID_ONBOARDING_TOKEN"})
@@ -97,7 +114,7 @@ public class AuthController {
     }
 
     /**
-     * reissue CSRF 방어 — 쿠키는 SameSite=None이라 교차 사이트에서도 전송되므로,
+     * 쿠키 기반 엔드포인트(reissue·logout) CSRF 방어 — 쿠키는 SameSite=None이라 교차 사이트에서도 전송되므로,
      * 브라우저가 붙이는 Origin이 허용 목록 밖이면 거부한다(Origin 없음 = 동일 출처/비브라우저 → 허용).
      */
     private void validateOrigin(String origin) {
