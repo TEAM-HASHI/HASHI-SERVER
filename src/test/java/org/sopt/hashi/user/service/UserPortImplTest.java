@@ -8,11 +8,13 @@ import static org.mockito.Mockito.verifyNoInteractions;
 import java.time.LocalDate;
 import java.util.Arrays;
 import java.util.List;
+import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.sopt.hashi.media.ImageReference;
 import org.sopt.hashi.shared.storage.FileStorage;
 import org.sopt.hashi.user.UserProfileInfo;
 import org.sopt.hashi.user.domain.User;
@@ -47,7 +49,8 @@ class UserPortImplTest {
         List<UserProfileInfo> result = userPort.findProfiles(Arrays.asList(2L, 3L, 1L, 2L, null));
 
         assertThat(result).containsExactly(
-                new UserProfileInfo(2L, "소라", "https://cdn.example.com/users/2/profile.jpg"),
+                new UserProfileInfo(2L, "소라", ImageReference.legacy(
+                        "https://cdn.example.com/users/2/profile.jpg")),
                 new UserProfileInfo(1L, "하루", null)
         );
         verify(userRepository).findAllById(List.of(2L, 3L, 1L));
@@ -58,6 +61,24 @@ class UserPortImplTest {
         assertThat(userPort.findProfiles(List.of())).isEmpty();
 
         verifyNoInteractions(userRepository, fileStorage);
+    }
+
+    @Test
+    void backfill된_프로필은_asset_ID와_legacy_URL을_함께_전달한다() {
+        UUID assetId = UUID.randomUUID();
+        User user = createUser(1L, "하루", "users/1/profile.jpg");
+        ReflectionTestUtils.setField(user, "profileImageAssetId", assetId);
+        given(userRepository.findAllById(List.of(1L))).willReturn(List.of(user));
+        given(fileStorage.resolveFileUrl("users/1/profile.jpg"))
+                .willReturn("https://cdn.example.com/users/1/profile.jpg");
+
+        assertThat(userPort.findProfiles(List.of(1L)))
+                .containsExactly(new UserProfileInfo(
+                        1L,
+                        "하루",
+                        new ImageReference(
+                                assetId,
+                                "https://cdn.example.com/users/1/profile.jpg")));
     }
 
     private User createUser(Long id, String nickname, String profileImageKey) {
