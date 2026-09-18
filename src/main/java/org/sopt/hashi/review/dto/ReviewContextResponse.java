@@ -4,6 +4,7 @@ import com.fasterxml.jackson.annotation.JsonInclude;
 import java.time.LocalDateTime;
 import java.util.Arrays;
 import java.util.List;
+import org.sopt.hashi.media.MediaImage;
 import org.sopt.hashi.review.domain.ReviewKeyword;
 
 @JsonInclude(JsonInclude.Include.NON_NULL)
@@ -12,6 +13,7 @@ public record ReviewContextResponse(
         Long restaurantId,
         String restaurantName,
         String restaurantThumbnailUrl,
+        MediaImage restaurantThumbnailImage,
         LocalDateTime visitedAt,
         int adultCount,
         int teenCount,

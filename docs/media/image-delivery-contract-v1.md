@@ -712,6 +712,25 @@ wrapper 안에 둔다. 식당 이미지는 다음 형태를 사용한다.
 식당 association wrapper다. 리뷰의 `previewImages`와 상세 `images` 원소는 stable
 `reviewImageId`를 가진 리뷰 association wrapper다.
 
+식당 wrapper는 `restaurantImageId`, `displayOrder`, `image`, `legacyUrl`을 제공한다.
+`legacyUrl`은 asset ID가 없는 기존 사진에만 제공한다. asset이 있으면 READY 여부나
+조회 결과 누락과 관계없이 `legacyUrl`은 `null`이다. 신규 원본 주소는 제공하지 않는다.
+
+```json
+[
+  {"restaurantImageId": 101, "displayOrder": 1, "image": null, "legacyUrl": "https://cdn.example.com/legacy/a.jpg"},
+  {"restaurantImageId": 102, "displayOrder": 2, "image": {"assetId": "550e8400-e29b-41d4-a716-446655440000", "role": "RESTAURANT_HERO", "status": "PROCESSING", "defaultSource": null, "sourceSets": []}, "legacyUrl": null}
+]
+```
+
+- 새 클라이언트는 wrapper 목록의 순서를 그대로 사용하며, 다른 응답과 사진을 연결할 때는
+  `restaurantImageId`를 사용한다. `imageUrls`의 같은 인덱스와 맞추지 않는다.
+- `image.status=READY`이면 새 이미지, `image=null`이고 `legacyUrl`이 있으면 기존 주소를 사용한다.
+  PROCESSING은 placeholder, FAILED 또는 둘 다 없으면 DefaultImage를 표시한다.
+- 기존 `imageUrls`는 표시 가능한 기존 주소와 READY 주소만 담으므로 새 목록과 길이가 다를 수 있다.
+- 데이터 전환이 완료돼도 필드는 즉시 제거하지 않는다. 클라이언트의 기존 주소 사용 종료까지
+  확인한 뒤 별도 호환성 변경으로 제거한다. 원본 파일 보관·접근 차단과는 별개다.
+
 교차 모듈 Port의 전환기 이미지 값은 `ImageReference(assetId, legacyUrl)` 형태로 전달한다.
 기존 key를 소유한 모듈이 현재 방식으로 계산한 `legacyUrl`을 제공하며, object key 자체는 다른
 모듈에 공개하지 않는다.
@@ -732,7 +751,7 @@ wrapper 안에 둔다. 식당 이미지는 다음 형태를 사용한다.
 
 | 저장 상태 | 기존 URL 필드 | 신규 이미지 필드 |
 | --- | --- | --- |
-| legacy key만 있음 | 기존 CloudFront 원본 URL | 단일 이미지는 `null`, association collection은 stable ID와 순서를 가진 wrapper의 `image: null` |
+| legacy key만 있음 | 기존 CloudFront 원본 URL | 단일 이미지는 `null`, 식당 wrapper는 ID·순서와 `image: null`, `legacyUrl` 제공 |
 | media asset READY | 해당 endpoint role의 `defaultSource.url` | READY 이미지 객체 |
 | 신규 media asset PROCESSING 또는 FAILED | scalar는 `null`, 배열은 READY 항목만 오름차순으로 포함 | 슬롯과 상태를 유지한 이미지 객체 |
 | 이미지가 없음 | `null` 또는 빈 배열 | `null` 또는 빈 배열 |

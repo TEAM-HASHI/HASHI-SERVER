@@ -6,12 +6,14 @@ import java.util.List;
 public record MediaRoleSpec(
         int aspectRatioWidth,
         int aspectRatioHeight,
+        int defaultWidth,
         int minimumFallbackWidth,
         List<MediaRenditionDimensions> candidates
 ) {
 
     public MediaRoleSpec {
-        if (aspectRatioWidth < 1 || aspectRatioHeight < 1 || minimumFallbackWidth < 1) {
+        if (aspectRatioWidth < 1 || aspectRatioHeight < 1
+                || defaultWidth < 1 || minimumFallbackWidth < 1) {
             throw new IllegalArgumentException("media role dimensions must be positive");
         }
         if (candidates == null || candidates.isEmpty()) {
@@ -26,6 +28,9 @@ public record MediaRoleSpec(
         if (candidates.stream().map(MediaRenditionDimensions::width).distinct().count()
                 != candidates.size()) {
             throw new IllegalArgumentException("media role candidate widths must be unique");
+        }
+        if (candidates.stream().noneMatch(candidate -> candidate.width() == defaultWidth)) {
+            throw new IllegalArgumentException("media role default width must be a candidate");
         }
     }
 
