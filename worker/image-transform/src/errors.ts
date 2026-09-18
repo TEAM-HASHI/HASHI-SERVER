@@ -6,6 +6,7 @@ export type PermanentFailureCode =
   | "SOURCE_FILE_TOO_LARGE"
   | "SOURCE_MIME_MISMATCH"
   | "SOURCE_SIZE_MISMATCH"
+  | "SOURCE_TOO_SMALL"
   | "UNSUPPORTED_IMAGE_TYPE";
 
 export class PermanentImageError extends Error {

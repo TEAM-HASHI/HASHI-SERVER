@@ -97,8 +97,8 @@ class RestaurantControllerTest {
                         List.of(new MediaImage.Candidate(thumbnailUrl, 192, 192))
                 ))
         );
-        RestaurantImageInfo thumbnailInfo = new RestaurantImageInfo(101L, 1, thumbnailImage);
-        RestaurantImageInfo heroInfo = new RestaurantImageInfo(101L, 1, heroImage);
+        RestaurantImageInfo thumbnailInfo = new RestaurantImageInfo(101L, 1, thumbnailImage, null);
+        RestaurantImageInfo heroInfo = new RestaurantImageInfo(101L, 1, heroImage, null);
         RestaurantMainResponse response = new RestaurantMainResponse(
                 1L,
                 "히마와리 스시",

@@ -7,6 +7,7 @@ import java.time.DayOfWeek;
 import java.time.LocalTime;
 import java.util.List;
 import java.util.Set;
+import java.util.UUID;
 import org.junit.jupiter.api.Test;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -173,7 +174,10 @@ class RestaurantRepositoryTest {
     @Test
     void 메뉴_동기화는_기존_ID를_유지하고_누락된_메뉴를_삭제한다() {
         Restaurant restaurant = createRestaurant("메뉴 수정 식당");
-        restaurant.addMenu(createMenu("유지 메뉴"));
+        UUID retainedAssetId = UUID.randomUUID();
+        restaurant.addMenu(RestaurantMenu.createWithAsset(
+                "유지 메뉴", "메뉴 설명", retainedAssetId, PriceCurrency.JPY,
+                BigDecimal.valueOf(1_000), false));
         restaurant.addMenu(createMenu("삭제 메뉴"));
         restaurantRepository.saveAndFlush(restaurant);
         Long restaurantId = restaurant.getId();
@@ -186,7 +190,7 @@ class RestaurantRepositoryTest {
                 .filter(menu -> menu.getId().equals(retainedMenuId))
                 .findFirst()
                 .orElseThrow();
-        retainedMenu.update("수정 메뉴", "수정 설명", null, PriceCurrency.JPY,
+        retainedMenu.update("수정 메뉴", "수정 설명", null, retainedMenu.getImageAssetId(), PriceCurrency.JPY,
                 BigDecimal.valueOf(1_500), true);
         managedRestaurant.removeMenusNotIn(Set.of(retainedMenuId));
         managedRestaurant.addMenu(createMenu("신규 메뉴"));
@@ -206,10 +210,53 @@ class RestaurantRepositoryTest {
                 .satisfies(menu -> {
                     assertThat(menu.getName()).isEqualTo("수정 메뉴");
                     assertThat(menu.getPriceAmount()).isEqualByComparingTo("1500");
+                    assertThat(menu.getImageAssetId()).isEqualTo(retainedAssetId);
+                    assertThat(menu.getImageKey()).isNull();
                 });
         assertThat(menus)
                 .filteredOn(menu -> "신규 메뉴".equals(menu.getName()))
                 .hasSize(1);
+    }
+
+    @Test
+    void 메뉴_이미지를_교체하면_새_asset_ID를_저장하고_기존_key를_제거한다() {
+        Restaurant restaurant = createRestaurant("메뉴 이미지 교체 식당");
+        RestaurantMenu menu = createMenu("기존 메뉴");
+        restaurant.addMenu(menu);
+        restaurantRepository.saveAndFlush(restaurant);
+        UUID replacementAssetId = UUID.randomUUID();
+
+        menu.update("수정 메뉴", "수정 설명", null, replacementAssetId, PriceCurrency.JPY,
+                BigDecimal.valueOf(1_500), true);
+        restaurantRepository.flush();
+        entityManager.clear();
+
+        RestaurantMenu result = restaurantRepository.findMenuByRestaurantIdAndMenuId(
+                restaurant.getId(), menu.getId()).orElseThrow();
+
+        assertThat(result.getImageAssetId()).isEqualTo(replacementAssetId);
+        assertThat(result.getImageKey()).isNull();
+    }
+
+    @Test
+    void 메뉴_이미지_ID를_명시적으로_비우면_연결을_제거한다() {
+        Restaurant restaurant = createRestaurant("메뉴 이미지 제거 식당");
+        RestaurantMenu menu = RestaurantMenu.createWithAsset(
+                "기존 메뉴", "메뉴 설명", UUID.randomUUID(), PriceCurrency.JPY,
+                BigDecimal.valueOf(1_000), false);
+        restaurant.addMenu(menu);
+        restaurantRepository.saveAndFlush(restaurant);
+
+        menu.update("수정 메뉴", "수정 설명", null, null, PriceCurrency.JPY,
+                BigDecimal.valueOf(1_500), true);
+        restaurantRepository.flush();
+        entityManager.clear();
+
+        RestaurantMenu result = restaurantRepository.findMenuByRestaurantIdAndMenuId(
+                restaurant.getId(), menu.getId()).orElseThrow();
+
+        assertThat(result.getImageAssetId()).isNull();
+        assertThat(result.getImageKey()).isNull();
     }
 
     private Restaurant saveRestaurant(String name) {
