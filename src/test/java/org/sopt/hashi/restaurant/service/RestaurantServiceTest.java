@@ -26,6 +26,8 @@ import java.util.stream.LongStream;
 import java.util.stream.IntStream;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.ArgumentCaptor;
 import org.mockito.ArgumentMatchers;
 import org.mockito.Mock;
@@ -901,6 +903,7 @@ class RestaurantServiceTest {
         );
         assertThat(response.thumbnailImage().restaurantImageId()).isEqualTo(101L);
         assertThat(response.thumbnailImage().image()).isNull();
+        assertThat(response.thumbnailImage().legacyUrl()).isEqualTo(response.thumbnailUrl());
         assertThat(response.heroImages())
                 .extracting(image -> image.restaurantImageId(), image -> image.displayOrder())
                 .containsExactly(
@@ -908,6 +911,8 @@ class RestaurantServiceTest {
                         org.assertj.core.groups.Tuple.tuple(102L, 2));
         assertThat(response.heroImages())
                 .allSatisfy(image -> assertThat(image.image()).isNull());
+        assertThat(response.heroImages()).extracting(image -> image.legacyUrl())
+                .containsExactlyElementsOf(response.imageUrls());
         assertThat(response.reservationFee()).isEqualTo(4_000L);
         verifyNoInteractions(mediaPort);
     }
@@ -939,9 +944,13 @@ class RestaurantServiceTest {
         assertThat(response.thumbnailUrl()).isEqualTo(thumbnail.defaultSource().url());
         assertThat(response.thumbnailImage().restaurantImageId()).isEqualTo(101L);
         assertThat(response.thumbnailImage().image()).isEqualTo(thumbnail);
+        assertThat(response.thumbnailImage().legacyUrl()).isNull();
         assertThat(response.imageUrls()).containsExactly(hero.defaultSource().url());
         assertThat(response.heroImages()).singleElement()
-                .satisfies(image -> assertThat(image.image()).isEqualTo(hero));
+                .satisfies(image -> {
+                    assertThat(image.image()).isEqualTo(hero);
+                    assertThat(image.legacyUrl()).isNull();
+                });
         verify(mediaPort).findImages(argThat(requests -> Set.copyOf(requests).equals(Set.of(
                 new MediaImageRequest(assetId, MediaImageRole.RESTAURANT_THUMBNAIL),
                 new MediaImageRequest(assetId, MediaImageRole.RESTAURANT_HERO)
@@ -984,6 +993,8 @@ class RestaurantServiceTest {
         assertThat(response.thumbnailImage().image().status())
                 .isEqualTo(MediaImageStatus.PROCESSING);
         assertThat(response.imageUrls()).isEmpty();
+        assertThat(response.thumbnailImage().legacyUrl()).isNull();
+        assertThat(response.heroImages()).allSatisfy(image -> assertThat(image.legacyUrl()).isNull());
         assertThat(response.heroImages())
                 .extracting(image -> image.restaurantImageId(), image -> image.image().status())
                 .containsExactly(
@@ -1012,6 +1023,7 @@ class RestaurantServiceTest {
                 .satisfies(image -> {
                     assertThat(image.restaurantImageId()).isEqualTo(101L);
                     assertThat(image.image()).isNull();
+                    assertThat(image.legacyUrl()).isNull();
                 });
         verify(fileStorage, never()).resolveFileUrl(any());
     }
@@ -1054,6 +1066,65 @@ class RestaurantServiceTest {
                 new MediaImageRequest(secondAssetId, MediaImageRole.RESTAURANT_THUMBNAIL),
                 new MediaImageRequest(secondAssetId, MediaImageRole.RESTAURANT_CARD)
         ))));
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"summary", "list", "admin"})
+    void 기존_사진과_처리중_사진이_섞여도_새_목록만으로_주소와_순서를_알_수_있다(String endpoint) {
+        Restaurant restaurant = createRestaurant(1L, 4.8, 100L);
+        UUID processingId = UUID.randomUUID();
+        UUID readyId = UUID.randomUUID();
+        restaurant.replaceImages(List.of(
+                image(103L, "restaurants/old-ready.jpg", readyId, 3),
+                image(101L, "restaurants/legacy.jpg", null, 1),
+                image(102L, "restaurants/old-processing.jpg", processingId, 2)));
+        MediaImageRole role = endpoint.equals("list")
+                ? MediaImageRole.RESTAURANT_CARD : MediaImageRole.RESTAURANT_HERO;
+        MediaImage processing = statusImage(processingId, role, MediaImageStatus.PROCESSING);
+        MediaImage ready = readyImage(readyId, role, "https://cdn/new.webp");
+        given(fileStorage.resolveFileUrl("restaurants/legacy.jpg")).willReturn("https://cdn/legacy.jpg");
+        given(mediaPort.findImages(any())).willReturn(Map.of(
+                new MediaImageRequest(processingId, role), processing,
+                new MediaImageRequest(readyId, role), ready));
+        List<String> urls;
+        List<org.sopt.hashi.restaurant.RestaurantImageInfo> images;
+        if (endpoint.equals("list")) {
+            givenRestaurants(List.of(restaurant));
+            var response = createRestaurantService().getRestaurants(null, null, null, null, null, 10)
+                    .content().getFirst();
+            urls = response.imageUrls();
+            images = response.cardImages();
+            assertThat(response.thumbnailImage().legacyUrl()).isEqualTo("https://cdn/legacy.jpg");
+        } else if (endpoint.equals("admin")) {
+            given(restaurantRepository.findByIdForUpdate(1L)).willReturn(Optional.of(restaurant));
+            var response = createRestaurantService().updateByAdmin(1L, updateMenuCommand(null));
+            urls = response.imageUrls();
+            images = response.heroImages();
+            assertThat(response.thumbnailImage().legacyUrl()).isEqualTo("https://cdn/legacy.jpg");
+        } else {
+            given(restaurantRepository.findActiveByIdWithImages(1L)).willReturn(Optional.of(restaurant));
+            var response = createRestaurantService().getRestaurantSummary(1L);
+            urls = response.imageUrls();
+            images = response.heroImages();
+            assertThat(response.thumbnailImage().legacyUrl()).isEqualTo("https://cdn/legacy.jpg");
+        }
+        assertThat(urls).containsExactly("https://cdn/legacy.jpg", "https://cdn/new.webp");
+        assertThat(images).extracting(image -> image.restaurantImageId()).containsExactly(101L, 102L, 103L);
+        assertThat(images).extracting(image -> image.displayOrder()).containsExactly(1, 2, 3);
+        assertThat(images.get(0).image()).isNull();
+        assertThat(images.get(0).legacyUrl()).isEqualTo("https://cdn/legacy.jpg");
+        assertThat(images.get(1).image()).isEqualTo(processing);
+        assertThat(images.get(1).legacyUrl()).isNull();
+        assertThat(images.get(2).image()).isEqualTo(ready);
+        assertThat(images.get(2).legacyUrl()).isNull();
+        var json = new com.fasterxml.jackson.databind.ObjectMapper().valueToTree(images);
+        assertThat(json.get(0).get("legacyUrl").asText()).isEqualTo("https://cdn/legacy.jpg");
+        assertThat(json.get(1).get("image").get("status").asText()).isEqualTo("PROCESSING");
+        assertThat(json.get(2).get("image").get("defaultSource").get("url").asText())
+                .isEqualTo("https://cdn/new.webp");
+        verify(mediaPort).findImages(any());
+        verify(fileStorage, never()).resolveFileUrl("restaurants/old-processing.jpg");
+        verify(fileStorage, never()).resolveFileUrl("restaurants/old-ready.jpg");
     }
 
     @Test

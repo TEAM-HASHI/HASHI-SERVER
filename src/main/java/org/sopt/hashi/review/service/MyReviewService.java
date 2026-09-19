@@ -13,7 +13,7 @@ import org.sopt.hashi.media.ImageReference;
 import org.sopt.hashi.media.MediaImage;
 import org.sopt.hashi.media.MediaImageRequest;
 import org.sopt.hashi.media.MediaImageRole;
-import org.sopt.hashi.media.MediaImageStatus;
+import org.sopt.hashi.media.MediaImageSelection;
 import org.sopt.hashi.media.MediaPort;
 import org.sopt.hashi.reservation.ReservationPort;
 import org.sopt.hashi.reservation.ReservationReviewInfo;
@@ -267,17 +267,10 @@ public class MyReviewService {
             ImageReference reference,
             MediaProjection mediaProjection
     ) {
-        if (reference == null) {
-            return ProjectedImage.empty();
-        }
-        if (reference.assetId() == null) {
-            return new ProjectedImage(reference.legacyUrl(), null);
-        }
-        MediaImage mediaImage = mediaProjection.find(reference);
-        String url = mediaImage != null && mediaImage.status() == MediaImageStatus.READY
-                ? mediaImage.defaultSource().url()
-                : null;
-        return new ProjectedImage(url, mediaImage);
+        MediaImage mediaImage = reference == null || reference.assetId() == null
+                ? null : mediaProjection.find(reference);
+        MediaImageSelection selection = MediaImageSelection.from(reference, mediaImage);
+        return new ProjectedImage(selection.url(), selection.image());
     }
 
     private record MediaProjection(Map<MediaImageRequest, MediaImage> images) {
