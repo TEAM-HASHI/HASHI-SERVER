@@ -5,8 +5,9 @@
 
 이 문서는 공통 기반의 사용 경계와 후속 runner의 요구사항이다. 실제 AWS 적용이나 운영
 backfill을 승인하지 않는다. 식당·메뉴의 dry-run, checkpoint와 bounded runner는
-[식당·메뉴 실행기](restaurant-menu-backfill-runbook.md)를 따른다. 다른 도메인 runner와 운영 전환
-검증은 후속 작업이며, 리뷰 도메인 연동은 #179 병합 후 진행한다.
+[식당·메뉴 실행기](restaurant-menu-backfill-runbook.md)를, 활성 회원의 프로필 전환은
+[프로필 실행기](user-profile-backfill-runbook.md)를 따른다. 매거진 runner와 운영 전환 검증은
+후속 작업이며, 리뷰 도메인 연동은 #179 병합 후 진행한다.
 
 ## 1. 소유 경계
 
@@ -152,7 +153,11 @@ WHERE creation_origin = 'SYSTEM_BACKFILL'
 CloudFront 전달 E2E가 완료됐다고 보고하지 않는다. 배포 전에는 dev의 제한된 테스트 source로
 IAM과 전체 변환·연결 흐름을 별도 검증해야 한다.
 
-식당·메뉴 runner의 keyset batch·checkpoint·dry-run과 동시 수정 검증은 별도 실행기 문서를 따른다.
-후속 작업은 다른 도메인 runner, 안전한 cleanup/reconciliation, dev E2E와 운영 승인이다.
+식당·메뉴와 프로필 runner의 keyset batch·checkpoint·dry-run과 동시 수정 검증은 별도 실행기 문서를 따른다.
+두 runner의 배치 순회와 제한 재시도는 `shared/migration`의 도메인 무관 도구를 사용한다.
+항목 처리가 정상 반환한 뒤에만 메모리 cursor를 전진시키며, 처리 예외는 호출자에게 그대로 전달한다.
+후보 선정, source 오류 분류, lease·checkpoint, 완료·중단 집계와 연결 transaction은 각 모듈에 남긴다.
+DB 테이블이나 migration을 합치지 않는다. 매거진 실행기의 공통 도구 적용은 후속 PR에서 검증한다.
+후속 작업은 매거진 runner, 안전한 cleanup/reconciliation, dev E2E와 운영 승인이다.
 legacy 필드 제거와 원본 삭제는
 별도 종료 조건과 승인을 충족하기 전에는 실행하지 않는다.

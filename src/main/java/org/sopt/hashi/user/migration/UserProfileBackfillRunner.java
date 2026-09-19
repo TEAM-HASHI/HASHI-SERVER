@@ -1,4 +1,4 @@
-package org.sopt.hashi.restaurant.migration;
+package org.sopt.hashi.user.migration;
 
 import java.util.Optional;
 import java.util.function.Supplier;
@@ -9,13 +9,14 @@ import org.sopt.hashi.media.MediaBackfillPort;
 import org.sopt.hashi.media.MediaBackfillReference;
 import org.sopt.hashi.media.MediaBackfillSourceException;
 import org.sopt.hashi.media.MediaBackfillSourceException.Reason;
-import org.sopt.hashi.restaurant.migration.RestaurantMediaBackfillCheckpointStore.Acquisition;
-import org.sopt.hashi.restaurant.migration.RestaurantMediaBackfillCheckpointStore.AcquisitionState;
-import org.sopt.hashi.restaurant.migration.RestaurantMediaBackfillCheckpointStore.Lease;
-import org.sopt.hashi.restaurant.migration.RestaurantMediaBackfillCheckpointStore.Snapshot;
-import org.sopt.hashi.restaurant.migration.RestaurantMediaBackfillSummary.Status;
+import org.sopt.hashi.media.MediaBackfillTarget;
 import org.sopt.hashi.shared.migration.BoundedKeysetLoop;
 import org.sopt.hashi.shared.migration.BoundedRetry;
+import org.sopt.hashi.user.migration.UserProfileBackfillCheckpointStore.Acquisition;
+import org.sopt.hashi.user.migration.UserProfileBackfillCheckpointStore.AcquisitionState;
+import org.sopt.hashi.user.migration.UserProfileBackfillCheckpointStore.Lease;
+import org.sopt.hashi.user.migration.UserProfileBackfillCheckpointStore.Snapshot;
+import org.sopt.hashi.user.migration.UserProfileBackfillSummary.Status;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.boot.context.event.ApplicationReadyEvent;
 import org.springframework.context.event.EventListener;
@@ -25,23 +26,23 @@ import org.springframework.stereotype.Component;
 @Slf4j
 @Component
 @ConditionalOnProperty(
-        prefix = "hashi.restaurant.media-backfill",
+        prefix = "hashi.user.profile-backfill",
         name = "enabled",
         havingValue = "true"
 )
-class RestaurantMediaBackfillRunner {
+class UserProfileBackfillRunner {
 
-    private final RestaurantMediaBackfillProperties properties;
-    private final RestaurantMediaBackfillCandidateReader candidateReader;
-    private final RestaurantMediaBackfillCheckpointStore checkpointStore;
-    private final RestaurantMediaBackfillAttachmentService attachmentService;
+    private final UserProfileBackfillProperties properties;
+    private final UserProfileBackfillCandidateReader candidateReader;
+    private final UserProfileBackfillCheckpointStore checkpointStore;
+    private final UserProfileBackfillAttachmentService attachmentService;
     private final MediaBackfillPort mediaBackfillPort;
 
-    RestaurantMediaBackfillRunner(
-            RestaurantMediaBackfillProperties properties,
-            RestaurantMediaBackfillCandidateReader candidateReader,
-            RestaurantMediaBackfillCheckpointStore checkpointStore,
-            RestaurantMediaBackfillAttachmentService attachmentService,
+    UserProfileBackfillRunner(
+            UserProfileBackfillProperties properties,
+            UserProfileBackfillCandidateReader candidateReader,
+            UserProfileBackfillCheckpointStore checkpointStore,
+            UserProfileBackfillAttachmentService attachmentService,
             MediaBackfillPort mediaBackfillPort
     ) {
         this.properties = properties;
@@ -51,58 +52,55 @@ class RestaurantMediaBackfillRunner {
         this.mediaBackfillPort = mediaBackfillPort;
     }
 
-    @Async(RestaurantMediaBackfillConfiguration.EXECUTOR)
+    @Async(UserProfileBackfillConfiguration.EXECUTOR)
     @EventListener(ApplicationReadyEvent.class)
     public void runOnStartup() {
         try {
-            RestaurantMediaBackfillSummary summary = execute();
+            UserProfileBackfillSummary summary = execute();
             logSummary(summary);
         } catch (RuntimeException exception) {
             log.error(
-                    "Restaurant media backfill could not start: target={}, mode={}, errorType={}",
-                    properties.target(), properties.mode(), failureType(exception)
+                    "User profile backfill could not start: mode={}, errorType={}",
+                    properties.mode(), failureType(exception)
             );
         }
     }
 
-    private void logSummary(RestaurantMediaBackfillSummary summary) {
-        if (summary.mode() == RestaurantMediaBackfillMode.DRY_RUN) {
+    private void logSummary(UserProfileBackfillSummary summary) {
+        if (summary.mode() == UserProfileBackfillMode.DRY_RUN) {
             log.info(
-                    "Restaurant media backfill finished: target={}, mode={}, status={}, "
-                            + "scanned={}, inspected={}, failed={}",
-                    summary.target(), summary.mode(), summary.status(), summary.scannedCount(),
+                    "User profile backfill finished: mode={}, status={}, scanned={}, inspected={}, failed={}",
+                    summary.mode(), summary.status(), summary.scannedCount(),
                     summary.inspectedCount(), summary.failedCount()
             );
             return;
         }
         log.info(
-                "Restaurant media backfill finished: target={}, mode={}, status={}, "
+                "User profile backfill finished: mode={}, status={}, "
                         + "scanned={}, prepared={}, attached={}, skipped={}, failed={}",
-                summary.target(), summary.mode(), summary.status(), summary.scannedCount(),
-                summary.preparedCount(), summary.attachedCount(), summary.skippedCount(),
-                summary.failedCount()
+                summary.mode(), summary.status(), summary.scannedCount(), summary.preparedCount(),
+                summary.attachedCount(), summary.skippedCount(), summary.failedCount()
         );
     }
 
-    RestaurantMediaBackfillSummary execute() {
-        if (properties.mode() == RestaurantMediaBackfillMode.DRY_RUN) {
+    UserProfileBackfillSummary execute() {
+        if (properties.mode() == UserProfileBackfillMode.DRY_RUN) {
             return executeDryRun();
         }
         return executePersistent();
     }
 
-    private RestaurantMediaBackfillSummary executeDryRun() {
-        long upperBound = candidateReader.findUpperBound(properties.target());
-        MutableSummary summary = new MutableSummary(properties.target(), properties.mode());
+    private UserProfileBackfillSummary executeDryRun() {
+        long upperBound = candidateReader.findUpperBound();
+        MutableSummary summary = new MutableSummary(properties.mode());
         BoundedKeysetLoop.Result result = BoundedKeysetLoop.run(
                 0L, upperBound, properties.batchSize(), properties.maxBatches(),
-                (cursor, upper, limit) -> candidateReader.findBatch(properties.target(), cursor, upper, limit),
-                RestaurantMediaBackfillCandidate::associationId,
+                candidateReader::findBatch, UserProfileBackfillCandidate::userId,
                 candidate -> inspectAndCount(candidate, summary));
         return summary.finish(result == BoundedKeysetLoop.Result.EXHAUSTED ? Status.COMPLETED : Status.PAUSED);
     }
 
-    private void inspectAndCount(RestaurantMediaBackfillCandidate candidate, MutableSummary summary) {
+    private void inspectAndCount(UserProfileBackfillCandidate candidate, MutableSummary summary) {
         summary.scanned++;
         if (!candidate.hasUsableLegacyKey()) {
             summary.failed++;
@@ -117,17 +115,17 @@ class RestaurantMediaBackfillRunner {
         }
     }
 
-    private RestaurantMediaBackfillSummary executePersistent() {
-        long initialUpperBound = candidateReader.findUpperBound(properties.target());
+    private UserProfileBackfillSummary executePersistent() {
+        long initialUpperBound = candidateReader.findUpperBound();
         Acquisition acquisition = checkpointStore.acquire(
-                properties.requiredRunId(), properties.target(), properties.mode(),
+                properties.requiredRunId(), properties.mode(),
                 initialUpperBound, properties.leaseDuration()
         );
         if (acquisition.state() == AcquisitionState.BUSY) {
-            return RestaurantMediaBackfillSummary.fromSnapshot(Status.BUSY, acquisition.snapshot());
+            return UserProfileBackfillSummary.fromSnapshot(Status.BUSY, acquisition.snapshot());
         }
         if (acquisition.state() == AcquisitionState.COMPLETED) {
-            return RestaurantMediaBackfillSummary.fromSnapshot(
+            return UserProfileBackfillSummary.fromSnapshot(
                     Status.ALREADY_COMPLETED, acquisition.snapshot());
         }
 
@@ -136,62 +134,60 @@ class RestaurantMediaBackfillRunner {
             BoundedKeysetLoop.Result result = BoundedKeysetLoop.run(
                     acquisition.snapshot().cursorId(), lease.upperBoundId(),
                     properties.batchSize(), properties.maxBatches(),
-                    (cursor, upper, limit) -> candidateReader.findBatch(properties.target(), cursor, upper, limit),
-                    RestaurantMediaBackfillCandidate::associationId,
+                    candidateReader::findBatch, UserProfileBackfillCandidate::userId,
                     candidate -> processAndRecord(candidate, lease));
             if (result == BoundedKeysetLoop.Result.EXHAUSTED) {
                 return completedSummary(lease);
             }
             boolean paused = checkpointStore.pause(lease);
-            return RestaurantMediaBackfillSummary.fromSnapshot(
-                    paused ? Status.PAUSED : Status.LEASE_LOST,
-                    checkpointStore.find(lease.runId()));
-        } catch (RestaurantMediaBackfillLeaseLostException exception) {
-            return RestaurantMediaBackfillSummary.fromSnapshot(
+            return UserProfileBackfillSummary.fromSnapshot(
+                    paused ? Status.PAUSED : Status.LEASE_LOST, checkpointStore.find(lease.runId()));
+        } catch (UserProfileBackfillLeaseLostException exception) {
+            return UserProfileBackfillSummary.fromSnapshot(
                     Status.LEASE_LOST, checkpointStore.find(lease.runId()));
         } catch (RuntimeException exception) {
             boolean paused = checkpointStore.pause(lease);
             log.error(
-                    "Restaurant media backfill stopped: target={}, mode={}, errorType={}",
-                    properties.target(), properties.mode(), failureType(exception)
+                    "User profile backfill stopped: mode={}, errorType={}",
+                    properties.mode(), failureType(exception)
             );
-            return RestaurantMediaBackfillSummary.fromSnapshot(
+            return UserProfileBackfillSummary.fromSnapshot(
                     paused ? Status.FAILED : Status.LEASE_LOST,
                     checkpointStore.find(lease.runId()));
         }
     }
 
-    private void processAndRecord(RestaurantMediaBackfillCandidate candidate, Lease lease) {
+    private void processAndRecord(UserProfileBackfillCandidate candidate, Lease lease) {
         if (!candidate.hasUsableLegacyKey()) {
             checkpointStore.recordProgress(
-                    lease, candidate.associationId(),
-                    RestaurantMediaBackfillOutcome.FAILED, properties.leaseDuration());
+                    lease, candidate.userId(),
+                    UserProfileBackfillOutcome.FAILED, properties.leaseDuration());
             return;
         }
         try {
             MediaBackfillInspectionInfo inspection = inspect(candidate);
-            if (properties.mode() == RestaurantMediaBackfillMode.PREPARE) {
-                RestaurantMediaBackfillOutcome outcome = prepare(candidate, inspection);
+            if (properties.mode() == UserProfileBackfillMode.PREPARE) {
+                UserProfileBackfillOutcome outcome = prepare(candidate, inspection);
                 checkpointStore.recordProgress(
-                        lease, candidate.associationId(), outcome, properties.leaseDuration());
+                        lease, candidate.userId(), outcome, properties.leaseDuration());
                 return;
             }
             attachOrRecord(candidate, inspection, lease);
         } catch (MediaBackfillSourceException exception) {
             rethrowInfrastructureFailure(exception);
             checkpointStore.recordProgress(
-                    lease, candidate.associationId(),
-                    RestaurantMediaBackfillOutcome.FAILED, properties.leaseDuration());
+                    lease, candidate.userId(),
+                    UserProfileBackfillOutcome.FAILED, properties.leaseDuration());
         }
     }
 
-    private MediaBackfillInspectionInfo inspect(RestaurantMediaBackfillCandidate candidate) {
+    private MediaBackfillInspectionInfo inspect(UserProfileBackfillCandidate candidate) {
         MediaBackfillReference reference = reference(candidate);
         return withStorageRetry(() -> mediaBackfillPort.inspect(reference));
     }
 
-    private RestaurantMediaBackfillOutcome prepare(
-            RestaurantMediaBackfillCandidate candidate,
+    private UserProfileBackfillOutcome prepare(
+            UserProfileBackfillCandidate candidate,
             MediaBackfillInspectionInfo inspection
     ) {
         Optional<MediaBackfillAssetInfo> existing = inspection.asset();
@@ -203,16 +199,16 @@ class RestaurantMediaBackfillRunner {
         return preparedState(prepared.state());
     }
 
-    private RestaurantMediaBackfillOutcome preparedState(MediaBackfillAssetInfo.State state) {
+    private UserProfileBackfillOutcome preparedState(MediaBackfillAssetInfo.State state) {
         return switch (state) {
-            case PENDING_COPY, PROCESSING, READY -> RestaurantMediaBackfillOutcome.PREPARED;
+            case PENDING_COPY, PROCESSING, READY -> UserProfileBackfillOutcome.PREPARED;
             case FAILED, EXPIRED, BOUND, RETIRED, PURGING, PURGED ->
-                    RestaurantMediaBackfillOutcome.FAILED;
+                    UserProfileBackfillOutcome.FAILED;
         };
     }
 
     private void attachOrRecord(
-            RestaurantMediaBackfillCandidate candidate,
+            UserProfileBackfillCandidate candidate,
             MediaBackfillInspectionInfo inspection,
             Lease lease
     ) {
@@ -222,12 +218,12 @@ class RestaurantMediaBackfillRunner {
                     candidate, asset.get(), lease, properties.leaseDuration());
             return;
         }
-        RestaurantMediaBackfillOutcome outcome = asset.isPresent()
+        UserProfileBackfillOutcome outcome = asset.isPresent()
                 && terminal(asset.get().state())
-                ? RestaurantMediaBackfillOutcome.FAILED
-                : RestaurantMediaBackfillOutcome.SKIPPED;
+                ? UserProfileBackfillOutcome.FAILED
+                : UserProfileBackfillOutcome.SKIPPED;
         checkpointStore.recordProgress(
-                lease, candidate.associationId(), outcome, properties.leaseDuration());
+                lease, candidate.userId(), outcome, properties.leaseDuration());
     }
 
     private boolean terminal(MediaBackfillAssetInfo.State state) {
@@ -257,35 +253,32 @@ class RestaurantMediaBackfillRunner {
         return exception.getClass().getSimpleName();
     }
 
-    private MediaBackfillReference reference(RestaurantMediaBackfillCandidate candidate) {
+    private MediaBackfillReference reference(UserProfileBackfillCandidate candidate) {
         return new MediaBackfillReference(
-                candidate.target().mediaTarget(), candidate.associationId(), candidate.legacyKey());
+                MediaBackfillTarget.USER_PROFILE, candidate.userId(), candidate.legacyKey());
     }
 
-    private RestaurantMediaBackfillSummary completedSummary(Lease lease) {
+    private UserProfileBackfillSummary completedSummary(Lease lease) {
         Snapshot snapshot = checkpointStore.complete(lease);
-        return RestaurantMediaBackfillSummary.fromSnapshot(Status.COMPLETED, snapshot);
+        return UserProfileBackfillSummary.fromSnapshot(Status.COMPLETED, snapshot);
     }
 
     private static final class MutableSummary {
 
-        private final RestaurantMediaBackfillTarget target;
-        private final RestaurantMediaBackfillMode mode;
+        private final UserProfileBackfillMode mode;
         private long scanned;
         private long inspected;
         private long failed;
 
         private MutableSummary(
-                RestaurantMediaBackfillTarget target,
-                RestaurantMediaBackfillMode mode
+                UserProfileBackfillMode mode
         ) {
-            this.target = target;
             this.mode = mode;
         }
 
-        private RestaurantMediaBackfillSummary finish(Status status) {
-            return new RestaurantMediaBackfillSummary(
-                    target, mode, status, scanned, inspected, 0L, 0L, 0L, failed);
+        private UserProfileBackfillSummary finish(Status status) {
+            return new UserProfileBackfillSummary(
+                    mode, status, scanned, inspected, 0L, 0L, 0L, failed);
         }
     }
 }

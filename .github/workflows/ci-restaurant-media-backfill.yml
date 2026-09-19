@@ -1,4 +1,4 @@
-name: Restaurant Media Backfill CI
+name: Media Backfill CI
 
 on:
   pull_request:
@@ -6,16 +6,27 @@ on:
       - ".github/workflows/ci-restaurant-media-backfill.yml"
       - "src/main/java/org/sopt/hashi/restaurant/**"
       - "src/test/java/org/sopt/hashi/restaurant/**"
+      - "src/main/java/org/sopt/hashi/user/**"
+      - "src/test/java/org/sopt/hashi/user/**"
+      - "src/main/java/org/sopt/hashi/shared/migration/**"
+      - "src/test/java/org/sopt/hashi/shared/migration/**"
       - "src/main/resources/db/migration/**"
       - "src/main/resources/application.yml"
       - "docs/media/restaurant-menu-backfill-runbook.md"
+      - "docs/media/user-profile-backfill-runbook.md"
+      - "docs/media/legacy-backfill-runbook.md"
+      - "build.gradle"
+
+concurrency:
+  group: media-backfill-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
 
 permissions:
   contents: read
 
 jobs:
   verify:
-    name: Verify restaurant media backfill
+    name: Verify media backfill
     runs-on: ubuntu-latest
     timeout-minutes: 30
 
@@ -44,14 +55,15 @@ jobs:
           from pathlib import Path
           import xml.etree.ElementTree as ET
 
-          report = Path(
-              "build/test-results/test/"
-              "TEST-org.sopt.hashi.restaurant.migration."
-              "RestaurantMediaBackfillPersistenceIntegrationTest.xml"
+          reports = (
+              "TEST-org.sopt.hashi.restaurant.migration.RestaurantMediaBackfillPersistenceIntegrationTest.xml",
+              "TEST-org.sopt.hashi.user.migration.UserProfileBackfillPersistenceIntegrationTest.xml",
           )
-          suite = ET.parse(report).getroot()
-          assert int(suite.attrib["tests"]) > 0, "MySQL backfill tests did not execute"
-          for outcome in ("failures", "errors", "skipped"):
-              assert int(suite.attrib[outcome]) == 0, f"MySQL backfill {outcome} must be zero"
-          print("MySQL backfill gate executed without failures, errors, or skips")
+          for name in reports:
+              report = Path("build/test-results/test") / name
+              suite = ET.parse(report).getroot()
+              assert int(suite.attrib["tests"]) > 0, f"{name}: MySQL backfill tests did not execute"
+              for outcome in ("failures", "errors", "skipped"):
+                  assert int(suite.attrib[outcome]) == 0, f"{name}: {outcome} must be zero"
+              print(f"{name}: executed without failures, errors, or skips")
           PY

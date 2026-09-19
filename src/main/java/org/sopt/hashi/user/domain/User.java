@@ -109,4 +109,16 @@ public class User extends BaseTimeEntity {
         }
         profileImageAssetId = assetId;
     }
+
+    /** migration이 User를 잠근 뒤 호출한다. 기존 회원 정보와 legacy key는 그대로 보존한다. */
+    public boolean attachBackfilledProfileImage(String expectedKey, UUID assetId) {
+        Objects.requireNonNull(assetId, "assetId must not be null");
+        boolean unchangedSource = !deleted && profileImageKey != null
+                && profileImageKey.equals(expectedKey) && profileImageAssetId == null;
+        if (!unchangedSource) {
+            return false;
+        }
+        profileImageAssetId = assetId;
+        return true;
+    }
 }
