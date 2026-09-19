@@ -192,6 +192,7 @@ jobs:
           MEDIA_DEV_UPLOAD_ALLOWED_ORIGINS: ${{ vars.MEDIA_DEV_UPLOAD_ALLOWED_ORIGINS }}
           MEDIA_DEV_ALARM_NOTIFICATION_TOPIC_ARN: ${{ vars.MEDIA_DEV_ALARM_NOTIFICATION_TOPIC_ARN }}
           MEDIA_DEV_WORKER_EVENT_SOURCE_ENABLED: ${{ vars.MEDIA_DEV_WORKER_EVENT_SOURCE_ENABLED }}
+          MEDIA_DEV_BACKFILL_ACCESS_ENABLED: ${{ vars.MEDIA_DEV_BACKFILL_ACCESS_ENABLED }}
         run: |
           set -euo pipefail
 
@@ -230,7 +231,8 @@ jobs:
 
           selected[MEDIA_ALARM_NOTIFICATION_TOPIC_ARN]="${MEDIA_DEV_ALARM_NOTIFICATION_TOPIC_ARN:-}"
           selected[MEDIA_WORKER_EVENT_SOURCE_ENABLED]="${MEDIA_DEV_WORKER_EVENT_SOURCE_ENABLED:-false}"
-          for optional_name in MEDIA_ALARM_NOTIFICATION_TOPIC_ARN MEDIA_WORKER_EVENT_SOURCE_ENABLED; do
+          selected[MEDIA_BACKFILL_ACCESS_ENABLED]="${MEDIA_DEV_BACKFILL_ACCESS_ENABLED:-false}"
+          for optional_name in MEDIA_ALARM_NOTIFICATION_TOPIC_ARN MEDIA_WORKER_EVENT_SOURCE_ENABLED MEDIA_BACKFILL_ACCESS_ENABLED; do
             if [[ "${selected[${optional_name}]}" == *$'\n'* || "${selected[${optional_name}]}" == *$'\r'* ]]; then
               echo "Optional repository variables cannot contain a newline."
               exit 1
@@ -286,11 +288,13 @@ jobs:
             fi
           done
 
-          worker_enabled="${selected[MEDIA_WORKER_EVENT_SOURCE_ENABLED]}"
-          if [[ "${worker_enabled}" != "true" && "${worker_enabled}" != "false" ]]; then
-            echo "MEDIA_WORKER_EVENT_SOURCE_ENABLED must be true or false."
-            exit 1
-          fi
+          for flag_name in MEDIA_WORKER_EVENT_SOURCE_ENABLED MEDIA_BACKFILL_ACCESS_ENABLED; do
+            flag_value="${selected[${flag_name}]}"
+            if [[ "${flag_value}" != "true" && "${flag_value}" != "false" ]]; then
+              echo "${flag_name} must be true or false."
+              exit 1
+            fi
+          done
 
           alarm_topic="${selected[MEDIA_ALARM_NOTIFICATION_TOPIC_ARN]}"
           if [[ -n "${alarm_topic}" ]]; then
@@ -559,6 +563,7 @@ jobs:
             "SpringApplicationRoleName=${MEDIA_SPRING_APPLICATION_ROLE_NAME}"
             "UploadAllowedOrigins=${MEDIA_UPLOAD_ALLOWED_ORIGINS}"
             "WorkerEventSourceEnabled=${MEDIA_WORKER_EVENT_SOURCE_ENABLED}"
+            "BackfillAccessEnabled=${MEDIA_BACKFILL_ACCESS_ENABLED}"
             "SourceCommitSha=${SOURCE_COMMIT_SHA}"
             "WorkerBuildArtifactSha256=${WORKER_BUILD_ARTIFACT_SHA256}"
           )

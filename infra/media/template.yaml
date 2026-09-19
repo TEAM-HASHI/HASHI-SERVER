@@ -13,6 +13,8 @@ Parameters:
   DeliveryBucketName:
     Type: String
     MinLength: 3
+    MaxLength: 63
+    AllowedPattern: "^[a-z0-9][a-z0-9.-]*[a-z0-9]$"
     Description: Existing private bucket served by the existing CloudFront distribution
 
   CloudFrontDistributionId:
@@ -60,6 +62,14 @@ Parameters:
       - "false"
     Description: Enables or pauses request queue consumption without deleting resources
 
+  BackfillAccessEnabled:
+    Type: String
+    Default: "false"
+    AllowedValues:
+      - "true"
+      - "false"
+    Description: Temporary read and version-list permissions for an approved legacy backfill
+
   WorkerLogRetentionDays:
     Type: Number
     Default: 30
@@ -90,6 +100,9 @@ Conditions:
       - ""
   IsWorkerEventSourceEnabled: !Equals
     - !Ref WorkerEventSourceEnabled
+    - "true"
+  IsBackfillAccessEnabled: !Equals
+    - !Ref BackfillAccessEnabled
     - "true"
 
 Resources:
@@ -369,6 +382,36 @@ Resources:
               - sqs:GetQueueUrl
               - sqs:ReceiveMessage
             Resource: !GetAtt TransformResultQueue.Arn
+
+  SpringApplicationBackfillPolicy:
+    Type: AWS::IAM::ManagedPolicy
+    Condition: IsBackfillAccessEnabled
+    Properties:
+      Description: Temporary legacy read and private copy discovery for HASHI backfill
+      Roles:
+        - !Ref SpringApplicationRoleName
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Sid: ReadLegacySourceVersions
+            Effect: Allow
+            Action:
+              - s3:GetObject
+              - s3:GetObjectVersion
+            Resource: !Sub "arn:${AWS::Partition}:s3:::${DeliveryBucketName}/*"
+          - Sid: FindExistingPrivateCopies
+            Effect: Allow
+            Action:
+              - s3:ListBucketVersions
+            Resource: !GetAtt OriginalImageBucket.Arn
+            Condition:
+              StringLike:
+                s3:prefix: "media/originals/*"
+          - Sid: ReplacePrivateCopyTags
+            Effect: Allow
+            Action:
+              - s3:PutObjectTagging
+            Resource: !Sub "${OriginalImageBucket.Arn}/media/originals/*"
 
   TransformRequestAgeAlarm:
     Type: AWS::CloudWatch::Alarm

@@ -90,6 +90,7 @@ dev workflow에는 아래 repository variable이 필요하다.
 | `MEDIA_DEV_UPLOAD_ALLOWED_ORIGINS` | 콤마로 구분한 exact dev client origin |
 | `MEDIA_DEV_ALARM_NOTIFICATION_TOPIC_ARN` | 기존 dev alarm SNS topic |
 | `MEDIA_DEV_WORKER_EVENT_SOURCE_ENABLED` | `true` 또는 `false`. 생략 시 안전하게 `false` |
+| `MEDIA_DEV_BACKFILL_ACCESS_ENABLED` | 승인된 legacy backfill용 임시 S3 권한. 생략 시 안전하게 `false` |
 
 stack 이름은 variable로 받지 않고 `hashi-dev-media-pipeline`, `hashi-prod-media-pipeline`으로 고정한다.
 dev workflow와 prod 운영자는 기존 stack의 `EnvironmentName` parameter와 `Project`, `Component`,
@@ -132,13 +133,14 @@ execution role을 확인한 뒤 같은 신뢰 경계에서 생성·실행한다.
 
 ## 검증과 배포 순서
 
-PR에서는 다음 작업이 자동 실행된다.
+인프라 관련 변경 PR에서는 다음 작업이 자동 실행된다.
 
-1. Node.js 24와 SAM CLI `1.165.0` 설치 및 버전 확인
-2. delivery lifecycle과 worker IAM 검사기의 반례 test
-3. worker exact dependency 설치. fixture test는 별도 worker CI에서 실행한다.
-4. Linux x64 production package 생성
-5. `sam validate --lint`와 `sam build`
+1. Node.js 24, JDK 21과 SAM CLI `1.165.0` 설치 및 버전 확인
+2. 임시 backfill IAM 범위와 기본 비활성화 계약 test
+3. delivery lifecycle과 worker IAM 검사기의 반례 test
+4. worker exact dependency 설치. fixture test는 별도 worker CI에서 실행한다.
+5. Linux x64 production package 생성
+6. `sam validate --lint`와 `sam build`
 
 worker와 규격 파일이 바뀌어도 인프라 CI를 실행한다. SAM의 `CodeUri`가 worker package를 직접
 참조하므로 새 코드로 배포 묶음을 만들 수 있는지 함께 확인해야 한다. worker 테스트는 worker CI가
@@ -186,6 +188,28 @@ Spring에는 stack output을 다음 환경변수로 전달한다.
 - `AWS_MEDIA_REQUEST_QUEUE_URL`
 - `AWS_MEDIA_RESULT_QUEUE_URL`
 - `AWS_MEDIA_QUEUE_ENABLED` — dev E2E 전에는 `false`
+
+### Legacy backfill의 추가 권한
+
+`BackfillAccessEnabled=false`가 기본값이다. 승인 후 dev repository variable의
+`MEDIA_DEV_BACKFILL_ACCESS_ENABLED=true`로 배포한 경우에만 별도
+`SpringApplicationBackfillPolicy`를 기존 EC2 role에 연결한다.
+
+- legacy source는 지정한 delivery bucket 안에서 `GetObject`와 `GetObjectVersion`만 허용한다.
+  기존 key가 현재 upload prefix 규칙을 따른다고 가정하지 않는다. purpose는 소유 테이블과
+  슬롯으로 결정하며, adapter는 `media/` 하위 객체를 source로 사용하지 않는다.
+- private original은 `media/originals/*` prefix에 한해 `ListBucketVersions`를 허용해
+  응답이 유실된 copy의 version을 재발견한다. 목적지 PUT과 exact-version HEAD는 기존 media policy를 사용하고,
+  빈 tag로 교체하기 위한 `PutObjectTagging`만 같은 prefix의 임시 backfill policy에서 허용한다.
+- 원본 삭제, ACL 변경, bucket 공개나 기존 delivery bucket 설정 변경 권한은 추가하지 않는다.
+- 실제 적용 전 delivery bucket의 데이터 범위와 EC2 role의 기존 권한을 확인한다. 이 flag는
+  이 stack의 추가 policy만 제어하며 기존의 더 넓은 policy를 회수하지 않는다.
+
+IAM 허용만으로 backfill이 실행되지는 않는다. 별도로 Spring의
+`AWS_MEDIA_BACKFILL_ENABLED=true`가 필요하며 기본값은 `false`다. 새 예약·변환 job을
+발급하려면 DB의 `issuance_enabled`도 활성화되어야 한다. dry-run과 실행·연결의 경계는
+[legacy backfill runbook](../../docs/media/legacy-backfill-runbook.md)을 따른다.
+실행 종료 후에는 Spring opt-in과 추가 IAM flag를 모두 끄는 운영 변경을 별도 승인·적용한다.
 
 정체 복구는 기본적으로 처리 시작 10분 뒤부터 같은 결정적 job ID를 15분 간격, 최대 3회
 재발행한다. 값은 `AWS_MEDIA_PROCESSING_STALE_AGE`,
