@@ -49,6 +49,7 @@
 ├─ dto/                   # Request / Response DTO
 ├─ web/                   # Controller
 ├─ internal/              # 모듈 내부 전용 기술 구현 (필요 시)
+├─ migration/             # 한시적 데이터 전환 실행기·checkpoint 접근 (승인된 경우만)
 └─ event/                 # 이벤트 리스너 (필요 시)
 ```
 
@@ -66,6 +67,9 @@
   `domain`·`service`·`dto`·`web`에 두며, 다른 모듈은 `internal`을 import하지 않는다.
 - **MUST**: `internal/event`는 발행자와 구독자가 모두 같은 모듈인 내부 연결 이벤트에만 사용한다.
   모듈 간 발행 이벤트는 기존 규칙대로 모듈 루트에 둔다.
+- **MAY**: 승인된 backfill runner와 그 전용 checkpoint 접근은 소유 모듈의 `migration/`에 둔다.
+  일반 요청의 비즈니스 로직이나 Repository를 옮기는 예외가 아니다. 콘텐츠 변경은 기존 Aggregate를
+  사용하고, 실행 gate·잠금·재시작·종료 조건을 runbook에 명시한다. 전환 종료 후 runner와 함께 제거한다.
 - **SHOULD**: 복합 컨텍스트는 하위 도메인 패키지를 둘 수 있다(예: `user/bookmark/`,
   `support/inquiry/`, `support/notice/`). 이 경우에도 일반 런타임 공개 지점은 `<Context>Port`로
   단일화한다.
