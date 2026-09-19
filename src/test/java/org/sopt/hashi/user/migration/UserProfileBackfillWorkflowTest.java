@@ -33,6 +33,15 @@ class UserProfileBackfillWorkflowTest {
 
         assertThat(permissions).hasSize(1);
         assertThat(permissions.get("contents")).isEqualTo("read");
+        // SnakeYAML의 YAML 1.1 해석에서는 on이 Boolean.TRUE 키가 될 수 있다.
+        Map<?, ?> triggers = (Map<?, ?>) workflow.get("on");
+        if (triggers == null) {
+            triggers = (Map<?, ?>) workflow.get(Boolean.TRUE);
+        }
+        Map<?, ?> pullRequest = (Map<?, ?>) triggers.get("pull_request");
+        List<?> paths = (List<?>) pullRequest.get("paths");
+        assertThat(paths).anyMatch("src/main/java/org/sopt/hashi/shared/migration/**"::equals);
+        assertThat(paths).anyMatch("src/test/java/org/sopt/hashi/shared/migration/**"::equals);
         assertThat((String) checkout.get("uses")).matches("actions/checkout@[0-9a-f]{40}");
         assertThat(checkoutInputs.get("ref")).isEqualTo("${{ github.event.pull_request.head.sha }}");
         assertThat(commands).contains("docker info", "bash ./gradlew clean build --no-daemon");

@@ -12,7 +12,7 @@ reviews:
   high_level_summary: true
   high_level_summary_instructions: |
     변경 사항을 한국어로 간결하게 요약한다.
-    어떤 도메인 모듈(restaurant/review/reservation/point/magazine/user/support, 또는 auth/admin/shared)이
+    어떤 모듈(restaurant/review/reservation/point/magazine/user/support, 또는 auth/admin/upload/media/shared)이
     영향을 받는지, 모듈 경계(<Context>Port·발행 이벤트)나 shared 공유 커널이 변경됐는지를 중심으로 서술한다.
   poem: false
   review_status: true
@@ -39,13 +39,14 @@ reviews:
 
     ## 모듈 구조 (애그리거트 경계)
     - 도메인 컨텍스트(7): restaurant · review · reservation · point · magazine · user · support
-    - 횡단: auth / 진입점: admin / 지원: upload(파일 업로드 자격 발급, 상태 없는 모듈: domain/·Port 없음, shared/storage FileStorage에만 의존) / 공유 커널: shared(@ApplicationModule(type = OPEN))
+    - 횡단: auth / 진입점: admin / 지원: upload(legacy 업로드 자격 발급, 상태 없는 모듈: domain/·Port 없음, shared/storage FileStorage에만 의존), media(신규 이미지 asset과 파생본 관리) / 공유 커널: shared(@ApplicationModule(type = OPEN))
+    - media는 ImageAsset Aggregate와 자식 ImageRendition을 소유하고, 콘텐츠 소속과 표시 순서는 기존 콘텐츠 Aggregate가 소유한다. media는 콘텐츠 도메인을 되참조하지 않는다.
     - 모듈 경계는 기술 계층(controller/service/repository)이 아니라 애그리거트(비즈니스 능력+트랜잭션 일관성)로 나눈다.
     - common / core / util / global 같은 잡동사니 공통 패키지를 만들면 반드시 지적한다.
     - 자식 엔티티(메뉴·사진·카드 등)는 별도 모듈이 아니라 애그리거트 루트가 소유한다.
 
     ## 모듈 내부 레이아웃 (각 도메인 모듈 고정)
-    - <Context>Port      : 모듈 간 공개 포트(통합 1개)
+    - <Context>Port      : 일반 런타임 모듈 간 공개 포트(통합 1개)
     - <Context>Info      : 모듈 간 전달 DTO
     - code/              : 도메인 ErrorCode/SuccessCode (shared 인터페이스 구현)
     - domain/            : 엔티티·Repository(애그리거트)
@@ -53,17 +54,20 @@ reviews:
     - dto/               : Request/Response DTO(record)
     - web/               : Controller
     - event/             : 구독 리스너(발행 이벤트는 모듈 루트에 공개)
-    - 외부 공개 지점은 <Context>Port / <Context>Info / 발행 이벤트뿐이다. domain·service·dto·web은 모듈 내부 구현이다.
+    - internal/          : 필요 시 모듈 내부 전용 storage adapter·규격/설정 reader 같은 기술 구현. 엔티티·Repository·업무 로직·DTO·Controller는 기존 domain/service/dto/web에 둔다.
+    - internal/event는 발행자와 구독자가 같은 모듈인 내부 연결 이벤트에만 사용한다. 모듈 간 발행 이벤트는 모듈 루트에 공개한다. 다른 모듈의 internal 참조는 금지한다.
+    - 외부 공개 지점은 <Context>Port / <Context>Info / 발행 이벤트 및 architecture.md의 지원 모듈 규칙이나 ADR에서 승인한 좁은 공개 지점이다. 추가 공개 지점의 목적·호출 주체와 임시/migration 예외의 종료 조건을 확인한다. domain·service·dto·web은 모듈 내부 구현이다.
+    - MediaBackfillPort는 ADR의 migration-only 예외다. association 소유 도메인의 backfill runner만 사용하며 Controller와 일반 Service에서는 사용하지 않는다.
     - 복합 컨텍스트는 하위 도메인 패키지(support/inquiry, support/notice, user/bookmark)를 둘 수 있으나, 모듈 공개 지점은 여전히 <Context>Port로 단일화한다.
 
     ## 모듈 간 통신
-    - 모듈 간 동기 호출은 상대 모듈의 <Context>Port(포트 인터페이스)로만 한다.
+    - 모듈 간 동기 호출은 일반 도메인의 <Context>Port 또는 위에서 명시적으로 승인한 공개 capability/ADR 예외로만 한다.
     - 다른 모듈의 domain·service·Repository·엔티티를 직접 import/호출하면 지적한다.
-    - 모듈 간 DB 조인 / 외래키(FK)로 묶지 않는다. JPA에서는 타 모듈 엔티티를 @ManyToOne/@OneToMany/@JoinColumn으로 직접 참조하지 말고, 타 도메인 식별자는 Long id 값으로만 보관한다.
+    - 모듈 간 DB 조인 / 외래키(FK)로 묶지 않는다. JPA에서는 타 모듈 엔티티를 @ManyToOne/@OneToMany/@JoinColumn으로 직접 참조하지 말고, 타 도메인 식별자는 ID 값으로만 보관한다. media 참조는 public UUID asset ID를 사용하며 media 내부 숫자 PK를 저장하지 않는다.
     - 모듈 간 순환 의존(직접·간접)을 만들지 않는다. 역방향이 필요하면 이벤트로 해결한다.
-    - 타 도메인 목록 보유 시: 매핑 테이블은 소유 모듈 애그리거트의 자식으로 두고, 타 도메인 키는 Long id로만, 상세는 상대 <Context>Port로 enrich한다(예: 매거진→식당 관련 식당, user→restaurant/magazine 찜).
+    - 타 도메인 목록 보유 시: 매핑 테이블은 소유 모듈 애그리거트의 자식으로 두고, 타 도메인 키는 해당 공개 계약의 ID 값으로만 보관한다. 기존 식당·매거진 참조는 Long, media 참조는 public UUID다. 상세는 상대 공개 Port로 enrich한다.
     - 여러 도메인 데이터를 함께 내리는 교차 조회는 시작점 애그리거트가 담당하되, 시작점→대상이 순환이면 담당을 조회 가능한 쪽으로 반전한다(예: '식당의 리뷰 목록'은 review가 담당해 RestaurantPort로 식당 enrich; URL이 /restaurants로 시작해도 컨트롤러는 review). 순환을 피하려 상대 internal/Repository를 직접 부르면 지적한다.
-    - 이벤트 구독은 @ApplicationModuleListener로 처리하고, 핸들러는 멱등(idempotent)하게 작성한다.
+    - 일반 이벤트 구독은 @ApplicationModuleListener로 처리하고, 핸들러는 멱등(idempotent)하게 작성한다. 외부 broker publisher의 승인된 예외는 아래 트랜잭션 규칙을 따른다.
 
     ## shared (공유 커널)
     - shared에는 도메인 지식이 없는 틀·계약·VO만 둔다(BaseResponse/ErrorCode 계약/BusinessException/GlobalExceptionHandler/Money 등).
@@ -88,9 +92,10 @@ reviews:
     - 현재 로그인 사용자는 CurrentUserProvider로 읽는다. 요청 파라미터로 받은 userId를 신뢰하지 않는다.
     - 도메인이 SecurityContextHolder를 직접 뒤지지 않는다.
     - 어드민 전용 API는 ROLE_ADMIN을 요구하고, 본인 리소스 접근은 currentUserId()와 소유자를 비교해 검증한다.
-    - CurrentUserProvider는 auth가 공개한다(shared 패키지가 아니라 auth). 이것이 도메인이 auth에 의존하는 유일한 지점이다.
+    - auth의 공개 capability는 CurrentUserProvider(일반 현재 사용자 조회), CurrentActorProvider(USER/ADMIN/ONBOARDING 구분이 필요한 제한된 기능), AuthAccountPort(온보딩 계정 연결)다. CurrentActor·ActorType은 actor 반환 계약이며 auth.internal은 공개하지 않는다.
+    - media는 CurrentActorProvider로 actor 유형과 subjectId를 함께 검증한다. USER 1과 ADMIN 1을 같은 소유자로 취급하지 않으며, 일반 사용자 도메인은 CurrentUserProvider를 유지한다. ONBOARDING 내부 subject를 응답·로그에 노출하지 않는다.
     - 토큰 전달: 액세스=Authorization Bearer 헤더, 리프레시=HttpOnly 쿠키. 재발급 시 리프레시 회전, 폐기 토큰 재사용 감지 시 세션 무효화. 리프레시·온보딩 임시 토큰은 Redis에 TTL로 보관.
-    - 온보딩: 카카오 인증 후 미가입자는 auth가 온보딩 임시 토큰(Redis TTL·1회용)을 발급한다. 온보딩 저장은 user 소유이나, user가 JWT 발급이나 인증 상태 확인을 위해 auth를 포트로 호출하면 user→auth 순환이므로 지적한다. 정식 JWT 발급은 auth 인터셉터가 응답에 실어준다(user는 저장만, 가입=즉시 로그인).
+    - 온보딩: 카카오 인증 후 미가입자는 auth가 온보딩 임시 토큰(Redis TTL·1회용)을 발급한다. user는 회원 저장과 계정 연결의 원자적 커밋을 위해 AuthAccountPort만 호출한다. 제공자 정보 해석과 정식 JWT 발급은 auth 책임이며 JWT는 auth 인터셉터가 응답에 실어준다. auth의 도메인 되참조와 auth.internal 직접 접근은 금지한다.
     - 사용자 로그아웃 API는 MVP 제외(어드민 로그아웃은 존재). 사용자 토큰 무효화는 회원 탈퇴(DELETE /users/me, user 소유)로 발행된 UserWithdrawnEvent를 auth가 구독해 리프레시 삭제 + 액세스 블랙리스트(Redis)로 처리한다.
     - SMS 전화번호 인증은 MVP 제외.
 
@@ -101,7 +106,8 @@ reviews:
     - 모든 endpoint는 /api/v1로 시작한다. URL은 소문자·복수형 명사·케밥 케이스이며 동사를 쓰지 않는다(GET /api/v1/reservations).
       단, 표준 CRUD로 표현 못 하는 상태 전이 액션(취소·승인 등)은 POST /resources/{id}/action 형태의 action 서브리소스를 예외로 허용한다(URL 동사 위반으로 지적하지 않는다).
     - 목록 페이지네이션은 사용자향 피드=커서(cursor), 어드민 목록=offset(page/size+총건수)로 한다.
-    - 이미지 URL은 DB에 S3 object key만 저장하고 응답 생성 시 presigned GET URL로 변환한다(저장 값에 presigned 전체 URL 금지).
+    - 기존 이미지는 저장된 object key에서 CloudFront URL을 만들고 신규 이미지는 media의 READY 파생본을 CloudFront로 전달한다. 전체 presigned URL을 DB에 저장하거나 신규 private original을 공개/fallback으로 제공하지 않는다. 원본 업로드용 presigned PUT은 조회 URL과 구분한다.
+    - 콘텐츠는 신규 media public UUID와 전환 기간의 기존 key/URL 계약을 보존한다. asset ID가 없는 기존 데이터만 legacy URL fallback을 허용하며, asset ID가 있으면 PROCESSING/FAILED/조회 불일치에도 legacy URL로 우회하지 않는다. private original/rendition key를 legacy key 컬럼에 넣지 않는다.
     - 시각은 DB에 DATETIME으로 저장하고 응답은 ISO-8601 문자열로 내린다(표시 포맷은 클라 담당).
     - 검증·규칙·연산이 붙는 값은 VO(JPA @Embeddable)로 만든다(예: Money).
     - import 와일드카드 금지, 들여쓰기 스페이스 4칸, 중괄호 K&R.
@@ -112,6 +118,8 @@ reviews:
     - 원칙은 1 트랜잭션 = 1 애그리거트.
     - 즉시 일관성이 필요한 교차 작업(포인트 적립/차감 등)은 같은 트랜잭션(동기 포트 호출)으로 처리한다.
     - 팬아웃 후속처리(탈퇴 정리 등)는 이벤트로, 발행 트랜잭션 커밋 후 별도 트랜잭션에서 처리한다.
+    - ADR에서 승인한 외부 broker publisher만 예외로 고정 listener ID의 @Async + @TransactionalEventListener를 사용한다. DB commit 이후 listener transaction 밖에서 network I/O를 실행하며 이 listener에 @Transactional을 붙이지 않는다. Event Publication Registry 재전송과 downstream 멱등성을 함께 검증한다.
+    - media의 S3 원본 확인·변환·삭제도 DB 트랜잭션 밖에서 실행한다.
 
     ## 테스트
     - 모듈 통합 테스트는 @ApplicationModuleTest로 해당 모듈만 부트스트랩하고, 타 모듈은 포트를 모킹한다.
@@ -133,26 +141,26 @@ reviews:
         - Controller: 엔티티를 직접 응답으로 노출하지 않고 <Context>Response(record)로 변환하는지 확인한다.
         - Controller: 응답을 SuccessResponse로 감싸는지 확인한다.
         - Controller: @RequestBody DTO에 @Valid가 붙어 있는지 확인한다.
-        - Controller: 인증이 필요한 API에서 요청 파라미터 userId를 신뢰하지 않고 CurrentUserProvider로 현재 사용자를 얻는지 확인한다.
+        - Controller: 인증이 필요한 API에서 요청 파라미터 userId/actor를 신뢰하지 않고 auth의 승인된 공개 조회 계약을 사용하는지 확인한다. 일반 사용자는 CurrentUserProvider, 역할 구분이 필요한 media는 CurrentActorProvider다.
         - Controller: 비즈니스 로직이 없는지(검증·DTO 변환·service 호출만 하는지) 확인한다.
         - URL이 /api/v1로 시작하고 동사 없이 소문자·복수형 명사·케밥 케이스인지 확인한다(단, 상태 전이 액션의 POST /{id}/action 서브리소스는 예외로 지적하지 않는다).
-        - 목록 응답이 사용자=커서 / 어드민=offset 페이지네이션 규칙을 따르는지, 이미지 URL을 presigned로 변환해 내리는지 확인한다.
+        - 목록 응답이 사용자=커서 / 어드민=offset 페이지네이션 규칙을 따르는지, 이미지 조회가 CloudFront 전달·legacy 호환 규칙을 지키며 신규 private original을 노출하지 않는지 확인한다.
 
     - path: "**/service/**/*.java"
       instructions: |
-        - Service: 다른 모듈이 필요하면 그 모듈의 <Context>Port만 호출하는지 확인한다(타 모듈 domain/service/Repository/엔티티 직접 참조 금지).
+        - Service: 다른 모듈은 <Context>Port 또는 승인된 auth capability로 호출하는지 확인한다(타 모듈 domain/service/Repository/엔티티 직접 참조 금지). migration-only MediaBackfillPort를 일반 Service에서 사용하지 않는다.
         - Service: 비즈니스 규칙 위반을 BusinessException(ErrorCode)으로 던지는지 확인한다(ResponseEntity 직접 생성 금지).
-        - Service: 현재 사용자는 CurrentUserProvider.currentUserId()로 얻고, 본인 리소스 접근은 소유자 검증을 하는지 확인한다.
+        - Service: 일반 현재 사용자는 CurrentUserProvider.currentUserId()로 얻는다. media는 CurrentActorProvider로 actor 유형과 식별자를 함께 비교하고 purpose별 권한과 소유권을 검증하는지 확인한다.
         - Service: @Transactional 범위가 적절한지(1 트랜잭션 = 1 애그리거트) 검토한다.
         - 예외를 catch 후 무시하고 정상 응답으로 처리하지 않는지 확인한다.
 
     - path: "**/domain/**/*.java"
       instructions: |
         - 엔티티/Repository는 자기 모듈 애그리거트만 다루는지 확인한다.
-        - 타 모듈 엔티티를 @ManyToOne/@OneToMany/@JoinColumn 등 JPA 연관관계로 직접 참조하지 않는지 확인한다(타 도메인은 Long id로만 보관).
+        - 타 모듈 엔티티를 @ManyToOne/@OneToMany/@JoinColumn 등 JPA 연관관계로 직접 참조하지 않는지 확인한다(타 도메인은 ID 값으로만 보관, media는 내부 PK가 아닌 public UUID).
         - 검증·규칙·연산이 붙는 값을 VO(@Embeddable)로 분리했는지 확인한다.
         - Repository는 자기 모듈 엔티티만 다루는지 확인한다.
-        - 이미지 컬럼에 S3 object key만 저장하는지(presigned 전체 URL 저장 금지), 시각 컬럼이 DATETIME인지 확인한다.
+        - 기존 이미지 key와 신규 media public UUID 참조를 계약에 맞게 보관하는지, private original/rendition key를 legacy key 컬럼에 넣지 않는지 확인한다. presigned 전체 URL 저장은 금지하며, 시각 컬럼은 DATETIME인지 확인한다.
 
     - path: "**/code/**/*.java"
       instructions: |
@@ -161,8 +169,8 @@ reviews:
 
     - path: "**/event/**/*.java"
       instructions: |
-        - 이벤트 구독 리스너가 @ApplicationModuleListener를 사용하고 멱등하게 작성됐는지 확인한다.
-        - 발행 모듈은 이벤트를 @NamedInterface로 노출하고, 구독 모듈은 그 이벤트 타입에만 의존하는지 확인한다.
+        - 일반 이벤트 구독은 @ApplicationModuleListener를 사용하고 멱등한지 확인한다. 외부 broker publisher는 전역 트랜잭션 지침과 ADR의 commit 이후·listener transaction 밖 network I/O 예외를 따른다.
+        - 모듈 간 이벤트만 발행 모듈 루트에서 @NamedInterface로 노출하며 구독 모듈은 그 타입에만 의존한다. internal/event의 같은 모듈 내부 연결 이벤트는 공개하지 않는다.
 
     - path: "**/dto/**/*.java"
       instructions: |
@@ -188,9 +196,9 @@ reviews:
         - 인증 강제는 Spring Security 필터 체인(SecurityConfig·JwtAuthenticationFilter)이 담당하는지 확인한다.
         - SecurityConfig에 permitAll 경로를 추가할 때 의도가 맞는지, 어드민 전용 경로에 ROLE_ADMIN을 요구하는지 검토한다.
         - JWT 등 인증 설정값은 @ConfigurationProperties로 바인딩하는지 확인한다.
-        - auth가 도메인에 공개하는 지점은 CurrentUserProvider 하나이고, JWT/OAuth/필터는 internal에 감춰져 있는지 확인한다.
+        - auth 공개 지점이 CurrentUserProvider·CurrentActorProvider·AuthAccountPort와 그 반환 계약으로 제한되고, JWT/OAuth/필터는 internal에 감춰져 있는지 확인한다. 역할별 용도를 전역 인증 지침과 auth.md에 맞춘다.
         - 액세스=헤더/리프레시=HttpOnly 쿠키·회전·재사용 감지, 리프레시·임시 토큰의 Redis TTL 보관을 지키는지 확인한다.
-        - 온보딩 완료 시 정식 JWT를 auth 인터셉터가 발급하는지(user가 auth를 호출하지 않는지), 탈퇴 시 UserWithdrawnEvent 구독으로 리프레시 삭제+액세스 블랙리스트 처리하는지 확인한다.
+        - 온보딩 계정 연결만 user가 AuthAccountPort로 원자적으로 처리하고, 정식 JWT는 auth 인터셉터가 발급하는지 확인한다. 탈퇴 시 UserWithdrawnEvent 구독으로 리프레시 삭제+액세스 블랙리스트 처리하는지 확인한다.
 
     - path: "**/admin/**/*.java"
       instructions: |
@@ -240,9 +248,9 @@ reviews:
       - name: "모듈 경계 위반 확인"
         mode: "warning"
         instructions: |
-          한 모듈의 클래스가 다른 모듈의 domain/service/Repository/엔티티를 직접 import하면 경고를 남긴다.
-          모듈 간 동기 호출은 상대 모듈의 <Context>Port 인터페이스로만 해야 한다.
-          단, 비동기 이벤트 통신(발행 모듈이 @NamedInterface로 노출한 이벤트 타입을 구독 모듈이 @ApplicationModuleListener로 구독·처리)은 허용된 통신 방식이므로 경계 위반으로 지적하지 않는다.
+          한 모듈의 클래스가 다른 모듈의 internal/domain/service/Repository/엔티티를 직접 import하면 경고를 남긴다.
+          모듈 간 동기 호출은 일반 도메인의 <Context>Port 또는 architecture.md/ADR이 목적과 호출 주체를 승인한 공개 지점으로만 한다. auth의 CurrentUserProvider·CurrentActorProvider·AuthAccountPort는 각 용도에 맞게 사용하며, MediaBackfillPort는 association 소유 도메인의 migration runner만 사용한다.
+          일반 모듈 간 이벤트는 발행 모듈이 @NamedInterface로 공개하고 @ApplicationModuleListener로 구독한다. 같은 모듈 내부 연결 이벤트는 internal/event에서 비공개로 유지한다. 외부 broker publisher는 ADR에서 승인한 commit 이후·listener transaction 밖 network I/O 예외와 EPR 재전송·멱등성 조건을 충족하면 경계 위반으로 지적하지 않는다.
           모듈 간 DB 조인·외래키(FK, JPA 연관관계 포함)로 묶거나 순환 의존이 생기면 경고한다.
       - name: "shared 공유 커널 오염 확인"
         mode: "warning"

@@ -21,6 +21,8 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import javax.sql.DataSource;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.sopt.hashi.media.domain.ImageAsset;
 import org.sopt.hashi.media.domain.ImageAssetRepository;
 import org.sopt.hashi.media.domain.ImageFormat;
@@ -48,6 +50,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.testcontainers.service.connection.ServiceConnection;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.test.annotation.DirtiesContext;
 import org.testcontainers.containers.MySQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
@@ -60,6 +63,7 @@ import org.testcontainers.junit.jupiter.Testcontainers;
         "kakao.redirect-uri=https://app.hashi.test/callback",
         "hashi.storage.cloudfront-domain=https://cdn.hashi.test"
 })
+@DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_CLASS)
 class MediaTransformResultServiceIntegrationTest {
 
     private static final String SPEC_DIGEST =
@@ -224,6 +228,37 @@ class MediaTransformResultServiceIntegrationTest {
         assertThat(saved.getLastFailureSpecVersion()).isEqualTo(1);
         assertThat(saved.getLastFailureCode()).isEqualTo("INVALID_IMAGE_DATA");
         assertThat(saved.getCurrentJobId()).isNull();
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {
+            "SOURCE_TOO_SMALL",
+            "SOURCE_FILE_TOO_LARGE",
+            "IMAGE_DIMENSION_LIMIT_EXCEEDED",
+            "IMAGE_PIXEL_LIMIT_EXCEEDED"
+    })
+    void 이미지_크기_실패_결과는_DB에_코드를_저장한_뒤_ACK한다(String failureCode) throws Exception {
+        ProcessingAsset processing = createProcessingAsset(1, SPEC_DIGEST);
+        RecordingAcknowledgement acknowledgement = new RecordingAcknowledgement(() -> {
+            assertThat(databaseStatus(processing.assetId()))
+                    .isEqualTo(ImageProcessingStatus.FAILED);
+            assertThat(find(processing.assetId()).getLastFailureCode()).isEqualTo(failureCode);
+        });
+        MediaTransformResultListener listener = new MediaTransformResultListener(
+                resultParser, resultService, metrics);
+        String body = failedBody(processing).replace("INVALID_IMAGE_DATA", failureCode);
+
+        listener.consume(body, acknowledgement);
+
+        assertThat(acknowledgement.acknowledged()).isTrue();
+        ImageAsset saved = find(processing.assetId());
+        assertThat(saved.getProcessingStatus()).isEqualTo(ImageProcessingStatus.FAILED);
+        assertThat(saved.getLastFailureCode()).isEqualTo(failureCode);
+        assertThat(saved.getLastFailureSpecVersion()).isEqualTo(1);
+        assertThat(saved.getCurrentJobId()).isNull();
+        assertThat(saved.getTargetProcessingStatus()).isNull();
+        assertThat(jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM image_rendition", Integer.class)).isZero();
     }
 
     @Test

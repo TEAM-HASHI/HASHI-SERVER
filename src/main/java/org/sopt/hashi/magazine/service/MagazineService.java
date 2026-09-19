@@ -16,12 +16,13 @@ import org.sopt.hashi.magazine.dto.MagazineBannerListResponse;
 import org.sopt.hashi.magazine.dto.MagazineBannerListResponse.MagazineBannerResponse;
 import org.sopt.hashi.magazine.dto.MagazineListResponse;
 import org.sopt.hashi.magazine.dto.MagazineListResponse.MagazineSummaryResponse;
+import org.sopt.hashi.media.ImageReference;
 import org.sopt.hashi.media.MediaAssetPurpose;
 import org.sopt.hashi.media.MediaAssetUse;
 import org.sopt.hashi.media.MediaImage;
 import org.sopt.hashi.media.MediaImageRequest;
 import org.sopt.hashi.media.MediaImageRole;
-import org.sopt.hashi.media.MediaImageStatus;
+import org.sopt.hashi.media.MediaImageSelection;
 import org.sopt.hashi.media.MediaPort;
 import org.sopt.hashi.shared.error.BusinessException;
 import org.sopt.hashi.shared.error.CommonErrorCode;
@@ -323,14 +324,12 @@ public class MagazineService {
             MediaImageRole role,
             MediaProjection projection
     ) {
-        if (assetId == null) {
-            return new ProjectedImage(fileStorage.resolveFileUrl(legacyKey), null);
-        }
-        MediaImage image = projection.find(assetId, role);
-        String url = image != null && image.status() == MediaImageStatus.READY
-                ? image.defaultSource().url()
-                : null;
-        return new ProjectedImage(url, image);
+        ImageReference reference = assetId == null
+                ? ImageReference.legacy(fileStorage.resolveFileUrl(legacyKey))
+                : ImageReference.asset(assetId);
+        MediaImage image = assetId == null ? null : projection.find(assetId, role);
+        MediaImageSelection selection = MediaImageSelection.from(reference, image);
+        return new ProjectedImage(selection.url(), selection.image());
     }
 
     private record ResolvedImage(String imageKey, UUID imageAssetId) {

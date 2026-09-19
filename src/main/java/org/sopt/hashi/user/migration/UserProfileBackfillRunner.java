@@ -1,7 +1,5 @@
 package org.sopt.hashi.user.migration;
 
-import java.time.Duration;
-import java.util.List;
 import java.util.Optional;
 import java.util.function.Supplier;
 import lombok.extern.slf4j.Slf4j;
@@ -10,8 +8,10 @@ import org.sopt.hashi.media.MediaBackfillInspectionInfo;
 import org.sopt.hashi.media.MediaBackfillPort;
 import org.sopt.hashi.media.MediaBackfillReference;
 import org.sopt.hashi.media.MediaBackfillSourceException;
-import org.sopt.hashi.media.MediaBackfillTarget;
 import org.sopt.hashi.media.MediaBackfillSourceException.Reason;
+import org.sopt.hashi.media.MediaBackfillTarget;
+import org.sopt.hashi.shared.migration.BoundedKeysetLoop;
+import org.sopt.hashi.shared.migration.BoundedRetry;
 import org.sopt.hashi.user.migration.UserProfileBackfillCheckpointStore.Acquisition;
 import org.sopt.hashi.user.migration.UserProfileBackfillCheckpointStore.AcquisitionState;
 import org.sopt.hashi.user.migration.UserProfileBackfillCheckpointStore.Lease;
@@ -92,38 +92,27 @@ class UserProfileBackfillRunner {
 
     private UserProfileBackfillSummary executeDryRun() {
         long upperBound = candidateReader.findUpperBound();
-        long cursor = 0L;
         MutableSummary summary = new MutableSummary(properties.mode());
+        BoundedKeysetLoop.Result result = BoundedKeysetLoop.run(
+                0L, upperBound, properties.batchSize(), properties.maxBatches(),
+                candidateReader::findBatch, UserProfileBackfillCandidate::userId,
+                candidate -> inspectAndCount(candidate, summary));
+        return summary.finish(result == BoundedKeysetLoop.Result.EXHAUSTED ? Status.COMPLETED : Status.PAUSED);
+    }
 
-        for (int batchNumber = 0; batchNumber < properties.maxBatches(); batchNumber++) {
-            requireNotInterrupted();
-            List<UserProfileBackfillCandidate> candidates = findBatch(cursor, upperBound);
-            if (candidates.isEmpty()) {
-                return summary.finish(Status.COMPLETED);
-            }
-            for (UserProfileBackfillCandidate candidate : candidates) {
-                requireNotInterrupted();
-                summary.scanned++;
-                if (!candidate.hasUsableLegacyKey()) {
-                    summary.failed++;
-                    cursor = candidate.userId();
-                    continue;
-                }
-                try {
-                    inspect(candidate);
-                    summary.inspected++;
-                } catch (MediaBackfillSourceException exception) {
-                    rethrowInfrastructureFailure(exception);
-                    summary.failed++;
-                }
-                cursor = candidate.userId();
-            }
-            if (candidates.size() < properties.batchSize()) {
-                return summary.finish(Status.COMPLETED);
-            }
+    private void inspectAndCount(UserProfileBackfillCandidate candidate, MutableSummary summary) {
+        summary.scanned++;
+        if (!candidate.hasUsableLegacyKey()) {
+            summary.failed++;
+            return;
         }
-        Status status = hasMore(cursor, upperBound) ? Status.PAUSED : Status.COMPLETED;
-        return summary.finish(status);
+        try {
+            inspect(candidate);
+            summary.inspected++;
+        } catch (MediaBackfillSourceException exception) {
+            rethrowInfrastructureFailure(exception);
+            summary.failed++;
+        }
     }
 
     private UserProfileBackfillSummary executePersistent() {
@@ -141,24 +130,13 @@ class UserProfileBackfillRunner {
         }
 
         Lease lease = acquisition.lease();
-        long cursor = acquisition.snapshot().cursorId();
         try {
-            for (int batchNumber = 0; batchNumber < properties.maxBatches(); batchNumber++) {
-                requireNotInterrupted();
-                List<UserProfileBackfillCandidate> candidates = findBatch(cursor, lease.upperBoundId());
-                if (candidates.isEmpty()) {
-                    return completedSummary(lease);
-                }
-                for (UserProfileBackfillCandidate candidate : candidates) {
-                    requireNotInterrupted();
-                    processAndRecord(candidate, lease);
-                    cursor = candidate.userId();
-                }
-                if (candidates.size() < properties.batchSize()) {
-                    return completedSummary(lease);
-                }
-            }
-            if (!hasMore(cursor, lease.upperBoundId())) {
+            BoundedKeysetLoop.Result result = BoundedKeysetLoop.run(
+                    acquisition.snapshot().cursorId(), lease.upperBoundId(),
+                    properties.batchSize(), properties.maxBatches(),
+                    candidateReader::findBatch, UserProfileBackfillCandidate::userId,
+                    candidate -> processAndRecord(candidate, lease));
+            if (result == BoundedKeysetLoop.Result.EXHAUSTED) {
                 return completedSummary(lease);
             }
             boolean paused = checkpointStore.pause(lease);
@@ -256,19 +234,10 @@ class UserProfileBackfillRunner {
     }
 
     private <T> T withStorageRetry(Supplier<T> operation) {
-        int attempt = 1;
-        while (true) {
-            try {
-                return operation.get();
-            } catch (MediaBackfillSourceException exception) {
-                boolean retryable = exception.getReason() == Reason.STORAGE_UNAVAILABLE;
-                if (!retryable || attempt >= properties.maxAttempts()) {
-                    throw exception;
-                }
-                sleep(backoff(properties.retryInitialDelay(), attempt));
-                attempt++;
-            }
-        }
+        return BoundedRetry.execute(
+                properties.maxAttempts(), properties.retryInitialDelay(), operation,
+                failure -> failure instanceof MediaBackfillSourceException source
+                        && source.getReason() == Reason.STORAGE_UNAVAILABLE);
     }
 
     private void rethrowInfrastructureFailure(MediaBackfillSourceException exception) {
@@ -284,37 +253,9 @@ class UserProfileBackfillRunner {
         return exception.getClass().getSimpleName();
     }
 
-    private Duration backoff(Duration initialDelay, int attempt) {
-        return initialDelay.multipliedBy(1L << (attempt - 1));
-    }
-
-    private void sleep(Duration delay) {
-        try {
-            Thread.sleep(delay);
-        } catch (InterruptedException exception) {
-            Thread.currentThread().interrupt();
-            throw new IllegalStateException("user profile backfill was interrupted");
-        }
-    }
-
-    private void requireNotInterrupted() {
-        if (Thread.currentThread().isInterrupted()) {
-            throw new IllegalStateException("user profile backfill was interrupted");
-        }
-    }
-
     private MediaBackfillReference reference(UserProfileBackfillCandidate candidate) {
         return new MediaBackfillReference(
                 MediaBackfillTarget.USER_PROFILE, candidate.userId(), candidate.legacyKey());
-    }
-
-    private List<UserProfileBackfillCandidate> findBatch(long cursor, long upperBound) {
-        return candidateReader.findBatch(
-                cursor, upperBound, properties.batchSize());
-    }
-
-    private boolean hasMore(long cursor, long upperBound) {
-        return !candidateReader.findBatch(cursor, upperBound, 1).isEmpty();
     }
 
     private UserProfileBackfillSummary completedSummary(Lease lease) {
