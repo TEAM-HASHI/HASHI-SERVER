@@ -92,7 +92,12 @@
     - 허용: 응답 래퍼(`BaseResponse`/`SuccessResponse`/`ErrorResponse`), 코드 계약 인터페이스(`BaseCode`/`ErrorCode`/`SuccessCode`), 공통 예외(`BusinessException`), 전역 핸들러(`GlobalExceptionHandler`), 도메인 무관 VO(`Money`/`Address`), 스토리지 포트(`FileStorage`).
 - **MUST NOT**: 특정 도메인을 아는 타입(예: `RestaurantDto`, `User`, `ReservationStatus`)을 `shared`에 두지 않는다.
 - **MUST**: 의존 방향은 **도메인 → shared 단방향**. `shared`는 어떤 도메인 모듈도 import하지 않는다.
-- 하위 패키지: `response` · `error` · `exception` · `storage` · `swagger` · `vo`
+- 하위 패키지: `response` · `error` · `exception` · `storage` · `swagger` · `vo` · `migration`
+- **MAY**: `shared/migration`에는 한시적 전환 실행기에서 사용하는, 상태 없는 keyset 반복과 제한 재시도
+  도구만 둔다. 후보 읽기·항목 처리·재시도 대상 판단은 호출자가 전달한다.
+- **MUST NOT**: 공통 전환 도구가 콘텐츠 또는 media 타입, Spring Bean, DB·S3 접근, 트랜잭션,
+  checkpoint·lease 저장이나 도메인 상태 전이를 소유하지 않는다. 이미지 연결과 진행 기록의 원자성은
+  각 소유 모듈이 유지한다. 전환 실행기를 제거할 때 이 도구의 남은 사용처도 함께 확인한다.
 
 원칙: **"틀은 공유, 내용은 도메인."**
 
