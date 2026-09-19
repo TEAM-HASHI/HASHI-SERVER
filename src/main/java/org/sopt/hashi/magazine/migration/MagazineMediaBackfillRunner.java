@@ -1,23 +1,23 @@
 package org.sopt.hashi.magazine.migration;
 
 import io.micrometer.core.instrument.MeterRegistry;
-import java.time.Duration;
-import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.function.Supplier;
 import lombok.extern.slf4j.Slf4j;
+import org.sopt.hashi.magazine.migration.MagazineMediaBackfillCheckpointStore.Acquisition;
+import org.sopt.hashi.magazine.migration.MagazineMediaBackfillCheckpointStore.AcquisitionState;
+import org.sopt.hashi.magazine.migration.MagazineMediaBackfillCheckpointStore.Lease;
+import org.sopt.hashi.magazine.migration.MagazineMediaBackfillCheckpointStore.Snapshot;
+import org.sopt.hashi.magazine.migration.MagazineMediaBackfillSummary.Status;
 import org.sopt.hashi.media.MediaBackfillAssetInfo;
 import org.sopt.hashi.media.MediaBackfillInspectionInfo;
 import org.sopt.hashi.media.MediaBackfillPort;
 import org.sopt.hashi.media.MediaBackfillReference;
 import org.sopt.hashi.media.MediaBackfillSourceException;
 import org.sopt.hashi.media.MediaBackfillSourceException.Reason;
-import org.sopt.hashi.magazine.migration.MagazineMediaBackfillCheckpointStore.Acquisition;
-import org.sopt.hashi.magazine.migration.MagazineMediaBackfillCheckpointStore.AcquisitionState;
-import org.sopt.hashi.magazine.migration.MagazineMediaBackfillCheckpointStore.Lease;
-import org.sopt.hashi.magazine.migration.MagazineMediaBackfillCheckpointStore.Snapshot;
-import org.sopt.hashi.magazine.migration.MagazineMediaBackfillSummary.Status;
+import org.sopt.hashi.shared.migration.BoundedKeysetLoop;
+import org.sopt.hashi.shared.migration.BoundedRetry;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.boot.context.event.ApplicationReadyEvent;
 import org.springframework.context.event.EventListener;
@@ -100,40 +100,34 @@ class MagazineMediaBackfillRunner {
 
     private MagazineMediaBackfillSummary executeDryRun(MagazineMediaBackfillSourceFailures sourceFailures) {
         long upperBound = candidateReader.findUpperBound(properties.target());
-        long cursor = 0L;
         MutableSummary summary = new MutableSummary(properties.target(), properties.mode());
+        BoundedKeysetLoop.Result result = BoundedKeysetLoop.run(
+                0L, upperBound, properties.batchSize(), properties.maxBatches(),
+                (cursor, upper, limit) -> candidateReader.findBatch(properties.target(), cursor, upper, limit),
+                MagazineMediaBackfillCandidate::magazineId,
+                candidate -> inspectAndCount(candidate, summary, sourceFailures));
+        return summary.finish(result == BoundedKeysetLoop.Result.EXHAUSTED ? Status.COMPLETED : Status.PAUSED);
+    }
 
-        for (int batchNumber = 0; batchNumber < properties.maxBatches(); batchNumber++) {
-            requireNotInterrupted();
-            List<MagazineMediaBackfillCandidate> candidates = findBatch(cursor, upperBound);
-            if (candidates.isEmpty()) {
-                return summary.finish(Status.COMPLETED);
-            }
-            for (MagazineMediaBackfillCandidate candidate : candidates) {
-                requireNotInterrupted();
-                summary.scanned++;
-                if (!candidate.hasUsableLegacyKey()) {
-                    summary.failed++;
-                    sourceFailures.record(Reason.INVALID_SOURCE);
-                    cursor = candidate.magazineId();
-                    continue;
-                }
-                try {
-                    inspect(candidate);
-                    summary.inspected++;
-                } catch (MediaBackfillSourceException exception) {
-                    sourceFailures.record(exception.getReason());
-                    rethrowInfrastructureFailure(exception);
-                    summary.failed++;
-                }
-                cursor = candidate.magazineId();
-            }
-            if (candidates.size() < properties.batchSize()) {
-                return summary.finish(Status.COMPLETED);
-            }
+    private void inspectAndCount(
+            MagazineMediaBackfillCandidate candidate,
+            MutableSummary summary,
+            MagazineMediaBackfillSourceFailures sourceFailures
+    ) {
+        summary.scanned++;
+        if (!candidate.hasUsableLegacyKey()) {
+            summary.failed++;
+            sourceFailures.record(Reason.INVALID_SOURCE);
+            return;
         }
-        Status status = hasMore(cursor, upperBound) ? Status.PAUSED : Status.COMPLETED;
-        return summary.finish(status);
+        try {
+            inspect(candidate);
+            summary.inspected++;
+        } catch (MediaBackfillSourceException exception) {
+            sourceFailures.record(exception.getReason());
+            rethrowInfrastructureFailure(exception);
+            summary.failed++;
+        }
     }
 
     private MagazineMediaBackfillSummary executePersistent(MagazineMediaBackfillSourceFailures sourceFailures) {
@@ -151,24 +145,14 @@ class MagazineMediaBackfillRunner {
         }
 
         Lease lease = acquisition.lease();
-        long cursor = acquisition.snapshot().cursorId();
         try {
-            for (int batchNumber = 0; batchNumber < properties.maxBatches(); batchNumber++) {
-                requireNotInterrupted();
-                List<MagazineMediaBackfillCandidate> candidates = findBatch(cursor, lease.upperBoundId());
-                if (candidates.isEmpty()) {
-                    return completedSummary(lease);
-                }
-                for (MagazineMediaBackfillCandidate candidate : candidates) {
-                    requireNotInterrupted();
-                    processAndRecord(candidate, lease, sourceFailures);
-                    cursor = candidate.magazineId();
-                }
-                if (candidates.size() < properties.batchSize()) {
-                    return completedSummary(lease);
-                }
-            }
-            if (!hasMore(cursor, lease.upperBoundId())) {
+            BoundedKeysetLoop.Result result = BoundedKeysetLoop.run(
+                    acquisition.snapshot().cursorId(), lease.upperBoundId(),
+                    properties.batchSize(), properties.maxBatches(),
+                    (cursor, upper, limit) -> candidateReader.findBatch(properties.target(), cursor, upper, limit),
+                    MagazineMediaBackfillCandidate::magazineId,
+                    candidate -> processAndRecord(candidate, lease, sourceFailures));
+            if (result == BoundedKeysetLoop.Result.EXHAUSTED) {
                 return completedSummary(lease);
             }
             boolean paused = checkpointStore.pause(lease);
@@ -275,19 +259,10 @@ class MagazineMediaBackfillRunner {
     }
 
     private <T> T withStorageRetry(Supplier<T> operation) {
-        int attempt = 1;
-        while (true) {
-            try {
-                return operation.get();
-            } catch (MediaBackfillSourceException exception) {
-                boolean retryable = exception.getReason() == Reason.STORAGE_UNAVAILABLE;
-                if (!retryable || attempt >= properties.maxAttempts()) {
-                    throw exception;
-                }
-                sleep(backoff(properties.retryInitialDelay(), attempt));
-                attempt++;
-            }
-        }
+        return BoundedRetry.execute(
+                properties.maxAttempts(), properties.retryInitialDelay(), operation,
+                failure -> failure instanceof MediaBackfillSourceException source
+                        && source.getReason() == Reason.STORAGE_UNAVAILABLE);
     }
 
     private void rethrowInfrastructureFailure(MediaBackfillSourceException exception) {
@@ -303,37 +278,9 @@ class MagazineMediaBackfillRunner {
         return exception.getClass().getSimpleName();
     }
 
-    private Duration backoff(Duration initialDelay, int attempt) {
-        return initialDelay.multipliedBy(1L << (attempt - 1));
-    }
-
-    private void sleep(Duration delay) {
-        try {
-            Thread.sleep(delay);
-        } catch (InterruptedException exception) {
-            Thread.currentThread().interrupt();
-            throw new IllegalStateException("magazine media backfill was interrupted");
-        }
-    }
-
-    private void requireNotInterrupted() {
-        if (Thread.currentThread().isInterrupted()) {
-            throw new IllegalStateException("magazine media backfill was interrupted");
-        }
-    }
-
     private MediaBackfillReference reference(MagazineMediaBackfillCandidate candidate) {
         return new MediaBackfillReference(
                 candidate.target().mediaTarget(), candidate.magazineId(), candidate.legacyKey());
-    }
-
-    private List<MagazineMediaBackfillCandidate> findBatch(long cursor, long upperBound) {
-        return candidateReader.findBatch(
-                properties.target(), cursor, upperBound, properties.batchSize());
-    }
-
-    private boolean hasMore(long cursor, long upperBound) {
-        return !candidateReader.findBatch(properties.target(), cursor, upperBound, 1).isEmpty();
     }
 
     private MagazineMediaBackfillSummary completedSummary(Lease lease) {

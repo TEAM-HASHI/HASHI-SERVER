@@ -37,7 +37,9 @@ class MagazineMediaBackfillWorkflowTest {
         List<String> paths = ((List<?>) pullRequest.get("paths")).stream().map(String::valueOf).toList();
 
         assertThat(paths).contains("src/main/java/org/sopt/hashi/magazine/**",
-                "src/test/java/org/sopt/hashi/magazine/**", "docs/media/magazine-backfill-runbook.md");
+                "src/test/java/org/sopt/hashi/magazine/**", "docs/media/magazine-backfill-runbook.md",
+                "src/main/java/org/sopt/hashi/shared/migration/**",
+                "src/test/java/org/sopt/hashi/shared/migration/**");
         assertThat(permissions).hasSize(1);
         assertThat(permissions.get("contents")).isEqualTo("read");
         assertThat((String) checkout.get("uses")).matches("actions/checkout@[0-9a-f]{40}");
