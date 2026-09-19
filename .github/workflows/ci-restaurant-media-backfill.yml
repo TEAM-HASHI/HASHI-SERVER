@@ -8,6 +8,8 @@ on:
       - "src/test/java/org/sopt/hashi/restaurant/**"
       - "src/main/java/org/sopt/hashi/user/**"
       - "src/test/java/org/sopt/hashi/user/**"
+      - "src/main/java/org/sopt/hashi/shared/migration/**"
+      - "src/test/java/org/sopt/hashi/shared/migration/**"
       - "src/main/resources/db/migration/**"
       - "src/main/resources/application.yml"
       - "docs/media/restaurant-menu-backfill-runbook.md"
