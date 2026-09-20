@@ -109,8 +109,10 @@ WHERE run_id = ?;
 
 PREPARED는 변환 완료가 아니라 준비 단계 처리 수다. SKIPPED는 미준비 또는 변경된 프로필,
 FAILED는 source 오류 또는 terminal media 상태다. `STORAGE_UNAVAILABLE`만 정해진 횟수 내에서
-재시도하며 마지막 시도도 실패하면 현재 cursor를 전진시키지 않고 실행을 중단한다. DRY_RUN에서
-`SOURCE_UNREADABLE`이 반복되면 source별 실패로 단정하지 말고 IAM과 암호화 권한부터 확인한다.
+재시도하며 마지막 시도도 실패하면 현재 cursor를 전진시키지 않고 실행을 중단한다.
+`SOURCE_UNREADABLE`은 후보 5개 연속 발생하면 중단하고, 다섯 번째는 원인 집계에만 포함한다.
+그 항목의 DB 처리 건수와 cursor는 그대로 두며 중간에 다른 결과가 나오면 연속 횟수를 초기화한다.
+원인 확인과 재개 위치는 [공통 중단 기준](legacy-backfill-runbook.md#연속-접근-오류-중단-기준)을 따른다.
 DB·설정·불변식 오류도 현재 cursor를 전진시키지 않고 실행을 중단한다. run ID만 바꿔 장애를
 무한 반복하지 말고 원인을 확인한다.
 
@@ -120,8 +122,11 @@ DB·설정·불변식 오류도 현재 cursor를 전진시키지 않고 실행�
 - `hashi.user.profile.backfill.source.failures` counter는 고정된 `target=USER_PROFILE`과 enum인
   `mode`, `reason`만 label로 사용한다. 재시도 도중 복구된 실패는 제외하고, 최종 실패 항목만 한 번 센다.
 - 원인 집계는 DB의 누적 `failed_count`와 다르다. 이전 실행의 원인 내역과 terminal media 상태 실패는
-  포함하지 않는다. PREPARE/ATTACH는 FAILED cursor 저장 성공 후 집계하며, metric 장애는
-  후보 처리나 커밋 결과를 바꾸지 않는다. 지표는 운영 관측값이지 영속적인 감사 원장이 아니다.
+  포함하지 않는다. PREPARE/ATTACH의 개별 source 오류는 FAILED cursor 저장 성공 후 집계한다.
+  재시도를 소진한 `STORAGE_UNAVAILABLE`은 한 번 집계하고 실행을 중단하되, 해당 항목의 cursor와
+  DB 처리 건수는 갱신하지 않는다. DRY_RUN도 해당 항목을 `scanned`에만 포함하며, 앞서 확정한
+  `inspected/failed`와 원인 집계를 보존한 `FAILED` 부분 결과를 반환한다.
+  metric 장애는 후보 처리나 커밋 결과를 바꾸지 않는다. 지표는 운영 관측값이지 영속적인 감사 원장이 아니다.
 - DRY_RUN이 DB 오류나 종료 interrupt로 중단되면 `FAILED` 부분 결과와 이미 관측한 원인을
   종료 로그에 남긴다. 이 결과는 전체 조사 완료가 아니며 interrupt flag도 유지한다.
 

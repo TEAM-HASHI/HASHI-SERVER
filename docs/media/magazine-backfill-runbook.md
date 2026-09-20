@@ -122,6 +122,11 @@ PREPARED는 변환 완료 수가 아니다. SKIPPED는 미준비 또는 변경�
 terminal media 상태다. `STORAGE_UNAVAILABLE`만 제한 재시도한다. DB·설정·불변식 오류는 cursor를
 전진시키지 않고 중단한다. run ID를 바꿔 같은 장애를 무한 반복하지 않는다.
 
+`SOURCE_UNREADABLE`은 후보 5개 연속 발생하면 중단한다. 다섯 번째는 원인 집계에만 포함하고
+DB 처리 건수와 cursor는 갱신하지 않는다. 중간에 다른 결과가 나오면 연속 횟수를 초기화한다.
+배너와 썸네일은 별도 실행으로 계산한다. 원인 조사와 재개 위치는
+[공통 중단 기준](legacy-backfill-runbook.md#연속-접근-오류-중단-기준)을 따른다.
+
 ## 7. 검증과 전환
 
 ```text
