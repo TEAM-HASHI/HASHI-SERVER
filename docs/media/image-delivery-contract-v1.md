@@ -227,7 +227,7 @@ UNBOUND -> BOUND -> RETIRED
   `SYSTEM_BACKFILL` 이미지도 권한 있는 콘텐츠 Service가 현재 association을 제거할 때 retire할
   수 있다. 현재 association에 없는 임의 asset ID는 retire 대상으로 사용할 수 없다.
 - 콘텐츠 soft delete와 복구 가능 기간에는 기존 연결을 유지한다.
-- 일반 S3 물리 삭제 자동화는 v1에서 제외하지만 논리적인 RETIRED 전이는 v1에 포함한다.
+- 정상 연결·RETIRED 이미지의 물리 삭제 자동화는 v1에서 제외하지만 논리적인 RETIRED 전이는 v1에 포함한다.
 - backfill asset은 필수 rendition이 READY될 때까지 UNBOUND로 둔다. domain별 backfill runner가
   source identity와 association을 다시 확인한 뒤 trusted `MediaBackfillPort`로
   `SYSTEM_BACKFILL`, purpose, READY, UNBOUND와 cleanup 상태를 검증하고 public asset ID 저장과
@@ -280,6 +280,13 @@ UNBOUND -> BOUND -> RETIRED
   남긴다.
 - 개인정보 hard delete 자동화 전에는 승인된 운영 runbook으로 원본, 파생본과 필요한 CDN
   cache를 함께 정리한다.
+
+asset 전체 정리 실행은 기본 비활성이고 DRY_RUN으로 시작한다. 삭제 권한의
+`CleanupAccessEnabled`와 Spring의 `AWS_MEDIA_CLEANUP_ENABLED`는 별도 설정이다.
+업로드 만료 후 safety window를 명시해야 활성화할 수 있다. 기본 처리량은 프로세스당 한 실행에
+최대 50개 asset이며, 작업 중단 시 같은 purgeToken으로 재개한다. 설정·승인·실패 복구 절차는
+[asset cleanup runbook](asset-cleanup-runbook.md)을 따른다. 이 실행기는 DB 미참조 파일이나 실패한
+재변환 spec의 object-only reconciliation을 대체하지 않는다. 두 작업과 dev E2E 전에는 issuance를 켜지 않는다.
 
 ### 6.4 specVersion 활성화
 
