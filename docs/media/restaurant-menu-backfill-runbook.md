@@ -30,12 +30,16 @@
 
 ## 3. 실행 전 gate
 
-1. 공통 계약과 worker·result pipeline의 dev E2E가 통과해야 한다.
+1. 공통 계약과 worker·result pipeline의 dev E2E가 통과해야 한다. 실패 원인별 관측 보완(#203)도
+   반영되어 있어야 하며, 그전에는 운영 backfill을 실행하지 않는다.
 2. SAM `BackfillAccessEnabled=true`로 승인된 source 읽기·private original copy 권한이 필요하다.
 3. Spring `AWS_MEDIA_BACKFILL_ENABLED=true`가 필요하다.
-4. `PREPARE`는 DB `media_pipeline_config.issuance_enabled=true`와 일치하는 배포 규격이 필요하다.
+4. `PREPARE` 전에는 `AWS_MEDIA_QUEUE_ENABLED=true`, `AWS_MEDIA_RECOVERY_ENABLED=true`, worker event
+   source와 Spring result consumer가 활성 상태인지 확인한다. request/result queue와 DLQ 지연·오류
+   alarm도 정상이어야 한다.
+5. `PREPARE`는 DB `media_pipeline_config.issuance_enabled=true`와 일치하는 배포 규격이 필요하다.
    조회와 READY `ATTACH`는 issuance pause 상태에서도 가능하다.
-5. 아래 식당 runner 설정을 별도로 opt-in한다. 이 코드 추가나 migration 적용만으로는 실행되지 않는다.
+6. 아래 식당 runner 설정을 별도로 opt-in한다. 이 코드 추가나 migration 적용만으로는 실행되지 않는다.
 
 backfill 동안 legacy S3 객체를 같은 key로 직접 덮어쓰지 않는다. 콘텐츠 수정은 새 key를 사용한다.
 S3 HEAD와 DB 잠금은 서로 다른 시스템이므로 임의의 콘솔 덮어쓰기까지 하나의 transaction으로
@@ -116,13 +120,21 @@ WHERE run_id = ?;
 - `hashi.restaurant.media.backfill.source.failures` counter는 고정 enum인 `target`, `mode`,
   `reason`만 label로 사용한다. 재시도 도중 복구된 실패는 제외하고, 최종 실패한 항목만 한 번 센다.
 - 원인 집계는 DB의 누적 `failed_count`와 다르다. 이전 실행의 원인 내역과 terminal media 상태 실패는
-  포함하지 않는다. PREPARE/ATTACH는 FAILED cursor 저장 성공 후 집계하며, metric 장애는
-  후보 처리나 커밋 결과를 바꾸지 않는다. 지표는 운영 관측값이지 영속적인 감사 원장이 아니다.
+  포함하지 않는다. PREPARE/ATTACH의 개별 source 오류는 FAILED cursor 저장 성공 후 집계한다.
+  재시도를 소진한 `STORAGE_UNAVAILABLE`은 한 번 집계하고 실행을 중단하되, 해당 항목의 cursor와
+  DB 처리 건수는 갱신하지 않는다. DRY_RUN도 해당 항목을 `scanned`에만 포함하며, 앞서 확정한
+  `inspected/failed`와 원인 집계를 보존한 `FAILED` 부분 결과를 반환한다.
+  metric 장애는 후보 처리나 커밋 결과를 바꾸지 않는다. 지표는 운영 관측값이지 영속적인 감사 원장이 아니다.
 - DRY_RUN이 DB 오류나 종료 interrupt로 중단되면 `FAILED` 부분 결과와 이미 관측한 원인을
   종료 로그에 남긴다. 이 결과는 전체 조사 완료가 아니며 interrupt flag도 유지한다.
 
-`STORAGE_UNAVAILABLE`만 제한된 지수 backoff로 재시도한다. 다른 source 실패는 해당 항목을
-기록하고 진행한다. DB·설정·media 불변식 오류는 현재 항목 cursor를 전진하지 않고 실행을 중단한다.
+`STORAGE_UNAVAILABLE`만 제한된 지수 backoff로 재시도하며, 마지막 시도도 실패하면 현재 항목의
+cursor를 전진시키지 않고 실행을 중단한다. `SOURCE_UNREADABLE`은 후보 5개 연속 발생하면 중단한다.
+다섯 번째 항목은 원인 집계에만 포함하고 DB 처리 건수와 cursor는 그대로 둔다. 중간에 다른 결과가
+나오면 연속 횟수를 초기화한다. 나머지 source 실패는 해당 항목을 기록하고 진행한다.
+권한 오류인지 파일 누락인지 조사한 뒤 재개하며, 재개 위치와 앞선 실패 항목의 재조사는
+[공통 중단 기준](legacy-backfill-runbook.md#연속-접근-오류-중단-기준)을 따른다.
+DB·설정·media 불변식 오류도 현재 항목 cursor를 전진하지 않고 실행을 중단한다.
 장애를 해결하지 않은 채 run ID만 바꿔 반복 실행하지 않는다.
 
 ## 7. 검증과 운영 전환
@@ -139,6 +151,19 @@ hosted CI는 Docker 사용 가능 여부와 해당 MySQL suite의 skip 0을 별�
 이 검증은 실제 AWS source·IAM·SQS·CloudFront E2E나 운영 backfill을 대체하지 않는다.
 dev dry-run → 제한 PREPARE → 변환 READY 확인 → 제한 ATTACH → 응답·성능 확인 순서로 검증한 뒤,
 운영 실행 범위와 일정을 별도 승인받는다. legacy 필드 제거와 원본 삭제는 이 작업의 범위가 아니다.
+
+## 8. 실행 중단과 임시 권한 회수
+
+1. 새 실행을 막기 위해 `RESTAURANT_MEDIA_BACKFILL_ENABLED=false`로 배포한다. 실행 중인 background
+   task는 정상 종료로 interrupt하고, checkpoint가 `PAUSED`, `COMPLETED` 또는 lease 만료 상태인지 확인한다.
+2. 이미 발급된 변환은 `AWS_MEDIA_QUEUE_ENABLED=true`, `AWS_MEDIA_RECOVERY_ENABLED=true`와 result
+   consumer를 유지한 채 처리한다. target PROCESSING, 미완료 EPR, request/result queue와 두 DLQ가
+   비었는지 확인하고, 실패 항목은 원인을 분류한 뒤 복구한다.
+3. 더 이상 조사·복사·연결이 없으면 `AWS_MEDIA_BACKFILL_ENABLED=false`로 배포한다.
+4. SAM `BackfillAccessEnabled=false` change set을 검토·적용해 임시 source 읽기·copy 권한을 회수한다.
+5. V22 checkpoint는 실행 이력과 재개 판단을 위해 유지한다. rollback 과정에서 테이블을 삭제하거나
+   과거 migration을 수정하지 않는다. 이미지 pipeline 상태를 모르는 과거 바이너리로 되돌려야 한다면
+   공통 인프라 runbook의 drain 조건을 먼저 만족하고, 조건이 맞지 않으면 현재 계열 수정 release를 쓴다.
 
 설계 근거: [MySQL 현재 시각 함수](https://dev.mysql.com/doc/refman/8.4/en/date-and-time-functions.html),
 [동일 DataSource의 JPA·JDBC transaction 참여](https://docs.spring.io/spring-framework/docs/6.2.x/javadoc-api/org/springframework/orm/jpa/JpaTransactionManager.html).

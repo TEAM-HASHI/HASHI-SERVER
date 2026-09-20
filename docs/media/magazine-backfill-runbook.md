@@ -33,12 +33,17 @@ ATTACH 후에도 두 legacy key는 제거하지 않는다. PROCESSING은 건너�
 
 ## 3. 실행 전 확인
 
-1. 공통 media·worker·result pipeline의 승인된 dev E2E를 먼저 완료한다.
-2. SAM `BackfillAccessEnabled`와 Spring `AWS_MEDIA_BACKFILL_ENABLED`의 별도 승인을 확인한다.
-3. PREPARE에는 DB `media_pipeline_config.issuance_enabled=true`와 배포 규격 일치가 필요하다.
+1. 반복 source 접근 오류의 중단 기준과 오류성 종료 관측을 보완하는 #203을 먼저 반영한다.
+2. Spring의 request publisher·result consumer·recovery가 활성 상태인지 확인한다.
+   `AWS_MEDIA_QUEUE_ENABLED=true`, request/result queue URL과 배포 환경이 일치해야 한다.
+3. Lambda request event source, request/result queue와 각 DLQ, 지연·실패 alarm을 확인한다.
+   alarm 수신과 승인된 DLQ redrive 절차가 검증되지 않았다면 PREPARE를 시작하지 않는다.
+4. 공통 media·worker·result pipeline의 승인된 dev E2E를 완료한다.
+5. SAM `BackfillAccessEnabled`와 Spring `AWS_MEDIA_BACKFILL_ENABLED`의 별도 승인을 확인한다.
+6. PREPARE에는 DB `media_pipeline_config.issuance_enabled=true`와 배포 규격 일치가 필요하다.
    조회와 READY ATTACH는 issuance가 일시 중지된 상태에서도 가능하다.
-4. 매거진 runner를 별도로 opt-in한다. V24 migration 적용만으로 작업이 시작되지 않는다.
-5. legacy 객체를 같은 S3 key로 덮어쓰지 않는다. 사진 변경에는 새 key를 사용한다.
+7. 매거진 runner를 별도로 opt-in한다. V24 migration 적용만으로 작업이 시작되지 않는다.
+8. legacy 객체를 같은 S3 key로 덮어쓰지 않는다. 사진 변경에는 새 key를 사용한다.
 
 S3 HEAD/copy와 Magazine DB 잠금은 원자적이지 않다. 준비 시 source identity를, 연결 시 잠금 아래
 현재 key를 재검증한다. 같은 key를 콘솔에서 직접 덮어쓰는 작업까지 막아 주지는 않는다.
@@ -101,7 +106,9 @@ source hash와 예외 payload를 로그·이슈·메트릭 label에 넣지 않�
   세 label만 사용한다. 재시도 중 일시 실패는 세지 않고, 재시도 소진 후 실패한 항목만 한 번 센다.
 - 원인 집계는 이번 실행의 관측값이다. checkpoint의 누적 `failed_count`와 달리 이전 기동의 원인
   내역을 복원하지 않으며 terminal media 상태 실패도 포함하지 않는다. 재개 후 새 관측은 별도로 센다.
-  PREPARE/ATTACH는 FAILED cursor가 기록된 뒤 집계하고, metric 장애가 후보 처리를 중단하지 않는다.
+  PREPARE/ATTACH의 개별 처리 가능한 source 오류는 FAILED cursor가 기록된 뒤 집계한다.
+  재시도를 소진한 `STORAGE_UNAVAILABLE`은 한 번 집계한 뒤 현재 cursor를 보존하고 실행을 중단한다.
+  metric 장애가 후보 처리를 중단하지 않는다.
 - DRY_RUN이 DB 오류나 종료 interrupt로 중단되면 `FAILED` 부분 결과와 이미 관측한 원인을
   종료 로그에 남긴다. 이 결과는 전체 조사 완료가 아니며 interrupt flag도 유지한다.
 
@@ -114,6 +121,11 @@ WHERE run_id = ?;
 PREPARED는 변환 완료 수가 아니다. SKIPPED는 미준비 또는 변경된 슬롯, FAILED는 source 오류 또는
 terminal media 상태다. `STORAGE_UNAVAILABLE`만 제한 재시도한다. DB·설정·불변식 오류는 cursor를
 전진시키지 않고 중단한다. run ID를 바꿔 같은 장애를 무한 반복하지 않는다.
+
+`SOURCE_UNREADABLE`은 후보 5개 연속 발생하면 중단한다. 다섯 번째는 원인 집계에만 포함하고
+DB 처리 건수와 cursor는 갱신하지 않는다. 중간에 다른 결과가 나오면 연속 횟수를 초기화한다.
+배너와 썸네일은 별도 실행으로 계산한다. 원인 조사와 재개 위치는
+[공통 중단 기준](legacy-backfill-runbook.md#연속-접근-오류-중단-기준)을 따른다.
 
 ## 7. 검증과 전환
 
@@ -129,3 +141,15 @@ CI에서는 식당·프로필·매거진 MySQL suite 모두 실행 수 > 0, 실�
 
 dev 제한 DRY_RUN → PREPARE → READY 확인 → ATTACH → 실제 응답·전송량 확인은 별도 승인 후 실행한다.
 운영 배포·범위·일정 승인, legacy 제거, 원본 삭제와 머지는 이 PR 범위 밖이다.
+
+마지막 ATTACH와 정합성 확인을 마친 뒤에는 다음 순서로 임시 접근을 회수한다.
+
+1. `MAGAZINE_MEDIA_BACKFILL_ENABLED=false`를 적용해 새 매거진 실행을 막는다.
+2. backfill 대상 asset, 미완료 EPR, request/result queue와 각 DLQ가 비었거나 승인된 복구 대상으로
+   분류됐는지 확인한다. `PAUSED`만 보고 재개하지 않고 같은 실행의 종료 로그·지표와 대조한다.
+3. `AWS_MEDIA_BACKFILL_ENABLED=false`를 적용해 Spring의 backfill adapter를 비활성화한다.
+4. dev는 `MEDIA_DEV_BACKFILL_ACCESS_ENABLED=false`, prod는 대응하는 승인 절차로 SAM
+   `BackfillAccessEnabled=false`를 배포하고 EC2 role에서 임시 backfill policy가 제거됐는지 확인한다.
+
+일반 이미지 업로드와 변환에 사용하는 queue publisher, result consumer, recovery와 worker event source는
+backfill 종료만을 이유로 끄지 않는다. 해당 구성의 중지는 별도 media 운영 절차를 따른다.

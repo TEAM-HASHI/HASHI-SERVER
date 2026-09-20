@@ -92,7 +92,13 @@
     - 허용: 응답 래퍼(`BaseResponse`/`SuccessResponse`/`ErrorResponse`), 코드 계약 인터페이스(`BaseCode`/`ErrorCode`/`SuccessCode`), 공통 예외(`BusinessException`), 전역 핸들러(`GlobalExceptionHandler`), 도메인 무관 VO(`Money`/`Address`), 스토리지 포트(`FileStorage`).
 - **MUST NOT**: 특정 도메인을 아는 타입(예: `RestaurantDto`, `User`, `ReservationStatus`)을 `shared`에 두지 않는다.
 - **MUST**: 의존 방향은 **도메인 → shared 단방향**. `shared`는 어떤 도메인 모듈도 import하지 않는다.
-- 하위 패키지: `response` · `error` · `exception` · `storage` · `swagger` · `vo`
+- 하위 패키지: `response` · `error` · `exception` · `storage` · `swagger` · `vo` · `migration`
+- **MAY**: `shared/migration`에는 한시적 전환 실행기에서 사용하는, 상태 없는 keyset 반복·제한 재시도
+  도구와 실행마다 새로 생성하는 도메인 무관 연속 실패 카운터를 둔다. 후보 읽기·항목 처리·실패 분류와
+  중단 기준은 호출자가 결정한다. 카운터는 Bean으로 등록하거나 실행 간 공유하지 않는다.
+- **MUST NOT**: 공통 전환 도구가 콘텐츠 또는 media 타입, Spring Bean, DB·S3 접근, 트랜잭션,
+  checkpoint·lease 저장이나 도메인 상태 전이를 소유하지 않는다. 이미지 연결과 진행 기록의 원자성은
+  각 소유 모듈이 유지한다. 전환 실행기를 제거할 때 이 도구의 남은 사용처도 함께 확인한다.
 
 원칙: **"틀은 공유, 내용은 도메인."**
 
@@ -194,6 +200,9 @@
 - **MUST**: 신규 최적화 이미지는 상태를 가진 지원 도메인 `media`가 관리한다. `ImageAsset`은 Aggregate Root, `ImageRendition`은 그 자식이다.
 - **MUST**: 콘텐츠 도메인은 asset 식별자 값만 보관하고 일반 요청 경로에서는 공개 `MediaPort`로 검증, claim, bulk 조회한다. §2-2 통합 Port 원칙의 명시적 migration-only 예외로 association을 소유한 도메인의 backfill runner만 `MediaBackfillPort`를 사용할 수 있으며 Controller와 일반 Service에서는 사용하지 않는다. media 테이블과 JPA 관계, 모듈 간 FK, DB join을 만들지 않는다.
 - **MUST**: 이미지의 콘텐츠 소속과 표시 순서는 기존 콘텐츠 Aggregate가 계속 소유한다. media는 콘텐츠 도메인을 되참조하지 않는다.
+- **MAY**: 최종 응답 Service는 공개 값 타입 `MediaImageSelection.from(ImageReference, MediaImage)`으로
+  기존 URL 허용 여부와 READY URL 선택을 공유한다. 이 타입은 DB·외부 호출이 없는 순수 변환이며
+  추가 Service facade가 아니다. role·정렬·개수와 `MediaPort` bulk 조회는 호출 Service가 소유한다.
 - **MUST**: 원본 확인, 변환과 삭제 같은 S3 작업은 DB 트랜잭션 안에서 실행하지 않는다. 외부 변환 요청은 commit 이후 재시도 가능한 event publication 또는 outbox로 전달한다.
 - 상세 결정과 외부 계약은 [`ADR 0001`](../adr/0001-media-module-and-image-pipeline.md)과 [`Image Delivery Contract v1`](../media/image-delivery-contract-v1.md)을 따른다.
 

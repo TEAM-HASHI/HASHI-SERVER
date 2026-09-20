@@ -6,6 +6,7 @@ import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.BDDMockito.given;
+import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
@@ -13,6 +14,9 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
+import ch.qos.logback.classic.Logger;
+import ch.qos.logback.classic.spi.ILoggingEvent;
+import ch.qos.logback.core.read.ListAppender;
 import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.List;
@@ -22,6 +26,8 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
+import org.mockito.InOrder;
+import org.slf4j.LoggerFactory;
 import org.sopt.hashi.media.MediaAssetPurpose;
 import org.sopt.hashi.media.MediaBackfillAssetInfo;
 import org.sopt.hashi.media.MediaBackfillAssetInfo.State;
@@ -51,6 +57,36 @@ class UserProfileBackfillRunnerTest {
     @AfterEach
     void 지표_레지스트리를_종료한다() {
         meterRegistry.close();
+    }
+
+    @Test
+    void 저장된_cursor에서_재개하고_마지막_full_batch의_추가조회가_비면_완료한다() {
+        UUID runId = UUID.randomUUID();
+        UserProfileBackfillProperties properties = properties(
+                UserProfileBackfillMode.PREPARE, runId.toString(), 1, 1, 1);
+        Lease lease = lease(runId, properties.mode(), 3L);
+        given(candidateReader.findUpperBound()).willReturn(9L);
+        given(checkpointStore.acquire(eq(runId), eq(properties.mode()), eq(9L), any()))
+                .willReturn(new Acquisition(AcquisitionState.ACQUIRED, lease, snapshot(
+                        runId, properties.mode(), Status.RUNNING, 3L, 2L, 2, 2, 0, 0, 0)));
+        given(candidateReader.findBatch(2L, 3L, 1)).willReturn(List.of(candidate(3L)));
+        given(candidateReader.findBatch(3L, 3L, 1)).willReturn(List.of());
+        given(mediaBackfillPort.inspect(any())).willReturn(inspection(asset(State.READY)));
+        given(checkpointStore.complete(lease)).willReturn(snapshot(
+                runId, properties.mode(), Status.COMPLETED, 3L, 3L, 3, 3, 0, 0, 0));
+
+        UserProfileBackfillSummary summary = runner(properties).execute();
+
+        assertThat(summary.status()).isEqualTo(UserProfileBackfillSummary.Status.COMPLETED);
+        assertThat(summary.preparedCount()).isEqualTo(3);
+        InOrder ordered = inOrder(candidateReader, checkpointStore);
+        ordered.verify(candidateReader).findBatch(2L, 3L, 1);
+        ordered.verify(checkpointStore).recordProgress(
+                lease, 3L, UserProfileBackfillOutcome.PREPARED, properties.leaseDuration());
+        ordered.verify(candidateReader).findBatch(3L, 3L, 1);
+        ordered.verify(checkpointStore).complete(lease);
+        verify(checkpointStore, never()).pause(any());
+        verify(mediaBackfillPort, never()).prepare(any(), any());
     }
 
     @Test
@@ -138,7 +174,7 @@ class UserProfileBackfillRunnerTest {
     }
 
     @Test
-    void 일시적인_storage_장애는_제한된_횟수만_재시도한다() {
+    void DRY_RUN의_storage_장애는_제한된_횟수_후_실행을_중단한다() {
         UserProfileBackfillProperties properties = properties(
                 UserProfileBackfillMode.DRY_RUN, "", 2, 1, 3);
         given(candidateReader.findUpperBound()).willReturn(1L);
@@ -149,8 +185,39 @@ class UserProfileBackfillRunnerTest {
 
         UserProfileBackfillSummary summary = runner(properties).execute();
 
-        assertThat(summary.failedCount()).isEqualTo(1);
+        assertThat(summary.status()).isEqualTo(UserProfileBackfillSummary.Status.FAILED);
+        assertThat(summary.sourceFailuresThisExecution())
+                .containsEntry(Reason.STORAGE_UNAVAILABLE, 1L);
         verify(mediaBackfillPort, times(3)).inspect(any());
+    }
+
+    @Test
+    void PREPARE의_storage_장애는_cursor를_전진시키지_않고_실행을_중단한다() {
+        UUID runId = UUID.randomUUID();
+        UserProfileBackfillProperties properties = properties(
+                UserProfileBackfillMode.PREPARE, runId.toString(), 1, 1, 3);
+        Lease lease = lease(runId, properties.mode(), 1L);
+        Snapshot running = snapshot(
+                runId, properties.mode(), Status.RUNNING, 1L, 0L, 0, 0, 0, 0, 0);
+        Snapshot paused = snapshot(
+                runId, properties.mode(), Status.PAUSED, 1L, 0L, 0, 0, 0, 0, 0);
+        given(candidateReader.findUpperBound()).willReturn(1L);
+        given(checkpointStore.acquire(eq(runId), eq(properties.mode()), eq(1L), any()))
+                .willReturn(new Acquisition(AcquisitionState.ACQUIRED, lease, running));
+        given(candidateReader.findBatch(0L, 1L, 1))
+                .willReturn(List.of(candidate(1L)));
+        given(mediaBackfillPort.inspect(any()))
+                .willThrow(new MediaBackfillSourceException(Reason.STORAGE_UNAVAILABLE));
+        given(checkpointStore.pause(lease)).willReturn(true);
+        given(checkpointStore.find(runId)).willReturn(paused);
+
+        UserProfileBackfillSummary summary = runner(properties).execute();
+
+        assertThat(summary.status()).isEqualTo(UserProfileBackfillSummary.Status.FAILED);
+        assertThat(summary.scannedCount()).isZero();
+        verify(mediaBackfillPort, times(3)).inspect(any());
+        verify(checkpointStore, never()).recordProgress(any(), anyLong(), any(), any());
+        verify(checkpointStore).pause(lease);
     }
 
     @Test
@@ -239,6 +306,53 @@ class UserProfileBackfillRunnerTest {
         verify(checkpointStore).pause(lease);
         verify(checkpointStore, never()).complete(any());
         verify(mediaBackfillPort).inspect(any());
+    }
+
+    @Test
+    void DRY_RUN_종료_로그는_실제_inspected_집계를_포함한다() {
+        UserProfileBackfillProperties properties = properties(
+                UserProfileBackfillMode.DRY_RUN, "", 1, 1, 1);
+        given(candidateReader.findUpperBound()).willReturn(1L);
+        given(candidateReader.findBatch(0L, 1L, 1)).willReturn(List.of(candidate(1L)));
+        given(mediaBackfillPort.inspect(any())).willReturn(unpreparedInspection());
+
+        ILoggingEvent event = runAndCapture(properties);
+
+        assertThat(event.getFormattedMessage())
+                .contains("mode=DRY_RUN", "scanned=1", "inspected=1", "failed=0");
+    }
+
+    @Test
+    void 영속_실행_종료_로그는_복구할_수_없는_inspected_집계를_출력하지_않는다() {
+        UUID runId = UUID.randomUUID();
+        UserProfileBackfillProperties properties = properties(
+                UserProfileBackfillMode.PREPARE, runId.toString(), 1, 1, 1);
+        Snapshot completed = snapshot(
+                runId, properties.mode(), Status.COMPLETED, 1L, 1L, 1, 1, 0, 0, 0);
+        given(candidateReader.findUpperBound()).willReturn(1L);
+        given(checkpointStore.acquire(eq(runId), eq(properties.mode()), eq(1L), any()))
+                .willReturn(new Acquisition(AcquisitionState.COMPLETED, null, completed));
+
+        ILoggingEvent event = runAndCapture(properties);
+
+        assertThat(event.getFormattedMessage())
+                .contains("mode=PREPARE", "scanned=1", "prepared=1", "failed=0")
+                .doesNotContain("inspected=");
+    }
+
+    private ILoggingEvent runAndCapture(UserProfileBackfillProperties properties) {
+        Logger logger = (Logger) LoggerFactory.getLogger(UserProfileBackfillRunner.class);
+        ListAppender<ILoggingEvent> appender = new ListAppender<>();
+        appender.start();
+        logger.addAppender(appender);
+        try {
+            runner(properties).runOnStartup();
+            assertThat(appender.list).hasSize(1);
+            return appender.list.getFirst();
+        } finally {
+            logger.detachAppender(appender);
+            appender.stop();
+        }
     }
 
     private UserProfileBackfillRunner runner(UserProfileBackfillProperties properties) {

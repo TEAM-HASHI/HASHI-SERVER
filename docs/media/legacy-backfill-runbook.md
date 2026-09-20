@@ -126,6 +126,23 @@ storage 실패는 `MediaBackfillSourceException.Reason`으로만 전달한다. �
 재시도하지 않고 실행을 중단·보고한다. 원시 입력, AWS 응답, 콘텐츠 ID, object key를 로그·이슈에
 남기지 않는다. 지표에는 고정 target·상태·실패 원인만 사용하며 asset ID나 hash를 label로 넣지 않는다.
 
+### 연속 접근 오류 중단 기준
+
+- 식당·메뉴, 프로필, 매거진의 각 실행에서 `SOURCE_UNREADABLE`이 후보 5개 연속 발생하면
+  자동 중단한다. batch가 바뀌어도 연속 횟수를 유지하고, 정상 처리 또는 다른 결과가 나오면 초기화한다.
+  같은 후보의 조사와 복사는 합쳐서 한 번만 판단한다.
+- 403은 권한 오류뿐 아니라 목록 권한이 없는 상태에서 파일이 없을 때도 발생할 수 있다.
+  5회는 권한 장애를 확정하는 기준이 아니라, 잘못된 설정으로 계속 처리하는 것을 막는 운영 안전장치다.
+- 다섯 번째 오류도 이번 실행의 원인별 집계에 포함하지만, 그 항목의 DB 처리 건수와 cursor는
+  갱신하지 않는다. DRY_RUN도 그 항목은 `scanned`와 원인 집계에만 포함하고 `FAILED` 부분 결과를 남긴다.
+- PREPARE/ATTACH는 중단에 성공하면 checkpoint를 `PAUSED`로 두고 실행 결과는 `FAILED`로 보고한다.
+  실행 권한을 잃어 중단 요청이 거절되면 `LEASE_LOST`다. 기존 사진 연결은 변경하지 않는다.
+- IAM·파일 존재 여부를 확인하고 원인을 해결한 뒤 같은 run ID로 재개하면 다섯 번째 항목부터
+  다시 처리한다. 앞선 네 항목은 이미 실패로 기록됐으므로 이 항목들도 재조사하려면 새 run ID가 필요하다.
+  DRY_RUN에는 저장된 cursor가 없어 처음부터 다시 조사한다.
+- 연속 횟수는 실행마다 새로 계산한다. 자동으로 재실행하지 않으며, 원인을 해결하지 않고
+  재기동하거나 run ID만 바꾸어 반복 실행하지 않는다.
+
 ## 6. Migration과 검증
 
 최초 media schema인 V15는 SYSTEM_BACKFILL identity의 NULL을 처음부터 금지하므로 별도 후속
@@ -155,6 +172,11 @@ CloudFront 전달 E2E가 완료됐다고 보고하지 않는다. 배포 전에�
 IAM과 전체 변환·연결 흐름을 별도 검증해야 한다.
 
 식당·메뉴, 프로필과 매거진 runner의 keyset batch·checkpoint·dry-run과 동시 수정 검증은
-별도 실행기 문서를 따른다. 후속 작업은 안전한 cleanup/reconciliation, dev E2E와 운영 승인이다.
+별도 실행기 문서를 따른다.
+세 runner의 배치 순회와 제한 재시도는 `shared/migration`의 도메인 무관 도구를 사용한다.
+항목 처리가 정상 반환한 뒤에만 메모리 cursor를 전진시키며, 처리 예외는 호출자에게 그대로 전달한다.
+후보 선정, source 오류 분류, lease·checkpoint, 완료·중단 집계와 연결 transaction은 각 모듈에 남긴다.
+DB 테이블이나 migration을 합치지 않는다. 매거진의 배너·썸네일 선택과 실행별 실패 집계도 매거진 모듈에 남긴다.
+후속 작업은 안전한 cleanup/reconciliation, dev E2E와 운영 승인이다.
 legacy 필드 제거와 원본 삭제는
 별도 종료 조건과 승인을 충족하기 전에는 실행하지 않는다.

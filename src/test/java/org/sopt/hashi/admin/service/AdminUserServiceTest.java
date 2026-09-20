@@ -2,6 +2,7 @@ package org.sopt.hashi.admin.service;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoMoreInteractions;
 import static org.mockito.Mockito.when;
 
 import java.time.LocalDate;
@@ -12,6 +13,9 @@ import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.EnumSource;
+import org.junit.jupiter.params.provider.NullSource;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.sopt.hashi.media.ImageReference;
@@ -71,6 +75,40 @@ class AdminUserServiceTest {
                 .isEqualTo("https://legacy/profile-2.jpg");
         assertThat(response.users().get(1).profileImage()).isNull();
         verify(mediaPort).findImages(List.of(request));
+    }
+
+    @ParameterizedTest
+    @NullSource
+    @EnumSource(value = MediaImageStatus.class, names = {"PROCESSING", "FAILED"})
+    void 준비되지_않거나_조회되지_않은_asset은_기존_URL로_우회하지_않는다(MediaImageStatus status) {
+        UUID firstAssetId = UUID.randomUUID();
+        UUID secondAssetId = UUID.randomUUID();
+        var users = new PageImpl<>(List.of(
+                info(1L, "첫회원", new ImageReference(firstAssetId, "https://legacy/first.jpg")),
+                info(2L, "둘째회원", new ImageReference(secondAssetId, "https://legacy/second.jpg")),
+                info(3L, "기존회원", ImageReference.legacy("https://legacy/third.jpg"))
+        ), PageRequest.of(0, 20), 3);
+        MediaImageRequest firstRequest = new MediaImageRequest(firstAssetId, MediaImageRole.PROFILE_AVATAR);
+        MediaImageRequest secondRequest = new MediaImageRequest(secondAssetId, MediaImageRole.PROFILE_AVATAR);
+        MediaImage firstImage = status == null ? null
+                : new MediaImage(firstAssetId, MediaImageRole.PROFILE_AVATAR, status, null, List.of());
+        MediaImage secondImage = status == null ? null
+                : new MediaImage(secondAssetId, MediaImageRole.PROFILE_AVATAR, status, null, List.of());
+        when(userPort.findPageByAdmin(AdminUserSortType.NICKNAME, null, 0, 20)).thenReturn(users);
+        when(mediaPort.findImages(List.of(firstRequest, secondRequest))).thenReturn(status == null
+                ? Map.of() : Map.of(firstRequest, firstImage, secondRequest, secondImage));
+
+        var response = adminUserService.getUsers(AdminUserSortType.NICKNAME, null, 0, 20);
+
+        assertThat(response.users()).hasSize(3);
+        assertThat(response.users().get(0).profileImageUrl()).isNull();
+        assertThat(response.users().get(0).profileImage()).isEqualTo(firstImage);
+        assertThat(response.users().get(1).profileImageUrl()).isNull();
+        assertThat(response.users().get(1).profileImage()).isEqualTo(secondImage);
+        assertThat(response.users().get(2).profileImageUrl()).isEqualTo("https://legacy/third.jpg");
+        assertThat(response.users().get(2).profileImage()).isNull();
+        verify(mediaPort).findImages(List.of(firstRequest, secondRequest));
+        verifyNoMoreInteractions(mediaPort);
     }
 
     private AdminUserInfo info(Long id, String nickname, ImageReference reference) {

@@ -59,15 +59,6 @@ public interface ImageAssetRepository extends JpaRepository<ImageAsset, Long> {
     @Query("""
             select asset
             from ImageAsset asset
-            where asset.publicId in :publicIds
-            order by asset.id asc
-            """)
-    List<ImageAsset> findAllByPublicIdInForUpdate(@Param("publicIds") Collection<UUID> publicIds);
-
-    @Lock(LockModeType.PESSIMISTIC_WRITE)
-    @Query("""
-            select asset
-            from ImageAsset asset
             where asset.id in :ids
             order by asset.id asc
             """)

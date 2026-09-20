@@ -43,4 +43,4 @@ CREATE TABLE restaurant_media_backfill_checkpoint (
             AND lease_token REGEXP '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$')
         OR (status IN ('PAUSED', 'COMPLETED') AND lease_token IS NULL AND lease_until IS NULL)
     )
-);
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
