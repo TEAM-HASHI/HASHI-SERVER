@@ -117,6 +117,34 @@ public class Magazine extends BaseTimeEntity {
         }
     }
 
+    /** 잠금 아래 조사한 legacy 배너가 그대로일 때 UUID만 연결하고 다른 필드를 보존한다. */
+    public boolean attachBackfilledBanner(String expectedKey, UUID assetId) {
+        requireBackfillAsset(assetId);
+        if (deleted || bannerKey == null || bannerKey.isBlank()
+                || bannerImageAssetId != null || !bannerKey.equals(expectedKey)) {
+            return false;
+        }
+        bannerImageAssetId = assetId;
+        return true;
+    }
+
+    /** 배너와 독립된 썸네일 슬롯이며 기존 key와 표시 정보를 유지한다. */
+    public boolean attachBackfilledThumbnail(String expectedKey, UUID assetId) {
+        requireBackfillAsset(assetId);
+        if (deleted || thumbnailKey == null || thumbnailKey.isBlank()
+                || thumbnailImageAssetId != null || !thumbnailKey.equals(expectedKey)) {
+            return false;
+        }
+        thumbnailImageAssetId = assetId;
+        return true;
+    }
+
+    private static void requireBackfillAsset(UUID assetId) {
+        if (assetId == null) {
+            throw new IllegalArgumentException("backfill asset ID is required");
+        }
+    }
+
     private static void requireSource(String key, UUID assetId, String slot) {
         if (key == null && assetId == null) {
             throw new IllegalArgumentException(slot + " image source is required");
