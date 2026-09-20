@@ -1,7 +1,6 @@
 package org.sopt.hashi.user.migration;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyLong;
@@ -14,6 +13,7 @@ import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import ch.qos.logback.classic.Logger;
 import ch.qos.logback.classic.spi.ILoggingEvent;
 import ch.qos.logback.core.read.ListAppender;
@@ -22,6 +22,7 @@ import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
@@ -51,6 +52,12 @@ class UserProfileBackfillRunnerTest {
     private final UserProfileBackfillAttachmentService attachmentService =
             mock(UserProfileBackfillAttachmentService.class);
     private final MediaBackfillPort mediaBackfillPort = mock(MediaBackfillPort.class);
+    private final SimpleMeterRegistry meterRegistry = new SimpleMeterRegistry();
+
+    @AfterEach
+    void 지표_레지스트리를_종료한다() {
+        meterRegistry.close();
+    }
 
     @Test
     void 저장된_cursor에서_재개하고_마지막_full_batch의_추가조회가_비면_완료한다() {
@@ -176,10 +183,11 @@ class UserProfileBackfillRunnerTest {
         given(mediaBackfillPort.inspect(any()))
                 .willThrow(new MediaBackfillSourceException(Reason.STORAGE_UNAVAILABLE));
 
-        assertThatThrownBy(() -> runner(properties).execute())
-                .isInstanceOfSatisfying(MediaBackfillSourceException.class,
-                        exception -> assertThat(exception.getReason())
-                                .isEqualTo(Reason.STORAGE_UNAVAILABLE));
+        UserProfileBackfillSummary summary = runner(properties).execute();
+
+        assertThat(summary.status()).isEqualTo(UserProfileBackfillSummary.Status.FAILED);
+        assertThat(summary.sourceFailuresThisExecution())
+                .containsEntry(Reason.STORAGE_UNAVAILABLE, 1L);
         verify(mediaBackfillPort, times(3)).inspect(any());
     }
 
@@ -349,7 +357,7 @@ class UserProfileBackfillRunnerTest {
 
     private UserProfileBackfillRunner runner(UserProfileBackfillProperties properties) {
         return new UserProfileBackfillRunner(
-                properties, candidateReader, checkpointStore, attachmentService, mediaBackfillPort);
+                properties, candidateReader, checkpointStore, attachmentService, mediaBackfillPort, meterRegistry);
     }
 
     private UserProfileBackfillProperties properties(

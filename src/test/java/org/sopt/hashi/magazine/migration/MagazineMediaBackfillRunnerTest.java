@@ -1,7 +1,6 @@
 package org.sopt.hashi.magazine.migration;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyLong;
@@ -204,10 +203,11 @@ class MagazineMediaBackfillRunnerTest {
         given(mediaBackfillPort.inspect(any()))
                 .willThrow(new MediaBackfillSourceException(Reason.STORAGE_UNAVAILABLE));
 
-        assertThatThrownBy(() -> runner(properties).execute())
-                .isInstanceOfSatisfying(MediaBackfillSourceException.class,
-                        exception -> assertThat(exception.getReason())
-                                .isEqualTo(Reason.STORAGE_UNAVAILABLE));
+        MagazineMediaBackfillSummary summary = runner(properties).execute();
+
+        assertThat(summary.status()).isEqualTo(MagazineMediaBackfillSummary.Status.FAILED);
+        assertThat(summary.sourceFailuresThisExecution())
+                .containsEntry(Reason.STORAGE_UNAVAILABLE, 1L);
         assertSourceFailureMetric(properties.mode(), Reason.STORAGE_UNAVAILABLE, 1);
         verify(mediaBackfillPort, times(3)).inspect(any());
     }
@@ -546,13 +546,25 @@ class MagazineMediaBackfillRunnerTest {
         given(mediaBackfillPort.inspect(any()))
                 .willThrow(new MediaBackfillSourceException(Reason.STORAGE_UNAVAILABLE));
 
-        ILoggingEvent event = runAndCapture(properties);
+        Logger logger = (Logger) LoggerFactory.getLogger(MagazineMediaBackfillRunner.class);
+        ListAppender<ILoggingEvent> appender = new ListAppender<>();
+        appender.start();
+        logger.addAppender(appender);
+        try {
+            runner(properties).runOnStartup();
 
-        assertThat(event.getFormattedMessage())
-                .contains("errorType=STORAGE_UNAVAILABLE")
-                .doesNotContain("errorType=MediaBackfillSourceException");
-        assertThat(event.getThrowableProxy()).isNull();
-        assertSourceFailureMetric(properties.mode(), Reason.STORAGE_UNAVAILABLE, 1);
+            assertThat(appender.list).hasSize(2);
+            assertThat(appender.list.getFirst().getFormattedMessage())
+                    .contains("errorType=STORAGE_UNAVAILABLE")
+                    .doesNotContain("errorType=MediaBackfillSourceException");
+            assertThat(appender.list.getLast().getFormattedMessage())
+                    .contains("status=FAILED", "sourceFailuresThisExecution={STORAGE_UNAVAILABLE=1}");
+            assertThat(appender.list).allSatisfy(event -> assertThat(event.getThrowableProxy()).isNull());
+            assertSourceFailureMetric(properties.mode(), Reason.STORAGE_UNAVAILABLE, 1);
+        } finally {
+            logger.detachAppender(appender);
+            appender.stop();
+        }
     }
 
     @Test
