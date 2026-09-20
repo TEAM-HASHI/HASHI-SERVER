@@ -1,0 +1,11 @@
+{
+  "contractVersion": 1,
+  "jobId": "ebb9b9d8-c427-564b-a70e-0fd4e1925e5a",
+  "assetId": "a3af06f1-4ef2-46f8-a489-2347fb840447",
+  "specVersion": 1,
+  "specDigest": "1b5759a9285732133699114e21101b3b9b43b5cd8e208bf1246d059f4293634f",
+  "status": "FAILED",
+  "sourceVersionId": "version-1",
+  "sourceETag": "\"etag-value\"",
+  "failureCode": "SOURCE_TOO_SMALL"
+}

@@ -3,6 +3,7 @@ package org.sopt.hashi.restaurant.migration;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.Mockito.doThrow;
@@ -65,7 +66,7 @@ class RestaurantMediaBackfillSourceFailureReportingTest {
 
     @ParameterizedTest
     @MethodSource("sourceCases")
-    void 모든_target과_mode에서_실패_원인을_보존하고_다음_후보를_계속_처리한다(
+    void 개별_source_실패는_원인을_보존하고_다음_후보를_계속_처리한다(
             RestaurantMediaBackfillTarget target, RestaurantMediaBackfillMode mode, Reason reason
     ) {
         RestaurantMediaBackfillProperties properties = properties(target, mode);
@@ -80,7 +81,7 @@ class RestaurantMediaBackfillSourceFailureReportingTest {
         assertThat(summary.sourceFailuresThisExecution()).containsExactlyEntriesOf(Map.of(reason, 1L));
         assertThat(summary.status()).isEqualTo(RestaurantMediaBackfillSummary.Status.COMPLETED);
         assertThat(counter(target, mode, reason)).isEqualTo(1);
-        verify(port, times(reason == Reason.STORAGE_UNAVAILABLE ? 3 : 1)).inspect(reference(first));
+        verify(port).inspect(reference(first));
         verify(port).inspect(reference(next));
         verify(attachment, never()).attachAndRecord(any(), any(), any(), any());
         if (mode == RestaurantMediaBackfillMode.DRY_RUN) {
@@ -111,7 +112,7 @@ class RestaurantMediaBackfillSourceFailureReportingTest {
     }
 
     @ParameterizedTest
-    @EnumSource(Reason.class)
+    @EnumSource(value = Reason.class, names = "STORAGE_UNAVAILABLE", mode = EnumSource.Mode.EXCLUDE)
     void PREPARE에서_발생한_오류도_최종_항목_실패를_한_번만_보고한다(Reason reason) {
         RestaurantMediaBackfillProperties properties = properties(TARGET, RestaurantMediaBackfillMode.PREPARE);
         RestaurantMediaBackfillCandidate first = candidate(TARGET, 1L, "fixture-copy.jpg");
@@ -122,7 +123,63 @@ class RestaurantMediaBackfillSourceFailureReportingTest {
 
         assertThat(summary.sourceFailuresThisExecution()).containsExactlyEntriesOf(Map.of(reason, 1L));
         assertThat(counter(TARGET, properties.mode(), reason)).isEqualTo(1);
-        verify(port, times(reason == Reason.STORAGE_UNAVAILABLE ? 3 : 1)).prepare(reference(first), IDENTITY);
+        verify(port).prepare(reference(first), IDENTITY);
+    }
+
+    @ParameterizedTest
+    @MethodSource("storageFailureCases")
+    void storage_장애는_이전_집계를_보존하고_현재_cursor와_다음_후보를_건드리지_않는다(
+            RestaurantMediaBackfillTarget target,
+            RestaurantMediaBackfillMode mode,
+            boolean failureDuringPrepare
+    ) {
+        RestaurantMediaBackfillProperties properties = properties(target, mode);
+        RestaurantMediaBackfillCandidate first = candidate(target, 1L, "fixture-missing.jpg");
+        RestaurantMediaBackfillCandidate unavailable = candidate(target, 2L, "fixture-storage-outage.jpg");
+        RestaurantMediaBackfillCandidate next = candidate(target, 3L, "fixture-not-processed.jpg");
+        Lease lease = stubRun(properties, List.of(first, unavailable, next), 1L);
+        given(port.inspect(reference(first))).willThrow(new MediaBackfillSourceException(Reason.SOURCE_MISSING));
+        if (failureDuringPrepare) {
+            given(port.prepare(reference(unavailable), IDENTITY))
+                    .willThrow(new MediaBackfillSourceException(Reason.STORAGE_UNAVAILABLE));
+        } else {
+            given(port.inspect(reference(unavailable)))
+                    .willThrow(new MediaBackfillSourceException(Reason.STORAGE_UNAVAILABLE));
+        }
+        if (mode.usesCheckpoint()) {
+            given(checkpoint.pause(lease)).willReturn(true);
+            given(checkpoint.find(lease.runId())).willReturn(new Snapshot(
+                    lease.runId(), target, mode, Status.PAUSED, 3L, 1L, null,
+                    1L, 0L, 0L, 0L, 1L));
+        }
+
+        RestaurantMediaBackfillSummary summary = runner(properties).execute();
+
+        assertThat(summary.status()).isEqualTo(RestaurantMediaBackfillSummary.Status.FAILED);
+        assertThat(summary.scannedCount()).isEqualTo(mode.usesCheckpoint() ? 1L : 2L);
+        assertThat(summary.failedCount()).isEqualTo(1L);
+        assertThat(summary.sourceFailuresThisExecution()).containsExactlyInAnyOrderEntriesOf(Map.of(
+                Reason.SOURCE_MISSING, 1L, Reason.STORAGE_UNAVAILABLE, 1L));
+        assertThat(counter(target, mode, Reason.SOURCE_MISSING)).isEqualTo(1);
+        assertThat(counter(target, mode, Reason.STORAGE_UNAVAILABLE)).isEqualTo(1);
+        if (failureDuringPrepare) {
+            verify(port).inspect(reference(unavailable));
+            verify(port, times(properties.maxAttempts())).prepare(reference(unavailable), IDENTITY);
+        } else {
+            verify(port, times(properties.maxAttempts())).inspect(reference(unavailable));
+            verify(port, never()).prepare(any(), any());
+        }
+        verify(port, never()).inspect(reference(next));
+        verifyNoInteractions(attachment);
+        if (mode.usesCheckpoint()) {
+            verify(checkpoint).recordProgress(
+                    lease, 1L, RestaurantMediaBackfillOutcome.FAILED, properties.leaseDuration());
+            verify(checkpoint).recordProgress(any(), anyLong(), any(), any());
+            verify(checkpoint).pause(lease);
+            verify(checkpoint, never()).complete(any());
+        } else {
+            verifyNoInteractions(checkpoint);
+        }
     }
 
     @ParameterizedTest
@@ -279,7 +336,15 @@ class RestaurantMediaBackfillSourceFailureReportingTest {
     private static Stream<Arguments> sourceCases() {
         return Arrays.stream(RestaurantMediaBackfillTarget.values()).flatMap(target ->
                 Arrays.stream(RestaurantMediaBackfillMode.values()).flatMap(mode ->
-                        Arrays.stream(Reason.values()).map(reason -> Arguments.of(target, mode, reason))));
+                        Arrays.stream(Reason.values())
+                                .filter(reason -> reason != Reason.STORAGE_UNAVAILABLE)
+                                .map(reason -> Arguments.of(target, mode, reason))));
+    }
+
+    private static Stream<Arguments> storageFailureCases() {
+        return Arrays.stream(RestaurantMediaBackfillTarget.values()).flatMap(target -> Stream.concat(
+                Arrays.stream(RestaurantMediaBackfillMode.values()).map(mode -> Arguments.of(target, mode, false)),
+                Stream.of(Arguments.of(target, RestaurantMediaBackfillMode.PREPARE, true))));
     }
 
     private RestaurantMediaBackfillProperties properties(

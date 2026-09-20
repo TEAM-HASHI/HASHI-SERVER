@@ -1,8 +1,6 @@
 package org.sopt.hashi.restaurant.migration;
 
 import io.micrometer.core.instrument.MeterRegistry;
-import java.time.Duration;
-import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.function.Supplier;
@@ -18,6 +16,8 @@ import org.sopt.hashi.restaurant.migration.RestaurantMediaBackfillCheckpointStor
 import org.sopt.hashi.restaurant.migration.RestaurantMediaBackfillCheckpointStore.Lease;
 import org.sopt.hashi.restaurant.migration.RestaurantMediaBackfillCheckpointStore.Snapshot;
 import org.sopt.hashi.restaurant.migration.RestaurantMediaBackfillSummary.Status;
+import org.sopt.hashi.shared.migration.BoundedKeysetLoop;
+import org.sopt.hashi.shared.migration.BoundedRetry;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.boot.context.event.ApplicationReadyEvent;
 import org.springframework.context.event.EventListener;
@@ -118,39 +118,30 @@ class RestaurantMediaBackfillRunner {
             MutableSummary summary
     ) {
         long upperBound = candidateReader.findUpperBound(properties.target());
-        long cursor = 0L;
+        BoundedKeysetLoop.Result result = BoundedKeysetLoop.run(
+                0L, upperBound, properties.batchSize(), properties.maxBatches(),
+                (cursor, upper, limit) -> candidateReader.findBatch(properties.target(), cursor, upper, limit),
+                RestaurantMediaBackfillCandidate::associationId,
+                candidate -> inspectAndCount(candidate, summary, sourceFailures));
+        return summary.finish(result == BoundedKeysetLoop.Result.EXHAUSTED ? Status.COMPLETED : Status.PAUSED);
+    }
 
-        for (int batchNumber = 0; batchNumber < properties.maxBatches(); batchNumber++) {
-            requireNotInterrupted();
-            List<RestaurantMediaBackfillCandidate> candidates = findBatch(cursor, upperBound);
-            if (candidates.isEmpty()) {
-                return summary.finish(Status.COMPLETED);
-            }
-            for (RestaurantMediaBackfillCandidate candidate : candidates) {
-                requireNotInterrupted();
-                summary.scanned++;
-                if (!candidate.hasUsableLegacyKey()) {
-                    summary.failed++;
-                    sourceFailures.record(Reason.INVALID_SOURCE);
-                    cursor = candidate.associationId();
-                    continue;
-                }
-                try {
-                    inspect(candidate);
-                    summary.inspected++;
-                } catch (MediaBackfillSourceException exception) {
-                    sourceFailures.record(exception.getReason());
-                    rethrowInfrastructureFailure(exception);
-                    summary.failed++;
-                }
-                cursor = candidate.associationId();
-            }
-            if (candidates.size() < properties.batchSize()) {
-                return summary.finish(Status.COMPLETED);
-            }
+    private void inspectAndCount(RestaurantMediaBackfillCandidate candidate, MutableSummary summary,
+            RestaurantMediaBackfillSourceFailures sourceFailures) {
+        summary.scanned++;
+        if (!candidate.hasUsableLegacyKey()) {
+            summary.failed++;
+            sourceFailures.record(Reason.INVALID_SOURCE);
+            return;
         }
-        Status status = hasMore(cursor, upperBound) ? Status.PAUSED : Status.COMPLETED;
-        return summary.finish(status);
+        try {
+            inspect(candidate);
+            summary.inspected++;
+        } catch (MediaBackfillSourceException exception) {
+            sourceFailures.record(exception.getReason());
+            rethrowInfrastructureFailure(exception);
+            summary.failed++;
+        }
     }
 
     private RestaurantMediaBackfillSummary executePersistent(RestaurantMediaBackfillSourceFailures sourceFailures) {
@@ -168,24 +159,14 @@ class RestaurantMediaBackfillRunner {
         }
 
         Lease lease = acquisition.lease();
-        long cursor = acquisition.snapshot().cursorId();
         try {
-            for (int batchNumber = 0; batchNumber < properties.maxBatches(); batchNumber++) {
-                requireNotInterrupted();
-                List<RestaurantMediaBackfillCandidate> candidates = findBatch(cursor, lease.upperBoundId());
-                if (candidates.isEmpty()) {
-                    return completedSummary(lease);
-                }
-                for (RestaurantMediaBackfillCandidate candidate : candidates) {
-                    requireNotInterrupted();
-                    processAndRecord(candidate, lease, sourceFailures);
-                    cursor = candidate.associationId();
-                }
-                if (candidates.size() < properties.batchSize()) {
-                    return completedSummary(lease);
-                }
-            }
-            if (!hasMore(cursor, lease.upperBoundId())) {
+            BoundedKeysetLoop.Result result = BoundedKeysetLoop.run(
+                    acquisition.snapshot().cursorId(), lease.upperBoundId(),
+                    properties.batchSize(), properties.maxBatches(),
+                    (cursor, upper, limit) -> candidateReader.findBatch(properties.target(), cursor, upper, limit),
+                    RestaurantMediaBackfillCandidate::associationId,
+                    candidate -> processAndRecord(candidate, lease, sourceFailures));
+            if (result == BoundedKeysetLoop.Result.EXHAUSTED) {
                 return completedSummary(lease);
             }
             boolean paused = checkpointStore.pause(lease);
@@ -293,19 +274,10 @@ class RestaurantMediaBackfillRunner {
     }
 
     private <T> T withStorageRetry(Supplier<T> operation) {
-        int attempt = 1;
-        while (true) {
-            try {
-                return operation.get();
-            } catch (MediaBackfillSourceException exception) {
-                boolean retryable = exception.getReason() == Reason.STORAGE_UNAVAILABLE;
-                if (!retryable || attempt >= properties.maxAttempts()) {
-                    throw exception;
-                }
-                sleep(backoff(properties.retryInitialDelay(), attempt));
-                attempt++;
-            }
-        }
+        return BoundedRetry.execute(
+                properties.maxAttempts(), properties.retryInitialDelay(), operation,
+                failure -> failure instanceof MediaBackfillSourceException source
+                        && source.getReason() == Reason.STORAGE_UNAVAILABLE);
     }
 
     private void rethrowInfrastructureFailure(MediaBackfillSourceException exception) {
@@ -321,37 +293,9 @@ class RestaurantMediaBackfillRunner {
         return exception.getClass().getSimpleName();
     }
 
-    private Duration backoff(Duration initialDelay, int attempt) {
-        return initialDelay.multipliedBy(1L << (attempt - 1));
-    }
-
-    private void sleep(Duration delay) {
-        try {
-            Thread.sleep(delay);
-        } catch (InterruptedException exception) {
-            Thread.currentThread().interrupt();
-            throw new IllegalStateException("restaurant media backfill was interrupted");
-        }
-    }
-
-    private void requireNotInterrupted() {
-        if (Thread.currentThread().isInterrupted()) {
-            throw new IllegalStateException("restaurant media backfill was interrupted");
-        }
-    }
-
     private MediaBackfillReference reference(RestaurantMediaBackfillCandidate candidate) {
         return new MediaBackfillReference(
                 candidate.target().mediaTarget(), candidate.associationId(), candidate.legacyKey());
-    }
-
-    private List<RestaurantMediaBackfillCandidate> findBatch(long cursor, long upperBound) {
-        return candidateReader.findBatch(
-                properties.target(), cursor, upperBound, properties.batchSize());
-    }
-
-    private boolean hasMore(long cursor, long upperBound) {
-        return !candidateReader.findBatch(properties.target(), cursor, upperBound, 1).isEmpty();
     }
 
     private RestaurantMediaBackfillSummary completedSummary(Lease lease) {

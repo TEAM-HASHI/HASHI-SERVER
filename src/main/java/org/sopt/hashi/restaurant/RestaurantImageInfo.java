@@ -6,6 +6,7 @@ import org.sopt.hashi.media.MediaImage;
 public record RestaurantImageInfo(
         Long restaurantImageId,
         int displayOrder,
-        MediaImage image
+        MediaImage image,
+        String legacyUrl
 ) {
 }

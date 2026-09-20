@@ -89,6 +89,11 @@ public class MediaAssetService {
         CurrentActor actor = currentActorProvider.currentActor();
         List<OwnedAssetSnapshot> snapshots = transactionService.loadOwnedAssets(actor, request.assetIds());
         validateSnapshotStatesBeforeHead(snapshots);
+        boolean hasPendingUploads = snapshots.stream()
+                .anyMatch(snapshot -> snapshot.status() == ImageProcessingStatus.PENDING_UPLOAD);
+        if (hasPendingUploads) {
+            transactionService.assertIssuanceAvailable();
+        }
 
         Map<UUID, OriginalObjectMetadata> metadataByAssetId = inspectPendingUploads(snapshots);
         List<OwnedAssetSnapshot> completed = transactionService.completeAssets(

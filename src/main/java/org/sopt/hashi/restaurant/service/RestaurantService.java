@@ -21,12 +21,13 @@ import java.util.function.Function;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 import lombok.extern.slf4j.Slf4j;
+import org.sopt.hashi.media.ImageReference;
 import org.sopt.hashi.media.MediaAssetPurpose;
 import org.sopt.hashi.media.MediaAssetUse;
 import org.sopt.hashi.media.MediaImage;
 import org.sopt.hashi.media.MediaImageRequest;
 import org.sopt.hashi.media.MediaImageRole;
-import org.sopt.hashi.media.MediaImageStatus;
+import org.sopt.hashi.media.MediaImageSelection;
 import org.sopt.hashi.media.MediaPort;
 import org.sopt.hashi.restaurant.AdminRestaurantCommand;
 import org.sopt.hashi.restaurant.AdminRestaurantCommand.BusinessHourCommand;
@@ -672,7 +673,8 @@ public class RestaurantService {
             return null;
         }
         return new RestaurantImageInfo(
-                image.getId(), image.getDisplayOrder(), projectedImage.image());
+                image.getId(), image.getDisplayOrder(), projectedImage.image(),
+                image.getImageAssetId() == null ? projectedImage.url() : null);
     }
 
     private ProjectedImage projectImage(
@@ -681,10 +683,14 @@ public class RestaurantService {
             MediaProjection mediaProjection
     ) {
         if (image.getImageAssetId() == null) {
-            return new ProjectedImage(resolveLegacyUrl(image.getFileKey()), null);
+            MediaImageSelection selection = MediaImageSelection.from(
+                    ImageReference.legacy(resolveLegacyUrl(image.getFileKey())), null);
+            return new ProjectedImage(selection.url(), selection.image());
         }
         MediaImage mediaImage = mediaProjection.find(image.getImageAssetId(), role);
-        return new ProjectedImage(readyUrl(mediaImage), mediaImage);
+        MediaImageSelection selection = MediaImageSelection.from(
+                ImageReference.asset(image.getImageAssetId()), mediaImage);
+        return new ProjectedImage(selection.url(), selection.image());
     }
 
     private ProjectedImage projectMenuImage(
@@ -693,20 +699,18 @@ public class RestaurantService {
             MediaProjection mediaProjection
     ) {
         if (menu.getImageAssetId() == null) {
-            return new ProjectedImage(resolveLegacyUrl(menu.getImageKey()), null);
+            MediaImageSelection selection = MediaImageSelection.from(
+                    ImageReference.legacy(resolveLegacyUrl(menu.getImageKey())), null);
+            return new ProjectedImage(selection.url(), selection.image());
         }
         MediaImage mediaImage = mediaProjection.find(menu.getImageAssetId(), role);
-        return new ProjectedImage(readyUrl(mediaImage), mediaImage);
+        MediaImageSelection selection = MediaImageSelection.from(
+                ImageReference.asset(menu.getImageAssetId()), mediaImage);
+        return new ProjectedImage(selection.url(), selection.image());
     }
 
     private String resolveLegacyUrl(String fileKey) {
         return fileKey == null ? null : fileStorage.resolveFileUrl(fileKey);
-    }
-
-    private String readyUrl(MediaImage mediaImage) {
-        return mediaImage != null && mediaImage.status() == MediaImageStatus.READY
-                ? mediaImage.defaultSource().url()
-                : null;
     }
 
     private BusinessHourResponse toBusinessHourResponse(RestaurantBusinessHour businessHour) {

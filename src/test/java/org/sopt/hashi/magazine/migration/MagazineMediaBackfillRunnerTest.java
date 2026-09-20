@@ -7,6 +7,7 @@ import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
@@ -26,6 +27,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.EnumSource;
 import org.junit.jupiter.params.provider.ValueSource;
+import org.mockito.InOrder;
 import org.slf4j.LoggerFactory;
 import org.sopt.hashi.media.MediaAssetPurpose;
 import org.sopt.hashi.media.MediaBackfillAssetInfo;
@@ -53,6 +55,60 @@ class MagazineMediaBackfillRunnerTest {
             mock(MagazineMediaBackfillAttachmentService.class);
     private final MediaBackfillPort mediaBackfillPort = mock(MediaBackfillPort.class);
     private final SimpleMeterRegistry meterRegistry = new SimpleMeterRegistry();
+
+    @ParameterizedTest
+    @EnumSource(MagazineMediaBackfillTarget.class)
+    void 각_target은_저장된_상한에서_재개하고_full_batch후_완료와_실패_집계를_유지한다(
+            MagazineMediaBackfillTarget target
+    ) {
+        UUID runId = UUID.randomUUID();
+        MagazineMediaBackfillMode mode = MagazineMediaBackfillMode.PREPARE;
+        MagazineMediaBackfillProperties properties = new MagazineMediaBackfillProperties(
+                true, runId.toString(), target, mode, 2, 1, Duration.ofMinutes(5), 3, Duration.ZERO);
+        Lease lease = new Lease(runId, UUID.randomUUID(), target, mode, 4L);
+        Snapshot running = new Snapshot(runId, target, mode, Status.RUNNING,
+                4L, 2L, LocalDateTime.now().plusMinutes(5), 2, 2, 0, 0, 0);
+        Snapshot completed = new Snapshot(runId, target, mode, Status.COMPLETED,
+                4L, 4L, null, 4, 3, 0, 0, 1);
+        MagazineMediaBackfillCandidate first = new MagazineMediaBackfillCandidate(target, 3L, "magazines/a.jpg");
+        MagazineMediaBackfillCandidate second = new MagazineMediaBackfillCandidate(target, 4L, "magazines/b.jpg");
+        MediaBackfillReference firstReference = new MediaBackfillReference(target.mediaTarget(), 3L, first.legacyKey());
+        MediaBackfillReference secondReference = new MediaBackfillReference(target.mediaTarget(), 4L, second.legacyKey());
+        MediaBackfillAssetInfo ready = new MediaBackfillAssetInfo(
+                UUID.randomUUID(), target.mediaTarget().purpose(), IDENTITY, State.READY);
+        given(candidateReader.findUpperBound(target)).willReturn(9L);
+        given(checkpointStore.acquire(eq(runId), eq(target), eq(mode), eq(9L), any()))
+                .willReturn(new Acquisition(AcquisitionState.ACQUIRED, lease, running));
+        given(candidateReader.findBatch(target, 2L, 4L, 2)).willReturn(List.of(first, second));
+        given(candidateReader.findBatch(target, 4L, 4L, 1)).willReturn(List.of());
+        given(mediaBackfillPort.inspect(firstReference)).willReturn(new MediaBackfillInspectionInfo(
+                IDENTITY, target.mediaTarget().purpose(), Optional.of(ready)));
+        given(mediaBackfillPort.inspect(secondReference))
+                .willThrow(new MediaBackfillSourceException(Reason.SOURCE_MISSING));
+        given(checkpointStore.complete(lease)).willReturn(completed);
+
+        MagazineMediaBackfillSummary summary = runner(properties).execute();
+
+        assertThat(summary.status()).isEqualTo(MagazineMediaBackfillSummary.Status.COMPLETED);
+        assertThat(summary.target()).isEqualTo(target);
+        assertThat(summary.preparedCount()).isEqualTo(3);
+        assertThat(summary.failedCount()).isEqualTo(1);
+        assertThat(summary.sourceFailuresThisExecution()).hasSize(1).containsEntry(Reason.SOURCE_MISSING, 1L);
+        assertThat(meterRegistry.get(MagazineMediaBackfillSourceFailures.METRIC_NAME)
+                .tags("target", target.name(), "mode", mode.name(), "reason", Reason.SOURCE_MISSING.name())
+                .counter().count()).isEqualTo(1);
+        InOrder ordered = inOrder(candidateReader, checkpointStore);
+        ordered.verify(candidateReader).findBatch(target, 2L, 4L, 2);
+        ordered.verify(checkpointStore).recordProgress(
+                lease, 3L, MagazineMediaBackfillOutcome.PREPARED, properties.leaseDuration());
+        ordered.verify(checkpointStore).recordProgress(
+                lease, 4L, MagazineMediaBackfillOutcome.FAILED, properties.leaseDuration());
+        ordered.verify(candidateReader).findBatch(target, 4L, 4L, 1);
+        ordered.verify(checkpointStore).complete(lease);
+        verify(mediaBackfillPort).inspect(secondReference);
+        verify(mediaBackfillPort, never()).prepare(any(), any());
+        verify(checkpointStore, never()).pause(any());
+    }
 
     @Test
     void DRY_RUN은_inspect만_수행하고_DB나_asset을_변경하지_않는다() {

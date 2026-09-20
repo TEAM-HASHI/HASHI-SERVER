@@ -6,6 +6,7 @@ import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.BDDMockito.given;
+import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
@@ -25,6 +26,7 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
+import org.mockito.InOrder;
 import org.slf4j.LoggerFactory;
 import org.sopt.hashi.media.MediaAssetPurpose;
 import org.sopt.hashi.media.MediaBackfillAssetInfo;
@@ -55,6 +57,36 @@ class UserProfileBackfillRunnerTest {
     @AfterEach
     void 지표_레지스트리를_종료한다() {
         meterRegistry.close();
+    }
+
+    @Test
+    void 저장된_cursor에서_재개하고_마지막_full_batch의_추가조회가_비면_완료한다() {
+        UUID runId = UUID.randomUUID();
+        UserProfileBackfillProperties properties = properties(
+                UserProfileBackfillMode.PREPARE, runId.toString(), 1, 1, 1);
+        Lease lease = lease(runId, properties.mode(), 3L);
+        given(candidateReader.findUpperBound()).willReturn(9L);
+        given(checkpointStore.acquire(eq(runId), eq(properties.mode()), eq(9L), any()))
+                .willReturn(new Acquisition(AcquisitionState.ACQUIRED, lease, snapshot(
+                        runId, properties.mode(), Status.RUNNING, 3L, 2L, 2, 2, 0, 0, 0)));
+        given(candidateReader.findBatch(2L, 3L, 1)).willReturn(List.of(candidate(3L)));
+        given(candidateReader.findBatch(3L, 3L, 1)).willReturn(List.of());
+        given(mediaBackfillPort.inspect(any())).willReturn(inspection(asset(State.READY)));
+        given(checkpointStore.complete(lease)).willReturn(snapshot(
+                runId, properties.mode(), Status.COMPLETED, 3L, 3L, 3, 3, 0, 0, 0));
+
+        UserProfileBackfillSummary summary = runner(properties).execute();
+
+        assertThat(summary.status()).isEqualTo(UserProfileBackfillSummary.Status.COMPLETED);
+        assertThat(summary.preparedCount()).isEqualTo(3);
+        InOrder ordered = inOrder(candidateReader, checkpointStore);
+        ordered.verify(candidateReader).findBatch(2L, 3L, 1);
+        ordered.verify(checkpointStore).recordProgress(
+                lease, 3L, UserProfileBackfillOutcome.PREPARED, properties.leaseDuration());
+        ordered.verify(candidateReader).findBatch(3L, 3L, 1);
+        ordered.verify(checkpointStore).complete(lease);
+        verify(checkpointStore, never()).pause(any());
+        verify(mediaBackfillPort, never()).prepare(any(), any());
     }
 
     @Test

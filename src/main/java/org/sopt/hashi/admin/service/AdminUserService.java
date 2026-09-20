@@ -10,7 +10,7 @@ import org.sopt.hashi.media.ImageReference;
 import org.sopt.hashi.media.MediaImage;
 import org.sopt.hashi.media.MediaImageRequest;
 import org.sopt.hashi.media.MediaImageRole;
-import org.sopt.hashi.media.MediaImageStatus;
+import org.sopt.hashi.media.MediaImageSelection;
 import org.sopt.hashi.media.MediaPort;
 import org.sopt.hashi.user.AdminUserInfo;
 import org.sopt.hashi.user.AdminUserSortType;
@@ -65,17 +65,10 @@ public class AdminUserService {
     }
 
     private ProjectedImage project(ImageReference reference, MediaProjection projection) {
-        if (reference == null) {
-            return ProjectedImage.empty();
-        }
-        if (reference.assetId() == null) {
-            return new ProjectedImage(reference.legacyUrl(), null);
-        }
-        MediaImage image = projection.find(reference.assetId());
-        String url = image != null && image.status() == MediaImageStatus.READY
-                ? image.defaultSource().url()
-                : null;
-        return new ProjectedImage(url, image);
+        MediaImage image = reference == null || reference.assetId() == null
+                ? null : projection.find(reference.assetId());
+        MediaImageSelection selection = MediaImageSelection.from(reference, image);
+        return new ProjectedImage(selection.url(), selection.image());
     }
 
     private record MediaProjection(Map<MediaImageRequest, MediaImage> images) {
@@ -94,9 +87,5 @@ public class AdminUserService {
     }
 
     private record ProjectedImage(String url, MediaImage image) {
-
-        private static ProjectedImage empty() {
-            return new ProjectedImage(null, null);
-        }
     }
 }

@@ -3,6 +3,7 @@ package org.sopt.hashi.user.migration;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.Mockito.doThrow;
@@ -66,7 +67,7 @@ class UserProfileBackfillSourceFailureReportingTest {
 
     @ParameterizedTest
     @MethodSource("sourceCases")
-    void 모든_mode에서_실패_원인을_보존하고_다음_후보를_계속_처리한다(
+    void 개별_source_실패는_원인을_보존하고_다음_후보를_계속_처리한다(
             UserProfileBackfillMode mode, Reason reason
     ) {
         UserProfileBackfillProperties properties = properties(mode);
@@ -81,7 +82,7 @@ class UserProfileBackfillSourceFailureReportingTest {
         assertThat(summary.sourceFailuresThisExecution()).containsExactlyEntriesOf(Map.of(reason, 1L));
         assertThat(summary.status()).isEqualTo(UserProfileBackfillSummary.Status.COMPLETED);
         assertThat(counter(mode, reason)).isEqualTo(1);
-        verify(port, times(reason == Reason.STORAGE_UNAVAILABLE ? 3 : 1)).inspect(reference(first));
+        verify(port).inspect(reference(first));
         verify(port).inspect(reference(next));
         verify(attachment, never()).attachAndRecord(any(), any(), any(), any());
         if (mode == UserProfileBackfillMode.DRY_RUN) {
@@ -112,7 +113,7 @@ class UserProfileBackfillSourceFailureReportingTest {
     }
 
     @ParameterizedTest
-    @EnumSource(Reason.class)
+    @EnumSource(value = Reason.class, names = "STORAGE_UNAVAILABLE", mode = EnumSource.Mode.EXCLUDE)
     void PREPARE에서_발생한_오류도_최종_항목_실패를_한_번만_보고한다(Reason reason) {
         UserProfileBackfillProperties properties = properties(UserProfileBackfillMode.PREPARE);
         UserProfileBackfillCandidate first = candidate(1L, "fixture-copy.jpg");
@@ -123,7 +124,61 @@ class UserProfileBackfillSourceFailureReportingTest {
 
         assertThat(summary.sourceFailuresThisExecution()).containsExactlyEntriesOf(Map.of(reason, 1L));
         assertThat(counter(properties.mode(), reason)).isEqualTo(1);
-        verify(port, times(reason == Reason.STORAGE_UNAVAILABLE ? 3 : 1)).prepare(reference(first), IDENTITY);
+        verify(port).prepare(reference(first), IDENTITY);
+    }
+
+    @ParameterizedTest
+    @MethodSource("storageFailureCases")
+    void storage_장애는_이전_집계를_보존하고_현재_cursor와_다음_후보를_건드리지_않는다(
+            UserProfileBackfillMode mode, boolean failureDuringPrepare
+    ) {
+        UserProfileBackfillProperties properties = properties(mode);
+        UserProfileBackfillCandidate first = candidate(1L, "fixture-missing.jpg");
+        UserProfileBackfillCandidate unavailable = candidate(2L, "fixture-storage-outage.jpg");
+        UserProfileBackfillCandidate next = candidate(3L, "fixture-not-processed.jpg");
+        Lease lease = stubRun(properties, List.of(first, unavailable, next), 1L);
+        given(port.inspect(reference(first))).willThrow(new MediaBackfillSourceException(Reason.SOURCE_MISSING));
+        if (failureDuringPrepare) {
+            given(port.prepare(reference(unavailable), IDENTITY))
+                    .willThrow(new MediaBackfillSourceException(Reason.STORAGE_UNAVAILABLE));
+        } else {
+            given(port.inspect(reference(unavailable)))
+                    .willThrow(new MediaBackfillSourceException(Reason.STORAGE_UNAVAILABLE));
+        }
+        if (mode.usesCheckpoint()) {
+            given(checkpoint.pause(lease)).willReturn(true);
+            given(checkpoint.find(lease.runId())).willReturn(new Snapshot(
+                    lease.runId(), mode, Status.PAUSED, 3L, 1L, null,
+                    1L, 0L, 0L, 0L, 1L));
+        }
+
+        UserProfileBackfillSummary summary = runner(properties).execute();
+
+        assertThat(summary.status()).isEqualTo(UserProfileBackfillSummary.Status.FAILED);
+        assertThat(summary.scannedCount()).isEqualTo(mode.usesCheckpoint() ? 1L : 2L);
+        assertThat(summary.failedCount()).isEqualTo(1L);
+        assertThat(summary.sourceFailuresThisExecution()).containsExactlyInAnyOrderEntriesOf(Map.of(
+                Reason.SOURCE_MISSING, 1L, Reason.STORAGE_UNAVAILABLE, 1L));
+        assertThat(counter(mode, Reason.SOURCE_MISSING)).isEqualTo(1);
+        assertThat(counter(mode, Reason.STORAGE_UNAVAILABLE)).isEqualTo(1);
+        if (failureDuringPrepare) {
+            verify(port).inspect(reference(unavailable));
+            verify(port, times(properties.maxAttempts())).prepare(reference(unavailable), IDENTITY);
+        } else {
+            verify(port, times(properties.maxAttempts())).inspect(reference(unavailable));
+            verify(port, never()).prepare(any(), any());
+        }
+        verify(port, never()).inspect(reference(next));
+        verifyNoInteractions(attachment);
+        if (mode.usesCheckpoint()) {
+            verify(checkpoint).recordProgress(
+                    lease, 1L, UserProfileBackfillOutcome.FAILED, properties.leaseDuration());
+            verify(checkpoint).recordProgress(any(), anyLong(), any(), any());
+            verify(checkpoint).pause(lease);
+            verify(checkpoint, never()).complete(any());
+        } else {
+            verifyNoInteractions(checkpoint);
+        }
     }
 
     @ParameterizedTest
@@ -279,7 +334,15 @@ class UserProfileBackfillSourceFailureReportingTest {
 
     private static Stream<Arguments> sourceCases() {
         return Arrays.stream(UserProfileBackfillMode.values()).flatMap(mode ->
-                Arrays.stream(Reason.values()).map(reason -> Arguments.of(mode, reason)));
+                Arrays.stream(Reason.values())
+                        .filter(reason -> reason != Reason.STORAGE_UNAVAILABLE)
+                        .map(reason -> Arguments.of(mode, reason)));
+    }
+
+    private static Stream<Arguments> storageFailureCases() {
+        return Stream.concat(
+                Arrays.stream(UserProfileBackfillMode.values()).map(mode -> Arguments.of(mode, false)),
+                Stream.of(Arguments.of(UserProfileBackfillMode.PREPARE, true)));
     }
 
     private UserProfileBackfillProperties properties(

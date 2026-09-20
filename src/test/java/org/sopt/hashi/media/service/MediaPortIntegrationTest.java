@@ -48,6 +48,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.testcontainers.service.connection.ServiceConnection;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.transaction.IllegalTransactionStateException;
 import org.springframework.transaction.support.TransactionTemplate;
@@ -64,6 +65,7 @@ import org.testcontainers.junit.jupiter.Testcontainers;
         "kakao.redirect-uri=https://app.hashi.test/callback",
         "hashi.storage.cloudfront-domain=https://cdn.hashi.test"
 })
+@DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_CLASS)
 class MediaPortIntegrationTest {
 
     private static final String SPEC_DIGEST =
