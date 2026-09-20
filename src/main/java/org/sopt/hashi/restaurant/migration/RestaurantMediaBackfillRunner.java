@@ -18,6 +18,7 @@ import org.sopt.hashi.restaurant.migration.RestaurantMediaBackfillCheckpointStor
 import org.sopt.hashi.restaurant.migration.RestaurantMediaBackfillSummary.Status;
 import org.sopt.hashi.shared.migration.BoundedKeysetLoop;
 import org.sopt.hashi.shared.migration.BoundedRetry;
+import org.sopt.hashi.shared.migration.ConsecutiveFailureGuard;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.boot.context.event.ApplicationReadyEvent;
 import org.springframework.context.event.EventListener;
@@ -32,6 +33,8 @@ import org.springframework.stereotype.Component;
         havingValue = "true"
 )
 class RestaurantMediaBackfillRunner {
+
+    private static final int SOURCE_UNREADABLE_STOP_THRESHOLD = 5;
 
     private final RestaurantMediaBackfillProperties properties;
     private final RestaurantMediaBackfillCandidateReader candidateReader;
@@ -93,15 +96,17 @@ class RestaurantMediaBackfillRunner {
     RestaurantMediaBackfillSummary execute() {
         RestaurantMediaBackfillSourceFailures sourceFailures = new RestaurantMediaBackfillSourceFailures(
                 properties.target(), properties.mode(), meterRegistry);
+        ConsecutiveFailureGuard unreadableFailures = new ConsecutiveFailureGuard(SOURCE_UNREADABLE_STOP_THRESHOLD);
         RestaurantMediaBackfillSummary summary = properties.mode() == RestaurantMediaBackfillMode.DRY_RUN
-                ? executeDryRun(sourceFailures) : executePersistent(sourceFailures);
+                ? executeDryRun(sourceFailures, unreadableFailures) : executePersistent(sourceFailures, unreadableFailures);
         return summary.withSourceFailures(sourceFailures.snapshot());
     }
 
-    private RestaurantMediaBackfillSummary executeDryRun(RestaurantMediaBackfillSourceFailures sourceFailures) {
+    private RestaurantMediaBackfillSummary executeDryRun(RestaurantMediaBackfillSourceFailures sourceFailures,
+            ConsecutiveFailureGuard unreadableFailures) {
         MutableSummary summary = new MutableSummary(properties.target(), properties.mode());
         try {
-            return scanDryRun(sourceFailures, summary);
+            return scanDryRun(sourceFailures, summary, unreadableFailures);
         } catch (RuntimeException exception) {
             log.error(
                     "Restaurant media backfill dry run stopped: target={}, mode={}, errorType={}, "
@@ -115,36 +120,41 @@ class RestaurantMediaBackfillRunner {
 
     private RestaurantMediaBackfillSummary scanDryRun(
             RestaurantMediaBackfillSourceFailures sourceFailures,
-            MutableSummary summary
+            MutableSummary summary,
+            ConsecutiveFailureGuard unreadableFailures
     ) {
         long upperBound = candidateReader.findUpperBound(properties.target());
         BoundedKeysetLoop.Result result = BoundedKeysetLoop.run(
                 0L, upperBound, properties.batchSize(), properties.maxBatches(),
                 (cursor, upper, limit) -> candidateReader.findBatch(properties.target(), cursor, upper, limit),
                 RestaurantMediaBackfillCandidate::associationId,
-                candidate -> inspectAndCount(candidate, summary, sourceFailures));
+                candidate -> inspectAndCount(candidate, summary, sourceFailures, unreadableFailures));
         return summary.finish(result == BoundedKeysetLoop.Result.EXHAUSTED ? Status.COMPLETED : Status.PAUSED);
     }
 
     private void inspectAndCount(RestaurantMediaBackfillCandidate candidate, MutableSummary summary,
-            RestaurantMediaBackfillSourceFailures sourceFailures) {
+            RestaurantMediaBackfillSourceFailures sourceFailures, ConsecutiveFailureGuard unreadableFailures) {
         summary.scanned++;
         if (!candidate.hasUsableLegacyKey()) {
             summary.failed++;
             sourceFailures.record(Reason.INVALID_SOURCE);
+            unreadableFailures.record(false);
             return;
         }
         try {
             inspect(candidate);
             summary.inspected++;
+            unreadableFailures.record(false);
         } catch (MediaBackfillSourceException exception) {
             sourceFailures.record(exception.getReason());
+            stopOnRepeatedUnreadable(exception, unreadableFailures);
             rethrowInfrastructureFailure(exception);
             summary.failed++;
         }
     }
 
-    private RestaurantMediaBackfillSummary executePersistent(RestaurantMediaBackfillSourceFailures sourceFailures) {
+    private RestaurantMediaBackfillSummary executePersistent(RestaurantMediaBackfillSourceFailures sourceFailures,
+            ConsecutiveFailureGuard unreadableFailures) {
         long initialUpperBound = candidateReader.findUpperBound(properties.target());
         Acquisition acquisition = checkpointStore.acquire(
                 properties.requiredRunId(), properties.target(), properties.mode(),
@@ -165,7 +175,7 @@ class RestaurantMediaBackfillRunner {
                     properties.batchSize(), properties.maxBatches(),
                     (cursor, upper, limit) -> candidateReader.findBatch(properties.target(), cursor, upper, limit),
                     RestaurantMediaBackfillCandidate::associationId,
-                    candidate -> processAndRecord(candidate, lease, sourceFailures));
+                    candidate -> processAndRecord(candidate, lease, sourceFailures, unreadableFailures));
             if (result == BoundedKeysetLoop.Result.EXHAUSTED) {
                 return completedSummary(lease);
             }
@@ -191,13 +201,15 @@ class RestaurantMediaBackfillRunner {
     private void processAndRecord(
             RestaurantMediaBackfillCandidate candidate,
             Lease lease,
-            RestaurantMediaBackfillSourceFailures sourceFailures
+            RestaurantMediaBackfillSourceFailures sourceFailures,
+            ConsecutiveFailureGuard unreadableFailures
     ) {
         if (!candidate.hasUsableLegacyKey()) {
             checkpointStore.recordProgress(
                     lease, candidate.associationId(),
                     RestaurantMediaBackfillOutcome.FAILED, properties.leaseDuration());
             sourceFailures.record(Reason.INVALID_SOURCE);
+            unreadableFailures.record(false);
             return;
         }
         try {
@@ -206,10 +218,17 @@ class RestaurantMediaBackfillRunner {
                 RestaurantMediaBackfillOutcome outcome = prepare(candidate, inspection);
                 checkpointStore.recordProgress(
                         lease, candidate.associationId(), outcome, properties.leaseDuration());
+                unreadableFailures.record(false);
                 return;
             }
             attachOrRecord(candidate, inspection, lease);
+            unreadableFailures.record(false);
         } catch (MediaBackfillSourceException exception) {
+            boolean stop = unreadableFailures.record(exception.getReason() == Reason.SOURCE_UNREADABLE);
+            if (stop) {
+                sourceFailures.record(exception.getReason());
+                throw new RepeatedSourceUnreadableException();
+            }
             if (exception.getReason() == Reason.STORAGE_UNAVAILABLE) {
                 sourceFailures.record(exception.getReason());
                 throw exception;
@@ -284,6 +303,16 @@ class RestaurantMediaBackfillRunner {
         if (exception.getReason() == Reason.STORAGE_UNAVAILABLE) {
             throw exception;
         }
+    }
+
+    private void stopOnRepeatedUnreadable(MediaBackfillSourceException failure,
+            ConsecutiveFailureGuard unreadableFailures) {
+        if (unreadableFailures.record(failure.getReason() == Reason.SOURCE_UNREADABLE)) {
+            throw new RepeatedSourceUnreadableException();
+        }
+    }
+
+    private static final class RepeatedSourceUnreadableException extends RuntimeException {
     }
 
     private String failureType(RuntimeException exception) {
