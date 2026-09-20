@@ -14,6 +14,7 @@ import org.sopt.hashi.media.MediaBackfillSourceException.Reason;
 import org.sopt.hashi.media.MediaBackfillTarget;
 import org.sopt.hashi.shared.migration.BoundedKeysetLoop;
 import org.sopt.hashi.shared.migration.BoundedRetry;
+import org.sopt.hashi.shared.migration.ConsecutiveFailureGuard;
 import org.sopt.hashi.user.migration.UserProfileBackfillCheckpointStore.Acquisition;
 import org.sopt.hashi.user.migration.UserProfileBackfillCheckpointStore.AcquisitionState;
 import org.sopt.hashi.user.migration.UserProfileBackfillCheckpointStore.Lease;
@@ -33,6 +34,8 @@ import org.springframework.stereotype.Component;
         havingValue = "true"
 )
 class UserProfileBackfillRunner {
+
+    private static final int SOURCE_UNREADABLE_STOP_THRESHOLD = 5;
 
     private final UserProfileBackfillProperties properties;
     private final UserProfileBackfillCandidateReader candidateReader;
@@ -94,15 +97,17 @@ class UserProfileBackfillRunner {
     UserProfileBackfillSummary execute() {
         UserProfileBackfillSourceFailures sourceFailures = new UserProfileBackfillSourceFailures(
                 properties.mode(), meterRegistry);
+        ConsecutiveFailureGuard unreadableFailures = new ConsecutiveFailureGuard(SOURCE_UNREADABLE_STOP_THRESHOLD);
         UserProfileBackfillSummary summary = properties.mode() == UserProfileBackfillMode.DRY_RUN
-                ? executeDryRun(sourceFailures) : executePersistent(sourceFailures);
+                ? executeDryRun(sourceFailures, unreadableFailures) : executePersistent(sourceFailures, unreadableFailures);
         return summary.withSourceFailures(sourceFailures.snapshot());
     }
 
-    private UserProfileBackfillSummary executeDryRun(UserProfileBackfillSourceFailures sourceFailures) {
+    private UserProfileBackfillSummary executeDryRun(UserProfileBackfillSourceFailures sourceFailures,
+            ConsecutiveFailureGuard unreadableFailures) {
         MutableSummary summary = new MutableSummary(properties.mode());
         try {
-            return scanDryRun(sourceFailures, summary);
+            return scanDryRun(sourceFailures, summary, unreadableFailures);
         } catch (RuntimeException exception) {
             log.error(
                     "User profile backfill dry run stopped: mode={}, errorType={}, "
@@ -116,35 +121,40 @@ class UserProfileBackfillRunner {
 
     private UserProfileBackfillSummary scanDryRun(
             UserProfileBackfillSourceFailures sourceFailures,
-            MutableSummary summary
+            MutableSummary summary,
+            ConsecutiveFailureGuard unreadableFailures
     ) {
         long upperBound = candidateReader.findUpperBound();
         BoundedKeysetLoop.Result result = BoundedKeysetLoop.run(
                 0L, upperBound, properties.batchSize(), properties.maxBatches(),
                 candidateReader::findBatch, UserProfileBackfillCandidate::userId,
-                candidate -> inspectAndCount(candidate, summary, sourceFailures));
+                candidate -> inspectAndCount(candidate, summary, sourceFailures, unreadableFailures));
         return summary.finish(result == BoundedKeysetLoop.Result.EXHAUSTED ? Status.COMPLETED : Status.PAUSED);
     }
 
     private void inspectAndCount(UserProfileBackfillCandidate candidate, MutableSummary summary,
-            UserProfileBackfillSourceFailures sourceFailures) {
+            UserProfileBackfillSourceFailures sourceFailures, ConsecutiveFailureGuard unreadableFailures) {
         summary.scanned++;
         if (!candidate.hasUsableLegacyKey()) {
             summary.failed++;
             sourceFailures.record(Reason.INVALID_SOURCE);
+            unreadableFailures.record(false);
             return;
         }
         try {
             inspect(candidate);
             summary.inspected++;
+            unreadableFailures.record(false);
         } catch (MediaBackfillSourceException exception) {
             sourceFailures.record(exception.getReason());
+            stopOnRepeatedUnreadable(exception, unreadableFailures);
             rethrowInfrastructureFailure(exception);
             summary.failed++;
         }
     }
 
-    private UserProfileBackfillSummary executePersistent(UserProfileBackfillSourceFailures sourceFailures) {
+    private UserProfileBackfillSummary executePersistent(UserProfileBackfillSourceFailures sourceFailures,
+            ConsecutiveFailureGuard unreadableFailures) {
         long initialUpperBound = candidateReader.findUpperBound();
         Acquisition acquisition = checkpointStore.acquire(
                 properties.requiredRunId(), properties.mode(),
@@ -164,7 +174,7 @@ class UserProfileBackfillRunner {
                     acquisition.snapshot().cursorId(), lease.upperBoundId(),
                     properties.batchSize(), properties.maxBatches(),
                     candidateReader::findBatch, UserProfileBackfillCandidate::userId,
-                    candidate -> processAndRecord(candidate, lease, sourceFailures));
+                    candidate -> processAndRecord(candidate, lease, sourceFailures, unreadableFailures));
             if (result == BoundedKeysetLoop.Result.EXHAUSTED) {
                 return completedSummary(lease);
             }
@@ -189,13 +199,15 @@ class UserProfileBackfillRunner {
     private void processAndRecord(
             UserProfileBackfillCandidate candidate,
             Lease lease,
-            UserProfileBackfillSourceFailures sourceFailures
+            UserProfileBackfillSourceFailures sourceFailures,
+            ConsecutiveFailureGuard unreadableFailures
     ) {
         if (!candidate.hasUsableLegacyKey()) {
             checkpointStore.recordProgress(
                     lease, candidate.userId(),
                     UserProfileBackfillOutcome.FAILED, properties.leaseDuration());
             sourceFailures.record(Reason.INVALID_SOURCE);
+            unreadableFailures.record(false);
             return;
         }
         try {
@@ -204,10 +216,17 @@ class UserProfileBackfillRunner {
                 UserProfileBackfillOutcome outcome = prepare(candidate, inspection);
                 checkpointStore.recordProgress(
                         lease, candidate.userId(), outcome, properties.leaseDuration());
+                unreadableFailures.record(false);
                 return;
             }
             attachOrRecord(candidate, inspection, lease);
+            unreadableFailures.record(false);
         } catch (MediaBackfillSourceException exception) {
+            boolean stop = unreadableFailures.record(exception.getReason() == Reason.SOURCE_UNREADABLE);
+            if (stop) {
+                sourceFailures.record(exception.getReason());
+                throw new RepeatedSourceUnreadableException();
+            }
             if (exception.getReason() == Reason.STORAGE_UNAVAILABLE) {
                 sourceFailures.record(exception.getReason());
                 throw exception;
@@ -282,6 +301,16 @@ class UserProfileBackfillRunner {
         if (exception.getReason() == Reason.STORAGE_UNAVAILABLE) {
             throw exception;
         }
+    }
+
+    private void stopOnRepeatedUnreadable(MediaBackfillSourceException failure,
+            ConsecutiveFailureGuard unreadableFailures) {
+        if (unreadableFailures.record(failure.getReason() == Reason.SOURCE_UNREADABLE)) {
+            throw new RepeatedSourceUnreadableException();
+        }
+    }
+
+    private static final class RepeatedSourceUnreadableException extends RuntimeException {
     }
 
     private String failureType(RuntimeException exception) {
