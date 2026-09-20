@@ -6,6 +6,7 @@ import org.sopt.hashi.admin.dto.CreateRestaurantRequest;
 import org.sopt.hashi.admin.dto.UpdateRestaurantRequest;
 import org.sopt.hashi.restaurant.AdminRestaurantCommand;
 import org.sopt.hashi.restaurant.AdminRestaurantCommand.BusinessHourCommand;
+import org.sopt.hashi.restaurant.AdminRestaurantCommand.ImageCommand;
 import org.sopt.hashi.restaurant.AdminRestaurantCommand.MenuCommand;
 import org.sopt.hashi.restaurant.RestaurantPort;
 import org.springframework.stereotype.Service;
@@ -49,6 +50,8 @@ public class AdminRestaurantService {
                 request.minPrice(),
                 request.maxPrice(),
                 request.imageKeys(),
+                request.imageAssetIds(),
+                null,
                 toMenuCommands(request.menus()),
                 request.hashtags(),
                 request.curationTypes(),
@@ -69,6 +72,8 @@ public class AdminRestaurantService {
                 request.minPrice(),
                 request.maxPrice(),
                 request.imageKeys(),
+                null,
+                toImageCommands(request.images()),
                 toUpdateMenuCommands(request.menus()),
                 request.hashtags(),
                 request.curationTypes(),
@@ -80,7 +85,8 @@ public class AdminRestaurantService {
             return null;
         }
         return menus.stream()
-                .map(menu -> new MenuCommand(menu.name(), menu.description(), menu.imageKey(),
+                .map(menu -> new MenuCommand(null, menu.name(), menu.description(), menu.imageKey(),
+                        menu.imageAssetId(),
                         menu.priceCurrency(), menu.priceAmount(), menu.main()))
                 .toList();
     }
@@ -90,8 +96,20 @@ public class AdminRestaurantService {
             return null;
         }
         return menus.stream()
-                .map(menu -> new MenuCommand(menu.menuId(), menu.name(), menu.description(), menu.imageKey(),
+                .map(menu -> new MenuCommand(
+                        menu.menuId(), menu.name(), menu.description(), menu.imageKey(),
+                        menu.imageAssetId(),
                         menu.priceCurrency(), menu.priceAmount(), menu.main()))
+                .toList();
+    }
+
+    private List<ImageCommand> toImageCommands(List<UpdateRestaurantRequest.ImageRequest> images) {
+        if (images == null) {
+            return null;
+        }
+        return images.stream()
+                .map(image -> new ImageCommand(
+                        image.restaurantImageId(), image.imageAssetId()))
                 .toList();
     }
 

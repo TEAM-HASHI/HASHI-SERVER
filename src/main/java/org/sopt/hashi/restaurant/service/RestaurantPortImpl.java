@@ -8,19 +8,21 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.function.Function;
 import java.util.stream.Collectors;
+import org.sopt.hashi.media.ImageReference;
 import org.sopt.hashi.restaurant.AdminRestaurantCommand;
 import org.sopt.hashi.restaurant.AdminRestaurantInfo;
 import org.sopt.hashi.restaurant.RestaurantDetailInfo;
 import org.sopt.hashi.restaurant.RestaurantInfo;
 import org.sopt.hashi.restaurant.RestaurantPort;
 import org.sopt.hashi.restaurant.domain.Restaurant;
+import org.sopt.hashi.restaurant.domain.RestaurantImage;
 import org.sopt.hashi.restaurant.domain.RestaurantRepository;
 import org.sopt.hashi.shared.storage.FileStorage;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
 
 /**
- * {@link RestaurantPort} 구현 — 요약(id·name·address·imageUrl)은 여기서 바로 조립하고,
+ * {@link RestaurantPort} 구현 — 요약(id·name·address·대표 이미지)은 여기서 바로 조립하고,
  * 상세처럼 목록 API와 같은 계산(오늘 영업시간·메뉴 이미지·가격대)이 필요한 것은 {@link RestaurantService}에 위임한다.
  */
 @Component
@@ -48,7 +50,7 @@ class RestaurantPortImpl implements RestaurantPort {
         if (restaurantId == null) {
             return Optional.empty();
         }
-        return restaurantRepository.findById(restaurantId)
+        return restaurantRepository.findByIdWithImages(restaurantId)
                 .map(this::toInfo);
     }
 
@@ -68,7 +70,7 @@ class RestaurantPortImpl implements RestaurantPort {
             return List.of();
         }
 
-        Map<Long, RestaurantInfo> summariesById = restaurantRepository.findAllById(ids).stream()
+        Map<Long, RestaurantInfo> summariesById = restaurantRepository.findAllByIdWithImages(ids).stream()
                 .map(this::toInfo)
                 .collect(Collectors.toMap(RestaurantInfo::id, Function.identity()));
 
@@ -127,7 +129,20 @@ class RestaurantPortImpl implements RestaurantPort {
                 restaurant.getId(),
                 restaurant.getName(),
                 restaurant.getAddress(),
-                fileStorage.resolveFileUrl(restaurant.getThumbnailFileKey())
+                toThumbnailReference(restaurant)
         );
+    }
+
+    private ImageReference toThumbnailReference(Restaurant restaurant) {
+        return restaurant.getThumbnailImage()
+                .map(this::toImageReference)
+                .orElse(null);
+    }
+
+    private ImageReference toImageReference(RestaurantImage image) {
+        String legacyUrl = image.getFileKey() == null
+                ? null
+                : fileStorage.resolveFileUrl(image.getFileKey());
+        return new ImageReference(image.getImageAssetId(), legacyUrl);
     }
 }

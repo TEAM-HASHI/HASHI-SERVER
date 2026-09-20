@@ -2,19 +2,30 @@ package org.sopt.hashi.review.service;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
+import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.sopt.hashi.auth.CurrentUserProvider;
+import org.sopt.hashi.media.ImageReference;
+import org.sopt.hashi.media.MediaImage;
+import org.sopt.hashi.media.MediaImageRequest;
+import org.sopt.hashi.media.MediaImageRole;
+import org.sopt.hashi.media.MediaImageStatus;
+import org.sopt.hashi.media.MediaPort;
 import org.sopt.hashi.reservation.ReservationPort;
 import org.sopt.hashi.reservation.ReservationReviewInfo;
 import org.sopt.hashi.reservation.ReservationStatus;
@@ -53,6 +64,9 @@ class MyReviewServiceTest {
     private RestaurantPort restaurantPort;
 
     @Mock
+    private MediaPort mediaPort;
+
+    @Mock
     private UserPort userPort;
 
     @Mock
@@ -69,6 +83,7 @@ class MyReviewServiceTest {
                 reviewRepository,
                 reservationPort,
                 restaurantPort,
+                mediaPort,
                 userPort,
                 fileStorage,
                 currentUserProvider
@@ -79,7 +94,11 @@ class MyReviewServiceTest {
     void 내가_작성한_리뷰_목록을_예약과_식당_정보로_조합한다() {
         Review review = review(USER_ID);
         ReservationReviewInfo reservation = reservation();
-        RestaurantInfo restaurant = restaurant();
+        UUID assetId = UUID.randomUUID();
+        RestaurantInfo restaurant = restaurant(
+                new ImageReference(assetId, "https://legacy.example.com/restaurants/10.jpg"));
+        MediaImage readyImage = readyImage(
+                assetId, "https://cdn.example.com/restaurants/10/192.webp");
 
         given(currentUserProvider.currentUserId()).willReturn(USER_ID);
         given(reviewRepository.findByUserIdAndDeletedFalseOrderByIdDesc(
@@ -89,6 +108,7 @@ class MyReviewServiceTest {
                 .willReturn(List.of(reservation));
         given(restaurantPort.findSummaries(List.of(RESTAURANT_ID)))
                 .willReturn(List.of(restaurant));
+        given(mediaPort.findImages(any())).willReturn(Map.of(request(assetId), readyImage));
 
         MyReviewListResponse response = myReviewService.getMyReviews(null, null);
 
@@ -97,10 +117,16 @@ class MyReviewServiceTest {
         assertThat(response.hasNext()).isFalse();
         assertThat(response.content().getFirst().reviewId()).isEqualTo(REVIEW_ID);
         assertThat(response.content().getFirst().restaurantName()).isEqualTo("야키토리 무사시");
+        assertThat(response.content().getFirst().restaurantThumbnailUrl())
+                .isEqualTo("https://cdn.example.com/restaurants/10/192.webp");
+        assertThat(response.content().getFirst().restaurantThumbnailImage())
+                .isEqualTo(readyImage);
         assertThat(response.content().getFirst().visitedAt()).isEqualTo(reservation.reservedAt());
         assertThat(response.content().getFirst().keywords()).containsExactly("음식이 맛있어요");
         verify(reservationPort).findReviewInfos(List.of(RESERVATION_ID));
         verify(restaurantPort).findSummaries(List.of(RESTAURANT_ID));
+        verify(mediaPort).findImages(argThat(
+                requests -> List.copyOf(requests).equals(List.of(request(assetId)))));
     }
 
     @Test
@@ -122,12 +148,43 @@ class MyReviewServiceTest {
         assertThat(response.reviewerNickname()).isEqualTo("탈퇴한 회원");
         assertThat(response.imageUrls())
                 .containsExactly("https://cdn.example.com/reviews/20/1.jpg");
+        verifyNoInteractions(mediaPort);
+    }
+
+    @Test
+    void 내_리뷰_상세의_PROCESSING_식당_asset은_legacy_URL로_우회하지_않는다() {
+        Review review = review(USER_ID);
+        UUID assetId = UUID.randomUUID();
+        MediaImage processingImage = statusImage(assetId, MediaImageStatus.PROCESSING);
+        given(currentUserProvider.currentUserId()).willReturn(USER_ID);
+        given(reviewRepository.findByIdAndUserIdAndDeletedFalse(REVIEW_ID, USER_ID))
+                .willReturn(Optional.of(review));
+        given(reservationPort.getReviewInfoByIdAndUserId(RESERVATION_ID, USER_ID))
+                .willReturn(reservation());
+        given(restaurantPort.findSummaryById(RESTAURANT_ID)).willReturn(Optional.of(restaurant(
+                new ImageReference(
+                        assetId,
+                        "https://legacy.example.com/restaurants/10/thumbnail.jpg"))));
+        given(userPort.findById(USER_ID)).willReturn(Optional.empty());
+        given(fileStorage.resolveFileUrl("uploads/reviews/20/1.jpg"))
+                .willReturn("https://cdn.example.com/reviews/20/1.jpg");
+        given(mediaPort.findImages(any()))
+                .willReturn(Map.of(request(assetId), processingImage));
+
+        MyReviewDetailResponse response = myReviewService.getMyReview(REVIEW_ID);
+
+        assertThat(response.restaurantThumbnailUrl()).isNull();
+        assertThat(response.restaurantThumbnailImage()).isEqualTo(processingImage);
+        verify(mediaPort).findImages(argThat(
+                requests -> List.copyOf(requests).equals(List.of(request(assetId)))));
     }
 
     @Test
     void 커서_다음_페이지가_있으면_마지막_응답_리뷰_ID를_다음_커서로_반환한다() {
-        Review firstReview = review(USER_ID, 30L);
-        Review extraReview = review(USER_ID, 20L);
+        UUID assetId = UUID.randomUUID();
+        Review firstReview = review(USER_ID, 30L, RESERVATION_ID, RESTAURANT_ID);
+        Review extraReview = review(USER_ID, 20L, 200L, 20L);
+        MediaImage readyImage = readyImage(assetId, "https://cdn.example.com/10/192.webp");
 
         given(currentUserProvider.currentUserId()).willReturn(USER_ID);
         given(reviewRepository.findByUserIdAndDeletedFalseAndIdLessThanOrderByIdDesc(
@@ -136,7 +193,8 @@ class MyReviewServiceTest {
         given(reservationPort.findReviewInfos(List.of(RESERVATION_ID)))
                 .willReturn(List.of(reservation()));
         given(restaurantPort.findSummaries(List.of(RESTAURANT_ID)))
-                .willReturn(List.of(restaurant()));
+                .willReturn(List.of(restaurant(ImageReference.asset(assetId))));
+        given(mediaPort.findImages(any())).willReturn(Map.of(request(assetId), readyImage));
 
         MyReviewListResponse response = myReviewService.getMyReviews(40L, 1);
 
@@ -146,6 +204,10 @@ class MyReviewServiceTest {
         assertThat(response.hasNext()).isTrue();
         verify(reviewRepository).findByUserIdAndDeletedFalseAndIdLessThanOrderByIdDesc(
                 USER_ID, 40L, PageRequest.of(0, 2));
+        verify(reservationPort).findReviewInfos(List.of(RESERVATION_ID));
+        verify(restaurantPort).findSummaries(List.of(RESTAURANT_ID));
+        verify(mediaPort).findImages(argThat(requests ->
+                Set.copyOf(requests).equals(Set.of(request(assetId)))));
     }
 
     @Test
@@ -212,9 +274,18 @@ class MyReviewServiceTest {
     }
 
     private Review review(Long userId, Long reviewId) {
+        return review(userId, reviewId, RESERVATION_ID, RESTAURANT_ID);
+    }
+
+    private Review review(
+            Long userId,
+            Long reviewId,
+            Long reservationId,
+            Long restaurantId
+    ) {
         Review review = Review.create(
-                RESERVATION_ID,
-                RESTAURANT_ID,
+                reservationId,
+                restaurantId,
                 userId,
                 5,
                 "직원분들이 친절하고 음식이 맛있었습니다."
@@ -227,12 +298,42 @@ class MyReviewServiceTest {
     }
 
     private RestaurantInfo restaurant() {
+        return restaurant(ImageReference.legacy(
+                "https://cdn.example.com/restaurants/10/thumbnail.jpg"));
+    }
+
+    private RestaurantInfo restaurant(ImageReference imageReference) {
         return new RestaurantInfo(
                 RESTAURANT_ID,
                 "야키토리 무사시",
                 "도쿄도 시부야구",
-                "https://cdn.example.com/restaurants/10/thumbnail.jpg"
+                imageReference
         );
+    }
+
+    private MediaImageRequest request(UUID assetId) {
+        return new MediaImageRequest(assetId, MediaImageRole.RESTAURANT_THUMBNAIL);
+    }
+
+    private MediaImage readyImage(UUID assetId, String url) {
+        MediaImage.Source source = new MediaImage.Source(url, 192, 192, "image/webp");
+        return new MediaImage(
+                assetId,
+                MediaImageRole.RESTAURANT_THUMBNAIL,
+                MediaImageStatus.READY,
+                source,
+                List.of(new MediaImage.SourceSet(
+                        "image/webp",
+                        List.of(new MediaImage.Candidate(url, 192, 192)))));
+    }
+
+    private MediaImage statusImage(UUID assetId, MediaImageStatus status) {
+        return new MediaImage(
+                assetId,
+                MediaImageRole.RESTAURANT_THUMBNAIL,
+                status,
+                null,
+                List.of());
     }
 
     private ReservationReviewInfo reservation() {

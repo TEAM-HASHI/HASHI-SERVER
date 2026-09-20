@@ -48,6 +48,8 @@
 ├─ service/               # 비즈니스 로직
 ├─ dto/                   # Request / Response DTO
 ├─ web/                   # Controller
+├─ internal/              # 모듈 내부 전용 기술 구현 (필요 시)
+├─ migration/             # 한시적 데이터 전환 실행기·checkpoint 접근 (승인된 경우만)
 └─ event/                 # 이벤트 리스너 (필요 시)
 ```
 
@@ -60,6 +62,14 @@
   현재 migration 예외는 association 소유 도메인의 runner만 사용하는 `MediaBackfillPort`다.
   Controller와 일반 Service는 `MediaBackfillPort`를 사용할 수 없다.
 - **MUST**: **발행 이벤트**(예: `UserWithdrawnEvent`)는 모듈 루트에 공개(Port와 같은 위치)하고, `event/` 에는 **구독 리스너**(예: `UserWithdrawnListener`)만 둔다.
+- **MAY**: outbound storage adapter, 규격·설정 파일 reader처럼 모듈 밖에 공개하지 않는 기술 구현은
+  `internal/`에 둘 수 있다. 엔티티·Repository·비즈니스 로직·Request/Response·Controller는 각각
+  `domain`·`service`·`dto`·`web`에 두며, 다른 모듈은 `internal`을 import하지 않는다.
+- **MUST**: `internal/event`는 발행자와 구독자가 모두 같은 모듈인 내부 연결 이벤트에만 사용한다.
+  모듈 간 발행 이벤트는 기존 규칙대로 모듈 루트에 둔다.
+- **MAY**: 승인된 backfill runner와 그 전용 checkpoint 접근은 소유 모듈의 `migration/`에 둔다.
+  일반 요청의 비즈니스 로직이나 Repository를 옮기는 예외가 아니다. 콘텐츠 변경은 기존 Aggregate를
+  사용하고, 실행 gate·잠금·재시작·종료 조건을 runbook에 명시한다. 전환 종료 후 runner와 함께 제거한다.
 - **SHOULD**: 복합 컨텍스트는 하위 도메인 패키지를 둘 수 있다(예: `user/bookmark/`,
   `support/inquiry/`, `support/notice/`). 이 경우에도 일반 런타임 공개 지점은 `<Context>Port`로
   단일화한다.
@@ -82,7 +92,13 @@
     - 허용: 응답 래퍼(`BaseResponse`/`SuccessResponse`/`ErrorResponse`), 코드 계약 인터페이스(`BaseCode`/`ErrorCode`/`SuccessCode`), 공통 예외(`BusinessException`), 전역 핸들러(`GlobalExceptionHandler`), 도메인 무관 VO(`Money`/`Address`), 스토리지 포트(`FileStorage`).
 - **MUST NOT**: 특정 도메인을 아는 타입(예: `RestaurantDto`, `User`, `ReservationStatus`)을 `shared`에 두지 않는다.
 - **MUST**: 의존 방향은 **도메인 → shared 단방향**. `shared`는 어떤 도메인 모듈도 import하지 않는다.
-- 하위 패키지: `response` · `error` · `exception` · `storage` · `swagger` · `vo`
+- 하위 패키지: `response` · `error` · `exception` · `storage` · `swagger` · `vo` · `migration`
+- **MAY**: `shared/migration`에는 한시적 전환 실행기에서 사용하는, 상태 없는 keyset 반복·제한 재시도
+  도구와 실행마다 새로 생성하는 도메인 무관 연속 실패 카운터를 둔다. 후보 읽기·항목 처리·실패 분류와
+  중단 기준은 호출자가 결정한다. 카운터는 Bean으로 등록하거나 실행 간 공유하지 않는다.
+- **MUST NOT**: 공통 전환 도구가 콘텐츠 또는 media 타입, Spring Bean, DB·S3 접근, 트랜잭션,
+  checkpoint·lease 저장이나 도메인 상태 전이를 소유하지 않는다. 이미지 연결과 진행 기록의 원자성은
+  각 소유 모듈이 유지한다. 전환 실행기를 제거할 때 이 도구의 남은 사용처도 함께 확인한다.
 
 원칙: **"틀은 공유, 내용은 도메인."**
 
@@ -174,8 +190,8 @@
 ## 9. auth / admin / 지원 모듈
 
 - **MUST**: `auth`는 `@Modulithic(sharedModules = "auth")`로 등록한다(횡단 관심사).
-- **MUST**: 인증 **강제**는 Spring Security 필터 체인이 담당한다. 도메인 모듈은 `auth.internal`을 import하지 않고, `auth`가 현재 공개한 `CurrentUserProvider`로 현재 사용자를 읽는다(`SecurityContextHolder` 직접 접근 금지). actor 유형까지 필요한 media 구현에서는 목표 공개 지점 `CurrentActorProvider`를 먼저 추가한 뒤 사용한다.
-- **MUST**: 의존 방향은 **도메인 → auth**다. 현재 공개 지점은 `CurrentUserProvider`, `AuthAccountPort`이며 media 구현에서 `CurrentActorProvider`를 추가한다. **`auth`는 어떤 도메인 모듈도 되참조하지 않는다**(순환 방지). auth가 도메인을 관찰해야 하면 **이벤트**로 붙인다. 상세는 `auth.md` §1 참조.
+- **MUST**: 인증 **강제**는 Spring Security 필터 체인이 담당한다. 도메인 모듈은 `auth.internal`을 import하지 않고, `auth`가 공개한 `CurrentUserProvider`로 현재 사용자를 읽는다(`SecurityContextHolder` 직접 접근 금지). actor 유형까지 필요한 media는 현재 공개 지점인 `CurrentActorProvider`를 사용한다.
+- **MUST**: 의존 방향은 **도메인 → auth**다. 현재 공개 지점은 `CurrentUserProvider`, `CurrentActorProvider`, `AuthAccountPort`다. **`auth`는 어떤 도메인 모듈도 되참조하지 않는다**(순환 방지). auth가 도메인을 관찰해야 하면 **이벤트**로 붙인다. 상세는 `auth.md` §1 참조.
 - **MUST NOT**: 도메인 모듈이 인증 로직을 직접 구현하지 않는다.
 - **MUST**: `admin`은 진입점 모듈로, **도메인 로직을 두지 않는다.** 각 컨텍스트의 `Port`로 위임만 한다.
 - **MUST NOT**: `admin`이 타 모듈의 `internal`/Repository/엔티티에 직접 접근하지 않는다.
@@ -184,6 +200,9 @@
 - **MUST**: 신규 최적화 이미지는 상태를 가진 지원 도메인 `media`가 관리한다. `ImageAsset`은 Aggregate Root, `ImageRendition`은 그 자식이다.
 - **MUST**: 콘텐츠 도메인은 asset 식별자 값만 보관하고 일반 요청 경로에서는 공개 `MediaPort`로 검증, claim, bulk 조회한다. §2-2 통합 Port 원칙의 명시적 migration-only 예외로 association을 소유한 도메인의 backfill runner만 `MediaBackfillPort`를 사용할 수 있으며 Controller와 일반 Service에서는 사용하지 않는다. media 테이블과 JPA 관계, 모듈 간 FK, DB join을 만들지 않는다.
 - **MUST**: 이미지의 콘텐츠 소속과 표시 순서는 기존 콘텐츠 Aggregate가 계속 소유한다. media는 콘텐츠 도메인을 되참조하지 않는다.
+- **MAY**: 최종 응답 Service는 공개 값 타입 `MediaImageSelection.from(ImageReference, MediaImage)`으로
+  기존 URL 허용 여부와 READY URL 선택을 공유한다. 이 타입은 DB·외부 호출이 없는 순수 변환이며
+  추가 Service facade가 아니다. role·정렬·개수와 `MediaPort` bulk 조회는 호출 Service가 소유한다.
 - **MUST**: 원본 확인, 변환과 삭제 같은 S3 작업은 DB 트랜잭션 안에서 실행하지 않는다. 외부 변환 요청은 commit 이후 재시도 가능한 event publication 또는 outbox로 전달한다.
 - 상세 결정과 외부 계약은 [`ADR 0001`](../adr/0001-media-module-and-image-pipeline.md)과 [`Image Delivery Contract v1`](../media/image-delivery-contract-v1.md)을 따른다.
 
@@ -200,7 +219,7 @@
 ## 부록 — 의존 방향 (비순환)
 
 ```text
-모든 도메인 → auth (현재 CurrentUserProvider, AuthAccountPort; media 구현 시 CurrentActorProvider 추가; auth는 도메인 되참조 금지)
+모든 도메인 → auth (CurrentUserProvider, CurrentActorProvider, AuthAccountPort; auth는 도메인 되참조 금지)
 review → restaurant, reservation, point, user   (작성자 닉네임·프사 enrich; 탈퇴 시 UserPort 빈 값 → "탈퇴한 회원" fallback)
 reservation → restaurant, user, point
 magazine → restaurant                (관련 식당 큐레이션, 매핑 테이블 + RestaurantPort)
