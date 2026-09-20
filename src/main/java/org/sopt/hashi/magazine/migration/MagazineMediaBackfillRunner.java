@@ -18,6 +18,7 @@ import org.sopt.hashi.media.MediaBackfillSourceException;
 import org.sopt.hashi.media.MediaBackfillSourceException.Reason;
 import org.sopt.hashi.shared.migration.BoundedKeysetLoop;
 import org.sopt.hashi.shared.migration.BoundedRetry;
+import org.sopt.hashi.shared.migration.ConsecutiveFailureGuard;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.boot.context.event.ApplicationReadyEvent;
 import org.springframework.context.event.EventListener;
@@ -32,6 +33,8 @@ import org.springframework.stereotype.Component;
         havingValue = "true"
 )
 class MagazineMediaBackfillRunner {
+
+    private static final int SOURCE_UNREADABLE_STOP_THRESHOLD = 5;
 
     private final MagazineMediaBackfillProperties properties;
     private final MagazineMediaBackfillCandidateReader candidateReader;
@@ -93,15 +96,17 @@ class MagazineMediaBackfillRunner {
     MagazineMediaBackfillSummary execute() {
         MagazineMediaBackfillSourceFailures sourceFailures = new MagazineMediaBackfillSourceFailures(
                 properties.target(), properties.mode(), meterRegistry);
+        ConsecutiveFailureGuard unreadableFailures = new ConsecutiveFailureGuard(SOURCE_UNREADABLE_STOP_THRESHOLD);
         MagazineMediaBackfillSummary summary = properties.mode() == MagazineMediaBackfillMode.DRY_RUN
-                ? executeDryRun(sourceFailures) : executePersistent(sourceFailures);
+                ? executeDryRun(sourceFailures, unreadableFailures) : executePersistent(sourceFailures, unreadableFailures);
         return summary.withSourceFailures(sourceFailures.snapshot());
     }
 
-    private MagazineMediaBackfillSummary executeDryRun(MagazineMediaBackfillSourceFailures sourceFailures) {
+    private MagazineMediaBackfillSummary executeDryRun(MagazineMediaBackfillSourceFailures sourceFailures,
+            ConsecutiveFailureGuard unreadableFailures) {
         MutableSummary summary = new MutableSummary(properties.target(), properties.mode());
         try {
-            return scanDryRun(sourceFailures, summary);
+            return scanDryRun(sourceFailures, summary, unreadableFailures);
         } catch (RuntimeException exception) {
             log.error(
                     "Magazine media backfill dry run stopped: target={}, mode={}, errorType={}, "
@@ -115,39 +120,44 @@ class MagazineMediaBackfillRunner {
 
     private MagazineMediaBackfillSummary scanDryRun(
             MagazineMediaBackfillSourceFailures sourceFailures,
-            MutableSummary summary
+            MutableSummary summary,
+            ConsecutiveFailureGuard unreadableFailures
     ) {
         long upperBound = candidateReader.findUpperBound(properties.target());
         BoundedKeysetLoop.Result result = BoundedKeysetLoop.run(
                 0L, upperBound, properties.batchSize(), properties.maxBatches(),
                 (cursor, upper, limit) -> candidateReader.findBatch(properties.target(), cursor, upper, limit),
                 MagazineMediaBackfillCandidate::magazineId,
-                candidate -> inspectAndCount(candidate, summary, sourceFailures));
+                candidate -> inspectAndCount(candidate, summary, sourceFailures, unreadableFailures));
         return summary.finish(result == BoundedKeysetLoop.Result.EXHAUSTED ? Status.COMPLETED : Status.PAUSED);
     }
 
     private void inspectAndCount(
             MagazineMediaBackfillCandidate candidate,
             MutableSummary summary,
-            MagazineMediaBackfillSourceFailures sourceFailures
+            MagazineMediaBackfillSourceFailures sourceFailures,
+            ConsecutiveFailureGuard unreadableFailures
     ) {
         summary.scanned++;
         if (!candidate.hasUsableLegacyKey()) {
             summary.failed++;
             sourceFailures.record(Reason.INVALID_SOURCE);
+            unreadableFailures.record(false);
             return;
         }
         try {
             inspect(candidate);
             summary.inspected++;
+            unreadableFailures.record(false);
         } catch (MediaBackfillSourceException exception) {
             sourceFailures.record(exception.getReason());
+            stopOnRepeatedUnreadable(exception, unreadableFailures);
             rethrowInfrastructureFailure(exception);
             summary.failed++;
         }
     }
 
-    private MagazineMediaBackfillSummary executePersistent(MagazineMediaBackfillSourceFailures sourceFailures) {
+    private MagazineMediaBackfillSummary executePersistent(MagazineMediaBackfillSourceFailures sourceFailures, ConsecutiveFailureGuard unreadableFailures) {
         long initialUpperBound = candidateReader.findUpperBound(properties.target());
         Acquisition acquisition = checkpointStore.acquire(
                 properties.requiredRunId(), properties.target(), properties.mode(),
@@ -168,7 +178,7 @@ class MagazineMediaBackfillRunner {
                     properties.batchSize(), properties.maxBatches(),
                     (cursor, upper, limit) -> candidateReader.findBatch(properties.target(), cursor, upper, limit),
                     MagazineMediaBackfillCandidate::magazineId,
-                    candidate -> processAndRecord(candidate, lease, sourceFailures));
+                    candidate -> processAndRecord(candidate, lease, sourceFailures, unreadableFailures));
             if (result == BoundedKeysetLoop.Result.EXHAUSTED) {
                 return completedSummary(lease);
             }
@@ -193,13 +203,15 @@ class MagazineMediaBackfillRunner {
     private void processAndRecord(
             MagazineMediaBackfillCandidate candidate,
             Lease lease,
-            MagazineMediaBackfillSourceFailures sourceFailures
+            MagazineMediaBackfillSourceFailures sourceFailures,
+            ConsecutiveFailureGuard unreadableFailures
     ) {
         if (!candidate.hasUsableLegacyKey()) {
             checkpointStore.recordProgress(
                     lease, candidate.magazineId(),
                     MagazineMediaBackfillOutcome.FAILED, properties.leaseDuration());
             sourceFailures.record(Reason.INVALID_SOURCE);
+            unreadableFailures.record(false);
             return;
         }
         try {
@@ -208,10 +220,17 @@ class MagazineMediaBackfillRunner {
                 MagazineMediaBackfillOutcome outcome = prepare(candidate, inspection);
                 checkpointStore.recordProgress(
                         lease, candidate.magazineId(), outcome, properties.leaseDuration());
+                unreadableFailures.record(false);
                 return;
             }
             attachOrRecord(candidate, inspection, lease);
+            unreadableFailures.record(false);
         } catch (MediaBackfillSourceException exception) {
+            boolean stop = unreadableFailures.record(exception.getReason() == Reason.SOURCE_UNREADABLE);
+            if (stop) {
+                sourceFailures.record(exception.getReason());
+                throw new RepeatedSourceUnreadableException();
+            }
             if (exception.getReason() == Reason.STORAGE_UNAVAILABLE) {
                 sourceFailures.record(exception.getReason());
                 throw exception;
@@ -286,6 +305,16 @@ class MagazineMediaBackfillRunner {
         if (exception.getReason() == Reason.STORAGE_UNAVAILABLE) {
             throw exception;
         }
+    }
+
+    private void stopOnRepeatedUnreadable(MediaBackfillSourceException failure,
+            ConsecutiveFailureGuard unreadableFailures) {
+        if (unreadableFailures.record(failure.getReason() == Reason.SOURCE_UNREADABLE)) {
+            throw new RepeatedSourceUnreadableException();
+        }
+    }
+
+    private static final class RepeatedSourceUnreadableException extends RuntimeException {
     }
 
     private String failureType(RuntimeException exception) {
