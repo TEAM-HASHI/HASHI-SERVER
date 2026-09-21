@@ -106,6 +106,7 @@ tasks.named('test') {
         exceptionFormat = 'full'
     }
     inputs.files(
+            '.env.dev.example',
             'infra/media/template.yaml',
             'infra/media/parameters/dev.example.json',
             'infra/media/parameters/prod.example.json',
