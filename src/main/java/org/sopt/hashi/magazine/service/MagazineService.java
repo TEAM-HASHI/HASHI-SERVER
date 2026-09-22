@@ -224,7 +224,7 @@ public class MagazineService {
 
     // 비로그인·온보딩 토큰은 회원이 아니므로 좋아요 여부를 계산하지 않는다
     private boolean isLikedByCurrentUser(Long magazineId) {
-        if (!currentUserProvider.isAuthenticated()) {
+        if (!currentUserProvider.isAuthenticatedUser()) {
             return false;
         }
         return magazineReactionRepository.existsByMagazineIdAndUserIdAndReactionTypeAndStatus(

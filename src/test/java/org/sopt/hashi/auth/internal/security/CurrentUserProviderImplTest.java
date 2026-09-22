@@ -42,7 +42,7 @@ class CurrentUserProviderImplTest {
     void 회원_principal_인증() {
         authenticateWith(new MemberPrincipal(7L), AuthRoles.USER);
 
-        assertThat(provider.isAuthenticated()).isTrue();
+        assertThat(provider.isAuthenticatedUser()).isTrue();
         assertThat(provider.currentUserId()).isEqualTo(7L);
     }
 
@@ -51,7 +51,7 @@ class CurrentUserProviderImplTest {
     void 온보딩_principal_거부() {
         authenticateWith(new OnboardingPrincipal(555L), AuthRoles.ONBOARDING);
 
-        assertThat(provider.isAuthenticated()).isFalse();
+        assertThat(provider.isAuthenticatedUser()).isFalse();
         assertThatThrownBy(provider::currentUserId)
                 .isInstanceOf(BusinessException.class)
                 .hasFieldOrPropertyWithValue("errorCode", CommonErrorCode.UNAUTHORIZED);
@@ -60,7 +60,7 @@ class CurrentUserProviderImplTest {
     @Test
     @DisplayName("인증 컨텍스트가 없으면 currentUserId는 UNAUTHORIZED")
     void 미인증_거부() {
-        assertThat(provider.isAuthenticated()).isFalse();
+        assertThat(provider.isAuthenticatedUser()).isFalse();
         assertThatThrownBy(provider::currentUserId)
                 .isInstanceOf(BusinessException.class)
                 .hasFieldOrPropertyWithValue("errorCode", CommonErrorCode.UNAUTHORIZED);
