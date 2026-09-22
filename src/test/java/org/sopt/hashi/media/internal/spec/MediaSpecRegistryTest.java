@@ -29,7 +29,10 @@ class MediaSpecRegistryTest {
                 1,
                 "1b5759a9285732133699114e21101b3b9b43b5cd8e208bf1246d059f4293634f"
         ));
-        assertThat(registry.find(2)).isEmpty();
+        assertThat(registry.find(2)).contains(new MediaSpecSnapshot(
+                2,
+                "b8e67084bcdf81ac7fc94951c905726a97ade3783320c67e03c505f5643ddf75"
+        ));
     }
 
     @Test
@@ -61,6 +64,22 @@ class MediaSpecRegistryTest {
                         expected(ImageRole.REVIEW_PREVIEW, 100, 100),
                         expected(ImageRole.REVIEW_DETAIL, 68, 99)
                 );
+    }
+
+    @Test
+    void 카드뉴스는_원본비율을_유지하고_3대4_후보를_선택한다() {
+        MediaSpecDefinition spec = new MediaSpecRegistry(objectMapper)
+                .findDefinition(2)
+                .orElseThrow();
+
+        assertThat(spec.expectedRenditions(MediaPurpose.MAGAZINE_CARD_NEWS, 2160, 2880))
+                .containsExactly(
+                        expected(ImageRole.MAGAZINE_CARD_NEWS, 432, 576),
+                        expected(ImageRole.MAGAZINE_CARD_NEWS, 864, 1152),
+                        expected(ImageRole.MAGAZINE_CARD_NEWS, 1296, 1728)
+                );
+        assertThat(spec.expectedRenditions(MediaPurpose.MAGAZINE_CARD_NEWS, 100, 100))
+                .containsExactly(expected(ImageRole.MAGAZINE_CARD_NEWS, 100, 100));
     }
 
     @Test

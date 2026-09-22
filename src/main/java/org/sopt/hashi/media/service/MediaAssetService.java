@@ -14,6 +14,7 @@ import org.sopt.hashi.auth.CurrentActorProvider;
 import org.sopt.hashi.media.code.MediaErrorCode;
 import org.sopt.hashi.media.domain.ImageProcessingStatus;
 import org.sopt.hashi.media.domain.MediaCleanupStatus;
+import org.sopt.hashi.media.domain.MediaPurpose;
 import org.sopt.hashi.media.dto.CompleteMediaAssetsRequest;
 import org.sopt.hashi.media.dto.CreateMediaAssetsRequest;
 import org.sopt.hashi.media.dto.CreateMediaAssetsResponse;
@@ -33,6 +34,8 @@ import org.springframework.stereotype.Service;
 @Slf4j
 @Service
 public class MediaAssetService {
+
+    private static final long CARD_NEWS_MAX_FILE_SIZE = 10L * 1024 * 1024;
 
     private static final Set<String> SUPPORTED_CONTENT_TYPES = Set.of(
             "image/jpeg",
@@ -64,7 +67,7 @@ public class MediaAssetService {
     public CreateMediaAssetsResponse createAssets(CreateMediaAssetsRequest request) {
         CurrentActor actor = currentActorProvider.currentActor();
         validatePurpose(actor, request);
-        validateFiles(request.files());
+        validateFiles(request.purpose(), request.files());
         transactionService.assertIssuanceAvailable();
 
         LocalDateTime issuedAt = LocalDateTime.now(clock);
@@ -118,7 +121,8 @@ public class MediaAssetService {
         }
     }
 
-    private void validateFiles(List<CreateMediaAssetsRequest.FileRequest> files) {
+    private void validateFiles(MediaPurpose purpose,
+                               List<CreateMediaAssetsRequest.FileRequest> files) {
         if (files.size() > storageProperties.maxFilesPerRequest()) {
             throw new BusinessException(CommonErrorCode.INVALID_INPUT);
         }
@@ -126,7 +130,10 @@ public class MediaAssetService {
             if (!SUPPORTED_CONTENT_TYPES.contains(file.contentType())) {
                 throw new BusinessException(MediaErrorCode.UNSUPPORTED_FILE_TYPE);
             }
-            if (file.fileSize() > storageProperties.maxFileSize().toBytes()) {
+            long maxFileSize = purpose == MediaPurpose.MAGAZINE_CARD_NEWS
+                    ? CARD_NEWS_MAX_FILE_SIZE
+                    : storageProperties.maxFileSize().toBytes();
+            if (file.fileSize() > maxFileSize) {
                 throw new BusinessException(MediaErrorCode.FILE_SIZE_EXCEEDED);
             }
         });
