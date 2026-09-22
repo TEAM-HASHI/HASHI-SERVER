@@ -68,7 +68,7 @@ public class MediaAssetService {
         CurrentActor actor = currentActorProvider.currentActor();
         validatePurpose(actor, request);
         validateFiles(request.purpose(), request.files());
-        transactionService.assertIssuanceAvailable();
+        transactionService.assertIssuanceAvailable(request.purpose());
 
         LocalDateTime issuedAt = LocalDateTime.now(clock);
         List<PreparedUpload> preparedUploads = request.files().stream()

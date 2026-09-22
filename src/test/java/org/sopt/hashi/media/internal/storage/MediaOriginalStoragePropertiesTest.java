@@ -14,9 +14,9 @@ class MediaOriginalStoragePropertiesTest {
                 "ap-northeast-2",
                 "hashi-test-originals",
                 Duration.ofMinutes(5),
-                DataSize.ofMegabytes(6),
+                DataSize.ofMegabytes(11),
                 10
         )).isInstanceOf(IllegalArgumentException.class)
-                .hasMessage("media max file size must be between 1 byte and 5MB");
+                .hasMessage("media max file size must be between 1 byte and 10MB");
     }
 }

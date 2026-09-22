@@ -112,7 +112,7 @@ class MediaAssetServiceTest {
                     .containsEntry("If-None-Match", "*");
             assertThat(upload.expectedContentLength()).isEqualTo(1024L);
         });
-        verify(transactionService).assertIssuanceAvailable();
+        verify(transactionService).assertIssuanceAvailable(MediaPurpose.REVIEW);
         verify(transactionService).createAssets(eq(USER), eq(MediaPurpose.REVIEW), anyList());
     }
 

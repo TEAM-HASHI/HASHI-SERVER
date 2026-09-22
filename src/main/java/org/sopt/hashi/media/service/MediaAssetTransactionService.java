@@ -61,6 +61,12 @@ public class MediaAssetTransactionService {
         requireAvailableSpec(lockPipelineConfig());
     }
 
+    @Transactional(readOnly = true)
+    public void assertIssuanceAvailable(MediaPurpose purpose) {
+        MediaSpecSnapshot spec = requireAvailableSpec(lockPipelineConfig());
+        requirePurposeSupported(spec, purpose);
+    }
+
     @Transactional
     public void createAssets(CurrentActor actor, MediaPurpose purpose, List<PreparedMediaAsset> uploads) {
         MediaSpecSnapshot spec = requireAvailableSpec(lockPipelineConfig());
