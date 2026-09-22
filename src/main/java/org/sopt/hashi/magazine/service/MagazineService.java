@@ -126,7 +126,7 @@ public class MagazineService {
                 magazine.getContent(),
                 List.copyOf(magazine.getHashtags()),
                 magazine.getCreatedAt(),
-                magazineMetaRepository.findLikeCountById(magazineId).orElse(0L),
+                magazineMetaRepository.findNonNegativeLikeCount(magazineId),
                 isLikedByCurrentUser(magazineId),
                 restaurants.stream()
                         .map(this::toRestaurantResponse)

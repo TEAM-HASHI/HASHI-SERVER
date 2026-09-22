@@ -34,7 +34,7 @@ public class MagazineMetaUpdater {
     @Transactional
     public void decreaseLikeCount(Long magazineId) {
         if (magazineMetaRepository.decreaseLikeCount(magazineId) == 0) {
-            log.warn("매거진 좋아요 수 감소 실패 — meta 행 없음 또는 이미 0. magazineId={}", magazineId);
+            log.warn("매거진 좋아요 수 감소 실패 — meta 행 없음. magazineId={}", magazineId);
         }
     }
 }

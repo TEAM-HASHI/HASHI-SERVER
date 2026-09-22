@@ -102,6 +102,6 @@ public class MagazineLikeService {
     }
 
     private long currentLikeCount(Long magazineId) {
-        return magazineMetaRepository.findLikeCountById(magazineId).orElse(0L);
+        return magazineMetaRepository.findNonNegativeLikeCount(magazineId);
     }
 }
