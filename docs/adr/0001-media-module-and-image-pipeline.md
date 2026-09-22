@@ -277,7 +277,9 @@ v1은 Node.js와 Sharp를 Lambda ZIP으로 배포한다.
 - Sharp는 이미지 decode, resize, WebP encode와 metadata 제거에 특화돼 있다.
 - worker 요청이 없을 때 Lambda compute 실행 비용은 발생하지 않으며, SQS, log와 storage
   비용은 별도다. API EC2의 CPU와 메모리는 사용하지 않는다.
-- 현재 최대 5MB 정지 이미지와 고정 role 규격에는 Lambda 실행 모델이 적합하다.
+- 현재 일반 목적 최대 5MiB, 카드뉴스 v2 최대 10MiB의 정지 이미지와 고정 role 규격에는
+  Lambda 실행 모델이 적합하다. 카드뉴스의 상향은 해당 purpose에만 적용하며 기존 목적의
+  업로드 제한과 worker 안전 한도는 유지한다.
 - ZIP은 worker 코드와 Lambda Linux 호환 dependency를 묶는 배포 파일이다.
 - v1에는 worker용 EC2, ECS, ECR과 운영 Docker image를 추가하지 않는다.
 - v1 Lambda runtime은 Amazon Linux 2023 기반 `nodejs24.x`, architecture는 `x86_64`로
