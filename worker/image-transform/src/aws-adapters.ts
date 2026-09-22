@@ -20,6 +20,7 @@ import type { TransformResult } from "./queue-contract";
 
 const WEBP_CONTENT_TYPE = "image/webp";
 const IMMUTABLE_CACHE_CONTROL = "public, max-age=31536000, immutable";
+const MAX_ORIGINAL_BYTES = 10 * 1024 * 1024;
 
 export class AwsImageObjectStorage implements ImageObjectStorage {
   private readonly client: S3Client;
@@ -44,6 +45,9 @@ export class AwsImageObjectStorage implements ImageObjectStorage {
     );
     if (response.Body === undefined) {
       throw new ContractMismatchError("S3 returned an original object without a body");
+    }
+    if (response.ContentLength === undefined || response.ContentLength > MAX_ORIGINAL_BYTES) {
+      throw new ContractMismatchError("S3 original content length exceeds the worker limit");
     }
     if (response.ContentLength !== request.expectedContentLength) {
       throw new ContractMismatchError("S3 original content length differs from transform request");

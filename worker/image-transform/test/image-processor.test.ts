@@ -15,6 +15,61 @@ import { loadMediaSpec, type LoadedMediaSpec } from "../src/manifest";
 import { createTwoFrameApng, createWarningCorruptJpeg } from "./image-fixtures";
 
 const spec = loadMediaSpec(1);
+const cardNewsSpec = loadMediaSpec(2);
+
+test("only card news accepts source bytes between 5MiB and 10MiB", async () => {
+  const bytes = Buffer.alloc(10 * 1024 * 1024);
+  bytes.set([0xff, 0xd8, 0xff]);
+  const input = { bytes, declaredByteSize: bytes.length, declaredContentType: "image/jpeg",
+    spec: cardNewsSpec };
+  await assert.rejects(processImage({ ...input, purpose: "MAGAZINE_CARD_NEWS" }),
+    (error: unknown) => error instanceof PermanentImageError && error.failureCode === "INVALID_IMAGE_DATA");
+  await assert.rejects(processImage({ ...input, purpose: "RESTAURANT" }),
+    (error: unknown) => error instanceof PermanentImageError && error.failureCode === "SOURCE_FILE_TOO_LARGE");
+  const oversized = Buffer.alloc(bytes.length + 1);
+  await assert.rejects(processImage({ ...input, bytes: oversized, declaredByteSize: oversized.length,
+    purpose: "MAGAZINE_CARD_NEWS" }),
+    (error: unknown) => error instanceof PermanentImageError && error.failureCode === "SOURCE_FILE_TOO_LARGE");
+});
+
+test("small card news preserves its full source dimensions", async () => {
+  const source = await sharp({
+    create: { width: 100, height: 100, channels: 3, background: "#557799" },
+  }).png().toBuffer();
+  const result = await processImage({
+    bytes: source,
+    declaredByteSize: source.length,
+    declaredContentType: "image/png",
+    purpose: "MAGAZINE_CARD_NEWS",
+    spec: cardNewsSpec,
+  });
+  assert.deepEqual(result.renditions.map(({ width, height }) => ({ width, height })),
+    [{ width: 100, height: 100 }]);
+});
+
+test("카드뉴스는 원본 비율을 유지하고 3:4 후보 안에서 자르지 않는다", async () => {
+  const source = await sharp({
+    create: { width: 1200, height: 800, channels: 3, background: "#557799" },
+  })
+    .png()
+    .toBuffer();
+
+  const result = await processImage({
+    bytes: source,
+    declaredByteSize: source.length,
+    declaredContentType: "image/png",
+    purpose: "MAGAZINE_CARD_NEWS",
+    spec: cardNewsSpec,
+  });
+
+  assert.deepEqual(
+    result.renditions.map(({ width, height }) => ({ width, height })),
+    [
+      { width: 432, height: 288 },
+      { width: 864, height: 576 },
+    ],
+  );
+});
 
 test("creates all standard card candidates in ascending order", async () => {
   const source = await sharp({
