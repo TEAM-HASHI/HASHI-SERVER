@@ -28,6 +28,9 @@ public interface RestaurantPort {
     /** 리뷰 삭제 시 식당 평점 합계·리뷰 수·평균을 원자적으로 감소시킨다. */
     void decreaseReviewStatistics(Long restaurantId, int rating);
 
+    /** 리뷰 별점 변경 시 리뷰 수는 유지하고 평점 합계·평균을 원자적으로 갱신한다. */
+    void updateReviewRatingStatistics(Long restaurantId, int oldRating, int newRating);
+
     /** 어드민 식당 등록 — 이미지·메뉴 사진은 업로드 완료된 S3 키로 받는다. */
     AdminRestaurantInfo createByAdmin(AdminRestaurantCommand command);
 

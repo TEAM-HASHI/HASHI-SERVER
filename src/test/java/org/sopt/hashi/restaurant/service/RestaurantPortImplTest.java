@@ -1,6 +1,7 @@
 package org.sopt.hashi.restaurant.service;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -156,6 +157,24 @@ class RestaurantPortImplTest {
         assertThat(result).isPresent();
         assertThat(result.orElseThrow().thumbnailImageReference().legacyUrl())
                 .isEqualTo("https://cdn.example.com/restaurants/1/thumbnail.jpg");
+    }
+
+    @Test
+    void 리뷰_별점_통계_변경을_repository에_위임한다() {
+        given(restaurantRepository.updateReviewRatingStatistics(1L, 5, 3)).willReturn(1);
+
+        restaurantPort.updateReviewRatingStatistics(1L, 5, 3);
+
+        verify(restaurantRepository).updateReviewRatingStatistics(1L, 5, 3);
+    }
+
+    @Test
+    void 리뷰_별점_통계_변경_대상이_없으면_실패한다() {
+        given(restaurantRepository.updateReviewRatingStatistics(1L, 5, 3)).willReturn(0);
+
+        assertThatThrownBy(() -> restaurantPort.updateReviewRatingStatistics(1L, 5, 3))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessage("변경할 식당 리뷰 통계가 올바르지 않습니다.");
     }
 
     private Restaurant createRestaurant(Long id) {

@@ -170,4 +170,20 @@ public interface RestaurantRepository extends JpaRepository<Restaurant, Long>, J
               and rating_sum >= :rating
             """, nativeQuery = true)
     int decreaseReviewStatistics(@Param("restaurantId") Long restaurantId, @Param("rating") int rating);
+
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
+    @Query(value = """
+            update restaurant
+            set rating = round((rating_sum - :oldRating + :newRating) * 1.0 / review_count, 1),
+                rating_sum = rating_sum - :oldRating + :newRating
+            where id = :restaurantId
+              and review_count > 0
+              and rating_sum >= :oldRating
+              and rating_sum - :oldRating + :newRating >= 0
+            """, nativeQuery = true)
+    int updateReviewRatingStatistics(
+            @Param("restaurantId") Long restaurantId,
+            @Param("oldRating") int oldRating,
+            @Param("newRating") int newRating
+    );
 }
