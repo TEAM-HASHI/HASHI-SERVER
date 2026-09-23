@@ -39,58 +39,6 @@ public record AdminRestaurantCommand(
         List<String> curationTypes,
         List<BusinessHourCommand> businessHours) {
 
-    /** 음식점 분류 도입(#211) 이전 canonical 인자 순서를 유지한다. */
-    public AdminRestaurantCommand(
-            String name,
-            String localName,
-            String summary,
-            String description,
-            String address,
-            String area,
-            String genre,
-            String foodCategory,
-            String priceCurrency,
-            BigDecimal minPrice,
-            BigDecimal maxPrice,
-            List<String> imageKeys,
-            List<UUID> imageAssetIds,
-            List<ImageCommand> images,
-            List<MenuCommand> menus,
-            List<String> hashtags,
-            List<String> curationTypes,
-            List<BusinessHourCommand> businessHours
-    ) {
-        this(
-                name, localName, summary, description, address, area, genre, foodCategory, null,
-                priceCurrency, minPrice, maxPrice, imageKeys, imageAssetIds, images, menus, hashtags,
-                curationTypes, businessHours);
-    }
-
-    /** legacy 진입점과 개발 데이터 호출을 신규 필드 활성화 전까지 호환한다. */
-    public AdminRestaurantCommand(
-            String name,
-            String localName,
-            String summary,
-            String description,
-            String address,
-            String area,
-            String genre,
-            String foodCategory,
-            String priceCurrency,
-            BigDecimal minPrice,
-            BigDecimal maxPrice,
-            List<String> imageKeys,
-            List<MenuCommand> menus,
-            List<String> hashtags,
-            List<String> curationTypes,
-            List<BusinessHourCommand> businessHours
-    ) {
-        this(
-                name, localName, summary, description, address, area, genre, foodCategory, null,
-                priceCurrency, minPrice, maxPrice, imageKeys, null, null, menus, hashtags,
-                curationTypes, businessHours);
-    }
-
     /** 수정 collection의 유지 association 또는 신규 asset. 배열 위치가 최종 순서다. */
     public record ImageCommand(Long restaurantImageId, UUID imageAssetId) {
     }
