@@ -375,6 +375,7 @@ public class RestaurantService {
         validateNonBlankIfPresent(command.localName());
         // 자유 텍스트 전환(#145) 후에도 값 비우기 불가 정책 유지 — enum 시절엔 빈 값이 변환 단계에서 거부됐다
         validateNonBlankIfPresent(command.foodCategory());
+        validateNonBlankIfPresent(command.placeType());
         validateNonEmptyIfPresent(command.imageKeys());
         validateNonEmptyIfPresent(command.images());
         validateNonEmptyIfPresent(command.hashtags());
@@ -764,7 +765,7 @@ public class RestaurantService {
                 || command.summary() == null || command.description() == null
                 || command.area() == null || command.genre() == null
                 || command.foodCategory() == null || command.foodCategory().isBlank()
-                || command.placeType() == null
+                || command.placeType() == null || command.placeType().isBlank()
                 || command.priceCurrency() == null || command.minPrice() == null || command.maxPrice() == null
                 || command.images() != null
                 || !hasExactlyOneCreateImageSource(command.imageKeys(), command.imageAssetIds())

@@ -37,34 +37,6 @@ public record AdminRestaurantInfo(
         List<AdminRestaurantBusinessHourInfo> businessHours,
         LocalDateTime createdAt) {
 
-    public AdminRestaurantInfo(
-            Long restaurantId,
-            String name,
-            String localName,
-            String summary,
-            String description,
-            String address,
-            String area,
-            String genre,
-            String foodCategory,
-            String thumbnailUrl,
-            String priceCurrency,
-            BigDecimal minPrice,
-            BigDecimal maxPrice,
-            boolean deleted,
-            List<String> imageUrls,
-            List<AdminRestaurantMenuInfo> menus,
-            List<String> hashtags,
-            List<String> curationTypes,
-            List<AdminRestaurantBusinessHourInfo> businessHours,
-            LocalDateTime createdAt
-    ) {
-        this(
-                restaurantId, name, localName, summary, description, address, area, genre,
-                foodCategory, null, thumbnailUrl, null, priceCurrency, minPrice, maxPrice, deleted,
-                imageUrls, List.of(), menus, hashtags, curationTypes, businessHours, createdAt);
-    }
-
     public record AdminRestaurantMenuInfo(
             Long menuId,
             String name,
