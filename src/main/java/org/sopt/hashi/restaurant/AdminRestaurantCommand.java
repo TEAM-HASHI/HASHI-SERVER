@@ -11,7 +11,7 @@ import java.util.UUID;
  * 등록 시 필수 값 검증은 admin 요청 DTO(Bean Validation)가 담당하고, 수정(PATCH) 시 null 필드는
  * 변경하지 않는다. genre·curationTypes는 사용자 API와 같은 소문자 케밥 값("sushi", "sns-hot")으로 받아
  * restaurant가 해석한다(지원하지 않는 값이면 RESTAURANT-001/005). placeType(음식점 분류, #211)은
- * "restaurant"·"cafe"·"bar"로 받으며(지원하지 않는 값이면 RESTAURANT-010), 등록에서 null이면 음식점으로 둔다.
+ * "restaurant"·"cafe"·"bar"로 받으며 등록 시 필수다(지원하지 않는 값이면 RESTAURANT-010).
  * 컬렉션은 전체 교체 의미다. 수정에서 null이면 유지하며, imageKeys·hashtags는 최소 1개를 유지해야 한다.
  * businessHours는 제공 시 7개 요일을 중복 없이 모두 포함해야 한다(위반 시 RESTAURANT-006).
  * 이미지 키는 업로드 완료된 S3 object key다. 신규 media 식당 이미지는 등록에서

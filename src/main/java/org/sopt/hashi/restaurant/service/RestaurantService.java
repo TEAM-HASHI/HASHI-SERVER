@@ -340,10 +340,6 @@ public class RestaurantService {
                 .map(assetId -> new MediaAssetUse(assetId, MediaAssetPurpose.RESTAURANT_MENU))
                 .forEach(claims::add);
 
-        // 어드민 입력 폼에 음식점 분류가 반영되기 전까지 미전송 등록은 음식점으로 둔다(#211)
-        RestaurantPlaceType placeType = command.placeType() == null
-                ? RestaurantPlaceType.RESTAURANT
-                : toPlaceType(command.placeType());
         Restaurant restaurant = Restaurant.create(
                 command.name(),
                 command.localName(),
@@ -353,7 +349,7 @@ public class RestaurantService {
                 command.area(),
                 toGenre(command.genre()),
                 command.foodCategory(),
-                placeType,
+                toPlaceType(command.placeType()),
                 toPriceCurrency(command.priceCurrency()),
                 command.minPrice(),
                 command.maxPrice());
@@ -768,6 +764,7 @@ public class RestaurantService {
                 || command.summary() == null || command.description() == null
                 || command.area() == null || command.genre() == null
                 || command.foodCategory() == null || command.foodCategory().isBlank()
+                || command.placeType() == null
                 || command.priceCurrency() == null || command.minPrice() == null || command.maxPrice() == null
                 || command.images() != null
                 || !hasExactlyOneCreateImageSource(command.imageKeys(), command.imageAssetIds())
