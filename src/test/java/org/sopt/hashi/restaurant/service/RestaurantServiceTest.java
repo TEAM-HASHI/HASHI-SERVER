@@ -8,6 +8,7 @@ import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 
@@ -41,6 +42,7 @@ import org.sopt.hashi.media.MediaImageStatus;
 import org.sopt.hashi.media.MediaPort;
 import org.sopt.hashi.media.code.MediaErrorCode;
 import org.sopt.hashi.restaurant.AdminRestaurantCommand;
+import org.sopt.hashi.restaurant.AdminRestaurantInfo;
 import org.sopt.hashi.restaurant.AdminRestaurantCommand.ImageCommand;
 import org.sopt.hashi.restaurant.AdminRestaurantCommand.MenuCommand;
 import org.sopt.hashi.restaurant.code.RestaurantErrorCode;
@@ -258,6 +260,71 @@ class RestaurantServiceTest {
                 .isInstanceOfSatisfying(BusinessException.class, exception ->
                         assertThat(exception.getErrorCode()).isEqualTo(CommonErrorCode.INVALID_INPUT));
         verifyNoInteractions(restaurantRepository, mediaPort);
+    }
+
+    @Test
+    void 어드민_식당_등록은_카페와_주점_분류를_저장하고_응답에_내려준다() {
+        RestaurantService restaurantService = createRestaurantService();
+        given(restaurantRepository.save(any(Restaurant.class)))
+                .willAnswer(invocation -> invocation.getArgument(0));
+
+        assertThat(restaurantService.createByAdmin(createAdminCommand("cafe")).placeType())
+                .isEqualTo("cafe");
+        assertThat(restaurantService.createByAdmin(createAdminCommand("bar")).placeType())
+                .isEqualTo("bar");
+
+        ArgumentCaptor<Restaurant> restaurantCaptor = ArgumentCaptor.forClass(Restaurant.class);
+        verify(restaurantRepository, times(2)).save(restaurantCaptor.capture());
+        assertThat(restaurantCaptor.getAllValues())
+                .extracting(Restaurant::getPlaceType)
+                .containsExactly(RestaurantPlaceType.CAFE, RestaurantPlaceType.BAR);
+    }
+
+    @Test
+    void 어드민_식당_등록은_지원하지_않는_음식점_분류를_거부한다() {
+        RestaurantService restaurantService = createRestaurantService();
+
+        assertThatThrownBy(() -> restaurantService.createByAdmin(createAdminCommand("pub")))
+                .isInstanceOfSatisfying(BusinessException.class, exception ->
+                        assertThat(exception.getErrorCode())
+                                .isEqualTo(RestaurantErrorCode.UNSUPPORTED_PLACE_TYPE));
+        verifyNoInteractions(restaurantRepository);
+    }
+
+    @Test
+    void 어드민_식당_수정에서_음식점_분류를_보내지_않으면_기존_값을_유지한다() {
+        RestaurantService restaurantService = createRestaurantService();
+        Restaurant restaurant = createRestaurant(1L, 4.8, 100L);
+        given(restaurantRepository.findByIdForUpdate(1L)).willReturn(Optional.of(restaurant));
+
+        AdminRestaurantInfo response = restaurantService.updateByAdmin(1L, updatePlaceTypeCommand(null));
+
+        assertThat(restaurant.getPlaceType()).isEqualTo(RestaurantPlaceType.RESTAURANT);
+        assertThat(response.placeType()).isEqualTo("restaurant");
+    }
+
+    @Test
+    void 어드민_식당_수정은_음식점_분류를_변경한다() {
+        RestaurantService restaurantService = createRestaurantService();
+        Restaurant restaurant = createRestaurant(1L, 4.8, 100L);
+        given(restaurantRepository.findByIdForUpdate(1L)).willReturn(Optional.of(restaurant));
+
+        AdminRestaurantInfo response = restaurantService.updateByAdmin(1L, updatePlaceTypeCommand("bar"));
+
+        assertThat(restaurant.getPlaceType()).isEqualTo(RestaurantPlaceType.BAR);
+        assertThat(response.placeType()).isEqualTo("bar");
+    }
+
+    @Test
+    void 어드민_식당_수정은_지원하지_않는_음식점_분류를_거부한다() {
+        RestaurantService restaurantService = createRestaurantService();
+        given(restaurantRepository.findByIdForUpdate(1L))
+                .willReturn(Optional.of(createRestaurant(1L, 4.8, 100L)));
+
+        assertThatThrownBy(() -> restaurantService.updateByAdmin(1L, updatePlaceTypeCommand("pub")))
+                .isInstanceOfSatisfying(BusinessException.class, exception ->
+                        assertThat(exception.getErrorCode())
+                                .isEqualTo(RestaurantErrorCode.UNSUPPORTED_PLACE_TYPE));
     }
 
     @Test
@@ -1458,6 +1525,32 @@ class RestaurantServiceTest {
             List<String> imageKeys,
             List<String> hashtags
     ) {
+        return createAdminCommand("restaurant", imageKeys, hashtags);
+    }
+
+    /** 등록 검증(RESTAURANT-006)을 통과하는 완전한 등록 커맨드 — 음식점 분류만 바꿔 쓴다. */
+    private AdminRestaurantCommand createAdminCommand(String placeType) {
+        return createAdminCommand(placeType, List.of("restaurants/1/thumbnail.jpg"), List.of("스시"),
+                java.util.Arrays.stream(DayOfWeek.values())
+                        .map(day -> new AdminRestaurantCommand.BusinessHourCommand(
+                                day, null, null, null, null, true))
+                        .toList());
+    }
+
+    private AdminRestaurantCommand createAdminCommand(
+            String placeType,
+            List<String> imageKeys,
+            List<String> hashtags
+    ) {
+        return createAdminCommand(placeType, imageKeys, hashtags, null);
+    }
+
+    private AdminRestaurantCommand createAdminCommand(
+            String placeType,
+            List<String> imageKeys,
+            List<String> hashtags,
+            List<AdminRestaurantCommand.BusinessHourCommand> businessHours
+    ) {
         return new AdminRestaurantCommand(
                 "히마와리 스시",
                 "Himawari Sushi",
@@ -1467,7 +1560,7 @@ class RestaurantServiceTest {
                 "도쿄",
                 "sushi",
                 "sushi",
-                "restaurant",
+                placeType,
                 "JPY",
                 BigDecimal.valueOf(1000),
                 BigDecimal.valueOf(3000),
@@ -1477,7 +1570,15 @@ class RestaurantServiceTest {
                 List.of(),
                 hashtags,
                 List.of(),
-                null
+                businessHours
+        );
+    }
+
+    /** 음식점 분류만 담은 PATCH 커맨드 — null이면 기존 값을 유지해야 한다. */
+    private AdminRestaurantCommand updatePlaceTypeCommand(String placeType) {
+        return new AdminRestaurantCommand(
+                null, null, null, null, null, null, null, null, placeType, null, null, null,
+                null, null, null, null, null, null, null
         );
     }
 
