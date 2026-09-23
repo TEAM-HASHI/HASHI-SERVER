@@ -910,7 +910,9 @@ target, currentJobId, 미완료 EPR, request와 result queue, DLQ가 모두 0인
 - 원본 비율을 유지하는 `inside` 처리와 quality 90
 - nominal 3:4 후보 폭 432, 864, 1296 (기본 864)
 - 실제 출력 높이는 원본 비율에 따라 계산하며 이미지를 자르거나 확대하지 않는다.
-- 표준 후보보다 작은 원본은 원본보다 크게 만들지 않는 단일 결과로 처리한다.
+- 각 3:4 후보 박스에 원본 전체가 들어가도록 축소하며, 후보 박스가 원본보다 커도 확대하지 않는다.
+  서로 다른 박스가 같은 출력 크기로 수렴하면 중복 파일을 만들지 않는다.
+- 기본 이미지는 nominal 864 후보 박스의 실제 출력 크기를 기준으로 고른다.
 - v1 manifest와 기존 v1 rendition은 수정하지 않는다.
 
 v2는 worker와 Spring이 함께 지원된 뒤 `media_pipeline_config`의 current version과 digest를

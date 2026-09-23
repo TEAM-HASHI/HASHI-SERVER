@@ -67,8 +67,32 @@ test("카드뉴스는 원본 비율을 유지하고 3:4 후보 안에서 자르�
     [
       { width: 432, height: 288 },
       { width: 864, height: 576 },
+      { width: 1200, height: 800 },
     ],
   );
+});
+
+test("card-news inside candidates use both source dimensions and deduplicate outputs", async () => {
+  const role = cardNewsSpec.manifest.roles.MAGAZINE_CARD_NEWS!;
+  assert.deepEqual(selectRenditionDimensions(800, 1200, role), role.candidates);
+  assert.deepEqual(selectRenditionDimensions(300, 1000, role), role.candidates.slice(0, 2));
+
+  for (const [width, height, expected] of [
+    [800, 1200, [{ width: 384, height: 576 }, { width: 768, height: 1152 }, { width: 800, height: 1200 }]],
+    [300, 1000, [{ width: 173, height: 576 }, { width: 300, height: 1000 }]],
+  ] as const) {
+    const source = await sharp({
+      create: { width, height, channels: 3, background: "#557799" },
+    }).png().toBuffer();
+    const result = await processImage({
+      bytes: source,
+      declaredByteSize: source.length,
+      declaredContentType: "image/png",
+      purpose: "MAGAZINE_CARD_NEWS",
+      spec: cardNewsSpec,
+    });
+    assert.deepEqual(result.renditions.map(({ width, height }) => ({ width, height })), expected);
+  }
 });
 
 test("creates all standard card candidates in ascending order", async () => {

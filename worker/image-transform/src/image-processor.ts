@@ -268,12 +268,20 @@ export function selectRenditionDimensions(
 ): readonly RenditionDimensions[] {
   const standard = role.candidates
     .filter((candidate) => role.fit === "inside"
-      ? candidate.width <= sourceWidth
-      : candidate.width <= sourceWidth && candidate.height <= sourceHeight)
+      || candidate.width <= sourceWidth && candidate.height <= sourceHeight)
     .toSorted((left, right) => left.width - right.width);
 
   if (standard.length > 0) {
-    return Object.freeze(standard);
+    const unique = new Set<string>();
+    return Object.freeze(standard.filter((candidate) => {
+      const output = expectedOutputDimensions(sourceWidth, sourceHeight, role, candidate);
+      const key = `${output.width}x${output.height}`;
+      if (unique.has(key)) {
+        return false;
+      }
+      unique.add(key);
+      return true;
+    }));
   }
 
   if (role.noUpscaleFallback.selection === "source-width") {

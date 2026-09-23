@@ -55,9 +55,9 @@ public record MediaRoleSpec(
         }
         List<MediaRenditionDimensions> standard = candidates.stream()
                 .filter(candidate -> "inside".equals(fit)
-                        ? candidate.width() <= sourceWidth
-                        : candidate.width() <= sourceWidth && candidate.height() <= sourceHeight)
+                        || candidate.width() <= sourceWidth && candidate.height() <= sourceHeight)
                 .map(candidate -> outputDimensions(sourceWidth, sourceHeight, candidate))
+                .distinct()
                 .toList();
         if (!standard.isEmpty()) {
             return standard;
@@ -74,6 +74,14 @@ public record MediaRoleSpec(
             }
         }
         throw new IllegalArgumentException("source is too small for the required rendition");
+    }
+
+    public MediaRenditionDimensions defaultOutputDimensions(int sourceWidth, int sourceHeight) {
+        MediaRenditionDimensions defaultCandidate = candidates.stream()
+                .filter(candidate -> candidate.width() == defaultWidth)
+                .findFirst()
+                .orElseThrow();
+        return outputDimensions(sourceWidth, sourceHeight, defaultCandidate);
     }
 
     private MediaRenditionDimensions outputDimensions(

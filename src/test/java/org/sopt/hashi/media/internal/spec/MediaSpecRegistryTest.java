@@ -80,6 +80,17 @@ class MediaSpecRegistryTest {
                 );
         assertThat(spec.expectedRenditions(MediaPurpose.MAGAZINE_CARD_NEWS, 100, 100))
                 .containsExactly(expected(ImageRole.MAGAZINE_CARD_NEWS, 100, 100));
+        assertThat(spec.expectedRenditions(MediaPurpose.MAGAZINE_CARD_NEWS, 800, 1200))
+                .containsExactly(
+                        expected(ImageRole.MAGAZINE_CARD_NEWS, 384, 576),
+                        expected(ImageRole.MAGAZINE_CARD_NEWS, 768, 1152),
+                        expected(ImageRole.MAGAZINE_CARD_NEWS, 800, 1200)
+                );
+        assertThat(spec.expectedRenditions(MediaPurpose.MAGAZINE_CARD_NEWS, 300, 1000))
+                .containsExactly(
+                        expected(ImageRole.MAGAZINE_CARD_NEWS, 173, 576),
+                        expected(ImageRole.MAGAZINE_CARD_NEWS, 300, 1000)
+                );
     }
 
     @Test
