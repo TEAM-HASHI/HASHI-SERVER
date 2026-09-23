@@ -80,57 +80,6 @@ public record CreateRestaurantRequest(
         @Size(min = 7, max = 7, message = "영업시간은 모든 요일(7개)을 포함해야 합니다")
         List<@NotNull(message = "영업시간 항목은 null일 수 없습니다") @Valid BusinessHourRequest> businessHours) {
 
-    /** legacy 생성 호출부와 테스트를 신규 필드 활성화 전까지 호환한다. */
-    public CreateRestaurantRequest(
-            String name,
-            String localName,
-            String summary,
-            String description,
-            String address,
-            String area,
-            String genre,
-            String foodCategory,
-            String priceCurrency,
-            BigDecimal minPrice,
-            BigDecimal maxPrice,
-            List<String> imageKeys,
-            List<MenuRequest> menus,
-            List<String> hashtags,
-            List<String> curationTypes,
-            List<BusinessHourRequest> businessHours
-    ) {
-        this(
-                name, localName, summary, description, address, area, genre, foodCategory, null,
-                priceCurrency, minPrice, maxPrice, imageKeys, null, null, menus, hashtags,
-                curationTypes, businessHours);
-    }
-
-    /** 신규 asset 생성 호출부가 사용하던 canonical 인자 순서를 유지한다. */
-    public CreateRestaurantRequest(
-            String name,
-            String localName,
-            String summary,
-            String description,
-            String address,
-            String area,
-            String genre,
-            String foodCategory,
-            String priceCurrency,
-            BigDecimal minPrice,
-            BigDecimal maxPrice,
-            List<String> imageKeys,
-            List<UUID> imageAssetIds,
-            List<MenuRequest> menus,
-            List<String> hashtags,
-            List<String> curationTypes,
-            List<BusinessHourRequest> businessHours
-    ) {
-        this(
-                name, localName, summary, description, address, area, genre, foodCategory, null,
-                priceCurrency, minPrice, maxPrice, imageKeys, imageAssetIds, null, menus,
-                hashtags, curationTypes, businessHours);
-    }
-
     @AssertTrue(message = "식당 이미지는 imageKeys 또는 imageAssetIds 중 하나만 필요합니다")
     @JsonIgnore
     public boolean isImageSourceValid() {

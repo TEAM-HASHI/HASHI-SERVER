@@ -42,8 +42,8 @@ public record UpdateRestaurantRequest(
         @Schema(description = "음식 카테고리(카드 표시용 자유 텍스트, 선택, 공백 불가)", example = "야키니쿠")
         @Pattern(regexp = ".*\\S.*", message = "음식 카테고리는 공백일 수 없습니다")
         @Size(max = 20, message = "음식 카테고리는 20자 이내입니다") String foodCategory,
-        @Schema(description = "음식점 분류(restaurant·cafe·bar, 선택)", example = "cafe")
-        String placeType,
+        @Schema(description = "음식점 분류(restaurant·cafe·bar, 선택, 공백 불가)", example = "cafe")
+        @Pattern(regexp = ".*\\S.*", message = "음식점 분류는 공백일 수 없습니다") String placeType,
         @Schema(description = "통화 코드(선택)", example = "JPY")
         @Size(min = 3, max = 3, message = "통화는 3자리 코드여야 합니다") String priceCurrency,
         @Schema(description = "1인 최소 가격(선택)", example = "3000")
@@ -70,57 +70,6 @@ public record UpdateRestaurantRequest(
         List<@NotBlank(message = "큐레이션 유형은 비어 있을 수 없습니다") String> curationTypes,
         @Size(min = 7, max = 7, message = "영업시간은 모든 요일(7개)을 포함해야 합니다")
         List<@NotNull(message = "영업시간 항목은 null일 수 없습니다") @Valid BusinessHourRequest> businessHours) {
-
-    /** legacy 수정 호출부와 테스트를 신규 필드 활성화 전까지 호환한다. */
-    public UpdateRestaurantRequest(
-            String name,
-            String localName,
-            String summary,
-            String description,
-            String address,
-            String area,
-            String genre,
-            String foodCategory,
-            String priceCurrency,
-            BigDecimal minPrice,
-            BigDecimal maxPrice,
-            List<String> imageKeys,
-            List<MenuRequest> menus,
-            List<String> hashtags,
-            List<String> curationTypes,
-            List<BusinessHourRequest> businessHours
-    ) {
-        this(
-                name, localName, summary, description, address, area, genre, foodCategory, null,
-                priceCurrency, minPrice, maxPrice, imageKeys, null, null, menus, hashtags,
-                curationTypes, businessHours);
-    }
-
-    /** ordered wrapper 호출부가 사용하던 canonical 인자 순서를 유지한다. */
-    public UpdateRestaurantRequest(
-            String name,
-            String localName,
-            String summary,
-            String description,
-            String address,
-            String area,
-            String genre,
-            String foodCategory,
-            String priceCurrency,
-            BigDecimal minPrice,
-            BigDecimal maxPrice,
-            List<String> imageKeys,
-            List<ImageRequest> images,
-            List<MenuRequest> menus,
-            List<String> hashtags,
-            List<String> curationTypes,
-            List<BusinessHourRequest> businessHours
-    ) {
-        this(
-                name, localName, summary, description, address, area, genre, foodCategory, null,
-                priceCurrency, minPrice, maxPrice, imageKeys, images, null, menus, hashtags,
-                curationTypes, businessHours);
-    }
 
     @AssertTrue(message = "imageKeys와 images는 함께 사용할 수 없습니다")
     @JsonIgnore
