@@ -145,6 +145,21 @@ class MediaAssetServiceTest {
     }
 
     @Test
+    void v1에서_지원하지_않는_카드뉴스는_업로드_URL_발급_전에_거부한다() {
+        given(currentActorProvider.currentActor()).willReturn(ADMIN);
+        willThrow(new BusinessException(MediaErrorCode.PIPELINE_UNAVAILABLE))
+                .given(transactionService).assertIssuanceAvailable(MediaPurpose.MAGAZINE_CARD_NEWS);
+
+        assertThatThrownBy(() -> service.createAssets(new CreateMediaAssetsRequest(
+                MediaPurpose.MAGAZINE_CARD_NEWS,
+                List.of(new CreateMediaAssetsRequest.FileRequest("image/png", 1024L)))))
+                .isInstanceOf(BusinessException.class)
+                .hasFieldOrPropertyWithValue("errorCode", MediaErrorCode.PIPELINE_UNAVAILABLE);
+        verifyNoInteractions(originalStorage);
+        verify(transactionService, never()).createAssets(eq(ADMIN), eq(MediaPurpose.MAGAZINE_CARD_NEWS), anyList());
+    }
+
+    @Test
     void 카드뉴스도_10MiB를_넘으면_거부한다() {
         given(currentActorProvider.currentActor()).willReturn(ADMIN);
         assertThatThrownBy(() -> service.createAssets(new CreateMediaAssetsRequest(
