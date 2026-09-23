@@ -48,6 +48,7 @@ public class AdminRestaurantController {
               "area": "이케부쿠로",
               "genre": "grill",
               "foodCategory": "야키니쿠",
+              "placeType": "restaurant",
               "priceCurrency": "JPY",
               "minPrice": 3000,
               "maxPrice": 8000,

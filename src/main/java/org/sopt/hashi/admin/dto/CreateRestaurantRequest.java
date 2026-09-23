@@ -20,6 +20,7 @@ import java.util.UUID;
 /**
  * 어드민 식당 등록 요청. imageKeys·메뉴 imageKey는 presigned URL로 업로드 완료된 S3 object key다.
  * genre·curationTypes는 사용자 API와 같은 소문자 케밥 값이고, foodCategory는 카드 표시용 자유 텍스트다(#145).
+ * placeType(음식점 분류, #211)은 "restaurant"·"cafe"·"bar"이며 미전송 시 restaurant로 등록한다.
  * businessHours는 7개 요일(MONDAY~SUNDAY)을 중복 없이 모두 포함해야 한다(시간은 "HH:mm").
  */
 public record CreateRestaurantRequest(
@@ -46,6 +47,8 @@ public record CreateRestaurantRequest(
         @Schema(description = "음식 카테고리(카드 표시용 자유 텍스트)", example = "야키니쿠")
         @NotBlank(message = "음식 카테고리는 필수입니다")
         @Size(max = 20, message = "음식 카테고리는 20자 이내입니다") String foodCategory,
+        @Schema(description = "음식점 분류(restaurant·cafe·bar, 선택 — 미전송 시 restaurant)", example = "restaurant")
+        String placeType,
         @Schema(description = "통화 코드", example = "JPY")
         @NotBlank(message = "통화는 필수입니다")
         @Size(min = 3, max = 3, message = "통화는 3자리 코드여야 합니다") String priceCurrency,
@@ -97,8 +100,8 @@ public record CreateRestaurantRequest(
             List<BusinessHourRequest> businessHours
     ) {
         this(
-                name, localName, summary, description, address, area, genre, foodCategory,
-                priceCurrency, minPrice, maxPrice, imageKeys, null, menus, hashtags,
+                name, localName, summary, description, address, area, genre, foodCategory, null,
+                priceCurrency, minPrice, maxPrice, imageKeys, null, null, menus, hashtags,
                 curationTypes, businessHours);
     }
 
@@ -123,7 +126,7 @@ public record CreateRestaurantRequest(
             List<BusinessHourRequest> businessHours
     ) {
         this(
-                name, localName, summary, description, address, area, genre, foodCategory,
+                name, localName, summary, description, address, area, genre, foodCategory, null,
                 priceCurrency, minPrice, maxPrice, imageKeys, imageAssetIds, null, menus,
                 hashtags, curationTypes, businessHours);
     }

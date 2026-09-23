@@ -42,6 +42,8 @@ public record UpdateRestaurantRequest(
         @Schema(description = "음식 카테고리(카드 표시용 자유 텍스트, 선택, 공백 불가)", example = "야키니쿠")
         @Pattern(regexp = ".*\\S.*", message = "음식 카테고리는 공백일 수 없습니다")
         @Size(max = 20, message = "음식 카테고리는 20자 이내입니다") String foodCategory,
+        @Schema(description = "음식점 분류(restaurant·cafe·bar, 선택)", example = "cafe")
+        String placeType,
         @Schema(description = "통화 코드(선택)", example = "JPY")
         @Size(min = 3, max = 3, message = "통화는 3자리 코드여야 합니다") String priceCurrency,
         @Schema(description = "1인 최소 가격(선택)", example = "3000")
@@ -89,7 +91,7 @@ public record UpdateRestaurantRequest(
             List<BusinessHourRequest> businessHours
     ) {
         this(
-                name, localName, summary, description, address, area, genre, foodCategory,
+                name, localName, summary, description, address, area, genre, foodCategory, null,
                 priceCurrency, minPrice, maxPrice, imageKeys, null, null, menus, hashtags,
                 curationTypes, businessHours);
     }
@@ -115,7 +117,7 @@ public record UpdateRestaurantRequest(
             List<BusinessHourRequest> businessHours
     ) {
         this(
-                name, localName, summary, description, address, area, genre, foodCategory,
+                name, localName, summary, description, address, area, genre, foodCategory, null,
                 priceCurrency, minPrice, maxPrice, imageKeys, images, null, menus, hashtags,
                 curationTypes, businessHours);
     }
