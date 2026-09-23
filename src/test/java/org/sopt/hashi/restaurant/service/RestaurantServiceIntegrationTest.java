@@ -19,6 +19,7 @@ import org.sopt.hashi.restaurant.RestaurantPort;
 import org.sopt.hashi.restaurant.domain.PriceCurrency;
 import org.sopt.hashi.restaurant.domain.Restaurant;
 import org.sopt.hashi.restaurant.domain.RestaurantGenre;
+import org.sopt.hashi.restaurant.domain.RestaurantPlaceType;
 import org.sopt.hashi.restaurant.domain.RestaurantImage;
 import org.sopt.hashi.restaurant.domain.RestaurantMenu;
 import org.sopt.hashi.restaurant.domain.RestaurantRepository;
@@ -201,6 +202,9 @@ class RestaurantServiceIntegrationTest {
                 null,
                 null,
                 null,
+                null,
+                null,
+                null,
                 menus,
                 null,
                 null,
@@ -210,7 +214,7 @@ class RestaurantServiceIntegrationTest {
 
     private AdminRestaurantCommand updateImagesCommand(List<ImageCommand> images) {
         return new AdminRestaurantCommand(
-                null, null, null, null, null, null, null, null, null, null, null,
+                null, null, null, null, null, null, null, null, null, null, null, null,
                 null, null, images, null, null, null, null
         );
     }
@@ -229,6 +233,7 @@ class RestaurantServiceIntegrationTest {
                 "도쿄",
                 RestaurantGenre.SUSHI,
                 foodCategory,
+                RestaurantPlaceType.RESTAURANT,
                 PriceCurrency.JPY,
                 BigDecimal.valueOf(1_000),
                 BigDecimal.valueOf(3_000)

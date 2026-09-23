@@ -187,6 +187,7 @@ class RestaurantMediaSchemaValidationTest {
                 "도쿄",
                 RestaurantGenre.SUSHI,
                 "초밥",
+                RestaurantPlaceType.RESTAURANT,
                 PriceCurrency.JPY,
                 BigDecimal.valueOf(1_000),
                 BigDecimal.valueOf(3_000)
@@ -195,7 +196,7 @@ class RestaurantMediaSchemaValidationTest {
 
     private AdminRestaurantCommand updateImagesCommand(List<ImageCommand> images) {
         return new AdminRestaurantCommand(
-                null, null, null, null, null, null, null, null, null, null, null,
+                null, null, null, null, null, null, null, null, null, null, null, null,
                 null, null, images, null, null, null, null
         );
     }

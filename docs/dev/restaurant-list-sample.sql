@@ -10,17 +10,17 @@ DELETE FROM restaurant WHERE id BETWEEN 1001 AND 1002;
 
 INSERT INTO restaurant (
     id, created_at, updated_at, name, local_name, summary, description, address, area,
-    genre, food_category, price_currency, price_min, price_max,
-    rating_sum, review_count, rating, active
+    genre, food_category, place_type, price_currency, price_min, price_max,
+    rating_sum, review_count, rating, deleted
 ) VALUES
     (1001, NOW(6), NOW(6), '히마와리 스시 신도심점', 'Himawari Sushi',
      '현지에서 사랑받는 스시 전문점', '신선한 제철 생선을 사용하는 스시 전문점입니다.',
-     'Tokyo Shintoshin 1-1', '도쿄', 'SUSHI', 'SUSHI', 'JPY', 1500.00, 5000.00,
-     0, 0, 0.0, TRUE),
+     'Tokyo Shintoshin 1-1', '도쿄', 'SUSHI', 'SUSHI', 'RESTAURANT', 'JPY', 1500.00, 5000.00,
+     0, 0, 0.0, FALSE),
     (1002, NOW(6), NOW(6), '아키토라 라멘', 'Akitora Ramen',
      '진한 육수가 특징인 라멘집', '매일 직접 끓인 육수와 생면을 제공합니다.',
-     'Tokyo Shibuya 2-3', '도쿄', 'NOODLE', 'NOODLE', 'JPY', 1000.00, 2500.00,
-     0, 0, 0.0, TRUE);
+     'Tokyo Shibuya 2-3', '도쿄', 'NOODLE', 'NOODLE', 'RESTAURANT', 'JPY', 1000.00, 2500.00,
+     0, 0, 0.0, FALSE);
 
 INSERT INTO restaurant_image (
     restaurant_id, created_at, updated_at, file_key, display_order

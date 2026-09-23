@@ -20,6 +20,7 @@ import org.sopt.hashi.media.MediaBackfillPort;
 import org.sopt.hashi.restaurant.domain.PriceCurrency;
 import org.sopt.hashi.restaurant.domain.Restaurant;
 import org.sopt.hashi.restaurant.domain.RestaurantGenre;
+import org.sopt.hashi.restaurant.domain.RestaurantPlaceType;
 import org.sopt.hashi.restaurant.domain.RestaurantImage;
 import org.sopt.hashi.restaurant.domain.RestaurantRepository;
 import org.sopt.hashi.restaurant.migration.RestaurantMediaBackfillCheckpointStore.Lease;
@@ -107,6 +108,7 @@ class RestaurantMediaBackfillAttachmentServiceTest {
         return Restaurant.create(
                 "backfill 식당", "backfill restaurant", "소개", "상세 설명",
                 "도쿄도", "도쿄", RestaurantGenre.SUSHI, "초밥",
+                RestaurantPlaceType.RESTAURANT,
                 PriceCurrency.JPY, BigDecimal.valueOf(1_000), BigDecimal.valueOf(2_000));
     }
 }

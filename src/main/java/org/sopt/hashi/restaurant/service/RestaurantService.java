@@ -43,6 +43,7 @@ import org.sopt.hashi.restaurant.domain.RestaurantCurationType;
 import org.sopt.hashi.restaurant.domain.RestaurantBusinessHour;
 import org.sopt.hashi.restaurant.domain.RestaurantCursor;
 import org.sopt.hashi.restaurant.domain.RestaurantGenre;
+import org.sopt.hashi.restaurant.domain.RestaurantPlaceType;
 import org.sopt.hashi.restaurant.domain.RestaurantImage;
 import org.sopt.hashi.restaurant.domain.RestaurantListType;
 import org.sopt.hashi.restaurant.domain.RestaurantMenu;
@@ -348,6 +349,7 @@ public class RestaurantService {
                 command.area(),
                 toGenre(command.genre()),
                 command.foodCategory(),
+                toPlaceType(command.placeType()),
                 toPriceCurrency(command.priceCurrency()),
                 command.minPrice(),
                 command.maxPrice());
@@ -373,6 +375,7 @@ public class RestaurantService {
         validateNonBlankIfPresent(command.localName());
         // 자유 텍스트 전환(#145) 후에도 값 비우기 불가 정책 유지 — enum 시절엔 빈 값이 변환 단계에서 거부됐다
         validateNonBlankIfPresent(command.foodCategory());
+        validateNonBlankIfPresent(command.placeType());
         validateNonEmptyIfPresent(command.imageKeys());
         validateNonEmptyIfPresent(command.images());
         validateNonEmptyIfPresent(command.hashtags());
@@ -380,6 +383,7 @@ public class RestaurantService {
         Restaurant restaurant = findRestaurantForAdminUpdate(restaurantId);
 
         RestaurantGenre genre = command.genre() == null ? null : toGenre(command.genre());
+        RestaurantPlaceType placeType = command.placeType() == null ? null : toPlaceType(command.placeType());
         PriceCurrency priceCurrency = command.priceCurrency() == null
                 ? null
                 : toPriceCurrency(command.priceCurrency());
@@ -414,6 +418,7 @@ public class RestaurantService {
                 command.area(),
                 genre,
                 command.foodCategory(),
+                placeType,
                 priceCurrency,
                 command.minPrice(),
                 command.maxPrice());
@@ -760,6 +765,7 @@ public class RestaurantService {
                 || command.summary() == null || command.description() == null
                 || command.area() == null || command.genre() == null
                 || command.foodCategory() == null || command.foodCategory().isBlank()
+                || command.placeType() == null || command.placeType().isBlank()
                 || command.priceCurrency() == null || command.minPrice() == null || command.maxPrice() == null
                 || command.images() != null
                 || !hasExactlyOneCreateImageSource(command.imageKeys(), command.imageAssetIds())
@@ -832,6 +838,11 @@ public class RestaurantService {
     private RestaurantGenre toGenre(String value) {
         return RestaurantGenre.from(value)
                 .orElseThrow(() -> new BusinessException(RestaurantErrorCode.UNSUPPORTED_GENRE));
+    }
+
+    private RestaurantPlaceType toPlaceType(String value) {
+        return RestaurantPlaceType.from(value)
+                .orElseThrow(() -> new BusinessException(RestaurantErrorCode.UNSUPPORTED_PLACE_TYPE));
     }
 
     private PriceCurrency toPriceCurrency(String value) {
@@ -1239,6 +1250,7 @@ public class RestaurantService {
                 restaurant.getArea(),
                 restaurant.getGenre().value(),
                 restaurant.getFoodCategory(),
+                restaurant.getPlaceType().value(),
                 thumbnail.url(),
                 toImageInfo(orderedImages.isEmpty() ? null : orderedImages.getFirst(), thumbnail),
                 restaurant.getPriceCurrency().value(),
