@@ -34,9 +34,12 @@ class RestaurantRequestValidationTest {
                 "도쿄",
                 "sushi",
                 "sushi",
+                "restaurant",
                 "JPY",
                 BigDecimal.valueOf(1000),
                 BigDecimal.valueOf(3000),
+                null,
+                null,
                 null,
                 List.of(),
                 null,
@@ -217,9 +220,9 @@ class RestaurantRequestValidationTest {
     ) {
         return new CreateRestaurantRequest(
                 "하시 스시", "Hashi Sushi", "한 줄 소개", "상세 설명",
-                "도쿄도 시부야구", "도쿄", "sushi", "sushi", "JPY",
+                "도쿄도 시부야구", "도쿄", "sushi", "sushi", "restaurant", "JPY",
                 BigDecimal.valueOf(1_000), BigDecimal.valueOf(3_000),
-                imageKeys, imageAssetIds, menus, List.of("스시"), List.of(),
+                imageKeys, imageAssetIds, null, menus, List.of("스시"), List.of(),
                 createBusinessHours()
         );
     }
