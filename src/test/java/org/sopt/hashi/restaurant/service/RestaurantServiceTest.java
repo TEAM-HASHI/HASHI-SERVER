@@ -49,6 +49,7 @@ import org.sopt.hashi.restaurant.domain.Restaurant;
 import org.sopt.hashi.restaurant.domain.RestaurantBusinessHour;
 import org.sopt.hashi.restaurant.domain.RestaurantCursor;
 import org.sopt.hashi.restaurant.domain.RestaurantGenre;
+import org.sopt.hashi.restaurant.domain.RestaurantPlaceType;
 import org.sopt.hashi.restaurant.domain.RestaurantImage;
 import org.sopt.hashi.restaurant.domain.RestaurantMenu;
 import org.sopt.hashi.restaurant.domain.RestaurantRepository;
@@ -122,10 +123,13 @@ class RestaurantServiceTest {
                 "도쿄",
                 "sushi",
                 "sushi",
+                "restaurant",
                 "JPY",
                 BigDecimal.valueOf(1000),
                 BigDecimal.valueOf(3000),
                 List.of("restaurants/1/thumbnail.jpg"),
+                null,
+                null,
                 List.of(),
                 List.of("스시"),
                 List.of(),
@@ -142,6 +146,9 @@ class RestaurantServiceTest {
     void 어드민_식당_수정에서_해시태그를_빈_목록으로_교체할_수_없다() {
         RestaurantService restaurantService = createRestaurantService();
         AdminRestaurantCommand command = new AdminRestaurantCommand(
+                null,
+                null,
+                null,
                 null,
                 null,
                 null,
@@ -181,7 +188,10 @@ class RestaurantServiceTest {
                 null,
                 null,
                 null,
+                null,
                 List.of(),
+                null,
+                null,
                 null,
                 null,
                 null,
@@ -213,6 +223,9 @@ class RestaurantServiceTest {
                 null,
                 null,
                 null,
+                null,
+                null,
+                null,
                 null
         );
 
@@ -228,13 +241,13 @@ class RestaurantServiceTest {
         UUID assetId = UUID.randomUUID();
         AdminRestaurantCommand createCommand = new AdminRestaurantCommand(
                 "히마와리 스시", "Himawari Sushi", "식당 소개", "매장 상세 설명",
-                "도쿄도 신주쿠구", "도쿄", "sushi", "sushi", "JPY",
+                "도쿄도 신주쿠구", "도쿄", "sushi", "sushi", "restaurant", "JPY",
                 BigDecimal.valueOf(1_000), BigDecimal.valueOf(3_000),
                 null, List.of(assetId), List.of(new ImageCommand(null, assetId)),
                 null, List.of("스시"), null, null
         );
         AdminRestaurantCommand updateCommand = new AdminRestaurantCommand(
-                null, null, null, null, null, null, null, null, null, null, null,
+                null, null, null, null, null, null, null, null, null, null, null, null,
                 null, List.of(assetId), null, null, null, null, null
         );
 
@@ -554,7 +567,7 @@ class RestaurantServiceTest {
         given(restaurantRepository.findByIdForUpdate(1L)).willReturn(Optional.of(restaurant));
 
         restaurantService.updateByAdmin(1L, new AdminRestaurantCommand(
-                null, null, null, null, null, null, null, null, null, null, null,
+                null, null, null, null, null, null, null, null, null, null, null, null,
                 null, null, null,
                 List.of(new MenuCommand(
                         10L, "수정 메뉴", "설명", null, newAssetId,
@@ -1195,6 +1208,7 @@ class RestaurantServiceTest {
                 "Tokyo",
                 RestaurantGenre.SUSHI,
                 "초밥",
+                RestaurantPlaceType.RESTAURANT,
                 PriceCurrency.JPY,
                 BigDecimal.valueOf(1000),
                 BigDecimal.valueOf(3000)
@@ -1426,6 +1440,7 @@ class RestaurantServiceTest {
                 "도쿄",
                 RestaurantGenre.SUSHI,
                 "초밥",
+                RestaurantPlaceType.RESTAURANT,
                 PriceCurrency.JPY,
                 BigDecimal.valueOf(1000),
                 BigDecimal.valueOf(3000)
@@ -1452,10 +1467,13 @@ class RestaurantServiceTest {
                 "도쿄",
                 "sushi",
                 "sushi",
+                "restaurant",
                 "JPY",
                 BigDecimal.valueOf(1000),
                 BigDecimal.valueOf(3000),
                 imageKeys,
+                null,
+                null,
                 List.of(),
                 hashtags,
                 List.of(),
@@ -1465,6 +1483,9 @@ class RestaurantServiceTest {
 
     private AdminRestaurantCommand updateMenuCommand(List<MenuCommand> menus) {
         return new AdminRestaurantCommand(
+                null,
+                null,
+                null,
                 null,
                 null,
                 null,
@@ -1497,6 +1518,7 @@ class RestaurantServiceTest {
                 "도쿄",
                 "sushi",
                 "sushi",
+                "restaurant",
                 "JPY",
                 BigDecimal.valueOf(1_000),
                 BigDecimal.valueOf(3_000),
@@ -1518,7 +1540,7 @@ class RestaurantServiceTest {
             List<ImageCommand> images
     ) {
         return new AdminRestaurantCommand(
-                null, null, null, null, null, null, null, null, null, null, null,
+                null, null, null, null, null, null, null, null, null, null, null, null,
                 imageKeys, null, images, null, null, null, null
         );
     }

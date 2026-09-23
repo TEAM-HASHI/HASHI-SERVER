@@ -67,9 +67,14 @@ public class Restaurant extends BaseTimeEntity {
     @Column(name = "genre", length = 20, nullable = false)
     private RestaurantGenre genre;
 
-    /** 카드 표시용 음식 카테고리(자유 텍스트, #145). 필터 축은 genre가 전담한다. */
+    /** 카드 표시용 음식 카테고리(자유 텍스트, #145). 장르 필터 축은 genre가, 음식점 분류 축은 placeType이 전담한다. */
     @Column(name = "food_category", length = 20, nullable = false)
     private String foodCategory;
+
+    /** 음식점 분류(음식점·카페·주점, #211) — 저장 컬렉션 분류 필터 축. genre·foodCategory와 별개의 상위 구분이다. */
+    @Enumerated(EnumType.STRING)
+    @Column(name = "place_type", length = 20, nullable = false)
+    private RestaurantPlaceType placeType;
 
     @Enumerated(EnumType.STRING)
     @Column(name = "price_currency", length = 3, nullable = false)
@@ -120,7 +125,7 @@ public class Restaurant extends BaseTimeEntity {
     private List<RestaurantBusinessHour> businessHours = new ArrayList<>();
 
     private Restaurant(String name, String localName, String summary, String description, String address,
-                       String area, RestaurantGenre genre, String foodCategory,
+                       String area, RestaurantGenre genre, String foodCategory, RestaurantPlaceType placeType,
                        PriceCurrency priceCurrency, BigDecimal minPrice, BigDecimal maxPrice) {
         this.name = name;
         this.localName = localName;
@@ -130,6 +135,7 @@ public class Restaurant extends BaseTimeEntity {
         this.area = area;
         this.genre = genre;
         this.foodCategory = foodCategory;
+        this.placeType = placeType;
         this.priceCurrency = priceCurrency;
         this.minPrice = minPrice;
         this.maxPrice = maxPrice;
@@ -141,18 +147,18 @@ public class Restaurant extends BaseTimeEntity {
 
     public static Restaurant create(String name, String localName, String summary, String description,
                                     String address, String area, RestaurantGenre genre,
-                                    String foodCategory, PriceCurrency priceCurrency,
-                                    BigDecimal minPrice,
+                                    String foodCategory, RestaurantPlaceType placeType,
+                                    PriceCurrency priceCurrency, BigDecimal minPrice,
                                     BigDecimal maxPrice) {
         return new Restaurant(name, localName, summary, description, address, area, genre, foodCategory,
-                priceCurrency, minPrice, maxPrice);
+                placeType, priceCurrency, minPrice, maxPrice);
     }
 
     /** 부분 수정(PATCH) — null 필드는 기존 값을 유지한다(값 비우기 불가, magazine과 동일 정책). */
     public void updateBasicInfo(String name, String localName, String summary, String description,
                                 String address, String area, RestaurantGenre genre,
-                                String foodCategory, PriceCurrency priceCurrency,
-                                BigDecimal minPrice, BigDecimal maxPrice) {
+                                String foodCategory, RestaurantPlaceType placeType,
+                                PriceCurrency priceCurrency, BigDecimal minPrice, BigDecimal maxPrice) {
         if (name != null) {
             this.name = name;
         }
@@ -176,6 +182,9 @@ public class Restaurant extends BaseTimeEntity {
         }
         if (foodCategory != null) {
             this.foodCategory = foodCategory;
+        }
+        if (placeType != null) {
+            this.placeType = placeType;
         }
         if (priceCurrency != null) {
             this.priceCurrency = priceCurrency;

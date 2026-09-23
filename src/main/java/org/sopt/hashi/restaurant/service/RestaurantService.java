@@ -43,6 +43,7 @@ import org.sopt.hashi.restaurant.domain.RestaurantCurationType;
 import org.sopt.hashi.restaurant.domain.RestaurantBusinessHour;
 import org.sopt.hashi.restaurant.domain.RestaurantCursor;
 import org.sopt.hashi.restaurant.domain.RestaurantGenre;
+import org.sopt.hashi.restaurant.domain.RestaurantPlaceType;
 import org.sopt.hashi.restaurant.domain.RestaurantImage;
 import org.sopt.hashi.restaurant.domain.RestaurantListType;
 import org.sopt.hashi.restaurant.domain.RestaurantMenu;
@@ -339,6 +340,10 @@ public class RestaurantService {
                 .map(assetId -> new MediaAssetUse(assetId, MediaAssetPurpose.RESTAURANT_MENU))
                 .forEach(claims::add);
 
+        // 어드민 입력 폼에 음식점 분류가 반영되기 전까지 미전송 등록은 음식점으로 둔다(#211)
+        RestaurantPlaceType placeType = command.placeType() == null
+                ? RestaurantPlaceType.RESTAURANT
+                : toPlaceType(command.placeType());
         Restaurant restaurant = Restaurant.create(
                 command.name(),
                 command.localName(),
@@ -348,6 +353,7 @@ public class RestaurantService {
                 command.area(),
                 toGenre(command.genre()),
                 command.foodCategory(),
+                placeType,
                 toPriceCurrency(command.priceCurrency()),
                 command.minPrice(),
                 command.maxPrice());
@@ -380,6 +386,7 @@ public class RestaurantService {
         Restaurant restaurant = findRestaurantForAdminUpdate(restaurantId);
 
         RestaurantGenre genre = command.genre() == null ? null : toGenre(command.genre());
+        RestaurantPlaceType placeType = command.placeType() == null ? null : toPlaceType(command.placeType());
         PriceCurrency priceCurrency = command.priceCurrency() == null
                 ? null
                 : toPriceCurrency(command.priceCurrency());
@@ -414,6 +421,7 @@ public class RestaurantService {
                 command.area(),
                 genre,
                 command.foodCategory(),
+                placeType,
                 priceCurrency,
                 command.minPrice(),
                 command.maxPrice());
@@ -834,6 +842,11 @@ public class RestaurantService {
                 .orElseThrow(() -> new BusinessException(RestaurantErrorCode.UNSUPPORTED_GENRE));
     }
 
+    private RestaurantPlaceType toPlaceType(String value) {
+        return RestaurantPlaceType.from(value)
+                .orElseThrow(() -> new BusinessException(RestaurantErrorCode.UNSUPPORTED_PLACE_TYPE));
+    }
+
     private PriceCurrency toPriceCurrency(String value) {
         return PriceCurrency.from(value)
                 .orElseThrow(() -> new BusinessException(CommonErrorCode.INVALID_INPUT));
@@ -1239,6 +1252,7 @@ public class RestaurantService {
                 restaurant.getArea(),
                 restaurant.getGenre().value(),
                 restaurant.getFoodCategory(),
+                restaurant.getPlaceType().value(),
                 thumbnail.url(),
                 toImageInfo(orderedImages.isEmpty() ? null : orderedImages.getFirst(), thumbnail),
                 restaurant.getPriceCurrency().value(),

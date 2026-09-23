@@ -23,6 +23,7 @@ import org.sopt.hashi.restaurant.AdminRestaurantCommand.ImageCommand;
 import org.sopt.hashi.restaurant.domain.PriceCurrency;
 import org.sopt.hashi.restaurant.domain.Restaurant;
 import org.sopt.hashi.restaurant.domain.RestaurantGenre;
+import org.sopt.hashi.restaurant.domain.RestaurantPlaceType;
 import org.sopt.hashi.restaurant.domain.RestaurantImage;
 import org.sopt.hashi.restaurant.domain.RestaurantRepository;
 import org.sopt.hashi.restaurant.service.RestaurantService;
@@ -140,6 +141,7 @@ class RestaurantMediaTransactionIntegrationTest {
                 "도쿄",
                 RestaurantGenre.SUSHI,
                 "초밥",
+                RestaurantPlaceType.RESTAURANT,
                 PriceCurrency.JPY,
                 BigDecimal.valueOf(1_000),
                 BigDecimal.valueOf(3_000)
@@ -148,7 +150,7 @@ class RestaurantMediaTransactionIntegrationTest {
 
     private AdminRestaurantCommand updateImageCommand(UUID assetId) {
         return new AdminRestaurantCommand(
-                null, null, null, null, null, null, null, null, null, null, null,
+                null, null, null, null, null, null, null, null, null, null, null, null,
                 null, null, List.of(new ImageCommand(null, assetId)),
                 null, null, null, null
         );

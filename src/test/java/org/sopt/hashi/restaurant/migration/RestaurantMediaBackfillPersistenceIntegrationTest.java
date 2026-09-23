@@ -38,6 +38,7 @@ import org.sopt.hashi.restaurant.AdminRestaurantCommand.MenuCommand;
 import org.sopt.hashi.restaurant.domain.PriceCurrency;
 import org.sopt.hashi.restaurant.domain.Restaurant;
 import org.sopt.hashi.restaurant.domain.RestaurantGenre;
+import org.sopt.hashi.restaurant.domain.RestaurantPlaceType;
 import org.sopt.hashi.restaurant.domain.RestaurantImage;
 import org.sopt.hashi.restaurant.domain.RestaurantMenu;
 import org.sopt.hashi.restaurant.domain.RestaurantRepository;
@@ -570,12 +571,13 @@ class RestaurantMediaBackfillPersistenceIntegrationTest {
         return Restaurant.create(
                 name, "backfill restaurant", "소개", "상세 설명",
                 "도쿄도", "도쿄", RestaurantGenre.SUSHI, "초밥",
+                RestaurantPlaceType.RESTAURANT,
                 PriceCurrency.JPY, BigDecimal.valueOf(1_000), BigDecimal.valueOf(2_000));
     }
 
     private AdminRestaurantCommand menuUpdate(Long menuId) {
         return new AdminRestaurantCommand(
-                null, null, null, null, null, null, null, null, null, null, null,
+                null, null, null, null, null, null, null, null, null, null, null, null,
                 null, null, null,
                 List.of(new MenuCommand(
                         menuId, "변경 메뉴", "변경 설명", "menus/new.jpg", null,

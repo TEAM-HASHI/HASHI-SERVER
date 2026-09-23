@@ -9,7 +9,8 @@ import org.sopt.hashi.media.MediaImage;
  * 모듈 간 전달용 어드민 식당 상세 DTO — 진입점(admin)이 식당을 관리(등록·수정)할 때 받는 계약.
  * 기존 URL 필드는 legacy key 또는 READY media의 기본 후보를 호환 projection한 값이며, 신규 이미지
  * 필드는 상태와 반응형 후보를 함께 전달한다. object key 자체는 노출하지 않는다.
- * genre·curationTypes는 사용자 API와 같은 소문자 케밥 값이다.
+ * genre·curationTypes는 사용자 API와 같은 소문자 케밥 값이고, placeType(음식점 분류, #211)은
+ * "restaurant"·"cafe"·"bar"다.
  */
 public record AdminRestaurantInfo(
         Long restaurantId,
@@ -21,6 +22,7 @@ public record AdminRestaurantInfo(
         String area,
         String genre,
         String foodCategory,
+        String placeType,
         String thumbnailUrl,
         RestaurantImageInfo thumbnailImage,
         String priceCurrency,
@@ -59,7 +61,7 @@ public record AdminRestaurantInfo(
     ) {
         this(
                 restaurantId, name, localName, summary, description, address, area, genre,
-                foodCategory, thumbnailUrl, null, priceCurrency, minPrice, maxPrice, deleted,
+                foodCategory, null, thumbnailUrl, null, priceCurrency, minPrice, maxPrice, deleted,
                 imageUrls, List.of(), menus, hashtags, curationTypes, businessHours, createdAt);
     }
 

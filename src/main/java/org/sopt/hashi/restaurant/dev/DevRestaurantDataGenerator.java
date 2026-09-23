@@ -12,6 +12,7 @@ import org.sopt.hashi.restaurant.AdminRestaurantCommand.MenuCommand;
 import org.sopt.hashi.restaurant.domain.PriceCurrency;
 import org.sopt.hashi.restaurant.domain.RestaurantCurationType;
 import org.sopt.hashi.restaurant.domain.RestaurantGenre;
+import org.sopt.hashi.restaurant.domain.RestaurantPlaceType;
 import org.sopt.hashi.restaurant.service.RestaurantService;
 import org.springframework.context.annotation.Profile;
 import org.springframework.stereotype.Service;
@@ -52,6 +53,7 @@ public class DevRestaurantDataGenerator {
         String token = randomToken();
         RestaurantGenre genre = pick(RestaurantGenre.values(), seed);
         String foodCategory = pick(FOOD_CATEGORIES, seed);
+        RestaurantPlaceType placeType = pick(RestaurantPlaceType.values(), seed);
         RestaurantCurationType curationType = pick(RestaurantCurationType.values(), seed);
         BigDecimal minPrice = BigDecimal.valueOf(1000L * (1 + seed % 5));
         BigDecimal maxPrice = minPrice.add(BigDecimal.valueOf(3000));
@@ -65,10 +67,13 @@ public class DevRestaurantDataGenerator {
                 pick(AREAS, seed),
                 genre.value(),
                 foodCategory,
+                placeType.value(),
                 PriceCurrency.JPY.value(),
                 minPrice,
                 maxPrice,
                 List.of("restaurants/dummy-" + token + "-1.jpg"),
+                null,
+                null,
                 List.of(new MenuCommand(
                         "더미 대표 메뉴", genre.description() + " 대표 구성",
                         "restaurant-menus/dummy-" + token + "-menu.jpg",
