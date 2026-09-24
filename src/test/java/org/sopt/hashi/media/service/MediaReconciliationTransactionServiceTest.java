@@ -49,6 +49,16 @@ class MediaReconciliationTransactionServiceTest {
     }
 
     @Test
+    void literal_null_version은_같은_key의_최근_write와_구분할_수_없어_삭제하지_않는다() {
+        when(assets.findByPublicIdForUpdate(ASSET_ID)).thenReturn(Optional.empty());
+
+        assertThat(service.assess(original("null", OLD), CUTOFF))
+                .isEqualTo(MediaReconciliationDecision.UNKNOWN);
+
+        verify(assets, never()).findByPublicIdForUpdate(ASSET_ID);
+    }
+
+    @Test
     void 유예_기간이_지나지_않으면_DB도_조회하지_않는다() {
         assertThat(service.assess(original("other-version", CUTOFF.plusSeconds(1)), CUTOFF))
                 .isEqualTo(MediaReconciliationDecision.PROTECT);

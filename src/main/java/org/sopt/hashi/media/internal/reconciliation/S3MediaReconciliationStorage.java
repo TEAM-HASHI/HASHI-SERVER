@@ -71,6 +71,9 @@ public class S3MediaReconciliationStorage implements MediaReconciliationStorage 
         assertOutsideTransaction();
         requireNotInterrupted();
         Objects.requireNonNull(object);
+        if ("null".equals(object.versionId())) {
+            throw new MediaReconciliationStorageException(Reason.NON_IMMUTABLE_VERSION);
+        }
         try {
             String bucket = bucket(object.location());
             requireVersioningEnabled(bucket);

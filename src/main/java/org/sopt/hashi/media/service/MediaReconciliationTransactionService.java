@@ -49,6 +49,10 @@ public class MediaReconciliationTransactionService {
         if (object.lastModified().isAfter(eligibleBefore)) {
             return MediaReconciliationDecision.PROTECT;
         }
+        // 비버전·versioning suspended 상태에서 같은 key에 다시 쓰면 literal "null" identity가 재사용된다.
+        if ("null".equals(object.versionId())) {
+            return MediaReconciliationDecision.UNKNOWN;
+        }
         Optional<ParsedObjectKey> parsed = parse(object);
         if (parsed.isEmpty()) {
             return MediaReconciliationDecision.UNKNOWN;

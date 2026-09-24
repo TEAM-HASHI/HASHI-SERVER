@@ -19,6 +19,7 @@ public class MediaReconciliationStorageException extends RuntimeException {
     public enum Reason {
         STORAGE_UNAVAILABLE,
         VERSIONING_NOT_ENABLED,
+        NON_IMMUTABLE_VERSION,
         INVALID_STORAGE_RESPONSE,
         DELETE_FAILED,
         INTERRUPTED

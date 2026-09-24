@@ -10,6 +10,7 @@
 `media/renditions/{assetId}/v{specVersion}/{role}/{width}.webp` 형식만 해석한다. 다음 항목은 삭제하지 않는다.
 
 - 경로, UUID, spec, role, width 또는 version ID를 해석할 수 없는 파일
+- versioning 중단 중 같은 key의 새 write와 구분할 수 없는 리터럴 `null` version
 - DB 조회나 S3 목록·삭제가 실패한 파일
 - `ACTIVE` asset의 DB `sourceVersionId`와 일치하는 원본 version. S3 current 여부는 사용하지 않는다.
 - 아직 `sourceVersionId`가 고정되지 않은 PENDING_UPLOAD·backfill copy 원본
@@ -26,10 +27,10 @@ manifest에 속하지 않고 `lastIssuedSpecVersion` 이하인 폐기 spec만 �
 S3 후보를 읽은 뒤 삭제 직전 짧은 transaction에서 asset row를 잠가 위 조건을 다시 확인한다. S3
 목록과 삭제는 DB transaction 밖에서 실행한다. 삭제는 목록에서 관측한 key와 version ID를 모두
 명시한다. 목록 직전과 삭제 직전에 대상 bucket의 versioning 상태가 모두 `Enabled`인지 다시 조회하며,
-상태가 없거나 `Suspended`이면 fail-closed한다. 따라서 과거 비버전 객체의 리터럴 `null` version도
-Enabled 상태에서만 다루고, 중간에 같은 key가 다시 쓰이면 새 write는 별도 immutable version이 된다.
-같은 version의 중복 삭제는 같은 결과로 수렴하며, 늦은 worker가 폐기 spec에 다시 쓴 파일은 다음
-scan에서 다시 확인한다.
+상태가 없거나 `Suspended`이면 fail-closed한다. 과거 비버전 객체의 리터럴 `null` version은 상태가
+다시 Enabled여도 immutable identity임을 증명할 수 없으므로 항상 `unknown`으로 보호한다. 나머지 같은
+version의 중복 삭제는 같은 결과로 수렴하며, 늦은 worker가 폐기 spec에 다시 쓴 파일은 다음 scan에서
+다시 확인한다.
 
 ## 설정과 권한
 
@@ -73,7 +74,7 @@ bucket 설정, ACL, Object Lock 우회 권한은 사용하지 않는다.
 중단하려면 모든 인스턴스를 `AWS_MEDIA_RECONCILIATION_ENABLED=false`로 교체하고 현재 실행 종료를
 확인한다. page cursor와 page 내부 위치는 프로세스 메모리에 있으며, 시간 제한 뒤에는 같은 page의
 정확히 다음 object부터 이어 간다. 프로세스 재시작 시 prefix 처음부터 재평가하므로 중복 처리는
-가능하지만 immutable exact-version 삭제라 안전하게 수렴한다. 처리량·page/time 상한과 meter는
+가능하지만 리터럴 `null`은 보호하고 나머지는 immutable exact-version을 삭제하므로 안전하게 수렴한다. 처리량·page/time 상한과 meter는
 인스턴스별 값이며, 여러 인스턴스의 합산 상한이나 고유 파일 수가 아니다. 개별 삭제 실패는 다음
 순환에서 다시 관측된다. 이미 영구 삭제된 version은 설정 rollback으로 복구되지 않는다.
 
@@ -91,7 +92,7 @@ bucket 설정, ACL, Object Lock 우회 권한은 사용하지 않는다.
 
 - `sum(increase(hashi_media_reconciliation_failure_total[12h])) > 0`
 - `sum(increase(hashi_media_reconciliation_dispatch_total{outcome="rejected"}[12h])) > 0`
-- `sum(increase(hashi_media_reconciliation_scan_duration_seconds_count{status="completed"}[12h])) < 1`
+- `(sum(increase(hashi_media_reconciliation_scan_duration_seconds_count{status="completed"}[12h])) or vector(0)) < 1`
 - `sum(increase(hashi_media_reconciliation_object_total{outcome="unknown"}[12h])) > 0`
 
 알람은 배포 변경서에 지정된 media 운영 당번에게 전달하고, 수신자가 정해지지 않았거나 test alarm을

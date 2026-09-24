@@ -78,13 +78,31 @@ class S3MediaReconciliationStorageTest {
     }
 
     @Test
-    void 목록_뒤_versioning이_중단되면_null_version_삭제를_차단한다() {
+    void literal_null_version은_versioning이_enabled여도_삭제를_차단한다() {
+        when(client.listObjectVersions(any(ListObjectVersionsRequest.class)))
+                .thenReturn(ListObjectVersionsResponse.builder()
+                        .versions(version(KEY, "null"))
+                        .isTruncated(false)
+                        .build());
+        MediaObjectVersion object = storage.listObjectVersions(
+                MediaObjectLocation.ORIGINAL, MediaObjectVersionCursor.initial(), 100)
+                .objects().getFirst();
+
+        assertThatThrownBy(() -> storage.deleteObjectVersion(object))
+                .isInstanceOf(MediaReconciliationStorageException.class)
+                .extracting("reason")
+                .isEqualTo(MediaReconciliationStorageException.Reason.NON_IMMUTABLE_VERSION);
+        verify(client, never()).deleteObject(any(DeleteObjectRequest.class));
+    }
+
+    @Test
+    void 목록_뒤_versioning이_중단되면_unique_version_삭제도_차단한다() {
         when(client.getBucketVersioning(any(GetBucketVersioningRequest.class)))
                 .thenReturn(versioning(BucketVersioningStatus.ENABLED),
                         versioning(BucketVersioningStatus.SUSPENDED));
         when(client.listObjectVersions(any(ListObjectVersionsRequest.class)))
                 .thenReturn(ListObjectVersionsResponse.builder()
-                        .versions(version(KEY, "null"))
+                        .versions(version(KEY, "version-1"))
                         .isTruncated(false)
                         .build());
         MediaObjectVersion object = storage.listObjectVersions(
