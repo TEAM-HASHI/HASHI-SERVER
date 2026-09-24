@@ -8,8 +8,8 @@ import org.springframework.data.repository.query.Param;
 /**
  * 리액션 행 조작은 모두 단일 SQL이다 — 조회 후 저장 방식은 동시 요청에서 유니크 위반 예외로 트랜잭션이
  * 롤백되므로, 멱등 등록·취소를 위해 "영향 행 수"로 실제 상태 변화를 판별한다.
- * 카운터 증감은 트랜잭션 밖({@code MagazineMetaUpdater}, @Async)에서 하므로 여기서는 magazine 행에
- * X 락을 거는 문장이 없다(INSERT의 FK 부모 S 락과 충돌할 UPDATE가 없어 교착이 생기지 않는다).
+ * 카운터는 같은 트랜잭션에서 meta_magazine 행을 갱신하며, 여기서는 magazine 행에 X 락을 거는 문장이 없다
+ * (INSERT의 FK 부모 S 락과 충돌할 UPDATE가 없어 교착이 생기지 않는다).
  */
 public interface MagazineReactionRepository extends JpaRepository<MagazineReaction, Long> {
 

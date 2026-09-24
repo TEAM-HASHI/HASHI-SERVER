@@ -112,7 +112,7 @@ public class MagazineService {
 
     /**
      * 매거진 상세(MAG-002) — 비로그인도 조회할 수 있고, 좋아요 여부만 로그인 회원에 한해 계산한다.
-     * 좋아요 수는 meta_magazine 카운터(비동기 갱신, 준실시간)를 읽는다.
+     * 좋아요 수는 meta_magazine 카운터를 읽는다(리액션과 같은 트랜잭션에서 갱신되어 항상 실제 값).
      * 연결 식당은 매핑의 노출 순서대로 RestaurantPort로 enrich하며, 삭제된 식당은 포트가 걸러낸다(§5-2).
      */
     public MagazineDetailResponse getDetail(Long magazineId) {
@@ -126,7 +126,7 @@ public class MagazineService {
                 magazine.getContent(),
                 List.copyOf(magazine.getHashtags()),
                 magazine.getCreatedAt(),
-                magazineMetaRepository.findNonNegativeLikeCount(magazineId),
+                magazineMetaRepository.findLikeCountOrZero(magazineId),
                 isLikedByCurrentUser(magazineId),
                 restaurants.stream()
                         .map(this::toRestaurantResponse)

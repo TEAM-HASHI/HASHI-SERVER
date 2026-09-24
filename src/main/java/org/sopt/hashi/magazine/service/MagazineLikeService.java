@@ -14,19 +14,18 @@ import org.sopt.hashi.shared.error.BusinessException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Isolation;
 import org.springframework.transaction.annotation.Transactional;
-import org.springframework.transaction.support.TransactionSynchronization;
-import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 /**
  * 매거진 좋아요 등록·취소(MAG-002). 클라이언트가 낙관적으로 갱신한 뒤 호출하므로 두 API 모두 멱등이다 —
  * 이미 좋아요인 상태의 등록, 좋아요가 아닌 상태의 취소는 에러가 아니라 현재 상태를 그대로 돌려주되,
  * 실제로 상태가 바뀌었는지는 성공 코드로 구분한다(LIKE_CREATED/LIKE_ALREADY_CREATED 등). 에러(409)로 내리지 않는 이유는
  * 재시도·연타로 같은 요청이 두 번 와도 클라이언트가 실패로 보고 하트를 원복하지 않게 하기 위함이다.
- * 트랜잭션은 magazine_reaction 행 확정까지만이고, 실제로 상태가 바뀐 경우에만 커밋 뒤
- * {@link MagazineMetaUpdater}가 카운터를 비동기로 증감한다. 응답의 likeCount는 그래서 준실시간 값이다.
+ * 리액션 행과 meta_magazine 카운터는 같은 트랜잭션에서 바뀐다 — 함께 커밋되거나 함께 롤백되므로 둘이 어긋나는
+ * 상태가 없고, 응답의 likeCount는 커밋될 실제 값이다. 카운터를 magazine이 아닌 meta_magazine에 둔 덕에
+ * 리액션 INSERT가 잡는 magazine 행 FK 부모 S 락과 카운터 UPDATE의 X 락이 같은 행에서 만나지 않아 교착이 없다.
  * 격리 수준을 READ COMMITTED로 낮춘 이유: 기본(REPEATABLE READ)에서는 INSERT의 유니크 중복 검사가
  * 갭 락(next-key)을 잡아, 같은 매거진에 동시 INSERT가 몰리면 이웃 행끼리 교착(MySQL 1213)한다.
- * 이 트랜잭션은 단일 행 upsert뿐이라 갭 락이 필요 없다.
+ * 이 트랜잭션은 단일 행 upsert와 카운터 UPDATE뿐이라 갭 락이 필요 없다.
  */
 @Slf4j
 @Service
@@ -38,18 +37,15 @@ public class MagazineLikeService {
     private final MagazineRepository magazineRepository;
     private final MagazineReactionRepository magazineReactionRepository;
     private final MagazineMetaRepository magazineMetaRepository;
-    private final MagazineMetaUpdater magazineMetaUpdater;
     private final CurrentUserProvider currentUserProvider;
 
     public MagazineLikeService(MagazineRepository magazineRepository,
                                MagazineReactionRepository magazineReactionRepository,
                                MagazineMetaRepository magazineMetaRepository,
-                               MagazineMetaUpdater magazineMetaUpdater,
                                CurrentUserProvider currentUserProvider) {
         this.magazineRepository = magazineRepository;
         this.magazineReactionRepository = magazineReactionRepository;
         this.magazineMetaRepository = magazineMetaRepository;
-        this.magazineMetaUpdater = magazineMetaUpdater;
         this.currentUserProvider = currentUserProvider;
     }
 
@@ -62,7 +58,7 @@ public class MagazineLikeService {
         boolean activated = magazineReactionRepository.insertIfAbsent(magazineId, userId, LIKE) == 1
                 || magazineReactionRepository.reactivate(magazineId, userId, LIKE) == 1;
         if (activated) {
-            afterCommit(() -> magazineMetaUpdater.increaseLikeCount(magazineId));
+            increaseLikeCount(magazineId);
             log.info("매거진 좋아요 등록. magazineId={} , userId={}", magazineId, userId);
         }
         return new MagazineLikeResult(
@@ -76,7 +72,7 @@ public class MagazineLikeService {
 
         boolean deactivated = magazineReactionRepository.deactivate(magazineId, userId, LIKE) == 1;
         if (deactivated) {
-            afterCommit(() -> magazineMetaUpdater.decreaseLikeCount(magazineId));
+            decreaseLikeCount(magazineId);
             log.info("매거진 좋아요 취소. magazineId={}, userId={}", magazineId, userId);
         }
         return new MagazineLikeResult(
@@ -91,17 +87,20 @@ public class MagazineLikeService {
         }
     }
 
-    // 리액션 행이 커밋된 뒤에만 카운터를 갱신한다 — 트랜잭션 안에서 바로 넘기면 롤백 시 카운터만 어긋난다
-    private void afterCommit(Runnable action) {
-        TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
-            @Override
-            public void afterCommit() {
-                action.run();
-            }
-        });
+    // 메타 행은 매거진 생성 트랜잭션에서 함께 만들어지므로 0행은 데이터 이상이다 — 예외로 트랜잭션째 롤백해 리액션만 남지 않게 한다
+    private void increaseLikeCount(Long magazineId) {
+        if (magazineMetaRepository.increaseLikeCount(magazineId) == 0) {
+            throw new IllegalStateException("좋아요 수를 갱신할 매거진 메타 행이 없습니다. magazineId=" + magazineId);
+        }
+    }
+
+    private void decreaseLikeCount(Long magazineId) {
+        if (magazineMetaRepository.decreaseLikeCount(magazineId) == 0) {
+            throw new IllegalStateException("좋아요 수를 갱신할 매거진 메타 행이 없습니다. magazineId=" + magazineId);
+        }
     }
 
     private long currentLikeCount(Long magazineId) {
-        return magazineMetaRepository.findNonNegativeLikeCount(magazineId);
+        return magazineMetaRepository.findLikeCountOrZero(magazineId);
     }
 }
