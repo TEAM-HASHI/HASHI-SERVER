@@ -98,7 +98,7 @@ class MediaReconciliationScanServiceTest {
     }
 
     @Test
-    void 중단된_page는_cursor를_전진시키지_않아_다음_scan이_같은_page를_다시_읽는다() {
+    void 중단된_object는_다음_scan에서_같은_exact_version부터_재개한다() {
         MediaObjectVersionCursor next = new MediaObjectVersionCursor(ORIGINAL.objectKey(), ORIGINAL.versionId());
         when(storage.listObjectVersions(eq(MediaObjectLocation.ORIGINAL), any(), eq(100)))
                 .thenReturn(new MediaObjectVersionPage(List.of(ORIGINAL), next));
@@ -117,6 +117,38 @@ class MediaReconciliationScanServiceTest {
 
         scanner.scan();
 
+        verify(storage, never()).listObjectVersions(
+                MediaObjectLocation.ORIGINAL, MediaObjectVersionCursor.initial(), 100);
+        verify(storage).deleteObjectVersion(ORIGINAL);
+    }
+
+    @Test
+    void 시간_제한_뒤에는_같은_page의_다음_object부터_이어간다() {
+        MediaObjectVersion second = new MediaObjectVersion(
+                MediaObjectLocation.ORIGINAL,
+                "media/originals/" + UUID.fromString("f3c6347b-e39b-4e06-83a7-8c04e8768655") + "/original",
+                "version-2", NOW.minus(Duration.ofDays(8)));
+        when(storage.listObjectVersions(eq(MediaObjectLocation.ORIGINAL), any(), eq(100)))
+                .thenReturn(new MediaObjectVersionPage(List.of(ORIGINAL, second), null));
+        when(storage.listObjectVersions(eq(MediaObjectLocation.RENDITION), any(), eq(100)))
+                .thenReturn(new MediaObjectVersionPage(List.of(), null));
+        when(transactions.assess(eq(ORIGINAL), any())).thenAnswer(invocation -> {
+            nanoTime.set(Duration.ofMinutes(2).toNanos());
+            return MediaReconciliationDecision.PROTECT;
+        });
+        when(transactions.assess(eq(second), any())).thenReturn(MediaReconciliationDecision.PROTECT);
+        MediaReconciliationScanService scanner = scanner(Mode.DRY_RUN);
+
+        MediaReconciliationScanResult first = scanner.scan();
+        nanoTime.set(0);
+        MediaReconciliationScanResult resumed = scanner.scan();
+
+        assertThat(first.status()).isEqualTo(Status.TIME_LIMIT_REACHED);
+        assertThat(first.inspected()).isEqualTo(1);
+        assertThat(resumed.status()).isEqualTo(Status.COMPLETED);
+        assertThat(resumed.inspected()).isEqualTo(1);
+        verify(transactions).assess(eq(ORIGINAL), any());
+        verify(transactions).assess(eq(second), any());
         verify(storage).listObjectVersions(
                 MediaObjectLocation.ORIGINAL, MediaObjectVersionCursor.initial(), 100);
     }

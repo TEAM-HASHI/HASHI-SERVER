@@ -42,6 +42,8 @@ public class MediaReconciliationScanService {
     private final AtomicBoolean running = new AtomicBoolean();
     private final Map<MediaObjectLocation, MediaObjectVersionCursor> cursors =
             new EnumMap<>(MediaObjectLocation.class);
+    private final Map<MediaObjectLocation, PageCheckpoint> pendingPages =
+            new EnumMap<>(MediaObjectLocation.class);
     private int nextLocation;
 
     @Autowired
@@ -106,25 +108,33 @@ public class MediaReconciliationScanService {
                 continue;
             }
 
-            MediaObjectVersionCursor cursor = cursors.getOrDefault(location, MediaObjectVersionCursor.initial());
-            MediaObjectVersionPage page;
-            try {
-                page = storage.listObjectVersions(location, cursor, properties.scanPageSize());
-                progress.pages++;
-            } catch (RuntimeException failure) {
-                progress.fail(location, failure, metrics);
-                if (isInterrupted(failure)) {
-                    progress.status = Status.INTERRUPTED;
-                    return;
+            PageCheckpoint checkpoint = pendingPages.get(location);
+            if (checkpoint == null) {
+                MediaObjectVersionCursor cursor = cursors.getOrDefault(
+                        location, MediaObjectVersionCursor.initial());
+                try {
+                    MediaObjectVersionPage page = storage.listObjectVersions(
+                            location, cursor, properties.scanPageSize());
+                    progress.pages++;
+                    checkpoint = new PageCheckpoint(page);
+                    pendingPages.put(location, checkpoint);
+                } catch (RuntimeException failure) {
+                    progress.fail(location, failure, metrics);
+                    if (isInterrupted(failure)) {
+                        progress.status = Status.INTERRUPTED;
+                        return;
+                    }
+                    exhausted.add(location);
+                    continue;
                 }
-                exhausted.add(location);
-                continue;
             }
 
-            boolean completedPage = processPage(page, location, eligibleBefore, progress, budget);
+            boolean completedPage = processPage(checkpoint, location, eligibleBefore, progress, budget);
             if (!completedPage) {
                 return;
             }
+            pendingPages.remove(location);
+            MediaObjectVersionPage page = checkpoint.page();
             if (page.hasNext()) {
                 cursors.put(location, page.nextCursor());
             } else {
@@ -134,12 +144,13 @@ public class MediaReconciliationScanService {
         }
     }
 
-    private boolean processPage(MediaObjectVersionPage page, MediaObjectLocation location,
+    private boolean processPage(PageCheckpoint checkpoint, MediaObjectLocation location,
                                 Instant eligibleBefore, Progress progress, MediaCleanupWorkBudget budget) {
-        for (MediaObjectVersion object : page.objects()) {
+        while (!checkpoint.complete()) {
             if (stopRequested(progress, budget)) {
                 return false;
             }
+            MediaObjectVersion object = checkpoint.current();
             progress.inspected++;
             try {
                 MediaReconciliationDecision decision = transactions.assess(object, eligibleBefore);
@@ -156,6 +167,7 @@ public class MediaReconciliationScanService {
                     return false;
                 }
             }
+            checkpoint.advance();
         }
         return true;
     }
@@ -228,6 +240,35 @@ public class MediaReconciliationScanService {
             }
             return new MediaReconciliationScanResult(status, pages, inspected, wouldDelete,
                     deleted, protectedObjects, unknown, failed);
+        }
+    }
+
+    /**
+     * 시간 제한 뒤 같은 JVM에서 page를 다시 list하지 않고 정확히 다음 object부터 이어 간다.
+     * process 재시작 시에는 page 시작부터 재평가하지만 exact version 삭제라 중복 안전하다.
+     */
+    private static final class PageCheckpoint {
+        private final MediaObjectVersionPage page;
+        private int nextObjectIndex;
+
+        private PageCheckpoint(MediaObjectVersionPage page) {
+            this.page = page;
+        }
+
+        private MediaObjectVersionPage page() {
+            return page;
+        }
+
+        private boolean complete() {
+            return nextObjectIndex >= page.objects().size();
+        }
+
+        private MediaObjectVersion current() {
+            return page.objects().get(nextObjectIndex);
+        }
+
+        private void advance() {
+            nextObjectIndex++;
         }
     }
 }

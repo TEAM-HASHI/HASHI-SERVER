@@ -12,11 +12,15 @@ import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
 import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 import software.amazon.awssdk.services.s3.S3Client;
+import software.amazon.awssdk.services.s3.model.BucketVersioningStatus;
 import software.amazon.awssdk.services.s3.model.DeleteMarkerEntry;
 import software.amazon.awssdk.services.s3.model.DeleteObjectRequest;
+import software.amazon.awssdk.services.s3.model.GetBucketVersioningRequest;
+import software.amazon.awssdk.services.s3.model.GetBucketVersioningResponse;
 import software.amazon.awssdk.services.s3.model.ListObjectVersionsRequest;
 import software.amazon.awssdk.services.s3.model.ListObjectVersionsResponse;
 import software.amazon.awssdk.services.s3.model.ObjectVersion;
@@ -30,6 +34,12 @@ class S3MediaReconciliationStorageTest {
     private final S3Client client = mock(S3Client.class);
     private final S3MediaReconciliationStorage storage =
             new S3MediaReconciliationStorage(client, "test-originals", "test-delivery");
+
+    @BeforeEach
+    void enableVersioning() {
+        when(client.getBucketVersioning(any(GetBucketVersioningRequest.class)))
+                .thenReturn(versioning(BucketVersioningStatus.ENABLED));
+    }
 
     @AfterEach
     void clearState() {
@@ -65,6 +75,27 @@ class S3MediaReconciliationStorageTest {
 
         verify(client).deleteObject(DeleteObjectRequest.builder()
                 .bucket("test-originals").key(KEY).versionId("version-1").build());
+    }
+
+    @Test
+    void 목록_뒤_versioning이_중단되면_null_version_삭제를_차단한다() {
+        when(client.getBucketVersioning(any(GetBucketVersioningRequest.class)))
+                .thenReturn(versioning(BucketVersioningStatus.ENABLED),
+                        versioning(BucketVersioningStatus.SUSPENDED));
+        when(client.listObjectVersions(any(ListObjectVersionsRequest.class)))
+                .thenReturn(ListObjectVersionsResponse.builder()
+                        .versions(version(KEY, "null"))
+                        .isTruncated(false)
+                        .build());
+        MediaObjectVersion object = storage.listObjectVersions(
+                MediaObjectLocation.ORIGINAL, MediaObjectVersionCursor.initial(), 100)
+                .objects().getFirst();
+
+        assertThatThrownBy(() -> storage.deleteObjectVersion(object))
+                .isInstanceOf(MediaReconciliationStorageException.class)
+                .extracting("reason")
+                .isEqualTo(MediaReconciliationStorageException.Reason.VERSIONING_NOT_ENABLED);
+        verify(client, never()).deleteObject(any(DeleteObjectRequest.class));
     }
 
     @Test
@@ -105,5 +136,9 @@ class S3MediaReconciliationStorageTest {
 
     private ObjectVersion version(String key, String versionId) {
         return ObjectVersion.builder().key(key).versionId(versionId).lastModified(MODIFIED).build();
+    }
+
+    private GetBucketVersioningResponse versioning(BucketVersioningStatus status) {
+        return GetBucketVersioningResponse.builder().status(status).build();
     }
 }

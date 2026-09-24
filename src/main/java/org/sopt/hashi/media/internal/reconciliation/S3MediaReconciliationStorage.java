@@ -9,8 +9,11 @@ import org.sopt.hashi.media.internal.reconciliation.MediaReconciliationStorageEx
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 import software.amazon.awssdk.core.exception.SdkException;
 import software.amazon.awssdk.services.s3.S3Client;
+import software.amazon.awssdk.services.s3.model.BucketVersioningStatus;
 import software.amazon.awssdk.services.s3.model.DeleteMarkerEntry;
 import software.amazon.awssdk.services.s3.model.DeleteObjectRequest;
+import software.amazon.awssdk.services.s3.model.GetBucketVersioningRequest;
+import software.amazon.awssdk.services.s3.model.GetBucketVersioningResponse;
 import software.amazon.awssdk.services.s3.model.ListObjectVersionsRequest;
 import software.amazon.awssdk.services.s3.model.ListObjectVersionsResponse;
 import software.amazon.awssdk.services.s3.model.ObjectVersion;
@@ -45,6 +48,7 @@ public class S3MediaReconciliationStorage implements MediaReconciliationStorage 
         }
         String bucket = bucket(location);
         try {
+            requireVersioningEnabled(bucket);
             ListObjectVersionsResponse response = s3Client.listObjectVersions(ListObjectVersionsRequest.builder()
                     .bucket(bucket)
                     .prefix(location.prefix())
@@ -68,8 +72,10 @@ public class S3MediaReconciliationStorage implements MediaReconciliationStorage 
         requireNotInterrupted();
         Objects.requireNonNull(object);
         try {
+            String bucket = bucket(object.location());
+            requireVersioningEnabled(bucket);
             s3Client.deleteObject(DeleteObjectRequest.builder()
-                    .bucket(bucket(object.location()))
+                    .bucket(bucket)
                     .key(object.objectKey())
                     .versionId(object.versionId())
                     .build());
@@ -143,6 +149,15 @@ public class S3MediaReconciliationStorage implements MediaReconciliationStorage 
 
     private String bucket(MediaObjectLocation location) {
         return location == MediaObjectLocation.ORIGINAL ? originalBucket : deliveryBucket;
+    }
+
+    private void requireVersioningEnabled(String bucket) {
+        GetBucketVersioningResponse response = s3Client.getBucketVersioning(GetBucketVersioningRequest.builder()
+                .bucket(bucket)
+                .build());
+        if (response == null || response.status() != BucketVersioningStatus.ENABLED) {
+            throw new MediaReconciliationStorageException(Reason.VERSIONING_NOT_ENABLED);
+        }
     }
 
     private static String requireBucket(String bucket) {

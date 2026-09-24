@@ -34,6 +34,11 @@ class S3MediaReconciliationStorageWireTest {
     private static final UUID ASSET_ID = UUID.fromString("427e4107-24c3-4d4a-a1d8-6bd78785a7fb");
     private static final String KEY = "media/originals/" + ASSET_ID + "/original";
     private static final String VERSION = "v+/?=&";
+    private static final String VERSIONING_ENABLED = """
+            <VersioningConfiguration xmlns="http://s3.amazonaws.com/doc/2006-03-01/">
+                <Status>Enabled</Status>
+            </VersioningConfiguration>
+            """;
 
     @Test
     void 실제_SDK가_목록의_exact_key와_version을_DELETE_query에_전달한다() throws Exception {
@@ -45,10 +50,12 @@ class S3MediaReconciliationStorageWireTest {
                 </ListVersionsResult>
         """.formatted(KEY);
         SdkHttpClient transport = mock(SdkHttpClient.class);
+        ExecutableHttpRequest listVersioningResponse = response(200, VERSIONING_ENABLED);
         ExecutableHttpRequest listResponse = response(200, page);
+        ExecutableHttpRequest deleteVersioningResponse = response(200, VERSIONING_ENABLED);
         ExecutableHttpRequest deleteResponse = response(204, "");
         when(transport.prepareRequest(any(HttpExecuteRequest.class)))
-                .thenReturn(listResponse, deleteResponse);
+                .thenReturn(listVersioningResponse, listResponse, deleteVersioningResponse, deleteResponse);
 
         try (S3Client client = client(transport)) {
             S3MediaReconciliationStorage storage =
@@ -63,9 +70,13 @@ class S3MediaReconciliationStorageWireTest {
         }
 
         ArgumentCaptor<HttpExecuteRequest> requests = ArgumentCaptor.forClass(HttpExecuteRequest.class);
-        verify(transport, times(2)).prepareRequest(requests.capture());
-        HttpExecuteRequest list = requests.getAllValues().getFirst();
+        verify(transport, times(4)).prepareRequest(requests.capture());
+        HttpExecuteRequest list = requests.getAllValues().get(1);
         HttpExecuteRequest delete = requests.getAllValues().getLast();
+        assertThat(requests.getAllValues().getFirst().httpRequest().rawQueryParameters())
+                .containsKey("versioning");
+        assertThat(requests.getAllValues().get(2).httpRequest().rawQueryParameters())
+                .containsKey("versioning");
         assertThat(list.httpRequest().method()).isEqualTo(SdkHttpMethod.GET);
         assertThat(list.httpRequest().encodedPath()).isEqualTo("/test-originals");
         assertThat(list.httpRequest().rawQueryParameters()).containsKeys("versions", "prefix", "max-keys");

@@ -12,10 +12,13 @@ import org.sopt.hashi.media.internal.cleanup.MediaCleanupStorageException.Reason
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 import software.amazon.awssdk.core.exception.SdkException;
 import software.amazon.awssdk.services.s3.S3Client;
+import software.amazon.awssdk.services.s3.model.BucketVersioningStatus;
 import software.amazon.awssdk.services.s3.model.Delete;
 import software.amazon.awssdk.services.s3.model.DeleteMarkerEntry;
 import software.amazon.awssdk.services.s3.model.DeleteObjectsRequest;
 import software.amazon.awssdk.services.s3.model.DeleteObjectsResponse;
+import software.amazon.awssdk.services.s3.model.GetBucketVersioningRequest;
+import software.amazon.awssdk.services.s3.model.GetBucketVersioningResponse;
 import software.amazon.awssdk.services.s3.model.ListObjectVersionsRequest;
 import software.amazon.awssdk.services.s3.model.ListObjectVersionsResponse;
 import software.amazon.awssdk.services.s3.model.ObjectIdentifier;
@@ -103,6 +106,7 @@ public class S3MediaCleanupStorage implements MediaCleanupStorage {
             if (!budget.hasTimeLeft()) {
                 return new MediaObjectPurgeResult(false, acknowledgedDeletes);
             }
+            requireVersioningEnabled(bucket);
             // 삭제한 key/version을 다음 페이지 marker로 재사용하지 않고 남은 첫 페이지를 다시 읽는다.
             ListObjectVersionsResponse response = s3Client.listObjectVersions(ListObjectVersionsRequest.builder()
                     .bucket(bucket).prefix(prefix).maxKeys(maxKeysPerPage).build());
@@ -117,6 +121,7 @@ public class S3MediaCleanupStorage implements MediaCleanupStorage {
             if (!budget.hasTimeLeft()) {
                 return new MediaObjectPurgeResult(false, acknowledgedDeletes);
             }
+            requireVersioningEnabled(bucket);
             DeleteObjectsResponse deleted = s3Client.deleteObjects(DeleteObjectsRequest.builder()
                     .bucket(bucket).delete(Delete.builder().objects(objects).quiet(true).build()).build());
             if (deleted == null) {
@@ -130,6 +135,15 @@ public class S3MediaCleanupStorage implements MediaCleanupStorage {
         }
         // 마지막 DELETE가 성공해도 빈 목록을 관측하기 전에는 DB 정리 완료를 허용하지 않는다.
         return new MediaObjectPurgeResult(false, acknowledgedDeletes);
+    }
+
+    private void requireVersioningEnabled(String bucket) {
+        GetBucketVersioningResponse response = s3Client.getBucketVersioning(GetBucketVersioningRequest.builder()
+                .bucket(bucket)
+                .build());
+        if (response == null || response.status() != BucketVersioningStatus.ENABLED) {
+            throw new MediaCleanupStorageException(Reason.VERSIONING_NOT_ENABLED);
+        }
     }
 
     private List<ObjectIdentifier> validatedObjects(ListObjectVersionsResponse response,

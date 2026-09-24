@@ -52,6 +52,16 @@ function validateCleanupGuardrails(template) {
       PolicyDocument:
         Version: "2012-10-17"
         Statement:
+          - Sid: InspectPrivateOriginalBucketVersioningForCleanup
+            Effect: Allow
+            Action:
+              - s3:GetBucketVersioning
+            Resource: !GetAtt OriginalImageBucket.Arn
+          - Sid: InspectDeliveryBucketVersioningForCleanup
+            Effect: Allow
+            Action:
+              - s3:GetBucketVersioning
+            Resource: !Sub "arn:\${AWS::Partition}:s3:::\${DeliveryBucketName}"
           - Sid: ListPrivateOriginalVersionsForCleanup
             Effect: Allow
             Action:

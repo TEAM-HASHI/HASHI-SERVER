@@ -25,8 +25,11 @@ manifest에 속하지 않고 `lastIssuedSpecVersion` 이하인 폐기 spec만 �
 
 S3 후보를 읽은 뒤 삭제 직전 짧은 transaction에서 asset row를 잠가 위 조건을 다시 확인한다. S3
 목록과 삭제는 DB transaction 밖에서 실행한다. 삭제는 목록에서 관측한 key와 version ID를 모두
-명시한다. 같은 version의 중복 삭제는 같은 결과로 수렴하며, 늦은 worker가 폐기 spec에 다시 쓴
-파일은 다음 scan에서 다시 확인한다.
+명시한다. 목록 직전과 삭제 직전에 대상 bucket의 versioning 상태가 모두 `Enabled`인지 다시 조회하며,
+상태가 없거나 `Suspended`이면 fail-closed한다. 따라서 과거 비버전 객체의 리터럴 `null` version도
+Enabled 상태에서만 다루고, 중간에 같은 key가 다시 쓰이면 새 write는 별도 immutable version이 된다.
+같은 version의 중복 삭제는 같은 결과로 수렴하며, 늦은 worker가 폐기 spec에 다시 쓴 파일은 다음
+scan에서 다시 확인한다.
 
 ## 설정과 권한
 
@@ -45,8 +48,9 @@ S3 후보를 읽은 뒤 삭제 직전 짧은 transaction에서 asset row를 잠�
 
 `enabled=false`에서는 S3를 읽지 않는다. `enabled=true`, `mode=DRY_RUN`은 version 목록을 읽으므로
 `CleanupAccessEnabled=true`로 추가된 기존 `SpringApplicationCleanupPolicy`의
-`ListBucketVersions` 권한이 필요하다. 이 flag는 삭제 권한도 함께 부여하므로 role의 전체 유효 권한을
-검토하고 Spring mode가 `DRY_RUN`인지 별도로 확인한다. `DELETE` 전환은 별도 운영 승인이 필요하다.
+`GetBucketVersioning`, `ListBucketVersions` 권한이 필요하다. 이 flag는 삭제 권한도 함께 부여하므로
+role의 전체 유효 권한을 검토하고 Spring mode가 `DRY_RUN`인지 별도로 확인한다. 두 bucket 모두 실제로
+`Enabled`가 아니면 DRY_RUN도 목록을 시작하지 않는다. `DELETE` 전환은 별도 운영 승인이 필요하다.
 
 원본과 delivery bucket은 서로 다르고 같은 region이어야 한다. 권한은 기존 cleanup policy와 동일하게
 `media/originals/*`, `media/renditions/*`의 version 목록과 exact version 삭제로 제한한다. legacy 경로,
@@ -56,6 +60,7 @@ bucket 설정, ACL, Object Lock 우회 권한은 사용하지 않는다.
 
 1. 배포 commit, DB, 두 bucket, Spring role을 확인하고 issuance와 두 정리 실행을 비활성으로 배포한다.
 2. 운영 담당자가 7일 보존, 실행량, 실패 알림 수신자와 실제 Object Lock·MFA Delete·Deny를 확인한다.
+   두 bucket의 versioning이 `Enabled`이고 전파가 끝났음을 실제 계정에서 확인한다.
 3. 승인된 dev에서 cleanup IAM만 적용하고 reconciliation을 `enabled=true`, `mode=DRY_RUN`으로 시작한다.
 4. 정상 canonical 원본, active·PROCESSING·과거 manifest 파생본이 `protect`인지 확인한다. 후보 key,
    version, asset ID를 로그·지표·PR에 복사하지 않는다.
@@ -66,9 +71,11 @@ bucket 설정, ACL, Object Lock 우회 권한은 사용하지 않는다.
 7. dev 결과와 복구 불가한 exact-version 삭제 영향을 검토한 뒤 prod 적용을 별도로 승인한다.
 
 중단하려면 모든 인스턴스를 `AWS_MEDIA_RECONCILIATION_ENABLED=false`로 교체하고 현재 실행 종료를
-확인한다. cursor는 프로세스 메모리에만 있으며 재시작하면 prefix 처음부터 다시 확인한다. 실행 중
-page가 중단되면 cursor를 전진시키지 않아 같은 page를 재검사한다. 개별 삭제 실패는 다음 순환에서
-다시 관측된다. 이미 영구 삭제된 version은 설정 rollback으로 복구되지 않는다.
+확인한다. page cursor와 page 내부 위치는 프로세스 메모리에 있으며, 시간 제한 뒤에는 같은 page의
+정확히 다음 object부터 이어 간다. 프로세스 재시작 시 prefix 처음부터 재평가하므로 중복 처리는
+가능하지만 immutable exact-version 삭제라 안전하게 수렴한다. 처리량·page/time 상한과 meter는
+인스턴스별 값이며, 여러 인스턴스의 합산 상한이나 고유 파일 수가 아니다. 개별 삭제 실패는 다음
+순환에서 다시 관측된다. 이미 영구 삭제된 version은 설정 rollback으로 복구되지 않는다.
 
 ## 지표와 알림
 
@@ -79,8 +86,18 @@ page가 중단되면 cursor를 전진시키지 않아 같은 page를 재검사�
 | `hashi.media.reconciliation.scan.duration` | mode, status | scan 실행 시간과 완료·상한·부분 실패 상태 |
 | `hashi.media.reconciliation.dispatch` | outcome=rejected | 실행 중이거나 종료 중인 중복 요청 거부 |
 
-횟수는 고유 파일 수나 절감 byte가 아니다. failure 증가, 여러 주기 동안 scan 완료가 없음, unknown의
-지속 증가를 알림 후보로 삼는다. 실제 alarm rule과 수신자는 dev 활성화 전에 별도로 정한다.
+횟수는 고유 파일 수나 절감 byte가 아니다. 아래 PromQL은 기본 6시간 주기의 두 배인 12시간 창을
+사용하는 최소 gate다. 실제 meter export 이름은 배포한 Prometheus endpoint에서 먼저 확인한다.
+
+- `sum(increase(hashi_media_reconciliation_failure_total[12h])) > 0`
+- `sum(increase(hashi_media_reconciliation_dispatch_total{outcome="rejected"}[12h])) > 0`
+- `sum(increase(hashi_media_reconciliation_scan_duration_seconds_count{status="completed"}[12h])) < 1`
+- `sum(increase(hashi_media_reconciliation_object_total{outcome="unknown"}[12h])) > 0`
+
+알람은 배포 변경서에 지정된 media 운영 당번에게 전달하고, 수신자가 정해지지 않았거나 test alarm을
+수신하지 못하면 `DELETE`로 전환하지 않는다. failure·unknown이면 해당 위치의 실행을 중지하고 DB/S3
+권한·versioning을 확인한다. 완료 부재·dispatch 거부이면 인스턴스별 실행 시간과 executor 종료 상태를
+확인한 뒤 `DRY_RUN`에서 재시도한다. key, version, asset ID는 알람 annotation이나 metric tag에 넣지 않는다.
 
 관련 기준: [이미지 계약](image-delivery-contract-v1.md),
 [asset 전체 정리](asset-cleanup-runbook.md), [AWS 인프라](../../infra/media/README.md).

@@ -44,14 +44,16 @@
 - 새 original bucket의 `media/originals/*`: prefix 조건을 둔 `ListBucketVersions`,
   해당 경로의 `DeleteObject`와 `DeleteObjectVersion`
 - 지정한 delivery bucket의 `media/renditions/*`: 같은 범위의 version 목록과 삭제
+- 두 bucket ARN의 `GetBucketVersioning`: 각 목록과 삭제 직전에 `Enabled` 상태인지 fail-closed 확인
 - worker role, legacy 경로, bucket 설정·ACL·공개 정책 변경과 Object Lock 보존 우회 권한은 추가하지 않음
 
 실행기는 DB에서 검증한 UUID로 두 asset prefix를 만들며 외부 입력의 bucket/key를 받지 않는다.
 IAM은 media 경로를 제한하고, 정상 이미지 보호와 보존 기간은 Spring의 DB 상태 재검증이 담당한다.
 IAM만으로 특정 asset의 삭제 가능 상태가 보장되는 것은 아니다.
 
-버전 목록에서 관측한 key와 version ID를 함께 삭제한다. 기존 비버전 delivery 객체의 리터럴
-`null` version과 delete marker도 포함한다. 일반 객체와 특정 버전의 삭제 권한은
+버전 목록에서 관측한 key와 version ID를 함께 삭제한다. 목록과 삭제 직전에 해당 bucket의 versioning이
+`Enabled`인지 확인하며 상태가 없거나 `Suspended`이면 어떤 파일도 새로 삭제하지 않는다. 기존 비버전
+delivery 객체의 리터럴 `null` version과 delete marker도 Enabled 상태에서만 포함한다. 일반 객체와 특정 버전의 삭제 권한은
 [AWS DeleteObjects 문서](https://docs.aws.amazon.com/AmazonS3/latest/API/API_DeleteObjects.html)를 따른다.
 **특정 version 삭제는 영구 삭제다. S3 versioning을 켜 두었다는 이유로 복구할 수 있다고 가정하지 않는다.**
 
@@ -98,6 +100,7 @@ dev에서는 `MEDIA_DEV_CLEANUP_ACCESS_ENABLED` repository variable을 SAM param
 
 1. 배포할 commit, 대상 환경, 두 bucket의 실제 범위와 EC2 role을 확인한다. original과 delivery는
    서로 다른 bucket이어야 한다. 테스트 결과만으로 실제 IAM·S3 동작이 검증됐다고 처리하지 않는다.
+   두 bucket 모두 versioning이 `Enabled`이고 상태 조회 권한이 있는지도 확인한다.
 2. migration과 Spring을 기본 비활성 상태로 배포한다. `CleanupAccessEnabled=false`,
    `AWS_MEDIA_CLEANUP_ENABLED=false`, `issuance_enabled=false`를 확인한다.
 3. 운영 담당자가 보존 기간, 업로드 만료 후 유예 시간, 처리량, 실패 알림 수신자를 확인한다.

@@ -84,6 +84,8 @@ for (const [name, change] of [
   ["bucket-wide deletion", (policy) => policy.replace("/media/renditions/*", "/*")],
   ["broad deletion action", (policy) => policy.replace("- s3:DeleteObjectVersion", "- s3:*")],
   ["missing version deletion", (policy) => policy.replace("              - s3:DeleteObjectVersion\n", "")],
+  ["missing versioning inspection", (policy) => policy.replace("              - s3:GetBucketVersioning\n", "")],
+  ["versioning mutation", (policy) => policy.replace("s3:GetBucketVersioning", "s3:PutBucketVersioning")],
   ["lock bypass", (policy) => policy.replace(
     "- s3:DeleteObject\n", "- s3:DeleteObject\n              - s3:BypassGovernanceRetention\n")],
   ["extra statement", (policy) => policy + "          - Sid: Unexpected\n            Effect: Allow\n"
