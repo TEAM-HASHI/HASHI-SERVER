@@ -136,7 +136,9 @@ transaction 밖에서 수행하며, 두 prefix가 비었음을 확인해야 DB�
   상태 보호가 없는 이전 버전으로 rollback하지 않는다.
 
 늦은 worker가 폐기 파일을 다시 쓰거나 DB에 없는 파일이 남는 문제는 별도 object-only
-reconciliation이 수렴시킨다. 전체 asset 정리만으로 이 문제가 해결됐다고 보고하지 않는다.
+reconciliation이 수렴시킨다. 실행 절차는
+[object reconciliation runbook](object-reconciliation-runbook.md)을 따른다. 전체 asset 정리만으로
+이 문제가 해결됐다고 보고하지 않는다.
 
 ## 지표와 알림
 

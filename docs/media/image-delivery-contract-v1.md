@@ -286,7 +286,8 @@ asset 전체 정리 실행은 기본 비활성이고 DRY_RUN으로 시작한다.
 업로드 만료 후 safety window를 명시해야 활성화할 수 있다. 기본 처리량은 프로세스당 한 실행에
 최대 50개 asset이며, 작업 중단 시 같은 purgeToken으로 재개한다. 설정·승인·실패 복구 절차는
 [asset cleanup runbook](asset-cleanup-runbook.md)을 따른다. 이 실행기는 DB 미참조 파일이나 실패한
-재변환 spec의 object-only reconciliation을 대체하지 않는다. 두 작업과 dev E2E 전에는 issuance를 켜지 않는다.
+재변환 spec의 [object-only reconciliation](object-reconciliation-runbook.md)을 대체하지 않는다.
+두 작업과 dev E2E 전에는 issuance를 켜지 않는다.
 
 ### 6.4 specVersion 활성화
 
