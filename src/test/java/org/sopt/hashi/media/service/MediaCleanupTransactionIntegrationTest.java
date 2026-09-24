@@ -59,6 +59,8 @@ import org.sopt.hashi.media.internal.cleanup.MediaCleanupStorageException;
 import org.sopt.hashi.media.internal.cleanup.MediaObjectPurgeResult;
 import org.sopt.hashi.media.internal.cleanup.MediaPurgeCandidateReader;
 import org.sopt.hashi.media.internal.cleanup.MediaPurgeCursor;
+import org.sopt.hashi.media.internal.reconciliation.MediaObjectLocation;
+import org.sopt.hashi.media.internal.reconciliation.MediaObjectVersion;
 import org.sopt.hashi.media.internal.queue.MediaTransformFailedResult;
 import org.sopt.hashi.media.internal.queue.MediaTransformFailureCode;
 import org.sopt.hashi.media.internal.queue.MediaTransformRequestPublisher;
@@ -121,6 +123,8 @@ class MediaCleanupTransactionIntegrationTest {
     private MediaCleanupScanService scanner;
     @Autowired
     private MediaCleanupTransactionService transactions;
+    @Autowired
+    private MediaReconciliationTransactionService reconciliationTransactions;
     @Autowired
     private MediaCleanupCandidateReader candidateReader;
     @Autowired
@@ -542,6 +546,44 @@ class MediaCleanupTransactionIntegrationTest {
         assertThat(transactions.resume(firstWork)).contains(firstWork);
         assertThat(purgeReader.findBatch(now().minusMinutes(15), MediaPurgeCursor.initial(), 10))
                 .extracting(value -> value.work()).containsExactly(secondWork);
+    }
+
+    @Test
+    void reconciliation은_실제_DB에서_canonical_원본과_manifest_spec을_보존한다() {
+        ImageAsset asset = fixture(ImageProcessingStatus.READY, false, true, Duration.ofDays(8));
+        Instant old = START.minus(Duration.ofDays(8));
+        Instant cutoff = START.minus(Duration.ofDays(7));
+
+        var canonical = new MediaObjectVersion(MediaObjectLocation.ORIGINAL,
+                asset.getOriginalObjectKey(), "source-v1", old);
+        var noncanonical = new MediaObjectVersion(MediaObjectLocation.ORIGINAL,
+                asset.getOriginalObjectKey(), "source-v0", old);
+        var historicalSpec = new MediaObjectVersion(MediaObjectLocation.RENDITION,
+                "media/renditions/%s/v1/review-detail/1080.webp".formatted(asset.getPublicId()), "delivery-v1", old);
+
+        assertThat(reconciliationTransactions.assess(canonical, cutoff))
+                .isEqualTo(MediaReconciliationDecision.PROTECT);
+        assertThat(reconciliationTransactions.assess(noncanonical, cutoff))
+                .isEqualTo(MediaReconciliationDecision.DELETE);
+        assertThat(reconciliationTransactions.assess(historicalSpec, cutoff))
+                .isEqualTo(MediaReconciliationDecision.PROTECT);
+    }
+
+    @Test
+    void reconciliation은_실패_spec과_PURGED_뒤_늦은_파일을_삭제_후보에_둔다() {
+        ImageAsset failed = fixture(ImageProcessingStatus.FAILED, true, false, Duration.ofDays(8));
+        Instant old = START.minus(Duration.ofDays(8));
+        Instant cutoff = START.minus(Duration.ofDays(7));
+        var partial = new MediaObjectVersion(MediaObjectLocation.RENDITION,
+                "media/renditions/%s/v1/review-preview/135.webp".formatted(failed.getPublicId()), "partial", old);
+
+        assertThat(reconciliationTransactions.assess(partial, cutoff))
+                .isEqualTo(MediaReconciliationDecision.DELETE);
+        assertThat(cleanup.clean(candidate(failed))).isEqualTo(MediaCleanupOutcome.PURGED);
+        var late = new MediaObjectVersion(MediaObjectLocation.RENDITION,
+                "media/renditions/%s/v1/review-detail/1080.webp".formatted(failed.getPublicId()), "late", old);
+        assertThat(reconciliationTransactions.assess(late, cutoff))
+                .isEqualTo(MediaReconciliationDecision.DELETE);
     }
 
     private Future<?> holdPurge(ImageAsset asset, CountDownLatch changed, CountDownLatch release) {

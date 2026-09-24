@@ -9,6 +9,8 @@ import org.springframework.data.repository.query.Param;
 
 public interface ImageRenditionRepository extends JpaRepository<ImageRendition, Long> {
 
+    boolean existsByImageAssetIdAndSpecVersion(Long imageAssetId, int specVersion);
+
     @Query("""
             select asset.publicId as assetId,
                    rendition.role as role,
