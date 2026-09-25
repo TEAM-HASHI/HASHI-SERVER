@@ -107,8 +107,29 @@ class ReviewRepositoryTest {
                 .containsExactly(lowerSameRating.getId(), highest.getId());
     }
 
+    @Test
+    void 수정과_삭제용_잠금_조회는_소유한_활성_리뷰만_반환한다() {
+        Review owned = saveReview(5, LocalDateTime.of(2026, 7, 1, 12, 0), 1L);
+        Review deleted = saveReview(4, LocalDateTime.of(2026, 7, 1, 13, 0), 1L);
+        deleted.softDelete();
+        reviewRepository.flush();
+        entityManager.clear();
+
+        assertThat(reviewRepository.findOwnedActiveForUpdate(owned.getId(), 1L))
+                .isPresent();
+        assertThat(reviewRepository.findOwnedActiveForUpdate(owned.getId(), 2L))
+                .isEmpty();
+        assertThat(reviewRepository.findOwnedActiveForUpdate(deleted.getId(), 1L))
+                .isEmpty();
+    }
+
     private Review saveReview(int rating, LocalDateTime createdAt) {
-        Review review = Review.create(nextReservationId++, RESTAURANT_ID, 1L, rating, "리뷰 내용입니다.");
+        return saveReview(rating, createdAt, 1L);
+    }
+
+    private Review saveReview(int rating, LocalDateTime createdAt, Long userId) {
+        Review review = Review.create(
+                nextReservationId++, RESTAURANT_ID, userId, rating, "리뷰 내용입니다.");
         entityManager.persistAndFlush(review);
         jdbcTemplate.update(
                 "update review set created_at = ?, updated_at = ? where id = ?",
