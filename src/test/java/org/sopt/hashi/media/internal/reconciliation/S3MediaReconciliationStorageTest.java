@@ -67,6 +67,68 @@ class S3MediaReconciliationStorageTest {
     }
 
     @Test
+    void 두번째_page가_truncated인데_next_marker가_없으면_initial_cursor로_돌아가지_않는다() {
+        MediaObjectVersionCursor secondPageCursor = new MediaObjectVersionCursor(KEY, "version-2");
+        ListObjectVersionsResponse first = ListObjectVersionsResponse.builder()
+                .versions(version(KEY, "version-2"))
+                .isTruncated(true)
+                .nextKeyMarker(secondPageCursor.keyMarker())
+                .nextVersionIdMarker(secondPageCursor.versionIdMarker())
+                .build();
+        ListObjectVersionsResponse brokenSecond = ListObjectVersionsResponse.builder()
+                .versions(version(KEY, "version-1"))
+                .isTruncated(true)
+                .build();
+        when(client.listObjectVersions(any(ListObjectVersionsRequest.class)))
+                .thenReturn(first, brokenSecond);
+
+        MediaObjectVersionPage firstPage = storage.listObjectVersions(
+                MediaObjectLocation.ORIGINAL, MediaObjectVersionCursor.initial(), 100);
+
+        assertThat(firstPage.nextCursor()).isEqualTo(secondPageCursor);
+        assertThatThrownBy(() -> storage.listObjectVersions(
+                MediaObjectLocation.ORIGINAL, firstPage.nextCursor(), 100))
+                .isInstanceOf(MediaReconciliationStorageException.class)
+                .extracting("reason")
+                .isEqualTo(MediaReconciliationStorageException.Reason.INVALID_STORAGE_RESPONSE);
+        verify(client, never()).deleteObject(any(DeleteObjectRequest.class));
+    }
+
+    @Test
+    void truncated_page의_next_version_marker가_없으면_부분_cursor로_진행하지_않는다() {
+        ListObjectVersionsResponse response = ListObjectVersionsResponse.builder()
+                .versions(version(KEY, "version-1"))
+                .isTruncated(true)
+                .nextKeyMarker(KEY)
+                .build();
+        when(client.listObjectVersions(any(ListObjectVersionsRequest.class))).thenReturn(response);
+
+        assertThatThrownBy(() -> storage.listObjectVersions(
+                MediaObjectLocation.ORIGINAL, MediaObjectVersionCursor.initial(), 100))
+                .isInstanceOf(MediaReconciliationStorageException.class)
+                .extracting("reason")
+                .isEqualTo(MediaReconciliationStorageException.Reason.INVALID_STORAGE_RESPONSE);
+        verify(client, never()).deleteObject(any(DeleteObjectRequest.class));
+    }
+
+    @Test
+    void truncated_page의_next_key_marker가_없으면_부분_cursor로_진행하지_않는다() {
+        ListObjectVersionsResponse response = ListObjectVersionsResponse.builder()
+                .versions(version(KEY, "version-1"))
+                .isTruncated(true)
+                .nextVersionIdMarker("version-2")
+                .build();
+        when(client.listObjectVersions(any(ListObjectVersionsRequest.class))).thenReturn(response);
+
+        assertThatThrownBy(() -> storage.listObjectVersions(
+                MediaObjectLocation.ORIGINAL, MediaObjectVersionCursor.initial(), 100))
+                .isInstanceOf(MediaReconciliationStorageException.class)
+                .extracting("reason")
+                .isEqualTo(MediaReconciliationStorageException.Reason.INVALID_STORAGE_RESPONSE);
+        verify(client, never()).deleteObject(any(DeleteObjectRequest.class));
+    }
+
+    @Test
     void 삭제는_목록에서_관측한_key와_version을_모두_명시한다() {
         MediaObjectVersion object = new MediaObjectVersion(
                 MediaObjectLocation.ORIGINAL, KEY, "version-1", MODIFIED);

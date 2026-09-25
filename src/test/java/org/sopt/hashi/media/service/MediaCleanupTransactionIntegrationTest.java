@@ -549,8 +549,9 @@ class MediaCleanupTransactionIntegrationTest {
     }
 
     @Test
-    void reconciliation은_실제_DB에서_canonical_원본과_manifest_spec을_보존한다() {
-        ImageAsset asset = fixture(ImageProcessingStatus.READY, false, true, Duration.ofDays(8));
+    void reconciliation은_실제_DB에서_canonical_원본과_active가_아닌_과거_manifest_spec을_보존한다() {
+        ImageAsset asset = upgradeToSpec2(
+                fixture(ImageProcessingStatus.READY, false, true, Duration.ofDays(8)));
         Instant old = START.minus(Duration.ofDays(8));
         Instant cutoff = START.minus(Duration.ofDays(7));
 
@@ -561,6 +562,12 @@ class MediaCleanupTransactionIntegrationTest {
         var historicalSpec = new MediaObjectVersion(MediaObjectLocation.RENDITION,
                 "media/renditions/%s/v1/review-detail/1080.webp".formatted(asset.getPublicId()), "delivery-v1", old);
 
+        assertThat(asset.getActiveSpecVersion()).isEqualTo(2);
+        assertThat(jdbc.queryForObject("""
+                SELECT COUNT(*)
+                FROM image_rendition
+                WHERE image_asset_id=? AND spec_version=1
+                """, Integer.class, asset.getId())).isEqualTo(1);
         assertThat(reconciliationTransactions.assess(canonical, cutoff))
                 .isEqualTo(MediaReconciliationDecision.PROTECT);
         assertThat(reconciliationTransactions.assess(noncanonical, cutoff))
@@ -623,6 +630,21 @@ class MediaCleanupTransactionIntegrationTest {
         jdbc.update("UPDATE image_asset SET updated_at=?, created_at=? WHERE id=?",
                 now().minus(age), now().minus(age), saved.getId());
         return reload(saved);
+    }
+
+    private ImageAsset upgradeToSpec2(ImageAsset asset) {
+        return transactionTemplate.execute(status -> {
+            ImageAsset managed = assets.findById(asset.getId()).orElseThrow();
+            UUID job = UUID.randomUUID();
+            String spec2Digest = "2".repeat(64);
+            managed.beginUpgradeProcessing(2, spec2Digest, job, now().minusDays(8));
+            managed.addRendition(job, 2, spec2Digest, ImageRole.REVIEW_PREVIEW, ImageFormat.WEBP,
+                    135, 135, 100,
+                    "media/renditions/" + managed.getPublicId() + "/v2/review-preview/135.webp");
+            managed.completeCurrentProcessing(job, 2, spec2Digest,
+                    "image/jpeg", 1024, 400, 400, CHECKSUM);
+            return assets.saveAndFlush(managed);
+        });
     }
 
     private ImageAsset reload(ImageAsset asset) {

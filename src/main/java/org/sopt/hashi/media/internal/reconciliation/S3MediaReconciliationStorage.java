@@ -128,6 +128,9 @@ public class S3MediaReconciliationStorage implements MediaReconciliationStorage 
 
         MediaObjectVersionCursor next = null;
         if (Boolean.TRUE.equals(response.isTruncated())) {
+            if (response.nextKeyMarker() == null || response.nextVersionIdMarker() == null) {
+                throw new MediaReconciliationStorageException(Reason.INVALID_STORAGE_RESPONSE);
+            }
             try {
                 next = new MediaObjectVersionCursor(response.nextKeyMarker(), response.nextVersionIdMarker());
             } catch (IllegalArgumentException exception) {
