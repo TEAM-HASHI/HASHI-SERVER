@@ -8,13 +8,16 @@ import java.time.LocalTime;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.Comparator;
 import java.util.Deque;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 import java.util.function.Function;
@@ -36,6 +39,9 @@ import org.sopt.hashi.restaurant.AdminRestaurantCommand.MenuCommand;
 import org.sopt.hashi.restaurant.AdminRestaurantInfo;
 import org.sopt.hashi.restaurant.AdminRestaurantInfo.AdminRestaurantBusinessHourInfo;
 import org.sopt.hashi.restaurant.AdminRestaurantInfo.AdminRestaurantMenuInfo;
+import org.sopt.hashi.restaurant.RestaurantDetailInfo;
+import org.sopt.hashi.restaurant.RestaurantDetailInfo.PriceRangeInfo;
+import org.sopt.hashi.restaurant.RestaurantDetailInfo.TodayBusinessHourInfo;
 import org.sopt.hashi.restaurant.RestaurantImageInfo;
 import org.sopt.hashi.restaurant.code.RestaurantErrorCode;
 import org.sopt.hashi.restaurant.domain.Restaurant;
@@ -317,6 +323,33 @@ public class RestaurantService {
                 menu.isMain(),
                 otherMenuCount
         );
+    }
+
+    /**
+     * 식당 상세(모듈 간 계약 {@link RestaurantDetailInfo}) 단건 — 삭제된 식당도 돌려준다(예약 상세 표시용).
+     * 목록 카드와 같은 항목(평점·리뷰 수·메뉴 이미지·오늘 영업시간·가격대)을 같은 계산으로 채운다.
+     */
+    public Optional<RestaurantDetailInfo> findDetailById(Long restaurantId) {
+        if (restaurantId == null) {
+            return Optional.empty();
+        }
+        return restaurantRepository.findByIdWithImages(restaurantId)
+                .map(restaurant -> toDetailInfos(List.of(restaurant)).getFirst());
+    }
+
+    /** 사용자 노출용 식당 상세 목록 — 삭제된 식당은 제외하고 요청 순서를 유지한다(매거진 연결 식당 등). */
+    public List<RestaurantDetailInfo> findActiveDetails(Collection<Long> restaurantIds) {
+        List<Long> ids = distinctIds(restaurantIds);
+        if (ids.isEmpty()) {
+            return List.of();
+        }
+        List<Restaurant> restaurants = restaurantRepository.findAllByIdInAndDeletedFalse(ids);
+        Map<Long, RestaurantDetailInfo> detailsById = toDetailInfos(restaurants).stream()
+                .collect(Collectors.toMap(RestaurantDetailInfo::id, Function.identity()));
+        return ids.stream()
+                .map(detailsById::get)
+                .filter(Objects::nonNull)
+                .toList();
     }
 
     /** 어드민 식당 등록 — 필수 값 형식 검증은 admin 요청 DTO가, 도메인 값 해석·저장은 여기가 담당한다. */
@@ -1298,6 +1331,75 @@ public class RestaurantService {
                 menu.getPriceCurrency() == null ? null : menu.getPriceCurrency().value(),
                 menu.getPriceAmount(),
                 menu.isMain());
+    }
+
+    // null·중복을 제거하되 요청 순서는 유지한다 — 호출 모듈의 노출 순서(displayOrder)를 그대로 따르기 위함
+    private List<Long> distinctIds(Collection<Long> restaurantIds) {
+        if (restaurantIds == null) {
+            return List.of();
+        }
+        return restaurantIds.stream()
+                .filter(Objects::nonNull)
+                .collect(Collectors.collectingAndThen(
+                        Collectors.toCollection(LinkedHashSet::new),
+                        List::copyOf
+                ));
+    }
+
+    // 오늘 영업시간은 목록 조회와 같은 일괄 쿼리로 한 번에 가져온다(삭제된 식당은 쿼리가 걸러 null이 된다)
+    private List<RestaurantDetailInfo> toDetailInfos(List<Restaurant> restaurants) {
+        LocalDate businessDate = LocalDate.now(japanClock);
+        Map<Long, RestaurantBusinessHour> businessHours = findBusinessHours(restaurants, businessDate.getDayOfWeek());
+        MediaProjection mediaProjection = loadRestaurantProjection(
+                restaurants, MediaImageRole.RESTAURANT_CARD, Integer.MAX_VALUE);
+        return restaurants.stream()
+                .map(restaurant -> toDetailInfo(
+                        restaurant, businessDate, businessHours.get(restaurant.getId()), mediaProjection))
+                .toList();
+    }
+
+    private RestaurantDetailInfo toDetailInfo(Restaurant restaurant, LocalDate businessDate,
+                                              RestaurantBusinessHour businessHour,
+                                              MediaProjection mediaProjection) {
+        return new RestaurantDetailInfo(
+                restaurant.getId(),
+                restaurant.getName(),
+                restaurant.getLocalName(),
+                restaurant.getAddress(),
+                restaurant.getArea(),
+                restaurant.getFoodCategory(),
+                toThumbnailReference(restaurant),
+                toImageUrls(
+                        orderedImages(restaurant, Integer.MAX_VALUE),
+                        MediaImageRole.RESTAURANT_CARD,
+                        mediaProjection),
+                restaurant.getRating(),
+                toTodayBusinessHourInfo(businessDate, businessHour),
+                new PriceRangeInfo(
+                        restaurant.getPriceCurrency().value(),
+                        toWholeAmount(restaurant.getMinPrice()),
+                        toWholeAmount(restaurant.getMaxPrice()))
+        );
+    }
+
+    // 대표 이미지는 전환기 참조 값으로만 넘기고, 파생본 선택은 받는 모듈이 맡는다
+    private ImageReference toThumbnailReference(Restaurant restaurant) {
+        return restaurant.getThumbnailImage()
+                .map(image -> new ImageReference(image.getImageAssetId(), resolveLegacyUrl(image.getFileKey())))
+                .orElse(null);
+    }
+
+    private TodayBusinessHourInfo toTodayBusinessHourInfo(LocalDate businessDate, RestaurantBusinessHour businessHour) {
+        if (businessHour == null) {
+            return null;
+        }
+        return new TodayBusinessHourInfo(
+                businessDate.toString(),
+                businessHour.getDayOfWeek().name(),
+                formatTime(businessHour.getOpenTime()),
+                formatTime(businessHour.getCloseTime()),
+                businessHour.isClosed()
+        );
     }
 
     private record RestaurantImageUpdatePlan(

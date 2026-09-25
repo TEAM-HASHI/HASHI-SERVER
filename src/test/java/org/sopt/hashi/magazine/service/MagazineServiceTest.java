@@ -21,9 +21,12 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.sopt.hashi.auth.CurrentUserProvider;
 import org.sopt.hashi.magazine.AdminMagazineCommand;
 import org.sopt.hashi.magazine.AdminMagazineCommand.ImageCommand;
 import org.sopt.hashi.magazine.domain.Magazine;
+import org.sopt.hashi.magazine.domain.MagazineMetaRepository;
+import org.sopt.hashi.magazine.domain.MagazineReactionRepository;
 import org.sopt.hashi.magazine.domain.MagazineRepository;
 import org.sopt.hashi.media.MediaAssetPurpose;
 import org.sopt.hashi.media.MediaAssetUse;
@@ -36,6 +39,7 @@ import org.sopt.hashi.media.MediaImageRole;
 import org.sopt.hashi.media.MediaImageStatus;
 import org.sopt.hashi.media.MediaPort;
 import org.sopt.hashi.media.code.MediaErrorCode;
+import org.sopt.hashi.restaurant.RestaurantPort;
 import org.sopt.hashi.shared.error.BusinessException;
 import org.sopt.hashi.shared.storage.FileStorage;
 import org.springframework.data.domain.PageRequest;
@@ -48,6 +52,18 @@ class MagazineServiceTest {
     private MagazineRepository magazineRepository;
 
     @Mock
+    private MagazineMetaRepository magazineMetaRepository;
+
+    @Mock
+    private MagazineReactionRepository magazineReactionRepository;
+
+    @Mock
+    private RestaurantPort restaurantPort;
+
+    @Mock
+    private CurrentUserProvider currentUserProvider;
+
+    @Mock
     private FileStorage fileStorage;
 
     @Mock
@@ -57,7 +73,9 @@ class MagazineServiceTest {
 
     @BeforeEach
     void setUp() {
-        magazineService = new MagazineService(magazineRepository, fileStorage, mediaPort);
+        magazineService = new MagazineService(
+                magazineRepository, magazineMetaRepository, magazineReactionRepository,
+                restaurantPort, currentUserProvider, fileStorage, mediaPort);
         lenient().when(fileStorage.resolveFileUrl(anyString()))
                 .thenAnswer(invocation -> "https://cdn.hashi.test/" + invocation.getArgument(0));
         lenient().when(magazineRepository.save(any(Magazine.class))).thenAnswer(invocation -> {

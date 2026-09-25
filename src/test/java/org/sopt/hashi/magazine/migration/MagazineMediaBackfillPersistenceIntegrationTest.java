@@ -109,6 +109,11 @@ class MagazineMediaBackfillPersistenceIntegrationTest {
     @BeforeEach
     void setUp() {
         jdbcTemplate.update("DELETE FROM magazine_media_backfill_checkpoint");
+        jdbcTemplate.update("DELETE FROM magazine_reaction");
+        jdbcTemplate.update("DELETE FROM magazine_restaurant");
+        jdbcTemplate.update("DELETE FROM magazine_hashtag");
+        jdbcTemplate.update("DELETE FROM magazine_card_news");
+        jdbcTemplate.update("DELETE FROM meta_magazine");
         jdbcTemplate.update("DELETE FROM magazine");
         jdbcTemplate.update("DELETE FROM image_rendition");
         jdbcTemplate.update("DELETE FROM image_asset");
