@@ -1,4 +1,4 @@
--- V26 is reserved by the magazine detail PR (#209).
+-- V26 adds restaurant place type; V27 creates the magazine detail tables.
 ALTER TABLE image_asset
     DROP CHECK ck_image_asset_purpose,
     ADD CONSTRAINT ck_image_asset_purpose CHECK (purpose IN (

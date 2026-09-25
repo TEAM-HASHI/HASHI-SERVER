@@ -114,6 +114,7 @@ class RestaurantImageMediaTest {
         return Restaurant.create(
                 "이미지 식당", "image restaurant", "소개", "상세 설명",
                 "도쿄도", "도쿄", RestaurantGenre.SUSHI, "초밥",
+                RestaurantPlaceType.RESTAURANT,
                 PriceCurrency.JPY, BigDecimal.valueOf(1_000), BigDecimal.valueOf(2_000));
     }
 }

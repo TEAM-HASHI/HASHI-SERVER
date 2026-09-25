@@ -34,9 +34,12 @@ class RestaurantRequestValidationTest {
                 "도쿄",
                 "sushi",
                 "sushi",
+                "restaurant",
                 "JPY",
                 BigDecimal.valueOf(1000),
                 BigDecimal.valueOf(3000),
+                null,
+                null,
                 null,
                 List.of(),
                 null,
@@ -65,7 +68,10 @@ class RestaurantRequestValidationTest {
                 null,
                 null,
                 null,
+                null,
                 List.of(),
+                null,
+                null,
                 null,
                 List.of(),
                 null,
@@ -97,6 +103,9 @@ class RestaurantRequestValidationTest {
                 null,
                 null,
                 null,
+                null,
+                null,
+                null,
                 null
         );
 
@@ -110,6 +119,9 @@ class RestaurantRequestValidationTest {
     @Test
     void 식당_수정의_기존_메뉴_ID는_양수여야_한다() {
         UpdateRestaurantRequest request = new UpdateRestaurantRequest(
+                null,
+                null,
+                null,
                 null,
                 null,
                 null,
@@ -210,16 +222,52 @@ class RestaurantRequestValidationTest {
                 .containsExactly("images[0].referenceValid");
     }
 
+    @Test
+    void 식당_등록에는_음식점_분류가_필요하다() {
+        CreateRestaurantRequest missing = createRequest(null, List.of("restaurants/1.jpg"), null, List.of());
+        CreateRestaurantRequest blank = createRequest(" ", List.of("restaurants/1.jpg"), null, List.of());
+
+        assertThat(validator.validate(missing))
+                .extracting(violation -> violation.getPropertyPath().toString())
+                .containsExactly("placeType");
+        assertThat(validator.validate(blank))
+                .extracting(violation -> violation.getPropertyPath().toString())
+                .containsExactly("placeType");
+    }
+
+    @Test
+    void 식당_수정에서_음식점_분류를_보내면_공백일_수_없다() {
+        UpdateRestaurantRequest request = new UpdateRestaurantRequest(
+                null, null, null, null, null, null, null, null, " ", null, null, null,
+                null, null, null, null, null, null, null
+        );
+
+        Set<ConstraintViolation<UpdateRestaurantRequest>> violations = validator.validate(request);
+
+        assertThat(violations)
+                .extracting(violation -> violation.getPropertyPath().toString())
+                .containsExactly("placeType");
+    }
+
     private CreateRestaurantRequest createRequest(
+            List<String> imageKeys,
+            List<UUID> imageAssetIds,
+            List<CreateRestaurantRequest.MenuRequest> menus
+    ) {
+        return createRequest("restaurant", imageKeys, imageAssetIds, menus);
+    }
+
+    private CreateRestaurantRequest createRequest(
+            String placeType,
             List<String> imageKeys,
             List<UUID> imageAssetIds,
             List<CreateRestaurantRequest.MenuRequest> menus
     ) {
         return new CreateRestaurantRequest(
                 "하시 스시", "Hashi Sushi", "한 줄 소개", "상세 설명",
-                "도쿄도 시부야구", "도쿄", "sushi", "sushi", "JPY",
+                "도쿄도 시부야구", "도쿄", "sushi", "sushi", placeType, "JPY",
                 BigDecimal.valueOf(1_000), BigDecimal.valueOf(3_000),
-                imageKeys, imageAssetIds, menus, List.of("스시"), List.of(),
+                imageKeys, imageAssetIds, null, menus, List.of("스시"), List.of(),
                 createBusinessHours()
         );
     }
@@ -229,8 +277,8 @@ class RestaurantRequestValidationTest {
             List<UpdateRestaurantRequest.ImageRequest> images
     ) {
         return new UpdateRestaurantRequest(
-                null, null, null, null, null, null, null, null, null, null, null,
-                imageKeys, images, null, null, null, null
+                null, null, null, null, null, null, null, null, null, null, null, null,
+                imageKeys, images, null, null, null, null, null
         );
     }
 

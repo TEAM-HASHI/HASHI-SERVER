@@ -48,6 +48,7 @@ public class AdminRestaurantController {
               "area": "이케부쿠로",
               "genre": "grill",
               "foodCategory": "야키니쿠",
+              "placeType": "restaurant",
               "priceCurrency": "JPY",
               "minPrice": 3000,
               "maxPrice": 8000,
@@ -101,6 +102,7 @@ public class AdminRestaurantController {
             {
               "name": "야키니쿠 리키마루 이케부쿠로 본점",
               "summary": "리뉴얼한 이케부쿠로 야키니쿠 맛집",
+              "placeType": "cafe",
               "menus": [
                 {
                   "menuId": 10,

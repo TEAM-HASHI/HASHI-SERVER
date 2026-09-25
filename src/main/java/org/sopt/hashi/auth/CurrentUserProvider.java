@@ -9,5 +9,6 @@ public interface CurrentUserProvider {
     /** 현재 로그인 사용자 id. 인증되지 않았으면 BusinessException(UNAUTHORIZED)을 던진다. */
     Long currentUserId();
 
-    boolean isAuthenticated();
+    /** 정식 로그인 회원(ROLE_USER)인지 — 익명·온보딩·어드민은 false. */
+    boolean isAuthenticatedUser();
 }

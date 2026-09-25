@@ -32,9 +32,11 @@ public class SwaggerAuthorizationCustomizer implements GlobalOpenApiCustomizer {
         }));
     }
 
-    /** SecurityConfig 매처와 같은 판정 — auth/me는 공개 경로 하위지만 인증이 필요해 먼저 본다. */
+    /** SecurityConfig 매처와 같은 판정 — auth/me·매거진 좋아요는 공개 경로 하위지만 인증이 필요해 먼저 본다. */
     private boolean requiresAuthentication(String path) {
-        if (pathMatcher.match(SecurityConfig.AUTH_ME_PATH, path)) {
+        boolean isAuthenticatedUnderPublicPath = pathMatcher.match(SecurityConfig.AUTH_ME_PATH, path)
+                || pathMatcher.match(SecurityConfig.MAGAZINE_LIKE_PATH, path);
+        if (isAuthenticatedUnderPublicPath) {
             return true;
         }
         return Arrays.stream(SecurityConfig.PUBLIC_PATHS)

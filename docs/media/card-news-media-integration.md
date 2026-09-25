@@ -33,8 +33,8 @@ v1이 활성화된 동안에는 카드뉴스 purpose를 발급하지 않는다. 
 `MediaImageRequest(assetId, MediaImageRole.MAGAZINE_CARD_NEWS)` 목록을 한 번에 조회한다.
 카드뉴스 ID와 표시 순서는 매거진 응답에 두고, 이미지 필드는 반환된 `MediaImage`를 사용한다.
 
-DB 변경은 V27이며, 열려 있는 매거진 상세 PR #209의 V26과 번호를 분리했다.
-V27이 먼저 적용된 환경에 V26을 뒤늦게 추가하지 않도록 두 PR의 병합·배포 순서를 맞춘다.
+DB 변경은 V28이다. 이미 병합된 식당 분류 V26과 매거진 상세 V27을 변경하지 않고,
+그다음 버전에서 카드뉴스 purpose와 role을 추가한다.
 
 ## 매거진 도메인 연결
 

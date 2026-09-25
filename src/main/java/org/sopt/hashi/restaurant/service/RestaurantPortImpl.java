@@ -21,6 +21,10 @@ import org.sopt.hashi.shared.storage.FileStorage;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
 
+/**
+ * {@link RestaurantPort} 구현 — 요약(id·name·address·대표 이미지)은 여기서 바로 조립하고,
+ * 상세처럼 목록 API와 같은 계산(오늘 영업시간·메뉴 이미지·가격대)이 필요한 것은 {@link RestaurantService}에 위임한다.
+ */
 @Component
 @Transactional(readOnly = true)
 class RestaurantPortImpl implements RestaurantPort {
@@ -78,11 +82,12 @@ class RestaurantPortImpl implements RestaurantPort {
 
     @Override
     public Optional<RestaurantDetailInfo> findDetailById(Long restaurantId) {
-        if (restaurantId == null) {
-            return Optional.empty();
-        }
-        return restaurantRepository.findByIdWithImages(restaurantId)
-                .map(this::toDetailInfo);
+        return restaurantService.findDetailById(restaurantId);
+    }
+
+    @Override
+    public List<RestaurantDetailInfo> findActiveDetails(Collection<Long> restaurantIds) {
+        return restaurantService.findActiveDetails(restaurantIds);
     }
 
     @Override
@@ -123,16 +128,6 @@ class RestaurantPortImpl implements RestaurantPort {
         return new RestaurantInfo(
                 restaurant.getId(),
                 restaurant.getName(),
-                restaurant.getAddress(),
-                toThumbnailReference(restaurant)
-        );
-    }
-
-    private RestaurantDetailInfo toDetailInfo(Restaurant restaurant) {
-        return new RestaurantDetailInfo(
-                restaurant.getId(),
-                restaurant.getName(),
-                restaurant.getLocalName(),
                 restaurant.getAddress(),
                 toThumbnailReference(restaurant)
         );

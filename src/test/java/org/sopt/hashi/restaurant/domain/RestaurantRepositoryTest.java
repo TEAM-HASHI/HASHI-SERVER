@@ -282,6 +282,7 @@ class RestaurantRepositoryTest {
                 "도쿄",
                 RestaurantGenre.SUSHI,
                 "초밥",
+                RestaurantPlaceType.RESTAURANT,
                 PriceCurrency.JPY,
                 BigDecimal.valueOf(1_000),
                 BigDecimal.valueOf(3_000)

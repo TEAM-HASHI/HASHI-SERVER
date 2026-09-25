@@ -17,10 +17,12 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.sopt.hashi.media.ImageReference;
 import org.sopt.hashi.restaurant.RestaurantDetailInfo;
+import org.sopt.hashi.restaurant.RestaurantDetailInfo.PriceRangeInfo;
 import org.sopt.hashi.restaurant.RestaurantInfo;
 import org.sopt.hashi.restaurant.domain.PriceCurrency;
 import org.sopt.hashi.restaurant.domain.Restaurant;
 import org.sopt.hashi.restaurant.domain.RestaurantGenre;
+import org.sopt.hashi.restaurant.domain.RestaurantPlaceType;
 import org.sopt.hashi.restaurant.domain.RestaurantImage;
 import org.sopt.hashi.restaurant.domain.RestaurantRepository;
 import org.sopt.hashi.shared.storage.FileStorage;
@@ -95,21 +97,41 @@ class RestaurantPortImplTest {
     }
 
     @Test
-    void 식당_id로_식당_상세를_조회한다() {
-        Restaurant restaurant = createRestaurant(1L);
-        given(restaurantRepository.findByIdWithImages(1L)).willReturn(Optional.of(restaurant));
-        given(fileStorage.resolveFileUrl("restaurants/1/thumbnail.jpg"))
-                .willReturn("https://cdn.example.com/restaurants/1/thumbnail.jpg");
+    void 식당_상세_단건_조회는_service에_위임한다() {
+        RestaurantDetailInfo detail = detail(1L);
+        given(restaurantService.findDetailById(1L)).willReturn(Optional.of(detail));
 
         Optional<RestaurantDetailInfo> result = restaurantPort.findDetailById(1L);
 
-        assertThat(result).contains(new RestaurantDetailInfo(
-                1L,
+        assertThat(result).contains(detail);
+        verify(restaurantService).findDetailById(1L);
+    }
+
+    @Test
+    void 사용자_노출용_식당_상세_목록_조회는_service에_위임한다() {
+        List<Long> ids = List.of(2L, 1L);
+        given(restaurantService.findActiveDetails(ids)).willReturn(List.of(detail(2L), detail(1L)));
+
+        List<RestaurantDetailInfo> result = restaurantPort.findActiveDetails(ids);
+
+        assertThat(result).extracting(RestaurantDetailInfo::id).containsExactly(2L, 1L);
+        verify(restaurantService).findActiveDetails(ids);
+    }
+
+    private RestaurantDetailInfo detail(Long id) {
+        return new RestaurantDetailInfo(
+                id,
                 "히마와리 스시",
                 "Himawari Sushi",
                 "도쿄도 신주쿠구",
-                ImageReference.legacy("https://cdn.example.com/restaurants/1/thumbnail.jpg")
-        ));
+                "도쿄",
+                "초밥",
+                ImageReference.legacy("https://cdn.example.com/restaurants/%d/thumbnail.jpg".formatted(id)),
+                List.of("https://cdn.example.com/restaurants/%d/thumbnail.jpg".formatted(id)),
+                BigDecimal.ZERO.setScale(1),
+                null,
+                new PriceRangeInfo("JPY", 1000L, 3000L)
+        );
     }
 
     @Test
@@ -167,6 +189,7 @@ class RestaurantPortImplTest {
                 "도쿄",
                 RestaurantGenre.SUSHI,
                 "초밥",
+                RestaurantPlaceType.RESTAURANT,
                 PriceCurrency.JPY,
                 BigDecimal.valueOf(1000),
                 BigDecimal.valueOf(3000)

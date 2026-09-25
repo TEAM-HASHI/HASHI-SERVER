@@ -10,7 +10,8 @@ import java.util.UUID;
  * 어드민 식당 등록·수정 커맨드 — 진입점(admin)이 {@link RestaurantPort}로 넘기는 계약.
  * 등록 시 필수 값 검증은 admin 요청 DTO(Bean Validation)가 담당하고, 수정(PATCH) 시 null 필드는
  * 변경하지 않는다. genre·curationTypes는 사용자 API와 같은 소문자 케밥 값("sushi", "sns-hot")으로 받아
- * restaurant가 해석한다(지원하지 않는 값이면 RESTAURANT-001/005).
+ * restaurant가 해석한다(지원하지 않는 값이면 RESTAURANT-001/005). placeType(음식점 분류, #211)은
+ * "restaurant"·"cafe"·"bar"로 받으며 등록 시 필수다(지원하지 않는 값이면 RESTAURANT-010).
  * 컬렉션은 전체 교체 의미다. 수정에서 null이면 유지하며, imageKeys·hashtags는 최소 1개를 유지해야 한다.
  * businessHours는 제공 시 7개 요일을 중복 없이 모두 포함해야 한다(위반 시 RESTAURANT-006).
  * 이미지 키는 업로드 완료된 S3 object key다. 신규 media 식당 이미지는 등록에서
@@ -26,6 +27,7 @@ public record AdminRestaurantCommand(
         String area,
         String genre,
         String foodCategory,
+        String placeType,
         String priceCurrency,
         BigDecimal minPrice,
         BigDecimal maxPrice,
@@ -36,31 +38,6 @@ public record AdminRestaurantCommand(
         List<String> hashtags,
         List<String> curationTypes,
         List<BusinessHourCommand> businessHours) {
-
-    /** legacy 진입점과 개발 데이터 호출을 신규 필드 활성화 전까지 호환한다. */
-    public AdminRestaurantCommand(
-            String name,
-            String localName,
-            String summary,
-            String description,
-            String address,
-            String area,
-            String genre,
-            String foodCategory,
-            String priceCurrency,
-            BigDecimal minPrice,
-            BigDecimal maxPrice,
-            List<String> imageKeys,
-            List<MenuCommand> menus,
-            List<String> hashtags,
-            List<String> curationTypes,
-            List<BusinessHourCommand> businessHours
-    ) {
-        this(
-                name, localName, summary, description, address, area, genre, foodCategory,
-                priceCurrency, minPrice, maxPrice, imageKeys, null, null, menus, hashtags,
-                curationTypes, businessHours);
-    }
 
     /** 수정 collection의 유지 association 또는 신규 asset. 배열 위치가 최종 순서다. */
     public record ImageCommand(Long restaurantImageId, UUID imageAssetId) {
