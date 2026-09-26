@@ -137,12 +137,13 @@ public class LocationJobTransactions {
                              String code, LocalDateTime now) {
         boolean retryable = retries.canRetry(kind);
         boolean exhausted = job.getAttempt() >= properties.maxAttempts();
+        LocalDateTime next = retryable ? now.plus(retries.delay(kind, job.getAttempt())) : null;
+        // Provider quota applies to all jobs even when this job has no automatic attempts left.
+        if (kind == FailureKind.QUOTA_EXCEEDED) {
+            budgets.findControlForUpdate().ifPresent(budget -> budget.blockUntil(next));
+        }
         // Cancellation is a resumable interruption. The next claim still enforces the durable attempt cap.
         if (retryable && (!exhausted || kind == FailureKind.CANCELLED)) {
-            LocalDateTime next = now.plus(retries.delay(kind, job.getAttempt()));
-            if (kind == FailureKind.QUOTA_EXCEEDED) {
-                budgets.findControlForUpdate().ifPresent(budget -> budget.blockUntil(next));
-            }
             restaurant.deferLocation(job.getAddressRevision(), job.getRequestId(), next, at(now));
             job.defer(code, next, now);
         } else {

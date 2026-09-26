@@ -20,6 +20,7 @@ import org.sopt.hashi.restaurant.domain.RestaurantImage;
 import org.sopt.hashi.restaurant.domain.RestaurantRepository;
 import org.sopt.hashi.shared.storage.FileStorage;
 import org.springframework.stereotype.Component;
+import org.springframework.transaction.annotation.Isolation;
 import org.springframework.transaction.annotation.Transactional;
 
 /**
@@ -110,19 +111,19 @@ class RestaurantPortImpl implements RestaurantPort {
     }
 
     @Override
-    @Transactional
+    @Transactional(isolation = Isolation.READ_COMMITTED)
     public AdminRestaurantInfo createByAdmin(AdminRestaurantCommand command) {
         return restaurantService.createByAdmin(command);
     }
 
     @Override
-    @Transactional
+    @Transactional(isolation = Isolation.READ_COMMITTED)
     public AdminRestaurantInfo updateByAdmin(Long restaurantId, AdminRestaurantCommand command) {
         return restaurantService.updateByAdmin(restaurantId, command);
     }
 
     @Override
-    @Transactional
+    @Transactional(isolation = Isolation.READ_COMMITTED)
     public void deleteByAdmin(Long restaurantId) {
         restaurantService.deleteByAdmin(restaurantId);
     }
@@ -133,7 +134,7 @@ class RestaurantPortImpl implements RestaurantPort {
     }
 
     @Override
-    @Transactional
+    @Transactional(isolation = Isolation.READ_COMMITTED)
     public RestaurantLocationInfo retryLocationByAdmin(Long restaurantId, long expectedAddressRevision) {
         return locationService.retry(restaurantId, expectedAddressRevision);
     }

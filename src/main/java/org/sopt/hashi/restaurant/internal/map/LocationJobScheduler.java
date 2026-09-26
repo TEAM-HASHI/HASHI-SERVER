@@ -17,7 +17,8 @@ public class LocationJobScheduler {
         this.worker = worker;
     }
 
-    @Scheduled(fixedDelayString = "${hashi.map.location-job.poll-delay:5000}")
+    @Scheduled(fixedDelayString = "${hashi.map.location-job.poll-delay:5000}",
+            scheduler = LocationJobConfiguration.SCHEDULER)
     public void poll() {
         try {
             worker.runOnce();
