@@ -33,6 +33,9 @@ import org.sopt.hashi.media.MediaImageRole;
 import org.sopt.hashi.media.MediaImageSelection;
 import org.sopt.hashi.media.MediaPort;
 import org.sopt.hashi.restaurant.AdminRestaurantCommand;
+import org.sopt.hashi.restaurant.RestaurantMapInfo;
+import org.sopt.hashi.restaurant.domain.RestaurantMapCandidate;
+import org.sopt.hashi.restaurant.dto.RestaurantMapPageResponse.MapCardResponse;
 import org.sopt.hashi.restaurant.AdminRestaurantCommand.BusinessHourCommand;
 import org.sopt.hashi.restaurant.AdminRestaurantCommand.ImageCommand;
 import org.sopt.hashi.restaurant.AdminRestaurantCommand.MenuCommand;
@@ -79,6 +82,7 @@ import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Sort;
 import org.springframework.data.jpa.domain.Specification;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Isolation;
 import org.springframework.transaction.annotation.Transactional;
 
 @Slf4j
@@ -110,17 +114,20 @@ public class RestaurantService {
     private final FileStorage fileStorage;
     private final MediaPort mediaPort;
     private final Clock japanClock;
+    private final RestaurantLocationService locationService;
 
     public RestaurantService(
             RestaurantRepository restaurantRepository,
             FileStorage fileStorage,
             MediaPort mediaPort,
-            @Qualifier("japanClock") Clock japanClock
+            @Qualifier("japanClock") Clock japanClock,
+            RestaurantLocationService locationService
     ) {
         this.restaurantRepository = restaurantRepository;
         this.fileStorage = fileStorage;
         this.mediaPort = mediaPort;
         this.japanClock = japanClock;
+        this.locationService = locationService;
     }
 
     public RestaurantListResponse getRestaurants(
@@ -173,6 +180,27 @@ public class RestaurantService {
                 nextCursor,
                 hasNext
         );
+    }
+
+    /** 지도 페이지도 기존 카드 변환을 공유하되 순위 값은 최초 세션 값을 사용한다. */
+    public List<MapCardResponse> findMapCards(List<RestaurantMapCandidate> candidates,
+                                            Map<Long, RestaurantMapInfo> mapInfos) {
+        if (candidates.isEmpty()) {
+            return List.of();
+        }
+        List<Restaurant> restaurants = restaurantRepository.findAllByIdInAndDeletedFalse(
+                candidates.stream().map(RestaurantMapCandidate::restaurantId).toList());
+        var byId = restaurants.stream().collect(Collectors.toMap(Restaurant::getId, Function.identity()));
+        LocalDate businessDate = LocalDate.now(japanClock);
+        var hours = findBusinessHours(restaurants, businessDate.getDayOfWeek());
+        var media = loadRestaurantProjection(restaurants, MediaImageRole.RESTAURANT_CARD, 3);
+        return candidates.stream().map(candidate -> {
+            Restaurant restaurant = byId.get(candidate.restaurantId());
+            return MapCardResponse.from(toSummaryResponse(restaurant, businessDate, hours.get(restaurant.getId()), media),
+                    candidate, restaurant.getPlaceType().value(), new PriceRangeResponse(
+                            restaurant.getPriceCurrency().value(), toWholeAmount(restaurant.getMinPrice()),
+                            toWholeAmount(restaurant.getMaxPrice())), mapInfos.get(restaurant.getId()).location());
+        }).toList();
     }
 
     public RestaurantSearchSuggestionResponse getSearchSuggestions(String keyword, Integer size) {
@@ -353,7 +381,7 @@ public class RestaurantService {
     }
 
     /** 어드민 식당 등록 — 필수 값 형식 검증은 admin 요청 DTO가, 도메인 값 해석·저장은 여기가 담당한다. */
-    @Transactional
+    @Transactional(isolation = Isolation.READ_COMMITTED)
     public AdminRestaurantInfo createByAdmin(AdminRestaurantCommand command) {
         validateRequiredForCreate(command);
 
@@ -395,6 +423,7 @@ public class RestaurantService {
 
         reconcileMediaBindings(claims, List.of());
         Restaurant saved = restaurantRepository.save(restaurant);
+        locationService.enqueue(saved);
         restaurantRepository.flush();
         // 생성된 id는 응답 body에만 있어 로그로 남겨야 추적 가능하다 (adminId는 MDC)
         log.info("어드민 식당 등록. restaurantId={}", saved.getId());
@@ -402,7 +431,7 @@ public class RestaurantService {
     }
 
     /** 어드민 식당 수정 — 부분 수정(PATCH). null 필드는 유지하고, 컬렉션은 전체 교체한다. */
-    @Transactional
+    @Transactional(isolation = Isolation.READ_COMMITTED)
     public AdminRestaurantInfo updateByAdmin(Long restaurantId, AdminRestaurantCommand command) {
         validateImageFieldsForUpdate(command);
         validateNonBlankIfPresent(command.localName());
@@ -414,6 +443,8 @@ public class RestaurantService {
         validateNonEmptyIfPresent(command.hashtags());
         validateExclusiveImageCollections(command.imageKeys(), command.images());
         Restaurant restaurant = findRestaurantForAdminUpdate(restaurantId);
+
+        boolean addressChanged = command.address() != null && !command.address().equals(restaurant.getAddress());
 
         RestaurantGenre genre = command.genre() == null ? null : toGenre(command.genre());
         RestaurantPlaceType placeType = command.placeType() == null ? null : toPlaceType(command.placeType());
@@ -456,6 +487,10 @@ public class RestaurantService {
                 command.minPrice(),
                 command.maxPrice());
 
+        if (addressChanged && !restaurant.isDeleted()) {
+            locationService.enqueue(restaurant);
+        }
+
         applyImageUpdate(restaurant, imagePlan);
         applyMenuUpdate(restaurant, menuPlan);
         if (command.hashtags() != null) {
@@ -473,10 +508,11 @@ public class RestaurantService {
     }
 
     /** 어드민 식당 삭제 — soft delete(deleted=true). 예약·리뷰가 참조하는 데이터는 보존한다. */
-    @Transactional
+    @Transactional(isolation = Isolation.READ_COMMITTED)
     public void deleteByAdmin(Long restaurantId) {
         Restaurant restaurant = findRestaurantForAdminUpdate(restaurantId);
         restaurant.softDelete();
+        locationService.cancel(restaurant);
         // 노출 종료 전이 — 예약·리뷰가 계속 참조하므로 언제 내려갔는지 기록이 필요하다 (adminId는 MDC)
         log.info("어드민 식당 삭제(soft). restaurantId={}", restaurantId);
     }
@@ -1303,7 +1339,9 @@ public class RestaurantService {
                         .sorted(Comparator.comparing(hour -> hour.getDayOfWeek().getValue()))
                         .map(this::toAdminBusinessHourInfo)
                         .toList(),
-                restaurant.getCreatedAt());
+                restaurant.getCreatedAt(),
+                restaurant.getLocation() == null ? "UNRESOLVED" : restaurant.getLocation().getStatus().name(),
+                restaurant.getLocation() == null ? 0 : restaurant.getLocation().getAddressRevision());
     }
 
     private AdminRestaurantBusinessHourInfo toAdminBusinessHourInfo(RestaurantBusinessHour businessHour) {

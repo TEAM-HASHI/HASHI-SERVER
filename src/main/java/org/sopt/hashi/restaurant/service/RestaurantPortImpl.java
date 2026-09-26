@@ -13,12 +13,15 @@ import org.sopt.hashi.restaurant.AdminRestaurantCommand;
 import org.sopt.hashi.restaurant.AdminRestaurantInfo;
 import org.sopt.hashi.restaurant.RestaurantDetailInfo;
 import org.sopt.hashi.restaurant.RestaurantInfo;
+import org.sopt.hashi.restaurant.RestaurantMapInfo;
 import org.sopt.hashi.restaurant.RestaurantPort;
+import org.sopt.hashi.restaurant.RestaurantLocationInfo;
 import org.sopt.hashi.restaurant.domain.Restaurant;
 import org.sopt.hashi.restaurant.domain.RestaurantImage;
 import org.sopt.hashi.restaurant.domain.RestaurantRepository;
 import org.sopt.hashi.shared.storage.FileStorage;
 import org.springframework.stereotype.Component;
+import org.springframework.transaction.annotation.Isolation;
 import org.springframework.transaction.annotation.Transactional;
 
 /**
@@ -32,12 +35,17 @@ class RestaurantPortImpl implements RestaurantPort {
     private final RestaurantRepository restaurantRepository;
     private final RestaurantService restaurantService;
     private final FileStorage fileStorage;
+    private final RestaurantLocationService locationService;
+    private final RestaurantMapService restaurantMapService;
 
     RestaurantPortImpl(RestaurantRepository restaurantRepository, RestaurantService restaurantService,
-                       FileStorage fileStorage) {
+                       FileStorage fileStorage, RestaurantLocationService locationService,
+                       RestaurantMapService restaurantMapService) {
         this.restaurantRepository = restaurantRepository;
         this.restaurantService = restaurantService;
         this.fileStorage = fileStorage;
+        this.locationService = locationService;
+        this.restaurantMapService = restaurantMapService;
     }
 
     @Override
@@ -91,6 +99,11 @@ class RestaurantPortImpl implements RestaurantPort {
     }
 
     @Override
+    public List<RestaurantMapInfo> findActiveMapInfos(Collection<Long> restaurantIds) {
+        return restaurantMapService.findActiveMapInfos(restaurantIds);
+    }
+
+    @Override
     @Transactional
     public void increaseReviewStatistics(Long restaurantId, int rating) {
         if (restaurantRepository.increaseReviewStatistics(restaurantId, rating) == 0) {
@@ -107,21 +120,32 @@ class RestaurantPortImpl implements RestaurantPort {
     }
 
     @Override
-    @Transactional
+    @Transactional(isolation = Isolation.READ_COMMITTED)
     public AdminRestaurantInfo createByAdmin(AdminRestaurantCommand command) {
         return restaurantService.createByAdmin(command);
     }
 
     @Override
-    @Transactional
+    @Transactional(isolation = Isolation.READ_COMMITTED)
     public AdminRestaurantInfo updateByAdmin(Long restaurantId, AdminRestaurantCommand command) {
         return restaurantService.updateByAdmin(restaurantId, command);
     }
 
     @Override
-    @Transactional
+    @Transactional(isolation = Isolation.READ_COMMITTED)
     public void deleteByAdmin(Long restaurantId) {
         restaurantService.deleteByAdmin(restaurantId);
+    }
+
+    @Override
+    public RestaurantLocationInfo getLocationByAdmin(Long restaurantId) {
+        return locationService.get(restaurantId);
+    }
+
+    @Override
+    @Transactional(isolation = Isolation.READ_COMMITTED)
+    public RestaurantLocationInfo retryLocationByAdmin(Long restaurantId, long expectedAddressRevision) {
+        return locationService.retry(restaurantId, expectedAddressRevision);
     }
 
     private RestaurantInfo toInfo(Restaurant restaurant) {

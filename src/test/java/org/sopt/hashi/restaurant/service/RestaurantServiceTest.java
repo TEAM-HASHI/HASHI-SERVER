@@ -88,8 +88,11 @@ class RestaurantServiceTest {
     @Mock
     private MediaPort mediaPort;
 
+    @Mock
+    private RestaurantLocationService locationService;
+
     private RestaurantService createRestaurantService() {
-        return new RestaurantService(restaurantRepository, fileStorage, mediaPort, JAPAN_CLOCK);
+        return new RestaurantService(restaurantRepository, fileStorage, mediaPort, JAPAN_CLOCK, locationService);
     }
 
     @Test

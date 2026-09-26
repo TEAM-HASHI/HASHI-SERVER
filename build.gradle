@@ -26,6 +26,8 @@ ext {
 dependencies {
     // web / docs
     implementation 'org.springframework.boot:spring-boot-starter-web'
+    // Geocoding: RestClient transport with explicit retry/redirect disabling (Boot-managed version).
+    implementation 'org.apache.httpcomponents.client5:httpclient5'
     implementation 'org.springframework.boot:spring-boot-starter-actuator'
     runtimeOnly 'io.micrometer:micrometer-registry-prometheus'
     // 로그 JSON 인코딩(Loki 수집용) — logback-spring.xml에서 사용
@@ -94,6 +96,7 @@ dependencyManagement {
 
 tasks.named('bootJar') {
     archiveFileName = 'app.jar'
+    mainClass = 'org.sopt.hashi.HashiApplication'
 }
 
 tasks.named('jar') {
@@ -101,6 +104,9 @@ tasks.named('jar') {
 }
 
 tasks.named('test') {
+    // The maintenance smoke test launches the same artifact shipped by the existing build.
+    dependsOn tasks.named('bootJar')
+    systemProperty 'location.maintenance.jar', tasks.named('bootJar').get().archiveFile.get().asFile.absolutePath
     useJUnitPlatform()
     testLogging {
         exceptionFormat = 'full'

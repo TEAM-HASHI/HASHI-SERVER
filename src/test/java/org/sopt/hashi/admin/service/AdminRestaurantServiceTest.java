@@ -45,7 +45,10 @@ class AdminRestaurantServiceTest {
         given(restaurantPort.updateByAdmin(eq(1L), any(AdminRestaurantCommand.class)))
                 .willReturn(adminRestaurantInfo());
 
-        adminRestaurantService.update(1L, request);
+        var response = adminRestaurantService.update(1L, request);
+        assertThat(response.restaurantId()).isEqualTo(1L);
+        assertThat(response.locationStatus()).isEqualTo("PENDING");
+        assertThat(response.addressRevision()).isEqualTo(1);
 
         ArgumentCaptor<AdminRestaurantCommand> commandCaptor =
                 ArgumentCaptor.forClass(AdminRestaurantCommand.class);
@@ -106,7 +109,7 @@ class AdminRestaurantServiceTest {
                 List.of("현지인맛집"),
                 List.of(),
                 List.of(),
-                LocalDateTime.of(2026, 7, 14, 0, 0)
+                LocalDateTime.of(2026, 7, 14, 0, 0), "PENDING", 1
         );
     }
 }
