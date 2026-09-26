@@ -9,7 +9,7 @@
 | #220·#222·#224 | `0d77d91`, 이후 #224 `aaacb5d` | 시작 tree와 `1656dfe`. 위치 모델·adapter·관리자 저장/작업 경로와 개발용 fixture 잠금 수정 |
 | #223 | `98299f2`, `303fb5c` | `a592d1d`, `9f7e3e4`. 지도 오류 011~018과 위치 재처리 019, 두 Port 의존성을 함께 유지 |
 | #227 | `31a7998`, `c956780` | `291b46a`, `ee873b7`. 지도 페이지/Redis 세션과 OSIV 연결 반환 수정 |
-| #228 | `4ad25ea` | `ff7fad3`. V30과 갱신/정리. 선행 리뷰 수정이 있으면 추가 결합 필요 |
+| #228 | `4ad25ea`, `4635276` | `ff7fad3`, `ec9ebd9`. V30과 갱신/정리·정밀도 검증 |
 
 이 브랜치의 자체 변경은 `RestaurantMapFlowIntegrationTest`와 이 문서다. 선행 소유 브랜치의 HEAD를 바꾸지 않았다. #216의 컬렉션 CRUD/스키마는 아직 결합 가능한 구현이 없어 만들지 않았다. 컬렉션 인수는 별도 #216 연결 기준을 따른다.
 
@@ -28,9 +28,9 @@ $env:PATH="$env:JAVA_HOME\bin;C:\Program Files\Docker\Docker\resources\bin;$env:
 .\gradlew clean build --no-daemon
 ```
 
-테스트 주소 `東京都試験区架空町1丁目2番3号`, 식당·관광 지역·좌표는 합성 고정값이다. Google 경계만 대체하고 후보 정확도·주소 일치 판정은 실제 `LocationAdoptionPolicy`를 통과한다. 위치 작업 전역 호출 예산은 기본적으로 닫혀 있으므로 테스트 전용 MySQL row에서만 연다. Redis 서명 키도 테스트 문자열을 실행 중 메모리에만 설정한다. 운영 키나 주소 원문 응답을 로그/문서에 넣지 않는다.
+테스트 주소 `東京都試験区架空町1丁目2番3号`, 식당·관광 지역·좌표는 합성 고정값이다. Google provider, 자동 `LocationJobScheduler`, 범위 밖의 `MediaPort`·`FileStorage`를 대체한다. worker는 테스트에서 직접 한 번 실행하고 관광 지역 관계는 fixture에서 직접 설정한다. 후보 정확도·주소 일치 판정은 실제 `LocationAdoptionPolicy`를 통과한다. 위치 작업 전역 호출 예산은 기본적으로 닫혀 있으므로 테스트 전용 MySQL row에서만 연다. Redis 서명 키도 테스트 문자열을 실행 중 메모리에만 설정한다. 운영 키나 주소 원문 응답을 로그/문서에 넣지 않는다.
 
-2026-09-27 관련 검증은 5개 suite / 42개 테스트, failures·errors·skipped 모두 0건이었다(`RestaurantMapFlowIntegrationTest` 4, `RestaurantMapPageIntegrationTest` 17, `LocationMaintenanceMySqlTest` 18, `DevLocationJobMySqlTest` 2, `ModularityTests` 1). 이 수치는 전체 build나 원격 CI 결과가 아니다.
+2026-09-27 첫 관련 검증은 5개 suite / 42개 테스트, failures·errors·skipped 모두 0건이었다(`RestaurantMapFlowIntegrationTest` 4, `RestaurantMapPageIntegrationTest` 17, `LocationMaintenanceMySqlTest` 18, `DevLocationJobMySqlTest` 2, `ModularityTests` 1). 리뷰 후 보강한 `RestaurantMapFlowIntegrationTest` 5개도 별도 재실행에서 모두 통과했다. 최종 전체 build와 원격 CI 결과는 별도로 확인한다.
 
 ## 직접 연결한 흐름
 
@@ -40,10 +40,12 @@ $env:PATH="$env:JAVA_HOME\bin;C:\Program Files\Docker\Docker\resources\bin;$env:
 2. worker가 정확한 한 후보를 처리한다. provider 진입에서 활성 DB transaction이 없음을 관측한다. 이후 관리자 `READY`, 공개 현재 위치, 관광 지역 count, RestaurantPort bulk, 공개 첫 페이지에서 같은 식당 ID와 좌표를 확인한다.
 3. 주소 B PATCH의 기존 `200 ADMIN-205`, revision 2와 새 `PENDING`을 확인한다. 기존 위치·지역 count·Port 좌표가 사라지고 기존 Redis 세션을 정렬 재조회해도 오래된 카드가 돌아오지 않는다.
 4. 주소 A 작업을 claim한 채 B를 저장하고 A의 늦은 성공을 완료한다. 현재 revision을 덮지 못한다. B claim 뒤 삭제하고 늦은 실패를 완료해도 삭제 식당이 공개되지 않는다.
-5. Google 결과를 READY로 만든 뒤 합성 DB의 남은 수명을 3시간으로 당기고, 원본 1일 수명보다 짧은 6시간 갱신 창으로 run을 등록한다. 기존 좌표를 즉시 제외하는지 관리자 상태, 현재 위치, Port, 기존 페이지에서 확인한다.
+5. Google 결과를 READY로 만든 뒤 합성 DB의 남은 수명을 3시간으로 당기고, provider 예산을 닫은 상태에서 원본 1일 수명보다 짧은 6시간 갱신 창으로 run을 등록한다. 새 작업 등록, 추가 provider 호출 없음, 기존 좌표의 즉시 제외를 관리자 상태, 현재 위치, Port, 기존 페이지에서 확인한다.
 6. 별도의 READY fixture를 보존 경계 안으로 당긴다. provider 예산을 끄고 정리를 실행하여 실제 DB의 좌표·유효기간이 제거되고 현재 위치, Port, 기존 페이지 재조회에서 보이지 않는지 확인한다.
 
-23개 후보의 10/10/3, Redis TTL·유실·장애, cursor 변조와 중복 재시도는 [#227 자체 테스트](../../src/test/java/org/sopt/hashi/restaurant/service/RestaurantMapPageIntegrationTest.java)의 실제 Redis 검증을 참조한다. 이 통합 테스트는 그 전체를 복제하지 않고 관리자 저장과 페이지 사이의 경계를 확인한다. 갱신 등록·CLI dry-run/resume/stop·동시 정리의 상세 반례는 [#228 runbook](location-maintenance-runbook.md)과 해당 MySQL 테스트를 참조한다.
+7. 별도 합성 READY 식당 23개를 실제 DB에 만들어 공개 페이지를 10/10/3으로 순회한다. 모든 카드의 `restaurantId`가 중복 없이 예상 식당 ID와 일치하고 각 카드의 위치가 같은 핀 좌표인지 확인한다.
+
+Redis TTL·유실·장애, cursor 변조와 중복 재시도는 [#227 자체 테스트](../../src/test/java/org/sopt/hashi/restaurant/service/RestaurantMapPageIntegrationTest.java)의 실제 Redis 검증을 참조한다. 갱신 등록·CLI dry-run/resume/stop·동시 정리의 상세 반례는 [#228 runbook](location-maintenance-runbook.md)과 해당 MySQL 테스트를 참조한다.
 
 ## 별도 인수와 운영 입력
 
