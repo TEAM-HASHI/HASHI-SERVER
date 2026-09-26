@@ -3,6 +3,7 @@ package org.sopt.hashi.restaurant.migration;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import ch.qos.logback.classic.Logger;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.persistence.EntityManagerFactory;
 import java.math.BigDecimal;
@@ -28,6 +29,7 @@ import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.parallel.Isolated;
+import org.slf4j.LoggerFactory;
 import org.sopt.hashi.config.TimeConfig;
 import org.sopt.hashi.restaurant.domain.MapCoordinates;
 import org.sopt.hashi.restaurant.domain.PriceCurrency;
@@ -52,6 +54,7 @@ import org.sopt.hashi.restaurant.service.RestaurantLocationService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.jdbc.AutoConfigureTestDatabase;
 import org.springframework.boot.test.autoconfigure.orm.jpa.DataJpaTest;
+import org.springframework.boot.test.context.runner.ApplicationContextRunner;
 import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.boot.testcontainers.service.connection.ServiceConnection;
 import org.springframework.context.annotation.Bean;
@@ -627,27 +630,17 @@ class LocationMaintenanceMySqlTest {
     }
 
     @Test
-    void 배포jar의_실제launcher는_SELECT전용계정으로_확인하고_별도context의_재시작으로_재개한다() throws Exception {
+    void 배포jar의_실제launcher는_SELECT전용계정으로_확인하고_새프로세스에서_재개한다() throws Exception {
         original();
         long upper = original();
         var root = rootJdbc();
         root.execute("CREATE USER IF NOT EXISTS 'maintenance_reader'@'%' IDENTIFIED BY 'fixture_only'");
         root.execute("GRANT SELECT ON location_maintenance.* TO 'maintenance_reader'@'%'");
         long migrations = count("flyway_schema_history");
-        String jar = System.getProperty("location.maintenance.jar");
-        assertThat(jar).isNotBlank();
-        List<String> command = new ArrayList<>(List.of(
-                Path.of(System.getProperty("java.home"), "bin", "java").toString(),
-                "-Dloader.main=" + LocationMaintenanceCli.class.getName(), "-cp", jar,
-                "org.springframework.boot.loader.launch.PropertiesLauncher",
-                "--spring.datasource.url=" + MYSQL.getJdbcUrl(), "--spring.datasource.username=maintenance_reader",
-                "--spring.datasource.password=fixture_only", "--hashi.map.maintenance.after-id=" + after,
-                "--hashi.map.maintenance.upper-id=" + upper,
-                "--logging.config=" + Path.of("src/test/resources/logback-maintenance-test.xml").toAbsolutePath()));
-        Process process = new ProcessBuilder(command).redirectErrorStream(true).start();
-        assertThat(process.waitFor(60, TimeUnit.SECONDS)).isTrue();
-        String output = new String(process.getInputStream().readAllBytes(), java.nio.charset.StandardCharsets.UTF_8);
-        assertThat(process.exitValue()).as(output).isZero();
+        Logger rootLogger = (Logger) LoggerFactory.getLogger(org.slf4j.Logger.ROOT_LOGGER_NAME);
+        var originalLogLevel = rootLogger.getLevel();
+        String output = runCli("maintenance_reader", "fixture_only",
+                "--hashi.map.maintenance.after-id=" + after, "--hashi.map.maintenance.upper-id=" + upper);
         assertThat(output).contains("inspected=2", "partial=false").doesNotContain(ADDRESS, "latitude", "longitude");
         assertThat(count("flyway_schema_history")).isEqualTo(migrations);
         assertThat(count("restaurant_location_maintenance_run")).isZero();
@@ -655,22 +648,52 @@ class LocationMaintenanceMySqlTest {
         assertThat(provider.calls.get()).isZero();
 
         UUID runId = UUID.randomUUID();
-        String[] args = {"--spring.datasource.url=" + MYSQL.getJdbcUrl(), "--spring.datasource.username=hashi",
-                "--spring.datasource.password=hashi", "--logging.config=classpath:logback-maintenance-test.xml"};
-        try (var context = LocationMaintenanceCli.open(args)) {
-            assertThat(context.getBeansOfType(GeocodingProvider.class)).isEmpty();
-            assertThat(context.getBeansOfType(RestaurantLocationWorker.class)).isEmpty();
-            assertThat(context.getBeansOfType(LocationRetentionScheduler.class)).isEmpty();
-            assertThat(context.getBeansOfType(org.flywaydb.core.Flyway.class)).isEmpty();
-            var service = context.getBean(LocationMaintenanceTransactions.class);
-            service.start(options(Command.START, Mode.BACKFILL, true, runId, upper, 10, 80));
-            service.advance(runId);
-        }
-        try (var context = LocationMaintenanceCli.open(args)) {
-            var service = context.getBean(LocationMaintenanceTransactions.class);
-            assertThat(service.status(runId).registration().enqueued()).isEqualTo(1);
-            while (service.advance(runId)) { /* bounded fixture */ }
-            assertThat(service.status(runId).registration().enqueued()).isEqualTo(2);
+        runCli("hashi", "hashi", "--hashi.map.maintenance.command=START",
+                "--hashi.map.maintenance.execute=true", "--hashi.map.maintenance.run-id=" + runId,
+                "--hashi.map.maintenance.after-id=" + after, "--hashi.map.maintenance.upper-id=" + upper,
+                "--hashi.map.maintenance.batch-size=1", "--hashi.map.maintenance.max-batches=1");
+        assertThat(maintenance.status(runId).registration().enqueued()).isEqualTo(1);
+        runCli("hashi", "hashi", "--hashi.map.maintenance.command=RESUME",
+                "--hashi.map.maintenance.execute=true", "--hashi.map.maintenance.run-id=" + runId);
+        assertThat(maintenance.status(runId).registration().enqueued()).isEqualTo(2);
+        assertThat(maintenance.status(runId).registration().state()).isEqualTo("SCANNED");
+
+        // Inspect the same bootstrap without SpringApplication's JVM-global logging initialization.
+        new ApplicationContextRunner().withUserConfiguration(LocationMaintenanceCli.CliConfiguration.class)
+                .withPropertyValues("spring.profiles.active=location-maintenance-cli",
+                        "spring.datasource.url=" + MYSQL.getJdbcUrl(), "spring.datasource.username=hashi",
+                        "spring.datasource.password=hashi", "spring.jpa.hibernate.ddl-auto=validate")
+                .run(context -> {
+                    assertThat(context).hasNotFailed();
+                    assertThat(context.getBeansOfType(GeocodingProvider.class)).isEmpty();
+                    assertThat(context.getBeansOfType(RestaurantLocationWorker.class)).isEmpty();
+                    assertThat(context.getBeansOfType(LocationRetentionScheduler.class)).isEmpty();
+                    assertThat(context.getBeansOfType(org.flywaydb.core.Flyway.class)).isEmpty();
+                });
+        assertThat(rootLogger.getLevel()).isEqualTo(originalLogLevel);
+    }
+
+    private String runCli(String username, String password, String... args) throws Exception {
+        String jar = System.getProperty("location.maintenance.jar");
+        assertThat(jar).isNotBlank();
+        List<String> command = new ArrayList<>(List.of(
+                Path.of(System.getProperty("java.home"), "bin", "java").toString(),
+                "-Dloader.main=" + LocationMaintenanceCli.class.getName(), "-cp", jar,
+                "org.springframework.boot.loader.launch.PropertiesLauncher",
+                "--spring.datasource.url=" + MYSQL.getJdbcUrl(), "--spring.datasource.username=" + username,
+                "--spring.datasource.password=" + password,
+                "--logging.config=" + Path.of("src/test/resources/logback-maintenance-test.xml").toAbsolutePath()));
+        command.addAll(List.of(args));
+        Process process = new ProcessBuilder(command).redirectErrorStream(true).start();
+        try {
+            assertThat(process.waitFor(60, TimeUnit.SECONDS)).isTrue();
+            String output = new String(process.getInputStream().readAllBytes(), java.nio.charset.StandardCharsets.UTF_8);
+            assertThat(process.exitValue()).as(output).isZero();
+            return output;
+        } finally {
+            if (process.isAlive()) {
+                process.destroyForcibly();
+            }
         }
     }
 
