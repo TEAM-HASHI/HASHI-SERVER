@@ -55,12 +55,16 @@ public class RestaurantLocation extends BaseTimeEntity {
     @Column(name = "request_id", length = 36, nullable = false)
     private UUID requestId;
 
+    // Keep UTC calendar values unchanged at the JDBC boundary, independently of the connection timezone.
+    @JdbcTypeCode(SqlTypes.LOCAL_DATE_TIME)
     @Column(name = "obtained_at")
     private LocalDateTime obtainedAt;
 
+    @JdbcTypeCode(SqlTypes.LOCAL_DATE_TIME)
     @Column(name = "valid_until")
     private LocalDateTime validUntil;
 
+    @JdbcTypeCode(SqlTypes.LOCAL_DATE_TIME)
     @Column(name = "next_attempt_at")
     private LocalDateTime nextAttemptAt;
 
