@@ -1,7 +1,9 @@
 package org.sopt.hashi.media.internal.spec;
 
 import java.util.Comparator;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 
 public record MediaRoleSpec(
         int aspectRatioWidth,
@@ -53,12 +55,15 @@ public record MediaRoleSpec(
         if (sourceWidth < 1 || sourceHeight < 1) {
             throw new IllegalArgumentException("source dimensions must be positive");
         }
-        List<MediaRenditionDimensions> standard = candidates.stream()
+        Map<Integer, MediaRenditionDimensions> byWidth = new LinkedHashMap<>();
+        candidates.stream()
                 .filter(candidate -> "inside".equals(fit)
                         || candidate.width() <= sourceWidth && candidate.height() <= sourceHeight)
                 .map(candidate -> outputDimensions(sourceWidth, sourceHeight, candidate))
-                .distinct()
-                .toList();
+                .forEach(output -> byWidth.merge(output.width(), output,
+                        (existing, candidate) -> candidate.height() > existing.height()
+                                ? candidate : existing));
+        List<MediaRenditionDimensions> standard = List.copyOf(byWidth.values());
         if (!standard.isEmpty()) {
             return standard;
         }
@@ -81,7 +86,14 @@ public record MediaRoleSpec(
                 .filter(candidate -> candidate.width() == defaultWidth)
                 .findFirst()
                 .orElseThrow();
-        return outputDimensions(sourceWidth, sourceHeight, defaultCandidate);
+        if (!"inside".equals(fit)) {
+            return defaultCandidate;
+        }
+        int outputWidth = outputDimensions(sourceWidth, sourceHeight, defaultCandidate).width();
+        return selectFor(sourceWidth, sourceHeight).stream()
+                .filter(output -> output.width() == outputWidth)
+                .findFirst()
+                .orElseThrow();
     }
 
     private MediaRenditionDimensions outputDimensions(

@@ -272,16 +272,17 @@ export function selectRenditionDimensions(
     .toSorted((left, right) => left.width - right.width);
 
   if (standard.length > 0) {
-    const unique = new Set<string>();
-    return Object.freeze(standard.filter((candidate) => {
+    const unique = new Map<number, RenditionDimensions>();
+    for (const candidate of standard) {
       const output = expectedOutputDimensions(sourceWidth, sourceHeight, role, candidate);
-      const key = `${output.width}x${output.height}`;
-      if (unique.has(key)) {
-        return false;
+      const existing = unique.get(output.width);
+      // S3 keys and rendition identity use width; retain the fullest output per key.
+      if (existing === undefined || output.height >
+        expectedOutputDimensions(sourceWidth, sourceHeight, role, existing).height) {
+        unique.set(output.width, candidate);
       }
-      unique.add(key);
-      return true;
-    }));
+    }
+    return Object.freeze([...unique.values()]);
   }
 
   if (role.noUpscaleFallback.selection === "source-width") {
@@ -320,9 +321,8 @@ async function renderRendition(
   target: RenditionDimensions,
   encoder: RenditionEncoder,
 ): Promise<GeneratedRendition> {
-  const output = await encoder(source, roleSpec, target);
-
   const expected = expectedOutputDimensions(sourceWidth, sourceHeight, roleSpec, target);
+  const output = await encoder(source, roleSpec, expected);
   if (output.width !== expected.width || output.height !== expected.height) {
     throw new ContractMismatchError("Sharp output dimensions differ from the canonical manifest");
   }
@@ -368,7 +368,9 @@ async function encodeWebpRendition(
     .resize({
       width: target.width,
       height: target.height,
-      fit: roleSpec.fit,
+      // Inside dimensions are already fitted to the source ratio and rounded by contract.
+      // Do not let JPEG shrink-on-load infer a different second dimension.
+      fit: roleSpec.fit === "inside" ? "fill" : roleSpec.fit,
       position: roleSpec.position,
       kernel: sharp.kernel.lanczos3,
       withoutEnlargement: true,

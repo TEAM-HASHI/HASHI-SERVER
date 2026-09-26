@@ -94,6 +94,36 @@ class MediaSpecRegistryTest {
     }
 
     @Test
+    void 카드뉴스_실제_규격은_worker와_공유하는_반례에서도_일치한다() throws IOException {
+        MediaSpecDefinition spec = new MediaSpecRegistry(objectMapper)
+                .findDefinition(2).orElseThrow();
+        try (InputStream input = new ClassPathResource(
+                "media-specs/fixtures/card-news-dimensions.json").getInputStream()) {
+            for (JsonNode fixture : objectMapper.readTree(input)) {
+                List<MediaRenditionDimensions> expected = objectMapper.convertValue(
+                        fixture.get("outputs"),
+                        objectMapper.getTypeFactory().constructCollectionType(
+                                List.class, MediaRenditionDimensions.class));
+                assertThat(spec.expectedRenditions(MediaPurpose.MAGAZINE_CARD_NEWS,
+                        fixture.get("sourceWidth").asInt(), fixture.get("sourceHeight").asInt()))
+                        .extracting(rendition -> new MediaRenditionDimensions(
+                                rendition.width(), rendition.height()))
+                        .containsExactlyElementsOf(expected);
+            }
+        }
+    }
+
+    @Test
+    void 카드뉴스의_기본_크기도_폭_중복을_제거한_최종_크기를_선택한다() {
+        MediaRoleSpec role = new MediaSpecRegistry(objectMapper)
+                .findDefinition(2).orElseThrow().roleSpecs().get(ImageRole.MAGAZINE_CARD_NEWS);
+        assertThat(role.defaultOutputDimensions(1, 1200))
+                .isEqualTo(new MediaRenditionDimensions(1, 1200));
+        assertThat(role.defaultOutputDimensions(2, 1200))
+                .isEqualTo(new MediaRenditionDimensions(2, 1200));
+    }
+
+    @Test
     void 같은_role의_candidate_width는_중복될_수_없다() {
         assertThatThrownBy(() -> new MediaRoleSpec(
                 1,
