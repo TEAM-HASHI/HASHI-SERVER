@@ -30,7 +30,12 @@ rating/reviewCount만 rankingAsOf 기준이고 나머지 카드는 현재 DB 값
 RestaurantMapPageService는 NEVER로 상위 transaction이 열린 호출을 Redis 접근 전에 거절한다. 후보 확보는
 RestaurantMapService의 짧은 읽기 transaction, 세션 저장은 Redis, 페이지 재검사/카드는
 RestaurantMapPageReader의 REPEATABLE_READ transaction으로 나뉜다. transaction을 일시 중단해도 상위 호출의
-DB 연결은 남을 수 있으므로 이 경계를 명시한다. 정상 HTTP 경로에서 Redis 대기가 DB 연결을 점유하지 않는다.
+DB 연결은 남을 수 있으므로 이 경계를 명시한다.
+
+기본 OSIV도 요청의 EntityManager와 물리 연결을 transaction 종료 뒤까지 보유할 수 있다.
+RestaurantMapWebConfig가 표준 OSIV interceptor를 등록하면서 새 `/api/v1/restaurants/map` 경로만 제외한다.
+다른 경로의 기존 OSIV는 유지하며 명시적인 `spring.jpa.open-in-view=false` 설정도 존중한다.
+따라서 지도 목록의 각 DB transaction이 자체 EntityManager를 닫고 Redis 접근 전에 연결을 반환한다.
 
 최초 후보 ID·평점·리뷰 수를 한 SQL에서 읽고 추천 순열을 한 번 만든다. Redis 저장 성공 후에만
 첫 페이지를 구성한다. 별점/리뷰 정렬은 최초 값의 안정 정렬이므로 동점은 처음 추천 순서다.
@@ -74,7 +79,8 @@ PXAT은 Redis 6.2 이상을 요구한다. 운영 버전·ACL·eviction·메모�
 2026-09-27 KST 임시 Redis 7.4.11, 공식 digest
 `sha256:858f009f9709ce576febc734aa78b8f6d624b82571f9ddb6bda4377c833b3499`에서 합성 값을 측정했다.
 최대 Long ID/리뷰 수, 별점 5.0, 500개 후보, 100개 보조 평면 Unicode 검색어, 긴 소수 BBOX 및
-지역/분류 필터, 각 128자 BBOX의 최종 serializer 값은 43,226 bytes, MEMORY USAGE는 49,240 bytes였다.
+지역/분류 필터, 각 128자 BBOX의 최종 serializer 값은 실행별 43,226~43,232 bytes,
+MEMORY USAGE는 49,240 bytes였다. Instant의 소수 초 문자열 길이에 따라 payload 길이가 달라진다.
 이는 현재 값 형식의 합성 최대 조건 측정이며 더 큰 내부 입력도 별도 bytes 한도가 거절한다.
 실제 동시 160회 생성에서는 128회만 성공했다. 128개 전부가 64KiB라면
 payload 상한은 8MiB이고 Redis allocator/key overhead는 별도다. 운영 QPS/p95 보장은 아니다.
@@ -104,6 +110,8 @@ payload 포함 가능성 때문에 cause도 외부 로그에 전달하지 않는
 
 HTTP 통합 테스트는 restaurant 모듈에 실제 공통 응답/로그와 SecurityFilterChain을 포함한다.
 MySQL 8.4에서 전체 Flyway 적용 후 validate, JVM UTC/JDBC Asia-Seoul, 실제 Redis 7.4.11을 사용한다.
+OSIV를 테스트에서 끄지 않으며, 지도 경로의 request-bound EntityManager 부재와 Redis 저장 시
+실제 Hikari active connection 0개를 관측한다. 일반 목록에서는 기존 OSIV가 활성인 것도 확인한다.
 모듈 테스트에서 제외되는 root Redis 설정은 같은 production factory 메서드로 연결한다.
 미사용 이미지 backfill attachment 빈 하나만 제외하고 Restaurant Repository/Service/Port/세션 adapter는 실제다.
 다른 모듈의 MediaPort, 외부 FileStorage, 이 공개 조회에서 사용하지 않는 OnboardingTokenStore는
@@ -111,11 +119,21 @@ MySQL 8.4에서 전체 Flyway 적용 후 validate, JVM UTC/JDBC Asia-Seoul, 실�
 지역 필터 없는 BBOX 조회에서 실제 카드 SQL은 식당 1곳과 10곳 모두 7회, MediaPort bulk 호출 1회였다.
 메뉴를 식당별로 조회하지 않는다.
 
-후보 검증 명령은 JDK 21, JVM UTC에서 다음과 같다.
+최초 후보 검증 명령은 JDK 21, JVM UTC에서 다음과 같다.
 
 ```text
 ./gradlew.bat build test --tests org.sopt.hashi.restaurant.* --tests *AdminRestaurant* --tests *ModularityTests --no-daemon --max-workers=2
 ```
 
 44개 suite, 439개 test가 실행됐고 실패/오류/건너뜀은 모두 0이었다. 이 결과에는 새 HTTP 통합 16개,
-실제 Redis 저장소 통합 7개와 Modulith 검증이 포함된다. 전체 프로젝트 빌드와 CI 결과는 PR에 따로 기록한다.
+실제 Redis 저장소 통합 7개와 Modulith 검증이 포함된다.
+
+이후 기본 OSIV에서 Redis 저장 시 물리 DB 연결 1개가 남는 반례를 재현하고 지도 목록 경로를 제외했다.
+수정 후 다음 관련 build는 5개 suite / 37개 test / 실패·오류·건너뜀 0으로 통과했다. 이 실행에는
+DB 연결 반환과 기존 OSIV 유지 검증을 포함한 HTTP 17개, 기존 식당/지도/관리자 Controller 및 Modulith가 포함된다.
+
+```text
+./gradlew.bat build test --tests *RestaurantMapPageIntegrationTest --tests *RestaurantMapControllerTest --tests *RestaurantControllerTest --tests *AdminRestaurantControllerTest --tests *ModularityTests --no-daemon --max-workers=2
+```
+
+전체 프로젝트 빌드와 CI 결과는 PR에 따로 기록한다.
