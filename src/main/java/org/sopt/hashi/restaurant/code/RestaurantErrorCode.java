@@ -17,7 +17,9 @@ public enum RestaurantErrorCode implements ErrorCode {
     // RESTAURANT-007(UNSUPPORTED_FOOD_CATEGORY)은 foodCategory 자유 텍스트 전환(#145)으로 폐기 — 번호 재사용 금지
     RECOMMENDATION_NOT_FOUND(HttpStatus.NOT_FOUND, "RESTAURANT-008", "추천 가능한 식당이 없습니다."),
     MENU_NOT_FOUND(HttpStatus.NOT_FOUND, "RESTAURANT-009", "메뉴를 찾을 수 없습니다."),
-    UNSUPPORTED_PLACE_TYPE(HttpStatus.BAD_REQUEST, "RESTAURANT-010", "지원하지 않는 음식점 분류입니다.");
+    UNSUPPORTED_PLACE_TYPE(HttpStatus.BAD_REQUEST, "RESTAURANT-010", "지원하지 않는 음식점 분류입니다."),
+    // 011~018 are reserved by Map Contract v1 for the map query implementation.
+    LOCATION_RETRY_CONFLICT(HttpStatus.CONFLICT, "RESTAURANT-019", "현재 주소의 위치 상태를 다시 확인해주세요");
 
     private final HttpStatus status;
     private final String code;

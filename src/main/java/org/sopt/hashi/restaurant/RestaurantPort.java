@@ -48,4 +48,10 @@ public interface RestaurantPort {
      * 데이터는 보존한다. 식당이 없으면 BusinessException(RESTAURANT-004 NOT_FOUND).
      */
     void deleteByAdmin(Long restaurantId);
+
+    /** 관리자 위치 상태 조회. Entity/내부 enum과 provider 원문을 반환하지 않는다. */
+    RestaurantLocationInfo getLocationByAdmin(Long restaurantId);
+
+    /** expectedAddressRevision이 현재와 일치할 때 같은 주소의 새 작업을 등록한다. */
+    RestaurantLocationInfo retryLocationByAdmin(Long restaurantId, long expectedAddressRevision);
 }

@@ -35,7 +35,7 @@ import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
 @DataJpaTest
-@Import({RestaurantService.class, RestaurantPortImpl.class, TimeConfig.class})
+@Import({RestaurantService.class, RestaurantPortImpl.class, RestaurantLocationService.class, TimeConfig.class})
 @TestPropertySource(properties = {
         "spring.flyway.enabled=false",
         "spring.jpa.hibernate.ddl-auto=create-drop",
