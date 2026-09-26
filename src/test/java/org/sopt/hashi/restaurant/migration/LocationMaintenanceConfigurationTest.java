@@ -54,6 +54,19 @@ class LocationMaintenanceConfigurationTest {
     }
 
     @Test
+    void 갱신기간의_마이크로초미만_입력은_설정바인딩에서_거부한다() {
+        new ApplicationContextRunner().withUserConfiguration(LocationMaintenanceConfiguration.class)
+                .withPropertyValues("hashi.map.maintenance.command=START",
+                        "hashi.map.maintenance.refresh-ahead=PT3.000000001S",
+                        "hashi.map.maintenance.purge-ahead=2s", "hashi.map.maintenance.poll-delay=1s")
+                .run(context -> {
+                    assertThat(context).hasFailed();
+                    assertThat(context.getStartupFailure())
+                            .hasRootCauseMessage("refresh-ahead must use whole microseconds");
+                });
+    }
+
+    @Test
     void 정리scheduler는_다른스케줄러나_HTTPexecutor없이_전용thread에서_실행하고_종료된다() throws Exception {
         var service = mock(LocationRetentionService.class);
         CountDownLatch called = new CountDownLatch(1);

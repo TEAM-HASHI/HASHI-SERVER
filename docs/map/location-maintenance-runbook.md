@@ -139,6 +139,7 @@ STOP은 run 잠금을 먼저 잡는다. 앞서 시작한 한 건의 commit을 �
 만료 전 갱신은 START의 mode를 REFRESH로 지정한다. 기본 refresh-ahead=1d는 합성 기본값이며
 운영에서 허용한 retention보다 짧고 purge-ahead보다 길게 정한다. run 기준 시각 + refresh-ahead까지
 만료하는 READY를 선택한다. 저장된 실제 수명보다 refresh-ahead가 짧지 않으면 갱신 등록을 생략한다.
+refresh-ahead는 DB의 DATETIME(6)에 맞춰 마이크로초까지만 허용한다. 그보다 작은 단위는 설정 검증에서 거부한다.
 run 시작 후 얻은 새 결과도 제외하여 겹치는 run이 방금 성공한 결과를 다시 등록하지 않는다.
 `Restaurant.refreshLocation()`이 먼저 PENDING으로 전환하면서
 이전 좌표·source·obtainedAt·validUntil을 비우고, 기존 enqueue 흐름으로 연결한다.

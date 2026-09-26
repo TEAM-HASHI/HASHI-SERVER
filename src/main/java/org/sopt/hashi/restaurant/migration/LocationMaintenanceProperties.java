@@ -38,6 +38,9 @@ public record LocationMaintenanceProperties(
         if (invalidWindows) {
             throw new IllegalArgumentException("Require 2 * poll-delay <= purge-ahead < refresh-ahead <= 30d");
         }
+        if (refreshAhead.getNano() % 1_000 != 0) {
+            throw new IllegalArgumentException("refresh-ahead must use whole microseconds");
+        }
     }
 
     void requireWriteOptIn() {
