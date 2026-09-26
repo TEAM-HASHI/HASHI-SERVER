@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { Readable } from "node:stream";
 import test from "node:test";
 
 import {
@@ -84,6 +85,36 @@ test("rejects an unexpected original size before buffering its body", async () =
   );
   assert.equal(bodyRead, false);
 });
+
+for (const [name, contentLength, expectedContentLength] of [
+  ["길이가 누락된", undefined, 12],
+  ["10MiB를 넘는", 10 * 1024 * 1024 + 1, 12],
+  ["요청 길이와 다른", 16, 12],
+] as const) {
+  test(`${name} S3 응답은 읽지 않고 스트림을 닫는다`, async () => {
+    let bodyRead = false;
+    const body = Object.assign(Readable.from([Buffer.from("original")]), {
+      transformToByteArray: async () => {
+        bodyRead = true;
+        return new Uint8Array();
+      },
+    });
+    const client = new FakeAwsClient([{ Body: body, ContentLength: contentLength }]);
+    const storage = new AwsImageObjectStorage(
+      "private-originals", "delivery", client as unknown as S3Client,
+    );
+
+    await assert.rejects(storage.readOriginal({
+      objectKey: "media/originals/a3af06f1-4ef2-46f8-a489-2347fb840447/original",
+      sourceETag: '"etag"',
+      sourceVersionId: "version-id",
+      expectedContentLength,
+    }), ContractMismatchError);
+
+    assert.equal(bodyRead, false);
+    assert.equal(body.destroyed, true);
+  });
+}
 
 test("conditionally creates an immutable WebP with checksum metadata", async () => {
   const client = new FakeAwsClient([{}]);

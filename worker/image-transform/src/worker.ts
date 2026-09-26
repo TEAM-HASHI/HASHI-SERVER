@@ -30,6 +30,12 @@ export class ImageTransformWorker {
       throw new ContractMismatchError("Request spec digest differs from packaged manifest");
     }
     requiredRoles(spec.manifest, request.purpose);
+    const maxSourceBytes = request.purpose === "MAGAZINE_CARD_NEWS" && request.specVersion >= 2
+      ? 10 * 1024 * 1024
+      : 5 * 1024 * 1024;
+    if (request.declaredByteSize > maxSourceBytes) {
+      throw new ContractMismatchError("Transform request source size is outside the purpose limit");
+    }
 
     const original = await this.storage.readOriginal({
       objectKey: request.originalKey,

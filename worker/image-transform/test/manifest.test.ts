@@ -19,6 +19,22 @@ test("loads the committed v1 manifest with its exact digest", () => {
   assert.deepEqual(spec.manifest.purposes.REVIEW, ["REVIEW_PREVIEW", "REVIEW_DETAIL"]);
 });
 
+test("loads the v2 card-news manifest with its exact digest", () => {
+  const spec = loadMediaSpec(2);
+
+  assert.equal(spec.manifest.processorRevision, "sharp-webp-v2");
+  assert.equal(
+    spec.digest,
+    "b8e67084bcdf81ac7fc94951c905726a97ade3783320c67e03c505f5643ddf75",
+  );
+  assert.deepEqual(spec.manifest.purposes.MAGAZINE_CARD_NEWS, ["MAGAZINE_CARD_NEWS"]);
+  assert.deepEqual(spec.manifest.roles.MAGAZINE_CARD_NEWS?.candidates, [
+    { width: 432, height: 576 },
+    { width: 864, height: 1152 },
+    { width: 1296, height: 1728 },
+  ]);
+});
+
 test("rejects role candidates that would share one deterministic width key", () => {
   const directory = mkdtempSync(join(tmpdir(), "hashi-media-spec-"));
   try {

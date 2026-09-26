@@ -23,6 +23,7 @@ import org.sopt.hashi.media.domain.MediaPipelineConfigRepository;
 import org.sopt.hashi.media.domain.MediaPurpose;
 import org.sopt.hashi.media.internal.event.MediaProcessingRequestedEvent;
 import org.sopt.hashi.media.internal.spec.MediaSpecRegistry;
+import org.sopt.hashi.media.internal.spec.MediaSpecDefinition;
 import org.sopt.hashi.media.internal.spec.MediaSpecSnapshot;
 import org.sopt.hashi.media.internal.storage.OriginalObjectMetadata;
 import org.sopt.hashi.shared.error.BusinessException;
@@ -60,9 +61,16 @@ public class MediaAssetTransactionService {
         requireAvailableSpec(lockPipelineConfig());
     }
 
+    @Transactional(readOnly = true)
+    public void assertIssuanceAvailable(MediaPurpose purpose) {
+        MediaSpecSnapshot spec = requireAvailableSpec(lockPipelineConfig());
+        requirePurposeSupported(spec, purpose);
+    }
+
     @Transactional
     public void createAssets(CurrentActor actor, MediaPurpose purpose, List<PreparedMediaAsset> uploads) {
-        requireAvailableSpec(lockPipelineConfig());
+        MediaSpecSnapshot spec = requireAvailableSpec(lockPipelineConfig());
+        requirePurposeSupported(spec, purpose);
         MediaOwnerType ownerType = toOwnerType(actor.type());
         List<ImageAsset> assets = uploads.stream()
                 .map(upload -> ImageAsset.createDirectUpload(
@@ -111,7 +119,10 @@ public class MediaAssetTransactionService {
 
         if (!pendingAssets.isEmpty()) {
             MediaSpecSnapshot spec = requireAvailableSpec(config);
-            pendingAssets.forEach(asset -> beginProcessing(asset, metadataByAssetId, spec, now));
+            pendingAssets.forEach(asset -> {
+                requirePurposeSupported(spec, asset.getPurpose());
+                beginProcessing(asset, metadataByAssetId, spec, now);
+            });
         }
 
         return assetIds.stream()
@@ -134,6 +145,14 @@ public class MediaAssetTransactionService {
             throw new BusinessException(MediaErrorCode.PIPELINE_UNAVAILABLE);
         }
         return snapshot;
+    }
+
+    private void requirePurposeSupported(MediaSpecSnapshot snapshot, MediaPurpose purpose) {
+        MediaSpecDefinition definition = mediaSpecRegistry.findDefinition(snapshot.version())
+                .orElseThrow(() -> new BusinessException(MediaErrorCode.PIPELINE_UNAVAILABLE));
+        if (!definition.supportsPurpose(purpose)) {
+            throw new BusinessException(MediaErrorCode.PIPELINE_UNAVAILABLE);
+        }
     }
 
     private Map<UUID, ImageAsset> requireOwnedAssets(CurrentActor actor, Collection<UUID> requestedIds,

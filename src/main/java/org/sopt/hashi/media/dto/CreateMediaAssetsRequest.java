@@ -26,7 +26,8 @@ public record CreateMediaAssetsRequest(
             @NotBlank(message = "contentType은 필수입니다.")
             String contentType,
 
-            @Schema(description = "원본 파일 크기(byte, 최대 5MB)", example = "1048576")
+            @Schema(description = "원본 파일 크기(byte, 일반 목적 최대 5MiB, 카드뉴스 최대 10MiB)",
+                    example = "1048576")
             @NotNull(message = "fileSize는 필수입니다.")
             @Positive(message = "fileSize는 1 이상이어야 합니다.")
             Long fileSize

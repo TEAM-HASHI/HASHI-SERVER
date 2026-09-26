@@ -20,7 +20,7 @@ public record MediaOriginalStorageProperties(
     private static final String DEFAULT_BUCKET = "hashi-local-media-originals";
     private static final Duration DEFAULT_PRESIGNED_URL_EXPIRATION = Duration.ofMinutes(5);
     private static final DataSize DEFAULT_MAX_FILE_SIZE = DataSize.ofMegabytes(5);
-    private static final DataSize WORKER_MAX_FILE_SIZE = DataSize.ofMegabytes(5);
+    private static final DataSize DEFAULT_PURPOSE_WORKER_MAX_FILE_SIZE = DataSize.ofMegabytes(5);
     private static final int DEFAULT_MAX_FILES_PER_REQUEST = 10;
 
     public MediaOriginalStorageProperties {
@@ -39,7 +39,7 @@ public record MediaOriginalStorageProperties(
             throw new IllegalArgumentException("media presigned URL expiration must be positive");
         }
         if (maxFileSize.toBytes() <= 0
-                || maxFileSize.toBytes() > WORKER_MAX_FILE_SIZE.toBytes()) {
+                || maxFileSize.toBytes() > DEFAULT_PURPOSE_WORKER_MAX_FILE_SIZE.toBytes()) {
             throw new IllegalArgumentException("media max file size must be between 1 byte and 5MB");
         }
         if (maxFilesPerRequest < 1 || maxFilesPerRequest > 10) {

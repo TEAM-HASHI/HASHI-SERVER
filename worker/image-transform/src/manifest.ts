@@ -13,13 +13,13 @@ export interface RenditionDimensions {
 
 export interface RenditionRoleSpec {
   readonly aspectRatio: RenditionDimensions;
-  readonly fit: "cover";
+  readonly fit: "cover" | "inside";
   readonly position: "centre";
   readonly quality: number;
   readonly defaultWidth: number;
   readonly candidates: readonly RenditionDimensions[];
   readonly noUpscaleFallback: {
-    readonly selection: "largest-croppable-width";
+    readonly selection: "largest-croppable-width" | "source-width";
     readonly minimumWidth: 1;
   };
 }
@@ -28,7 +28,7 @@ export interface MediaSpecManifest {
   readonly $schema?: string;
   readonly manifestSchemaVersion: 1;
   readonly specVersion: number;
-  readonly processorRevision: "sharp-webp-v1";
+  readonly processorRevision: "sharp-webp-v1" | "sharp-webp-v2";
   readonly output: {
     readonly format: "webp";
     readonly mimeType: "image/webp";
@@ -48,7 +48,7 @@ export interface LoadedMediaSpec {
 }
 
 const cache = new Map<string, LoadedMediaSpec>();
-const SUPPORTED_PURPOSES = [
+const SUPPORTED_PURPOSES_V1 = [
   "PROFILE",
   "REVIEW",
   "RESTAURANT",
@@ -56,7 +56,8 @@ const SUPPORTED_PURPOSES = [
   "MAGAZINE_BANNER",
   "MAGAZINE_THUMBNAIL",
 ] as const;
-const SUPPORTED_ROLES = [
+const SUPPORTED_PURPOSES_V2 = [...SUPPORTED_PURPOSES_V1, "MAGAZINE_CARD_NEWS"] as const;
+const SUPPORTED_ROLES_V1 = [
   "PROFILE_AVATAR",
   "RESTAURANT_THUMBNAIL",
   "RESTAURANT_CARD",
@@ -68,6 +69,7 @@ const SUPPORTED_ROLES = [
   "MAGAZINE_BANNER",
   "MAGAZINE_THUMBNAIL",
 ] as const;
+const SUPPORTED_ROLES_V2 = [...SUPPORTED_ROLES_V1, "MAGAZINE_CARD_NEWS"] as const;
 
 export function loadMediaSpec(specVersion: number, specsDirectory?: string): LoadedMediaSpec {
   if (!Number.isSafeInteger(specVersion) || specVersion < 1) {
@@ -101,11 +103,14 @@ export function loadMediaSpec(specVersion: number, specsDirectory?: string): Loa
     if (manifest.specVersion !== specVersion) {
       throw new ContractMismatchError("Manifest version does not match its file name");
     }
-    if (manifest.processorRevision !== "sharp-webp-v1") {
+    const expectedRevision = specVersion === 1 ? "sharp-webp-v1" : "sharp-webp-v2";
+    if (manifest.processorRevision !== expectedRevision) {
       throw new ContractMismatchError("Worker does not support the manifest processor revision");
     }
-    assertExactKeys(manifest.purposes, SUPPORTED_PURPOSES, "purposes");
-    assertExactKeys(manifest.roles, SUPPORTED_ROLES, "roles");
+    const supportedPurposes = specVersion === 1 ? SUPPORTED_PURPOSES_V1 : SUPPORTED_PURPOSES_V2;
+    const supportedRoles = specVersion === 1 ? SUPPORTED_ROLES_V1 : SUPPORTED_ROLES_V2;
+    assertExactKeys(manifest.purposes, supportedPurposes, "purposes");
+    assertExactKeys(manifest.roles, supportedRoles, "roles");
     assertUniqueCandidateWidths(manifest);
 
     const loaded = Object.freeze({

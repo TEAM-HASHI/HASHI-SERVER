@@ -111,7 +111,7 @@
           }
         },
         "fit": {
-          "const": "cover"
+          "enum": ["cover", "inside"]
         },
         "position": {
           "const": "centre"
@@ -139,7 +139,7 @@
           "required": ["selection", "minimumWidth"],
           "properties": {
             "selection": {
-              "const": "largest-croppable-width"
+              "enum": ["largest-croppable-width", "source-width"]
             },
             "minimumWidth": {
               "const": 1

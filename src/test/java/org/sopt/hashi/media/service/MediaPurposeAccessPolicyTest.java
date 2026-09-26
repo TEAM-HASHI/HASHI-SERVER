@@ -11,6 +11,13 @@ class MediaPurposeAccessPolicyTest {
     private final MediaPurposeAccessPolicy policy = new MediaPurposeAccessPolicy();
 
     @Test
+    void 카드뉴스는_ADMIN만_허용한다() {
+        assertThat(policy.isAllowed(ActorType.ADMIN, MediaPurpose.MAGAZINE_CARD_NEWS)).isTrue();
+        assertThat(policy.isAllowed(ActorType.USER, MediaPurpose.MAGAZINE_CARD_NEWS)).isFalse();
+        assertThat(policy.isAllowed(ActorType.ONBOARDING, MediaPurpose.MAGAZINE_CARD_NEWS)).isFalse();
+    }
+
+    @Test
     void PROFILE은_USER와_ONBOARDING만_허용한다() {
         assertThat(policy.isAllowed(ActorType.USER, MediaPurpose.PROFILE)).isTrue();
         assertThat(policy.isAllowed(ActorType.ONBOARDING, MediaPurpose.PROFILE)).isTrue();

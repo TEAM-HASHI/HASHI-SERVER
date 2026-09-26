@@ -120,6 +120,10 @@ URL이다. USER, ADMIN, ONBOARDING이 모두 이 API를 호출할 수 있고 usa
 - 과거 데이터 key 경로는 현재 생성 규칙과 다른 값도 있으므로 path만 보고 role을 추측하지
   않는다.
 
+신규 media 업로드도 기본 제한은 파일당 5MiB다. 다만 카드뉴스(`MAGAZINE_CARD_NEWS`)는
+v2 규격이 활성화된 환경에서만 파일당 10MiB까지 허용한다. 기존 v1 목적과 현재 legacy
+업로드의 제한은 바뀌지 않는다.
+
 기존 계약은 전환 기간 동안 유지하되 신규 `media` 계약과 섞어 구현하지 않는다.
 
 ## 5. 업로드 purpose와 권한
@@ -132,6 +136,7 @@ URL이다. USER, ADMIN, ONBOARDING이 모두 이 API를 호출할 수 있고 usa
 | `RESTAURANT_MENU` | ADMIN | `MENU_LIST`, `MENU_DETAIL` |
 | `MAGAZINE_BANNER` | ADMIN | `MAGAZINE_BANNER` |
 | `MAGAZINE_THUMBNAIL` | ADMIN | `MAGAZINE_THUMBNAIL` |
+| `MAGAZINE_CARD_NEWS` | ADMIN | `MAGAZINE_CARD_NEWS` (v2에서만) |
 
 현재 SecurityConfig는 일반 `/api/v1/**`를 USER 중심으로 제한하므로 media 구현 PR에서
 `/api/v1/media/**`를 USER, ADMIN, ONBOARDING 중 하나로 인증된 actor에게 열어야 한다. Security
@@ -386,7 +391,7 @@ POST /api/v1/media/assets
 }
 ```
 
-- 파일 수와 크기 제한은 기존 계약과 같이 1개부터 10개, 파일당 최대 5MB다.
+- 파일 수는 1개부터 10개다. 파일당 기본 제한은 5MiB이며, v2의 `MAGAZINE_CARD_NEWS`만 10MiB까지 허용한다.
 - 허용 선언 MIME은 `image/jpeg`, `image/png`, `image/webp`다.
 - 서버는 선언한 `fileSize`를 presigned PUT의 서명된 `Content-Length`로 고정한다. 브라우저가 실제
   body 길이로 이 header를 자동 설정하므로 클라이언트는 직접 설정하지 않고, 전송 직전
@@ -896,6 +901,24 @@ Spring consumer도 target digest와 result digest를 대조한다. unknown versi
 append-only로 유지하며 v1에서는 제거하지 않는다. processor 실행 지원은 해당 version을 참조하는
 target, currentJobId, 미완료 EPR, request와 result queue, DLQ가 모두 0인 것을 확인한 후속 배포에서만
 제거할 수 있다.
+
+### 11.2 카드뉴스 규격 v2
+
+카드뉴스는 글자가 포함될 수 있으므로 기존 배너의 중앙 crop 규격을 재사용하지 않는다.
+`media-specs/v2.json`의 `MAGAZINE_CARD_NEWS`는 다음을 사용한다.
+
+- 원본 비율을 유지하는 `inside` 처리와 quality 90
+- nominal 3:4 후보 폭 432, 864, 1296 (기본 864)
+- 실제 출력 높이는 원본 비율에 따라 계산하며 이미지를 자르거나 확대하지 않는다.
+- 각 3:4 후보 박스에 원본 전체가 들어가도록 축소하며, 후보 박스가 원본보다 커도 확대하지 않는다.
+  서로 다른 박스가 같은 출력 크기로 수렴하면 중복 파일을 만들지 않는다.
+- 기본 이미지는 nominal 864 후보 박스의 실제 출력 크기를 기준으로 고른다.
+- v1 manifest와 기존 v1 rendition은 수정하지 않는다.
+
+v2는 worker와 Spring이 함께 지원된 뒤 `media_pipeline_config`의 current version과 digest를
+명시적으로 변경해야 사용된다. 배포 전까지 current v1과 일반 목적의 파일당 5MiB 제한은
+그대로 유지한다. 카드뉴스 등록·수정 API와 콘텐츠 응답 연결은 매거진 도메인 작업에서
+`MediaPort`를 통해 진행하며, media는 카드뉴스의 표시 순서를 저장하지 않는다.
 
 새 spec은 다음 순서로 배포한다.
 
