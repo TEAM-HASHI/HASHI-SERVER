@@ -1,3 +1,5 @@
+import { Readable } from "node:stream";
+
 import {
   GetObjectCommand,
   HeadObjectCommand,
@@ -47,9 +49,15 @@ export class AwsImageObjectStorage implements ImageObjectStorage {
       throw new ContractMismatchError("S3 returned an original object without a body");
     }
     if (response.ContentLength === undefined || response.ContentLength > MAX_ORIGINAL_BYTES) {
+      if (response.Body instanceof Readable) {
+        response.Body.destroy();
+      }
       throw new ContractMismatchError("S3 original content length exceeds the worker limit");
     }
     if (response.ContentLength !== request.expectedContentLength) {
+      if (response.Body instanceof Readable) {
+        response.Body.destroy();
+      }
       throw new ContractMismatchError("S3 original content length differs from transform request");
     }
 
