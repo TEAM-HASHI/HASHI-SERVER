@@ -11,6 +11,7 @@ import java.util.stream.Collectors;
 import org.sopt.hashi.media.ImageReference;
 import org.sopt.hashi.restaurant.AdminRestaurantCommand;
 import org.sopt.hashi.restaurant.AdminRestaurantInfo;
+import org.sopt.hashi.restaurant.RestaurantCardInfo;
 import org.sopt.hashi.restaurant.RestaurantDetailInfo;
 import org.sopt.hashi.restaurant.RestaurantInfo;
 import org.sopt.hashi.restaurant.RestaurantPort;
@@ -43,6 +44,11 @@ class RestaurantPortImpl implements RestaurantPort {
     @Override
     public boolean existsById(Long restaurantId) {
         return restaurantId != null && restaurantRepository.existsById(restaurantId);
+    }
+
+    @Override
+    public boolean existsActiveById(Long restaurantId) {
+        return restaurantId != null && restaurantRepository.existsByIdAndDeletedFalse(restaurantId);
     }
 
     @Override
@@ -90,6 +96,24 @@ class RestaurantPortImpl implements RestaurantPort {
         return restaurantService.findActiveDetails(restaurantIds);
     }
 
+    /** 이미지는 @BatchSize로 대표 이미지만 묶음 조회되므로 컬렉션 규모(수백 건)에서도 영업시간·카드 이미지 없이 가볍다. */
+    @Override
+    public List<RestaurantCardInfo> findActiveCards(Collection<Long> restaurantIds) {
+        if (restaurantIds == null || restaurantIds.isEmpty()) {
+            return List.of();
+        }
+        List<Long> ids = restaurantIds.stream()
+                .filter(Objects::nonNull)
+                .distinct()
+                .toList();
+        if (ids.isEmpty()) {
+            return List.of();
+        }
+        return restaurantRepository.findAllByIdInAndDeletedFalse(ids).stream()
+                .map(this::toCardInfo)
+                .toList();
+    }
+
     @Override
     @Transactional
     public void increaseReviewStatistics(Long restaurantId, int rating) {
@@ -129,6 +153,19 @@ class RestaurantPortImpl implements RestaurantPort {
                 restaurant.getId(),
                 restaurant.getName(),
                 restaurant.getAddress(),
+                toThumbnailReference(restaurant)
+        );
+    }
+
+    private RestaurantCardInfo toCardInfo(Restaurant restaurant) {
+        return new RestaurantCardInfo(
+                restaurant.getId(),
+                restaurant.getName(),
+                restaurant.getArea(),
+                restaurant.getFoodCategory(),
+                restaurant.getPlaceType().value(),
+                restaurant.getRating(),
+                restaurant.getReviewCount(),
                 toThumbnailReference(restaurant)
         );
     }
