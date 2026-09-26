@@ -12,6 +12,7 @@ import software.amazon.awssdk.services.s3.S3Client;
 import software.amazon.awssdk.services.s3.model.BucketVersioningStatus;
 import software.amazon.awssdk.services.s3.model.DeleteMarkerEntry;
 import software.amazon.awssdk.services.s3.model.DeleteObjectRequest;
+import software.amazon.awssdk.services.s3.model.EncodingType;
 import software.amazon.awssdk.services.s3.model.GetBucketVersioningRequest;
 import software.amazon.awssdk.services.s3.model.GetBucketVersioningResponse;
 import software.amazon.awssdk.services.s3.model.ListObjectVersionsRequest;
@@ -52,6 +53,7 @@ public class S3MediaReconciliationStorage implements MediaReconciliationStorage 
             ListObjectVersionsResponse response = s3Client.listObjectVersions(ListObjectVersionsRequest.builder()
                     .bucket(bucket)
                     .prefix(location.prefix())
+                    .encodingType(EncodingType.URL)
                     .maxKeys(pageSize)
                     .keyMarker(cursor.keyMarker())
                     .versionIdMarker(cursor.versionIdMarker())
@@ -102,7 +104,7 @@ public class S3MediaReconciliationStorage implements MediaReconciliationStorage 
             int pageSize
     ) {
         boolean invalid = response == null || response.isTruncated() == null
-                || response.hasCommonPrefixes()
+                || !response.commonPrefixes().isEmpty()
                 || (response.name() != null && !bucket.equals(response.name()))
                 || (response.prefix() != null && !location.prefix().equals(response.prefix()))
                 || response.versions().size() + response.deleteMarkers().size() > pageSize;

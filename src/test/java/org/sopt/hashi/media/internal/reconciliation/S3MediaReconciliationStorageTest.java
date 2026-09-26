@@ -17,8 +17,10 @@ import org.junit.jupiter.api.Test;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 import software.amazon.awssdk.services.s3.S3Client;
 import software.amazon.awssdk.services.s3.model.BucketVersioningStatus;
+import software.amazon.awssdk.services.s3.model.CommonPrefix;
 import software.amazon.awssdk.services.s3.model.DeleteMarkerEntry;
 import software.amazon.awssdk.services.s3.model.DeleteObjectRequest;
+import software.amazon.awssdk.services.s3.model.EncodingType;
 import software.amazon.awssdk.services.s3.model.GetBucketVersioningRequest;
 import software.amazon.awssdk.services.s3.model.GetBucketVersioningResponse;
 import software.amazon.awssdk.services.s3.model.ListObjectVersionsRequest;
@@ -63,7 +65,8 @@ class S3MediaReconciliationStorageTest {
                 new MediaObjectVersion(MediaObjectLocation.ORIGINAL, KEY, "version-1", MODIFIED));
         assertThat(page.nextCursor()).isEqualTo(new MediaObjectVersionCursor(KEY, "version-1"));
         verify(client).listObjectVersions(ListObjectVersionsRequest.builder()
-                .bucket("test-originals").prefix("media/originals/").maxKeys(100).build());
+                .bucket("test-originals").prefix("media/originals/")
+                .encodingType(EncodingType.URL).maxKeys(100).build());
     }
 
     @Test
@@ -187,7 +190,10 @@ class S3MediaReconciliationStorageTest {
                                 .key(KEY).versionId("v1").build())
                         .isTruncated(false).build(),
                 ListObjectVersionsResponse.builder().versions(version(KEY, "v1"))
-                        .isTruncated(true).build()
+                        .isTruncated(true).build(),
+                ListObjectVersionsResponse.builder()
+                        .commonPrefixes(CommonPrefix.builder().prefix("media/originals/group/").build())
+                        .isTruncated(false).build()
         );
         for (ListObjectVersionsResponse response : invalid) {
             when(client.listObjectVersions(any(ListObjectVersionsRequest.class))).thenReturn(response);
