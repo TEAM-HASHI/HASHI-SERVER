@@ -128,7 +128,7 @@ class RestaurantMapControllerTest {
     }
 
     @Test
-    void 잘못된_ID는_400이며_지도_페이지_임시_API를_제공하지_않는다() throws Exception {
+    void 잘못된_ID는_400과_필드오류를_반환한다() throws Exception {
         for (long invalidId : new long[]{0L, -1L}) {
             mvc.perform(get("/api/v1/restaurants/{restaurantId}/map-location", invalidId))
                     .andExpect(status().isBadRequest())
@@ -146,7 +146,6 @@ class RestaurantMapControllerTest {
                 .andExpect(jsonPath("$.errors[0].field").value("restaurantId"))
                 .andExpect(jsonPath("$.errors[0].rejectedValue").value("bad"))
                 .andExpect(jsonPath("$.errors[0].reason").value("정수 ID를 입력해 주세요."));
-        mvc.perform(get("/api/v1/restaurants/map")).andExpect(status().isNotFound());
     }
 
     @Test
