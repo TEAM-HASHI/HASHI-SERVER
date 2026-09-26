@@ -21,6 +21,7 @@ import org.sopt.hashi.config.TimeConfig;
 import org.sopt.hashi.media.MediaPort;
 import org.sopt.hashi.restaurant.AdminRestaurantCommand;
 import org.sopt.hashi.restaurant.service.RestaurantService;
+import org.sopt.hashi.restaurant.service.RestaurantLocationService;
 import org.sopt.hashi.shared.storage.FileStorage;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.jdbc.AutoConfigureTestDatabase;
@@ -42,7 +43,7 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 @Testcontainers
 @DataJpaTest
 @AutoConfigureTestDatabase(replace = AutoConfigureTestDatabase.Replace.NONE)
-@Import({RestaurantService.class, TimeConfig.class})
+@Import({RestaurantService.class, RestaurantLocationService.class, TimeConfig.class})
 @TestPropertySource(properties = {
         "spring.jpa.hibernate.ddl-auto=validate",
         "spring.jpa.properties.hibernate.generate_statistics=true",

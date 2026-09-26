@@ -14,6 +14,7 @@ import org.sopt.hashi.restaurant.AdminRestaurantInfo;
 import org.sopt.hashi.restaurant.RestaurantDetailInfo;
 import org.sopt.hashi.restaurant.RestaurantInfo;
 import org.sopt.hashi.restaurant.RestaurantPort;
+import org.sopt.hashi.restaurant.RestaurantLocationInfo;
 import org.sopt.hashi.restaurant.domain.Restaurant;
 import org.sopt.hashi.restaurant.domain.RestaurantImage;
 import org.sopt.hashi.restaurant.domain.RestaurantRepository;
@@ -32,12 +33,14 @@ class RestaurantPortImpl implements RestaurantPort {
     private final RestaurantRepository restaurantRepository;
     private final RestaurantService restaurantService;
     private final FileStorage fileStorage;
+    private final RestaurantLocationService locationService;
 
     RestaurantPortImpl(RestaurantRepository restaurantRepository, RestaurantService restaurantService,
-                       FileStorage fileStorage) {
+                       FileStorage fileStorage, RestaurantLocationService locationService) {
         this.restaurantRepository = restaurantRepository;
         this.restaurantService = restaurantService;
         this.fileStorage = fileStorage;
+        this.locationService = locationService;
     }
 
     @Override
@@ -122,6 +125,17 @@ class RestaurantPortImpl implements RestaurantPort {
     @Transactional
     public void deleteByAdmin(Long restaurantId) {
         restaurantService.deleteByAdmin(restaurantId);
+    }
+
+    @Override
+    public RestaurantLocationInfo getLocationByAdmin(Long restaurantId) {
+        return locationService.get(restaurantId);
+    }
+
+    @Override
+    @Transactional
+    public RestaurantLocationInfo retryLocationByAdmin(Long restaurantId, long expectedAddressRevision) {
+        return locationService.retry(restaurantId, expectedAddressRevision);
     }
 
     private RestaurantInfo toInfo(Restaurant restaurant) {

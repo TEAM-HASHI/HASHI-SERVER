@@ -106,7 +106,7 @@ class AdminRestaurantServiceTest {
                 List.of("현지인맛집"),
                 List.of(),
                 List.of(),
-                LocalDateTime.of(2026, 7, 14, 0, 0)
+                LocalDateTime.of(2026, 7, 14, 0, 0), "PENDING", 1
         );
     }
 }
