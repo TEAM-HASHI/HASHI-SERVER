@@ -61,7 +61,7 @@ git commit -m "<type>(<scope>): <subject> (#issue)"
 | `reservation` | 예약·결제상태 |
 | `point` | 포인트 |
 | `magazine` | 매거진 |
-| `user` | 회원·찜 |
+| `user` | 회원·식당 컬렉션 |
 | `support` | 문의·공지·약관 |
 | `auth` | 인증/인가·가입 |
 | `admin` | 어드민(위임) |
