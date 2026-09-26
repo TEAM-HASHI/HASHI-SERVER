@@ -15,6 +15,15 @@ worker는 transaction이 있으면 실행을 거절한다. 별도 `LocationJobTr
 모든 쓰기 경로는 식당 → 해당 작업(복수이면 ID 순) → 전역 예산 순서로 잠근다.
 관리자 저장은 예산 행을 잠그지 않으며 외부 호출도 하지 않는다.
 
+관리자 등록/수정/삭제/재처리의 Port와 Service 진입점도 READ_COMMITTED로 맞춘다.
+기본 REPEATABLE_READ에서는 비어 있는 작업 범위의 FOR UPDATE 뒤 INSERT가 서로 다른 식당의
+동시 등록에서도 gap lock deadlock을 일으켰다. 부모 식당 잠금으로 같은 식당의 변경을 직렬화하면서
+범위 gap lock을 피한다. 후속 작업이 enqueue/cancel을 호출할 때도 이 transaction 조건을 지킨다.
+
+HTTP를 기다리는 polling cycle은 전용 단일 스레드 scheduler에서 실행한다. cycle 중복 적재가 없고,
+기존 미디어 작업의 기본 scheduler를 점유하지 않는다. 전용 Bean은 defaultCandidate=false로 두어
+Spring Boot의 기본 scheduler 구성을 유지한다. 종료 중인 호출은 중단 후 lease 만료로 복구한다.
+
 `addressRevision`, `requestId`, 작업 ID, lease token, lease 만료와 soft delete를 완료 시 다시 검사한다.
 마지막 예산 잠금을 얻은 뒤 DB 시각을 다시 읽는다. 유효하지 않은 성공/실패는 모두 no-op이다.
 주소 변경/삭제로 대체된 작업도 이미 예약한 동시 슬롯은 원래 기한까지 유지한다.
@@ -36,6 +45,7 @@ V29는 `restaurant_geocoding_budget(id=1)`을 `enabled=false`, `daily_limit=0`,
 commit에 예산을 보수적으로 예약한다. 실제 전송 여부가 불확실해도 일일 사용량을 환급하지 않는다.
 timeout/cancel의 실행 슬롯은 lease 기한까지 유지하고 같은 작업을 그 전에 다시 실행하지 않는다.
 공유 quota 대기 중에는 다른 식당의 작업과 관리자 재처리도 호출할 수 없다.
+마지막 자동 시도에서 quota 오류를 받아도 공유 대기는 기록하며 해당 작업만 FAILED로 끝낸다.
 
 동시 예약 count는 예산 잠금을 얻은 후 최신 commit을 읽어야 하므로 READ_COMMITTED를 사용한다.
 식당/작업은 부모 잠금으로 직렬화한다. 전역 예산만 변경하는 운영 transaction은 예산 행만 잠그고
@@ -58,6 +68,7 @@ Google 좌표 수명은 예약 직전 DB 시각을 보수적인 취득 기준으
 새 dependency, 인증 규칙 변경, Redis 의존은 없다. 관리자 저장 응답은 기존 201/200 성공 코드를
 유지하고 상태/revision만 추가한다. 기존 위치 없는 식당은 UNRESOLVED/revision 0이며 일반 조회를 유지한다.
 일반 정보만 수정할 때 새 작업이나 revision을 만들지 않는다.
+삭제된 식당의 기존 관리자 편집 허용 정책은 유지하되 새 위치 작업은 등록하지 않는다.
 
 테스트용 fake provider와 실제 MySQL에서 저장 원자성, lease 경합, 늦은 성공/실패, retry 예산,
 JDBC Asia/Seoul 세션의 UTC 원시 값과 왕복을 검증한다. 실행 결과는 PR의 최종 HEAD evidence로 확인한다.

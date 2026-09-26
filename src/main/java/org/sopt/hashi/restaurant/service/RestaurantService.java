@@ -79,6 +79,7 @@ import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Sort;
 import org.springframework.data.jpa.domain.Specification;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Isolation;
 import org.springframework.transaction.annotation.Transactional;
 
 @Slf4j
@@ -356,7 +357,7 @@ public class RestaurantService {
     }
 
     /** 어드민 식당 등록 — 필수 값 형식 검증은 admin 요청 DTO가, 도메인 값 해석·저장은 여기가 담당한다. */
-    @Transactional
+    @Transactional(isolation = Isolation.READ_COMMITTED)
     public AdminRestaurantInfo createByAdmin(AdminRestaurantCommand command) {
         validateRequiredForCreate(command);
 
@@ -406,7 +407,7 @@ public class RestaurantService {
     }
 
     /** 어드민 식당 수정 — 부분 수정(PATCH). null 필드는 유지하고, 컬렉션은 전체 교체한다. */
-    @Transactional
+    @Transactional(isolation = Isolation.READ_COMMITTED)
     public AdminRestaurantInfo updateByAdmin(Long restaurantId, AdminRestaurantCommand command) {
         validateImageFieldsForUpdate(command);
         validateNonBlankIfPresent(command.localName());
@@ -462,7 +463,7 @@ public class RestaurantService {
                 command.minPrice(),
                 command.maxPrice());
 
-        if (addressChanged) {
+        if (addressChanged && !restaurant.isDeleted()) {
             locationService.enqueue(restaurant);
         }
 
@@ -483,7 +484,7 @@ public class RestaurantService {
     }
 
     /** 어드민 식당 삭제 — soft delete(deleted=true). 예약·리뷰가 참조하는 데이터는 보존한다. */
-    @Transactional
+    @Transactional(isolation = Isolation.READ_COMMITTED)
     public void deleteByAdmin(Long restaurantId) {
         Restaurant restaurant = findRestaurantForAdminUpdate(restaurantId);
         restaurant.softDelete();

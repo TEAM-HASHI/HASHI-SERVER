@@ -44,6 +44,7 @@ partial_match 제거와 국가/지역 입력의 편향 의미를 반영한다. R
 | Google enabled | 기본 false, 선행 adapter 설정을 별도로 사용 |
 | lease | 2분; adapter의 최대 30초 deadline보다 길다 |
 | polling | 기본 5초 (`hashi.map.location-job.poll-delay`, ms), cycle 후보 최대 50 |
+| 실행 스레드 | 전용 단일 scheduler, cycle 중첩 없음; 기존 예약 작업의 scheduler 유지 |
 | max-attempts | 기본 4, 허용 1~8, DB에 누적 |
 | 일반 일시 오류 | 30초 × 2^(attempt-1), 최대 30분 + 0~25% jitter |
 | Google quota | 5분부터 같은 지수 지연, DB blockedUntil로 전체 서버 대기 |
@@ -58,7 +59,7 @@ partial_match 제거와 국가/지역 입력의 편향 의미를 반영한다. R
 | 일치하는 완전 주소 | READY, failureCode null |
 | 결과 없음/복수/다른 국가/영역/정확도/주소 불일치 | REVIEW_REQUIRED, NO_RESULTS / AMBIGUOUS_RESULTS / COUNTRY_MISMATCH / OUTSIDE_SUPPORTED_AREA / INSUFFICIENT_PRECISION / ADDRESS_MISMATCH |
 | timeout/연결/5xx | RETRY_WAIT; TIMEOUT / CONNECTION_ERROR / TRANSIENT_ERROR |
-| Google 429 | RETRY_WAIT / QUOTA_EXCEEDED, 공유 대기 |
+| Google 429 | RETRY_WAIT / QUOTA_EXCEEDED, 공유 대기; 마지막 시도도 공유 대기를 기록하고 FAILED / ATTEMPTS_EXHAUSTED |
 | 로컬 실행 슬롯 부족 | RETRY_WAIT / CAPACITY_EXCEEDED, Google quota와 구별 |
 | 취소 | RETRY_WAIT / CANCELLED 또는 중단된 thread의 lease 복구; 주소 오류로 취급하지 않음 |
 | 비활성 provider/키권한/설정/잘못된 요청·응답 | FAILED / adapter의 안전한 FailureKind |

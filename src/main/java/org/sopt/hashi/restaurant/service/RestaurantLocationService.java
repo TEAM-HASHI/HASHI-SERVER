@@ -15,6 +15,7 @@ import org.sopt.hashi.shared.error.BusinessException;
 import org.sopt.hashi.shared.error.CommonErrorCode;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Isolation;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -31,7 +32,7 @@ public class RestaurantLocationService {
         this.clock = clock;
     }
 
-    /** 호출자가 식당을 먼저 잠근다. 신규 식당은 아직 다른 transaction에서 보이지 않는다. */
+    /** 호출자는 READ_COMMITTED transaction에서 식당을 먼저 잠근다. 신규 식당은 아직 외부에서 보이지 않는다. */
     @Transactional(propagation = Propagation.MANDATORY)
     public void enqueue(Restaurant restaurant) {
         LocalDateTime now = LocalDateTime.ofInstant(clock.instant(), ZoneOffset.UTC);
@@ -51,7 +52,7 @@ public class RestaurantLocationService {
                 .orElseThrow(() -> new BusinessException(RestaurantErrorCode.NOT_FOUND)));
     }
 
-    @Transactional
+    @Transactional(isolation = Isolation.READ_COMMITTED)
     public RestaurantLocationInfo retry(Long restaurantId, long expectedRevision) {
         if (expectedRevision < 0) {
             throw new BusinessException(CommonErrorCode.INVALID_INPUT);

@@ -2,6 +2,9 @@ package org.sopt.hashi.restaurant.service;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.Mockito.doAnswer;
+import static org.mockito.Mockito.mockingDetails;
 
 import java.math.BigDecimal;
 import java.time.DayOfWeek;
@@ -12,16 +15,20 @@ import java.time.ZoneOffset;
 import java.util.Arrays;
 import java.util.List;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.CyclicBarrier;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Function;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.EnumSource;
 import org.sopt.hashi.config.TimeConfig;
 import org.sopt.hashi.media.MediaPort;
 import org.sopt.hashi.restaurant.AdminRestaurantCommand;
 import org.sopt.hashi.restaurant.AdminRestaurantCommand.BusinessHourCommand;
+import org.sopt.hashi.restaurant.RestaurantPort;
 import org.sopt.hashi.restaurant.domain.RestaurantLocationJobRepository;
 import org.sopt.hashi.restaurant.domain.RestaurantRepository;
 import org.sopt.hashi.restaurant.internal.map.GeocodingProvider;
@@ -46,6 +53,7 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
+import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
@@ -57,7 +65,7 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 @Testcontainers
 @DataJpaTest(showSql = false)
 @AutoConfigureTestDatabase(replace = AutoConfigureTestDatabase.Replace.NONE)
-@Import({RestaurantService.class, RestaurantLocationService.class, LocationJobTransactions.class,
+@Import({RestaurantService.class, RestaurantPortImpl.class, RestaurantLocationService.class, LocationJobTransactions.class,
         LocationAdoptionPolicy.class, LocationRetryPolicy.class, RestaurantLocationWorker.class,
         TimeConfig.class, LocationJobMySqlTest.Fixtures.class})
 @TestPropertySource(properties = {"spring.jpa.hibernate.ddl-auto=validate", "spring.flyway.enabled=true"})
@@ -73,9 +81,10 @@ class LocationJobMySqlTest {
             .withUrlParam("forceConnectionTimeZoneToSession", "true");
 
     @Autowired RestaurantService restaurants;
+    @Autowired RestaurantPort restaurantPort;
     @Autowired RestaurantRepository restaurantRepository;
     @Autowired RestaurantLocationService locations;
-    @Autowired RestaurantLocationJobRepository jobs;
+    @MockitoSpyBean RestaurantLocationJobRepository jobs;
     @Autowired LocationJobTransactions transactions;
     @Autowired RestaurantLocationWorker worker;
     @Autowired JdbcTemplate jdbc;
@@ -128,6 +137,34 @@ class LocationJobMySqlTest {
                 target.jobId());
         assertThat(transactions.candidates()).contains(target);
         assertThat(transactions.claim(target)).isPresent();
+    }
+
+    @ParameterizedTest
+    @EnumSource(AdminOperation.class)
+    void 빈_작업_테이블에서도_서로_다른_식당의_작업을_동시에_등록한다(AdminOperation operation) throws Exception {
+        Long firstId = operation == AdminOperation.CREATE ? null
+                : restaurantPort.createByAdmin(createCommand()).restaurantId();
+        Long secondId = operation == AdminOperation.CREATE ? null
+                : restaurantPort.createByAdmin(createCommand()).restaurantId();
+        jdbc.update("DELETE FROM restaurant_location_job");
+        if (operation == AdminOperation.RETRY) {
+            jdbc.update("UPDATE restaurant SET location_id=NULL WHERE id IN (?, ?)", firstId, secondId);
+        }
+        CyclicBarrier selected = new CyclicBarrier(2);
+        var realRepository = mockingDetails(jobs).getMockCreationSettings().getDefaultAnswer();
+        // 실제 MySQL 조회를 마친 두 요청을 INSERT 직전에 맞춘다. DB 동작은 대체하지 않는다.
+        doAnswer(invocation -> {
+            Object result = realRepository.answer(invocation);
+            selected.await(10, TimeUnit.SECONDS);
+            return result;
+        }).when(jobs).findActiveForUpdate(anyLong());
+        try (var executor = Executors.newVirtualThreadPerTaskExecutor()) {
+            var first = executor.submit(() -> saveLocationJob(operation, firstId));
+            var second = executor.submit(() -> saveLocationJob(operation, secondId));
+            assertThat(first.get(15, TimeUnit.SECONDS)).isEqualTo("PENDING");
+            assertThat(second.get(15, TimeUnit.SECONDS)).isEqualTo("PENDING");
+        }
+        assertThat(jobs.findAll()).hasSize(2);
     }
 
     @Test
@@ -217,6 +254,19 @@ class LocationJobMySqlTest {
     }
 
     @Test
+    void 삭제된_식당의_주소_편집은_허용하되_새_위치_작업은_만들지_않는다() {
+        Long id = restaurantPort.createByAdmin(createCommand()).restaurantId();
+        Claim old = transactions.claim(target(id)).orElseThrow();
+        restaurantPort.deleteByAdmin(id);
+        long jobCount = jobs.count();
+        var response = restaurantPort.updateByAdmin(id, addressCommand("東京都試験区架空町1-2-4"));
+        assertThat(response.address()).isEqualTo("東京都試験区架空町1-2-4");
+        assertThat(jobs.count()).isEqualTo(jobCount);
+        assertThat(restaurantRepository.findById(id).orElseThrow().isDeleted()).isTrue();
+        assertThat(transactions.complete(old, ready())).isFalse();
+    }
+
+    @Test
     void 자동_재시도에서_requestId는_변하지만_attempt는_누적되고_네번째에_중단한다() {
         Long id = restaurants.createByAdmin(createCommand()).restaurantId();
         Target target = target(id);
@@ -237,6 +287,24 @@ class LocationJobMySqlTest {
         assertThat(locations.get(id).locationStatus()).isEqualTo("FAILED");
         assertThat(locations.get(id).failureCode()).isEqualTo("ATTEMPTS_EXHAUSTED");
         assertThat(transactions.claim(target)).isEmpty();
+        assertThat(used()).isEqualTo(4);
+    }
+
+    @Test
+    void 마지막_시도의_429도_다른_식당과_관리자_재처리에_공유_대기를_적용한다() {
+        Long firstId = restaurants.createByAdmin(createCommand()).restaurantId();
+        Long secondId = restaurants.createByAdmin(createCommand()).restaurantId();
+        Target first = target(firstId);
+        for (int attempt = 1; attempt < 4; attempt++) {
+            transactions.complete(transactions.claim(first).orElseThrow(), Outcome.failure(FailureKind.TRANSIENT_ERROR));
+            due(firstId, first.jobId());
+        }
+        transactions.complete(transactions.claim(first).orElseThrow(), Outcome.failure(FailureKind.QUOTA_EXCEEDED));
+        assertThat(locations.get(firstId).locationStatus()).isEqualTo("FAILED");
+        assertThat(locations.get(firstId).failureCode()).isEqualTo("ATTEMPTS_EXHAUSTED");
+        assertThat(transactions.claim(target(secondId))).isEmpty();
+        locations.retry(firstId, 1);
+        assertThat(transactions.claim(target(firstId))).isEmpty();
         assertThat(used()).isEqualTo(4);
     }
 
@@ -363,6 +431,15 @@ class LocationJobMySqlTest {
         assertThat(transactions.complete(claim, ready())).isFalse();
     }
 
+    private String saveLocationJob(AdminOperation operation, Long id) {
+        return switch (operation) {
+            case CREATE -> restaurantPort.createByAdmin(createCommand()).locationStatus();
+            case ADDRESS_UPDATE -> restaurantPort.updateByAdmin(id, addressCommand("東京都試験区架空町1-2-4"))
+                    .locationStatus();
+            case RETRY -> restaurantPort.retryLocationByAdmin(id, 0).locationStatus();
+        };
+    }
+
     private Target target(Long id) {
         return jobs.findAll().stream().filter(job -> job.getRestaurantId().equals(id))
                 .max(java.util.Comparator.comparing(org.sopt.hashi.restaurant.domain.RestaurantLocationJob::getId))
@@ -425,6 +502,8 @@ class LocationJobMySqlTest {
         return new AdminRestaurantCommand(null, null, null, null, address, null, null, null, null, null,
                 null, null, null, null, null, null, null, null, null);
     }
+
+    enum AdminOperation { CREATE, ADDRESS_UPDATE, RETRY }
 
     static class FakeProvider implements GeocodingProvider {
         final AtomicReference<Function<String, GeocodingResult>> answer = new AtomicReference<>();
