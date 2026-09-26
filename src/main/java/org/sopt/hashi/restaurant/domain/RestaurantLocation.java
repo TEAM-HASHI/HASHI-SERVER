@@ -164,6 +164,22 @@ public class RestaurantLocation extends BaseTimeEntity {
         return true;
     }
 
+    /** Snapshot identity and lifetime protect a newer result from an old retention scan. */
+    boolean purgeGoogle(long revision, UUID request, LocalDateTime obtained, LocalDateTime until,
+                        LocalDateTime purgeBefore) {
+        boolean matches = status == RestaurantLocationStatus.READY && source == RestaurantLocationSource.GOOGLE_GEOCODING
+                && addressRevision == revision && requestId.equals(request)
+                && Objects.equals(obtainedAt, obtained) && Objects.equals(validUntil, until)
+                && !validUntil.isAfter(purgeBefore);
+        if (!matches) {
+            return false;
+        }
+        beginPending();
+        // Cleanup never creates or retries a job. A deliberate administrator action can retry later.
+        status = RestaurantLocationStatus.REVIEW_REQUIRED;
+        return true;
+    }
+
     private boolean matchesPending(long expectedRevision, UUID expectedRequestId) {
         return status == RestaurantLocationStatus.PENDING && addressRevision == expectedRevision
                 && requestId.equals(expectedRequestId);
