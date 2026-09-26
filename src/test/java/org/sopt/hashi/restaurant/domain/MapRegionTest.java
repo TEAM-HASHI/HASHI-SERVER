@@ -29,6 +29,14 @@ class MapRegionTest {
         assertThatThrownBy(() -> region(code, "합성 지역", 0)).isInstanceOf(IllegalArgumentException.class);
     }
 
+    @ParameterizedTest
+    @NullAndEmptySource
+    @ValueSource(strings = {" ", "\t", "\n", "\r\n", "\t \n", "\u001C", "\u0085",
+            "\u00A0", "\u2007", "\u202F", "\u3000", "\u001C\u00A0"})
+    void 공백_문자로만_된_지역명을_거절한다(String name) {
+        assertThatThrownBy(() -> region("AREA", name, 0)).isInstanceOf(IllegalArgumentException.class);
+    }
+
     @Test
     void 범위_밖_대표_위치와_빈_이름과_초과_길이와_음수_순서를_거절한다() {
         assertThatThrownBy(() -> region("A".repeat(41), "지역", 0))

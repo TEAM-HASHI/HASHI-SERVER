@@ -125,6 +125,11 @@ class RestaurantMapMigrationTest {
             assertThatThrownBy(() -> jdbc.update("UPDATE map_region SET " + change + " WHERE id=1"))
                     .as(change).isInstanceOf(DataAccessException.class);
         }
+        for (String blankName : List.of("", "\t", "\n", "\r\n", "\t \n", "\u001C", "\u0085",
+                "\u00A0", "\u2007", "\u202F", "\u3000", "\u001C\u00A0")) {
+            assertThatThrownBy(() -> jdbc.update("UPDATE map_region SET name=? WHERE id=1", blankName))
+                    .isInstanceOf(DataAccessException.class);
+        }
         assertThatThrownBy(() -> jdbc.update("""
                 INSERT INTO map_region (code, name, cluster_latitude, cluster_longitude,
                     south, north, west, east, display_order) VALUES ('FIXTURE', 'other', 10, 20, 10, 11, 20, 21, 1)

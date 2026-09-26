@@ -10,6 +10,7 @@ import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
 import java.util.Objects;
+import java.util.regex.Pattern;
 import lombok.AccessLevel;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
@@ -21,6 +22,8 @@ import org.sopt.hashi.BaseTimeEntity;
 @Table(name = "map_region")
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
 public class MapRegion extends BaseTimeEntity {
+
+    private static final Pattern BLANK_NAME = Pattern.compile("[\\p{javaWhitespace}\\p{IsWhite_Space}]*");
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
@@ -55,7 +58,7 @@ public class MapRegion extends BaseTimeEntity {
         if (code == null || !code.matches("[A-Z][A-Z0-9_]{0,39}")) {
             throw new IllegalArgumentException("관광 지역 코드는 대문자 영문으로 시작하는 40자 이내 코드여야 합니다");
         }
-        if (name == null || name.isBlank() || name.codePointCount(0, name.length()) > 100) {
+        if (name == null || BLANK_NAME.matcher(name).matches() || name.codePointCount(0, name.length()) > 100) {
             throw new IllegalArgumentException("관광 지역 이름은 1~100자여야 합니다");
         }
         Objects.requireNonNull(cameraBounds, "cameraBounds");

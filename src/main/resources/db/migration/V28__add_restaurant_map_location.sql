@@ -57,7 +57,8 @@ CREATE TABLE map_region (
     PRIMARY KEY (id),
     CONSTRAINT uq_map_region_code UNIQUE (code),
     CONSTRAINT chk_map_region_code CHECK (REGEXP_LIKE(code, '^[A-Z][A-Z0-9_]{0,39}$', 'c')),
-    CONSTRAINT chk_map_region_name CHECK (CHAR_LENGTH(TRIM(name)) > 0),
+    -- Unicode whitespace plus Java's U+001C..U+001F separators, matching MapRegion.BLANK_NAME.
+    CONSTRAINT chk_map_region_name CHECK (REGEXP_LIKE(name, '[^[:space:]\\x{001C}-\\x{001F}]')),
     CONSTRAINT chk_map_region_order CHECK (display_order >= 0),
     CONSTRAINT chk_map_region_bounds CHECK (
         south >= -90 AND north <= 90 AND south < north
