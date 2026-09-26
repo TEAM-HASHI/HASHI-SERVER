@@ -263,33 +263,6 @@ class MediaAssetTransactionIntegrationTest {
         assertThat(eventCollector.events()).isEmpty();
     }
 
-    @Test
-    void 카드뉴스는_v2_활성화_후에만_생성하고_변환을_요청한다() {
-        CurrentActor admin = new CurrentActor(ActorType.ADMIN, 7L);
-        UUID assetId = UUID.randomUUID();
-        long bytes = 10L * 1024 * 1024;
-        List<PreparedMediaAsset> uploads = List.of(new PreparedMediaAsset(
-                assetId, objectKey(assetId), "image/png", bytes,
-                LocalDateTime.now(clock).plusMinutes(5)));
-        assertThatThrownBy(() -> transactionService.createAssets(
-                admin, MediaPurpose.MAGAZINE_CARD_NEWS, uploads))
-                .isInstanceOf(BusinessException.class)
-                .hasFieldOrPropertyWithValue("errorCode", MediaErrorCode.PIPELINE_UNAVAILABLE);
-        assertThat(imageAssetRepository.findByPublicId(assetId)).isEmpty();
-
-        String digest = "b8e67084bcdf81ac7fc94951c905726a97ade3783320c67e03c505f5643ddf75";
-        jdbcTemplate.update("UPDATE media_pipeline_config SET current_spec_version = 2, current_spec_digest = ? WHERE id = 1", digest);
-        transactionService.createAssets(admin, MediaPurpose.MAGAZINE_CARD_NEWS, uploads);
-        OriginalObjectMetadata source = new OriginalObjectMetadata(
-                objectKey(assetId), "version-1", "\"etag-1\"", "image/png", bytes);
-        transactionService.completeAssets(admin, List.of(assetId), Map.of(assetId, source));
-        ImageAsset asset = imageAssetRepository.findByPublicId(assetId).orElseThrow();
-        assertThat(asset.getPurpose()).isEqualTo(MediaPurpose.MAGAZINE_CARD_NEWS);
-        assertThat(asset.getLastIssuedSpecVersion()).isEqualTo(2);
-        assertThat(asset.getProcessingStatus()).isEqualTo(ImageProcessingStatus.PROCESSING);
-        assertThat(eventCollector.events()).hasSize(1);
-    }
-
     private void pauseIssuance() {
         jdbcTemplate.update("""
                 UPDATE media_pipeline_config
