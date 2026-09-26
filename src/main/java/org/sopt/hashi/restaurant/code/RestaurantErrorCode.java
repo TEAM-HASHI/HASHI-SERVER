@@ -20,7 +20,8 @@ public enum RestaurantErrorCode implements ErrorCode {
     UNSUPPORTED_PLACE_TYPE(HttpStatus.BAD_REQUEST, "RESTAURANT-010", "지원하지 않는 음식점 분류입니다."),
     MAP_BOUNDS_INVALID(HttpStatus.BAD_REQUEST, "RESTAURANT-011", "조회할 지도 범위가 올바르지 않습니다."),
     MAP_REGION_INVALID(HttpStatus.BAD_REQUEST, "RESTAURANT-012", "조회할 관광 지역이 없거나 비활성 상태입니다."),
-    // 013~014는 후속 지도 세션의 만료/장애 코드로 예약한다.
+    MAP_SESSION_EXPIRED(HttpStatus.GONE, "RESTAURANT-013", "지도 조회가 만료되었습니다. 새로 조회해주세요"),
+    MAP_SESSION_UNAVAILABLE(HttpStatus.SERVICE_UNAVAILABLE, "RESTAURANT-014", "지도 조회를 이어갈 수 없습니다."),
     MAP_QUERY_UNAVAILABLE(HttpStatus.SERVICE_UNAVAILABLE, "RESTAURANT-015", "지도 정보를 조회할 수 없습니다."),
     MAP_CAPACITY_EXCEEDED(HttpStatus.SERVICE_UNAVAILABLE, "RESTAURANT-016", "조회할 식당이 너무 많습니다."),
     MAP_CONFIGURATION_UNAVAILABLE(HttpStatus.SERVICE_UNAVAILABLE, "RESTAURANT-017", "지도 설정이 준비되지 않았습니다."),
