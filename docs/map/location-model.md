@@ -71,6 +71,15 @@ Location의 낙관적 버전도 오래된 영속 객체의 덮어쓰기를 막�
 DB 정밀도에 맞춰 취득/만료/재시도 시각의 나노초를 마이크로초로 내린 뒤 검증한다.
 취득 시각은 미래일 수 없고 저장 시점에 이미 만료된 결과도 거절한다.
 
+`obtainedAt`, `validUntil`, `nextAttemptAt`은 `@JdbcTypeCode(SqlTypes.LOCAL_DATE_TIME)`으로
+JDBC에서 `LocalDateTime`을 직접 전달하고 읽는다. UTC로 계산한 연월일·시분초를 그대로 보존하며,
+중간 `Timestamp` 변환에서 JVM과 연결 시간대 차이만큼 값이 이동하는 것을 방지한다.
+[Hibernate의 직접 매핑](https://docs.hibernate.org/orm/6.6/javadocs/org/hibernate/type/SqlTypes.html#LOCAL_DATE_TIME)을
+이 세 필드에만 적용한다. `BaseTimeEntity`, 일반 운영 시각과 전역 시간대 설정은 기존 동작을 유지한다.
+실제 MySQL에서 JVM/JDBC 각각 UTC·Asia/Seoul의 네 조합을 검증하며, DB 원문 값과 ORM 왕복,
+insert/update, 직접 SQL로 넣은 값의 로딩, 마이크로초 만료·재시도 경계를 확인한다.
+후속 native SQL 조회의 시간 인자 바인딩은 별도로 UTC 계약을 지켜야 한다.
+
 공개 지도 판정은 `!deleted && location != null && READY && now < validUntil`이다.
 주소 변경이 기존 location을 즉시 초기화하므로 READY는 현재 주소 revision의 결과만 가질 수 있다.
 관광 지역이 없어도 이 조건을 만족하면 일반 BBOX 대상이다.
