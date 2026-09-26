@@ -2,6 +2,8 @@ package org.sopt.hashi.restaurant.service;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
@@ -13,13 +15,15 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.math.BigDecimal;
+import java.time.Clock;
 import java.time.Duration;
+import java.time.LocalDateTime;
+import java.util.ArrayList;
 import java.util.Base64;
 import java.util.List;
 import java.util.TimeZone;
 import java.util.UUID;
 import org.junit.jupiter.api.AfterAll;
-import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.parallel.Isolated;
@@ -30,6 +34,12 @@ import org.sopt.hashi.restaurant.domain.MapBounds;
 import org.sopt.hashi.restaurant.domain.MapCoordinates;
 import org.sopt.hashi.restaurant.domain.MapRegion;
 import org.sopt.hashi.restaurant.domain.MapRegionRepository;
+import org.sopt.hashi.restaurant.domain.PriceCurrency;
+import org.sopt.hashi.restaurant.domain.Restaurant;
+import org.sopt.hashi.restaurant.domain.RestaurantGenre;
+import org.sopt.hashi.restaurant.domain.RestaurantLocationSource;
+import org.sopt.hashi.restaurant.domain.RestaurantPlaceType;
+import org.sopt.hashi.restaurant.domain.RestaurantRepository;
 import org.sopt.hashi.restaurant.internal.map.GeocodingProvider;
 import org.sopt.hashi.restaurant.internal.map.GeocodingResult;
 import org.sopt.hashi.restaurant.internal.map.LocationJobScheduler;
@@ -51,6 +61,7 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.transaction.support.TransactionTemplate;
 import org.testcontainers.containers.MySQLContainer;
 import org.testcontainers.containers.GenericContainer;
 import org.testcontainers.junit.jupiter.Container;
@@ -77,17 +88,16 @@ import org.testcontainers.utility.DockerImageName;
 @Isolated("Verifies JVM UTC with a JDBC Asia/Seoul session")
 class RestaurantMapFlowIntegrationTest {
     private static final String ADDRESS = "東京都試験区架空町1丁目2番3号";
-    private static TimeZone originalZone;
+    private static final TimeZone ORIGINAL_ZONE = TimeZone.getDefault();
 
-    @BeforeAll
-    static void utcJvm() {
-        originalZone = TimeZone.getDefault();
+    static {
+        // Class initialization runs before SpringExtension can bootstrap the application context.
         TimeZone.setDefault(TimeZone.getTimeZone("UTC"));
     }
 
     @AfterAll
     static void restoreJvm() {
-        TimeZone.setDefault(originalZone);
+        TimeZone.setDefault(ORIGINAL_ZONE);
     }
 
     @Container
@@ -110,6 +120,8 @@ class RestaurantMapFlowIntegrationTest {
     @Autowired RestaurantPort port;
     @Autowired MapRegionRepository regions;
     @Autowired JdbcTemplate jdbc;
+    @Autowired RestaurantRepository restaurants;
+    @Autowired TransactionTemplate transactionTemplate;
     @Autowired MapSessionProperties sessionProperties;
     @Autowired LocationRetentionService retention;
     @Autowired LocationMaintenanceRunner maintenance;
@@ -306,10 +318,18 @@ class RestaurantMapFlowIntegrationTest {
                 set l.obtained_at=UTC_TIMESTAMP(6)-interval 21 hour,
                     l.valid_until=UTC_TIMESTAMP(6)+interval 3 hour where r.id=?
                 """, id);
+        jdbc.update("update restaurant_geocoding_budget set enabled=false where id=1");
+        UUID runId = UUID.randomUUID();
         var options = new LocationMaintenanceProperties(Command.START, Mode.REFRESH, true,
-                UUID.randomUUID(), 0, id, 10, 1, 10, 80,
+                runId, id - 1, id, 10, 1, 10, 80,
                 Duration.ofHours(6), Duration.ofHours(1), false, null);
         maintenance.execute(options);
+        assertThat(jdbc.queryForObject("""
+                select count(*) from restaurant_location_maintenance_job m
+                join restaurant_location_job j on j.id=m.job_id
+                where m.run_id=? and j.restaurant_id=? and j.state='PENDING'
+                """, Integer.class, runId.toString(), id)).isEqualTo(1);
+        verify(google, times(1)).geocode(ADDRESS);
         mvc.perform(get("/api/v1/admin/restaurants/{id}/location", id)
                         .header("Authorization", "Bearer " + token))
                 .andExpect(status().isOk()).andExpect(jsonPath("$.data.locationStatus").value("PENDING"));
@@ -320,6 +340,55 @@ class RestaurantMapFlowIntegrationTest {
                         .param("querySessionId", first.path("querySessionId").asText())
                         .param("sort", "recommend"))
                 .andExpect(status().isOk()).andExpect(jsonPath("$.data.content").isEmpty());
+    }
+
+    @Test
+    void 합성_23개는_10_10_3으로_조회되고_모든_카드_ID에_같은_핀_좌표가_있다() throws Exception {
+        Clock clock = Clock.systemUTC();
+        List<Long> expected = transactionTemplate.execute(status -> {
+            List<Long> ids = new ArrayList<>();
+            for (int index = 0; index < 23; index++) {
+                Restaurant restaurant = Restaurant.create("합성 식당 " + index, "試験", "요약", "설명",
+                        ADDRESS, "합성 지역", RestaurantGenre.SUSHI, "초밥", RestaurantPlaceType.RESTAURANT,
+                        PriceCurrency.JPY, BigDecimal.ONE, BigDecimal.TEN);
+                restaurant.requestLocationResolution();
+                restaurant.completeLocation(1, restaurant.getLocation().getRequestId(),
+                        MapCoordinates.of(new BigDecimal("10.5"), new BigDecimal("20.5")),
+                        RestaurantLocationSource.OPERATOR, LocalDateTime.now(clock).minusHours(1),
+                        LocalDateTime.now(clock).plusHours(1), clock);
+                ids.add(restaurants.save(restaurant).getId());
+            }
+            return ids;
+        });
+        sessionProperties.setSigningKey(Base64.getEncoder().encodeToString(
+                "synthetic-map-test-key-32-bytes-only".getBytes()));
+        JsonNode page = body(mvc.perform(get("/api/v1/restaurants/map")
+                        .param("south", "10").param("north", "11").param("west", "20").param("east", "21"))
+                .andExpect(status().isOk()).andReturn().getResponse().getContentAsString()).path("data");
+        List<Long> seen = new ArrayList<>();
+        String sessionId = page.path("querySessionId").asText();
+        for (int size : List.of(10, 10, 3)) {
+            assertThat(page.path("querySessionId").asText()).isEqualTo(sessionId);
+            assertThat(page.path("content").size()).isEqualTo(size);
+            page.path("content").forEach(card -> {
+                assertThat(card.path("restaurantId").asLong()).isPositive();
+                assertThat(card.path("location").path("latitude").decimalValue())
+                        .isEqualByComparingTo("10.5");
+                assertThat(card.path("location").path("longitude").decimalValue())
+                        .isEqualByComparingTo("20.5");
+                seen.add(card.path("restaurantId").asLong());
+            });
+            if (size == 3) {
+                assertThat(page.path("hasNext").asBoolean()).isFalse();
+                assertThat(page.has("nextCursor")).isFalse();
+            } else {
+                assertThat(page.path("hasNext").asBoolean()).isTrue();
+                page = body(mvc.perform(get("/api/v1/restaurants/map")
+                                .param("cursor", page.path("nextCursor").asText()))
+                        .andExpect(status().isOk()).andReturn().getResponse().getContentAsString()).path("data");
+            }
+        }
+        assertThat(seen).doesNotHaveDuplicates().containsExactlyInAnyOrderElementsOf(expected);
     }
 
     private JsonNode body(String value) throws Exception {
