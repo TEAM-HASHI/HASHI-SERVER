@@ -57,9 +57,23 @@ role의 전체 유효 권한을 검토하고 Spring mode가 `DRY_RUN`인지 별�
 `media/originals/*`, `media/renditions/*`의 version 목록과 exact version 삭제로 제한한다. legacy 경로,
 bucket 설정, ACL, Object Lock 우회 권한은 사용하지 않는다.
 
+### 실행 전 경로 소유권 확인
+
+이 작업은 현재 DB에 없는 asset을 삭제 후보로 판단한다. 따라서 설정된 original bucket의
+`media/originals/`와 delivery bucket의 `media/renditions/`는 각각 이 DB가 관리하는 파일만 담아야 한다.
+운영 담당자는 두 bucket·prefix와 연결된 DB, 업로드 서버·worker를 실제 환경에서 확인하고 배포 변경서에
+기록한다. 같은 DB를 사용하는 여러 서버는 가능하지만, 별도 DB를 사용하는 dev·prod가 같은 대상
+bucket·prefix에 파일을 저장하면 다른 환경의 정상 파일을 후보로 오인할 수 있다.
+
+소유권이 불명확하거나 별도 DB가 같은 대상 경로를 공유한다면 `DRY_RUN`도 켜지 않고 중단한다.
+현재 key에는 환경 구분이 없고 prefix를 바꾸는 설정도 없으므로, 환경별 bucket을 분리한 뒤 다시
+확인한다. prefix 분리가 필요하면 writer·worker·DB·정리 로직을 함께 바꾸는 별도 설계가 필요하다.
+delivery bucket에서 이 작업이 읽지 않는 legacy 경로를 함께 사용하는 것은 이 제한과 무관하다.
+
 ## 단계별 확인
 
-1. 배포 commit, DB, 두 bucket, Spring role을 확인하고 issuance와 두 정리 실행을 비활성으로 배포한다.
+1. 배포 commit, DB, 두 bucket, Spring role과 위 경로 소유권을 확인한다. issuance와 두 정리 실행을
+   비활성으로 배포하고, 다른 DB의 파일이 같은 대상 경로에 있으면 다음 단계로 진행하지 않는다.
 2. 운영 담당자가 7일 보존, 실행량, 실패 알림 수신자와 실제 Object Lock·MFA Delete·Deny를 확인한다.
    두 bucket의 versioning이 `Enabled`이고 전파가 끝났음을 실제 계정에서 확인한다.
 3. 승인된 dev에서 cleanup IAM만 적용하고 reconciliation을 `enabled=true`, `mode=DRY_RUN`으로 시작한다.
@@ -95,10 +109,37 @@ bucket 설정, ACL, Object Lock 우회 권한은 사용하지 않는다.
 - `(sum(increase(hashi_media_reconciliation_scan_duration_seconds_count{status="completed"}[12h])) or vector(0)) < 1`
 - `sum(increase(hashi_media_reconciliation_object_total{outcome="unknown"}[12h])) > 0`
 
+삭제 후보(`outcome=delete`)와 실제 삭제(`outcome=deleted`)의 급증도 별도로 알린다. 후보는
+`DRY_RUN`과 `DELETE`에 모두 기록되고, 실제 삭제는 `mode=delete`에만 기록된다. 둘을 더해 파일 수로
+해석하지 않는다. 운영 담당자는 먼저 `DRY_RUN`에서 위치별 후보 관측량을 확인하고, 실행 간격·page/time
+상한·인스턴스 수에 맞춰 12시간 창의 후보 상한과 별도 승인한 실제 삭제 상한을 정한다. 같은 파일을
+다시 확인하거나 여러 인스턴스가 처리하면 횟수가 중복될 수 있으므로 고유 파일 수 기준을 적용하지 않는다.
+
+다음은 알람 작성 예시다. `<...>`는 환경의 scrape job과 승인한 횟수 상한으로 바꿔야 하며, 그대로
+실행할 수 있는 식이 아니다. 실제 export 이름과 환경 선택자를 확인하고 위치·mode별 기준에 맞춘다.
+
+```promql
+sum by (location, mode) (
+  increase(hashi_media_reconciliation_object_total{job="<대상 환경 scrape job>",outcome="delete",mode=~"dry_run|delete"}[12h])
+) > <승인한 후보 횟수 상한>
+
+sum by (location, mode) (
+  increase(hashi_media_reconciliation_object_total{job="<대상 환경 scrape job>",outcome="deleted",mode="delete"}[12h])
+) > <승인한 실제 삭제 횟수 상한>
+```
+
+이 문서는 알람 기준만 정하며 실제 rule이나 알림 수신 설정을 설치하지 않는다. 삭제 전에는 환경별
+기준을 기록하고 알람을 설치해 test alarm을 확인한다. 실행량이나 인스턴스 수를 바꾸면 기준도 다시 확인한다.
+
 알람은 배포 변경서에 지정된 media 운영 당번에게 전달하고, 수신자가 정해지지 않았거나 test alarm을
 수신하지 못하면 `DELETE`로 전환하지 않는다. failure·unknown이면 해당 위치의 실행을 중지하고 DB/S3
 권한·versioning을 확인한다. 완료 부재·dispatch 거부이면 인스턴스별 실행 시간과 executor 종료 상태를
 확인한 뒤 `DRY_RUN`에서 재시도한다. key, version, asset ID는 알람 annotation이나 metric tag에 넣지 않는다.
+
+후보·실제 삭제 급증은 경로 소유권 오류나 잘못된 DB 연결의 신호일 수 있다. 발생하면 모든 인스턴스의
+reconciliation을 비활성으로 교체하고 현재 실행이 끝났는지 확인한다. 이 알람이 실행을 자동 중단하는
+코드는 없다. 원인과 대상 경로를 확인한 뒤 운영 담당자의 승인으로 `DRY_RUN`부터 재개하며, 알람 해제만으로
+`DELETE`를 다시 켜지 않는다. 이미 삭제된 version은 이 절차로 자동 복구되지 않는다.
 
 관련 기준: [이미지 계약](image-delivery-contract-v1.md),
 [asset 전체 정리](asset-cleanup-runbook.md), [AWS 인프라](../../infra/media/README.md).
