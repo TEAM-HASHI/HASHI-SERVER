@@ -13,6 +13,8 @@
 
 이 브랜치의 자체 변경은 `RestaurantMapFlowIntegrationTest`와 이 문서다. 선행 소유 브랜치의 HEAD를 바꾸지 않았다. #216의 컬렉션 CRUD/스키마는 아직 결합 가능한 구현이 없어 만들지 않았다. 컬렉션 인수는 별도 #216 연결 기준을 따른다.
 
+#227 첫 구현과 #228 구현의 원본/결합 커밋은 각각 stable patch-id가 일치한다. #223 첫 커밋은 `RestaurantErrorCode`와 `RestaurantPortImpl`의 양쪽 요구를 보존하는 충돌 해결이 들어가므로 원본과 patch-id가 달라질 수 있다. 결합 기준은 최종 파일의 API/상태·실제 테스트로 확인한다.
+
 ## 로컬 실행 환경
 
 - Java 21: `C:/Users/venus/.jdks/ms-21.0.7`; Docker 실행 가능. 테스트는 Testcontainers MySQL 8.4와 Redis를 사용한다.
@@ -27,6 +29,8 @@ $env:PATH="$env:JAVA_HOME\bin;C:\Program Files\Docker\Docker\resources\bin;$env:
 ```
 
 테스트 주소 `東京都試験区架空町1丁目2番3号`, 식당·관광 지역·좌표는 합성 고정값이다. Google 경계만 대체하고 후보 정확도·주소 일치 판정은 실제 `LocationAdoptionPolicy`를 통과한다. 위치 작업 전역 호출 예산은 기본적으로 닫혀 있으므로 테스트 전용 MySQL row에서만 연다. Redis 서명 키도 테스트 문자열을 실행 중 메모리에만 설정한다. 운영 키나 주소 원문 응답을 로그/문서에 넣지 않는다.
+
+2026-09-27 관련 검증은 5개 suite / 42개 테스트, failures·errors·skipped 모두 0건이었다(`RestaurantMapFlowIntegrationTest` 4, `RestaurantMapPageIntegrationTest` 17, `LocationMaintenanceMySqlTest` 18, `DevLocationJobMySqlTest` 2, `ModularityTests` 1). 이 수치는 전체 build나 원격 CI 결과가 아니다.
 
 ## 직접 연결한 흐름
 
