@@ -16,6 +16,7 @@ import java.util.UUID;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.stream.Stream;
 import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.MethodSource;
@@ -24,10 +25,13 @@ import org.sopt.hashi.media.internal.cleanup.MediaCleanupStorageException.Reason
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 import software.amazon.awssdk.core.exception.SdkClientException;
 import software.amazon.awssdk.services.s3.S3Client;
+import software.amazon.awssdk.services.s3.model.BucketVersioningStatus;
 import software.amazon.awssdk.services.s3.model.CommonPrefix;
 import software.amazon.awssdk.services.s3.model.DeleteMarkerEntry;
 import software.amazon.awssdk.services.s3.model.DeleteObjectsRequest;
 import software.amazon.awssdk.services.s3.model.DeleteObjectsResponse;
+import software.amazon.awssdk.services.s3.model.GetBucketVersioningRequest;
+import software.amazon.awssdk.services.s3.model.GetBucketVersioningResponse;
 import software.amazon.awssdk.services.s3.model.ListObjectVersionsRequest;
 import software.amazon.awssdk.services.s3.model.ListObjectVersionsResponse;
 import software.amazon.awssdk.services.s3.model.ObjectIdentifier;
@@ -48,6 +52,12 @@ class S3MediaCleanupStorageTest {
     private final S3Client client = mock(S3Client.class);
     private final S3MediaCleanupStorage storage = new S3MediaCleanupStorage(
             client, "test-originals", "test-delivery", 3, 1000);
+
+    @BeforeEach
+    void versioning을_활성화한다() {
+        when(client.getBucketVersioning(any(GetBucketVersioningRequest.class)))
+                .thenReturn(versioning(BucketVersioningStatus.ENABLED));
+    }
 
     @AfterEach
     void 테스트의_트랜잭션과_중단_상태를_정리한다() {
@@ -74,6 +84,21 @@ class S3MediaCleanupStorageTest {
             assertThat(request.keyMarker()).isNull();
             assertThat(request.versionIdMarker()).isNull();
         });
+        verify(client, never()).deleteObjects(any(DeleteObjectsRequest.class));
+    }
+
+    @Test
+    void 목록_뒤_versioning이_중단되면_기존_null_version도_삭제하지_않는다() {
+        when(client.getBucketVersioning(any(GetBucketVersioningRequest.class)))
+                .thenReturn(versioning(BucketVersioningStatus.ENABLED),
+                        versioning(BucketVersioningStatus.SUSPENDED));
+        when(client.listObjectVersions(any(ListObjectVersionsRequest.class)))
+                .thenReturn(page(version(ORIGINAL_KEY, "null")));
+
+        assertThatThrownBy(() -> storage.purgeAssetObjects(ASSET_ID))
+                .isInstanceOf(MediaCleanupStorageException.class)
+                .extracting("reason")
+                .isEqualTo(Reason.VERSIONING_NOT_ENABLED);
         verify(client, never()).deleteObjects(any(DeleteObjectsRequest.class));
     }
 
@@ -400,6 +425,10 @@ class S3MediaCleanupStorageTest {
 
     private static ObjectIdentifier object(String key, String versionId) {
         return ObjectIdentifier.builder().key(key).versionId(versionId).build();
+    }
+
+    private static GetBucketVersioningResponse versioning(BucketVersioningStatus status) {
+        return GetBucketVersioningResponse.builder().status(status).build();
     }
 
     private void assertFailure(Runnable action, Reason reason) {

@@ -59,6 +59,8 @@ import org.sopt.hashi.media.internal.cleanup.MediaCleanupStorageException;
 import org.sopt.hashi.media.internal.cleanup.MediaObjectPurgeResult;
 import org.sopt.hashi.media.internal.cleanup.MediaPurgeCandidateReader;
 import org.sopt.hashi.media.internal.cleanup.MediaPurgeCursor;
+import org.sopt.hashi.media.internal.reconciliation.MediaObjectLocation;
+import org.sopt.hashi.media.internal.reconciliation.MediaObjectVersion;
 import org.sopt.hashi.media.internal.queue.MediaTransformFailedResult;
 import org.sopt.hashi.media.internal.queue.MediaTransformFailureCode;
 import org.sopt.hashi.media.internal.queue.MediaTransformRequestPublisher;
@@ -121,6 +123,8 @@ class MediaCleanupTransactionIntegrationTest {
     private MediaCleanupScanService scanner;
     @Autowired
     private MediaCleanupTransactionService transactions;
+    @Autowired
+    private MediaReconciliationTransactionService reconciliationTransactions;
     @Autowired
     private MediaCleanupCandidateReader candidateReader;
     @Autowired
@@ -544,6 +548,51 @@ class MediaCleanupTransactionIntegrationTest {
                 .extracting(value -> value.work()).containsExactly(secondWork);
     }
 
+    @Test
+    void reconciliation은_실제_DB에서_canonical_원본과_active가_아닌_과거_manifest_spec을_보존한다() {
+        ImageAsset asset = upgradeToSpec2(
+                fixture(ImageProcessingStatus.READY, false, true, Duration.ofDays(8)));
+        Instant old = START.minus(Duration.ofDays(8));
+        Instant cutoff = START.minus(Duration.ofDays(7));
+
+        var canonical = new MediaObjectVersion(MediaObjectLocation.ORIGINAL,
+                asset.getOriginalObjectKey(), "source-v1", old);
+        var noncanonical = new MediaObjectVersion(MediaObjectLocation.ORIGINAL,
+                asset.getOriginalObjectKey(), "source-v0", old);
+        var historicalSpec = new MediaObjectVersion(MediaObjectLocation.RENDITION,
+                "media/renditions/%s/v1/review-detail/1080.webp".formatted(asset.getPublicId()), "delivery-v1", old);
+
+        assertThat(asset.getActiveSpecVersion()).isEqualTo(2);
+        assertThat(jdbc.queryForObject("""
+                SELECT COUNT(*)
+                FROM image_rendition
+                WHERE image_asset_id=? AND spec_version=1
+                """, Integer.class, asset.getId())).isEqualTo(1);
+        assertThat(reconciliationTransactions.assess(canonical, cutoff))
+                .isEqualTo(MediaReconciliationDecision.PROTECT);
+        assertThat(reconciliationTransactions.assess(noncanonical, cutoff))
+                .isEqualTo(MediaReconciliationDecision.DELETE);
+        assertThat(reconciliationTransactions.assess(historicalSpec, cutoff))
+                .isEqualTo(MediaReconciliationDecision.PROTECT);
+    }
+
+    @Test
+    void reconciliation은_실패_spec과_PURGED_뒤_늦은_파일을_삭제_후보에_둔다() {
+        ImageAsset failed = fixture(ImageProcessingStatus.FAILED, true, false, Duration.ofDays(8));
+        Instant old = START.minus(Duration.ofDays(8));
+        Instant cutoff = START.minus(Duration.ofDays(7));
+        var partial = new MediaObjectVersion(MediaObjectLocation.RENDITION,
+                "media/renditions/%s/v1/review-preview/135.webp".formatted(failed.getPublicId()), "partial", old);
+
+        assertThat(reconciliationTransactions.assess(partial, cutoff))
+                .isEqualTo(MediaReconciliationDecision.DELETE);
+        assertThat(cleanup.clean(candidate(failed))).isEqualTo(MediaCleanupOutcome.PURGED);
+        var late = new MediaObjectVersion(MediaObjectLocation.RENDITION,
+                "media/renditions/%s/v1/review-detail/1080.webp".formatted(failed.getPublicId()), "late", old);
+        assertThat(reconciliationTransactions.assess(late, cutoff))
+                .isEqualTo(MediaReconciliationDecision.DELETE);
+    }
+
     private Future<?> holdPurge(ImageAsset asset, CountDownLatch changed, CountDownLatch release) {
         return executor.submit(() -> transactionTemplate.executeWithoutResult(status -> {
             assertThat(transactions.begin(asset.getId(), asset.getPublicId())).isPresent();
@@ -581,6 +630,21 @@ class MediaCleanupTransactionIntegrationTest {
         jdbc.update("UPDATE image_asset SET updated_at=?, created_at=? WHERE id=?",
                 now().minus(age), now().minus(age), saved.getId());
         return reload(saved);
+    }
+
+    private ImageAsset upgradeToSpec2(ImageAsset asset) {
+        return transactionTemplate.execute(status -> {
+            ImageAsset managed = assets.findById(asset.getId()).orElseThrow();
+            UUID job = UUID.randomUUID();
+            String spec2Digest = "2".repeat(64);
+            managed.beginUpgradeProcessing(2, spec2Digest, job, now().minusDays(8));
+            managed.addRendition(job, 2, spec2Digest, ImageRole.REVIEW_PREVIEW, ImageFormat.WEBP,
+                    135, 135, 100,
+                    "media/renditions/" + managed.getPublicId() + "/v2/review-preview/135.webp");
+            managed.completeCurrentProcessing(job, 2, spec2Digest,
+                    "image/jpeg", 1024, 400, 400, CHECKSUM);
+            return assets.saveAndFlush(managed);
+        });
     }
 
     private ImageAsset reload(ImageAsset asset) {
