@@ -211,6 +211,26 @@ class LocationMaintenanceMySqlTest {
     }
 
     @Test
+    void 마이크로초_갱신기간은_최초와_반복_START에서_정확하게_유지된다() {
+        long upper = original();
+        Duration refresh = Duration.parse("PT3.000001S");
+        var options = new LocationMaintenanceProperties(Command.START, Mode.BACKFILL, true,
+                UUID.randomUUID(), after, upper, 50, 2, 10, 80, refresh, Duration.ofSeconds(2),
+                false, Duration.ofSeconds(1));
+        maintenance.start(options);
+        var initial = maintenance.status(options.runId()).registration();
+        assertThat(Duration.between(initial.asOf(), initial.refreshBefore())).isEqualTo(refresh);
+        assertThat(maintenance.advance(options.runId())).isTrue();
+
+        maintenance.start(options);
+        var repeated = maintenance.status(options.runId()).registration();
+        assertThat(repeated.asOf()).isEqualTo(initial.asOf());
+        assertThat(repeated.refreshBefore()).isEqualTo(initial.refreshBefore());
+        assertThat(repeated.enqueued()).isEqualTo(1);
+        assertThat(count("restaurant_location_job")).isEqualTo(1);
+    }
+
+    @Test
     void 두실행과_두진행자가_경쟁해도_현재주소작업과_누적상한은_중복되지_않는다() throws Exception {
         for (int i = 0; i < 8; i++) { original(); }
         long upper = reader.upperId();
