@@ -70,6 +70,7 @@ ID 조회는 내부 500개 단위이며 모두 모은 뒤 반환한다. 중간 �
 ## 오류와 검증
 
 기존 SuccessResponse/ErrorResponse를 유지한다. 좌표 응답은 `Cache-Control: no-store`, data의 만료 시각은 UTC `Z`다.
+선택 식당 ID의 양수 제약·정수 형식 위반은 400 `COMMON-400`과 `restaurantId`의 필드별 `errors`를 반환한다.
 식당 삭제/없음은 404 `RESTAURANT-004`, 위치만 무효하면 409 `RESTAURANT-018`, DB 장애는 503 `RESTAURANT-015`다.
 SecurityFilterChain과 기존 공개 경로 정책은 유지한다.
 
