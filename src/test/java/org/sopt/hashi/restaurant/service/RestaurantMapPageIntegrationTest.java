@@ -10,11 +10,16 @@ import static org.mockito.Mockito.verify;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.request;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.zaxxer.hikari.HikariDataSource;
 import jakarta.persistence.EntityManagerFactory;
+import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletResponse;
+import javax.sql.DataSource;
 import java.math.BigDecimal;
 import java.time.Clock;
 import java.time.Duration;
@@ -76,6 +81,7 @@ import org.sopt.hashi.shared.storage.FileStorage;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.config.BeanFactoryPostProcessor;
 import org.springframework.beans.factory.config.BeanPostProcessor;
+import org.springframework.beans.factory.config.ConfigurableListableBeanFactory;
 import org.springframework.aop.framework.ProxyFactory;
 import org.aopalliance.intercept.MethodInterceptor;
 import org.springframework.beans.factory.support.BeanDefinitionRegistry;
@@ -87,6 +93,7 @@ import org.springframework.boot.test.system.OutputCaptureExtension;
 import org.springframework.boot.testcontainers.service.connection.ServiceConnection;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Import;
+import org.springframework.core.Ordered;
 import org.springframework.data.jpa.repository.config.EnableJpaAuditing;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.core.RedisTemplate;
@@ -95,6 +102,7 @@ import org.springframework.boot.autoconfigure.data.redis.LettuceClientOptionsBui
 import org.springframework.boot.autoconfigure.data.redis.RedisProperties;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.modulith.test.ApplicationModuleTest;
+import org.springframework.orm.jpa.EntityManagerHolder;
 import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
@@ -103,6 +111,9 @@ import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilde
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
+import org.springframework.web.servlet.HandlerInterceptor;
+import org.springframework.web.servlet.config.annotation.InterceptorRegistry;
+import org.springframework.web.servlet.config.annotation.WebMvcConfigurer;
 import org.testcontainers.containers.GenericContainer;
 import org.testcontainers.containers.MySQLContainer;
 import org.testcontainers.junit.jupiter.Container;
@@ -117,7 +128,7 @@ import org.testcontainers.utility.DockerImageName;
         JwtAuthenticationEntryPoint.class, JwtAccessDeniedHandler.class})
 @TestPropertySource(properties = {
         "spring.jpa.hibernate.ddl-auto=validate", "spring.flyway.enabled=true",
-        "spring.jpa.open-in-view=false", "spring.jpa.properties.hibernate.generate_statistics=true",
+        "spring.jpa.properties.hibernate.generate_statistics=true",
         "jwt.secret=test-secret-key-must-be-at-least-32-bytes-long",
         "jwt.access-token-ttl=30m", "jwt.refresh-token-ttl=14d", "jwt.onboarding-token-ttl=30m",
         "kakao.client-id=test-client-id", "kakao.redirect-uri=https://app.hashi.test/callback",
@@ -170,6 +181,15 @@ class RestaurantMapPageIntegrationTest {
         properties.setSigningKey(Base64.getEncoder().encodeToString("synthetic-map-test-key-32-bytes-only".getBytes()));
         given(files.resolveFileUrl(any())).willAnswer(invocation -> "https://cdn.hashi.test/" + invocation.getArgument(0));
         given(media.findImages(any())).willReturn(Map.of());
+    }
+
+    @Test
+    void 기본OSIV에서_지도목록만_연결을_분리하고_일반API는_기존OSIV를_유지한다() throws Exception {
+        fixtures(11, false);
+        mvc.perform(newQuery()).andExpect(status().isOk())
+                .andExpect(request().attribute("test.osiv.bound", false));
+        mvc.perform(get("/api/v1/restaurants")).andExpect(status().isOk())
+                .andExpect(request().attribute("test.osiv.bound", true));
     }
 
     @ParameterizedTest
@@ -492,9 +512,9 @@ class RestaurantMapPageIntegrationTest {
             return new RedisConfig().lettuceSocketOptionsCustomizer(properties);
         }
 
-        /** 실제 adapter를 호출하는 매 경계에서 transaction 부재를 관측한다. mock 저장소로 대체하지 않는다. */
+        /** 실제 adapter 경계의 resource와 최초 저장 시 물리 pool 연결 반환을 관측한다. */
         @Bean
-        static BeanPostProcessor observeRedisTransactionBoundary() {
+        static BeanPostProcessor observeRedisTransactionBoundary(ConfigurableListableBeanFactory factory) {
             return new BeanPostProcessor() {
                 @Override
                 public Object postProcessAfterInitialization(Object bean, String name) {
@@ -505,9 +525,33 @@ class RestaurantMapPageIntegrationTest {
                     proxy.setProxyTargetClass(true);
                     proxy.addAdvice((MethodInterceptor) invocation -> {
                         assertThat(TransactionSynchronizationManager.isActualTransactionActive()).isFalse();
+                        if (invocation.getMethod().getName().equals("save")) {
+                            var pool = factory.getBean(DataSource.class).unwrap(HikariDataSource.class);
+                            assertThat(pool.getHikariPoolMXBean().getActiveConnections())
+                                    .as("Redis save must not retain a physical DB connection").isZero();
+                        }
+                        assertThat(TransactionSynchronizationManager.getResourceMap().values())
+                                .noneMatch(EntityManagerHolder.class::isInstance);
                         return invocation.proceed();
                     });
                     return proxy.getProxy();
+                }
+            };
+        }
+
+        @Bean
+        WebMvcConfigurer observeRequestPersistenceContext(EntityManagerFactory factory) {
+            return new WebMvcConfigurer() {
+                @Override
+                public void addInterceptors(InterceptorRegistry registry) {
+                    registry.addInterceptor(new HandlerInterceptor() {
+                        @Override
+                        public boolean preHandle(HttpServletRequest request, HttpServletResponse response,
+                                                 Object handler) {
+                            request.setAttribute("test.osiv.bound", TransactionSynchronizationManager.hasResource(factory));
+                            return true;
+                        }
+                    }).order(Ordered.LOWEST_PRECEDENCE);
                 }
             };
         }
