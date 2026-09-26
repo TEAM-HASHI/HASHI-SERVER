@@ -3,17 +3,25 @@ package org.sopt.hashi.restaurant.internal.map.google;
 import java.io.IOException;
 import java.net.SocketTimeoutException;
 import java.net.URI;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
-import java.util.concurrent.ScheduledExecutorService;
-import java.util.concurrent.ScheduledFuture;
+import java.util.concurrent.Future;
+import java.util.concurrent.Semaphore;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.UnaryOperator;
+import org.apache.hc.client5.http.DnsResolver;
+import org.apache.hc.client5.http.SystemDefaultDnsResolver;
+import org.apache.hc.client5.http.classic.methods.HttpUriRequestBase;
 import org.apache.hc.client5.http.config.ConnectionConfig;
 import org.apache.hc.client5.http.config.RequestConfig;
 import org.apache.hc.client5.http.impl.classic.CloseableHttpClient;
 import org.apache.hc.client5.http.impl.classic.HttpClients;
 import org.apache.hc.client5.http.impl.io.PoolingHttpClientConnectionManagerBuilder;
+import org.apache.hc.core5.http.ClassicHttpRequest;
 import org.apache.hc.core5.io.CloseMode;
 import org.apache.hc.core5.util.Timeout;
 import org.sopt.hashi.restaurant.internal.map.GeocodingProvider;
@@ -21,6 +29,7 @@ import org.sopt.hashi.restaurant.internal.map.GeocodingResult;
 import org.sopt.hashi.restaurant.internal.map.GeocodingResult.Failure;
 import org.sopt.hashi.restaurant.internal.map.GeocodingResult.FailureKind;
 import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpMethod;
 import org.springframework.http.MediaType;
 import org.springframework.http.client.ClientHttpRequestFactory;
 import org.springframework.http.client.ClientHttpResponse;
@@ -36,10 +45,13 @@ final class GoogleGeocodingProvider implements GeocodingProvider {
             + "results.postalAddress.administrativeArea,results.addressComponents.longText,"
             + "results.addressComponents.shortText,results.addressComponents.types,results.types";
     private static final int MAX_ADDRESS_LENGTH = 255;
+    static final int MAX_CONCURRENT_CALLS = 4;
 
     private final GoogleGeocodingProperties properties;
     private final GoogleGeocodingResponseParser parser = new GoogleGeocodingResponseParser();
     private final UnaryOperator<ClientHttpRequestFactory> requestFactoryDecorator;
+    private final DnsResolver dnsResolver;
+    private final Semaphore callSlots = new Semaphore(MAX_CONCURRENT_CALLS);
 
     GoogleGeocodingProvider(GoogleGeocodingProperties properties) {
         this(properties, UnaryOperator.identity());
@@ -48,9 +60,16 @@ final class GoogleGeocodingProvider implements GeocodingProvider {
     // Test seam redirects transport to loopback/mocks; the production endpoint has no configurable override.
     GoogleGeocodingProvider(GoogleGeocodingProperties properties,
                            UnaryOperator<ClientHttpRequestFactory> requestFactoryDecorator) {
+        this(properties, requestFactoryDecorator, SystemDefaultDnsResolver.INSTANCE);
+    }
+
+    GoogleGeocodingProvider(GoogleGeocodingProperties properties,
+                           UnaryOperator<ClientHttpRequestFactory> requestFactoryDecorator,
+                           DnsResolver dnsResolver) {
         properties.validateEnabled();
         this.properties = properties;
         this.requestFactoryDecorator = requestFactoryDecorator;
+        this.dnsResolver = dnsResolver;
     }
 
     @Override
@@ -62,27 +81,58 @@ final class GoogleGeocodingProvider implements GeocodingProvider {
         if (isInvalid) {
             return new Failure(FailureKind.INVALID_REQUEST, null);
         }
+        CallCancellation cancellation = new CallCancellation();
+        ExecutorService executor = Executors.newVirtualThreadPerTaskExecutor();
+        Future<GeocodingResult> future = executor.submit(() -> {
+            if (!callSlots.tryAcquire()) {
+                return new Failure(FailureKind.CAPACITY_EXCEEDED, null);
+            }
+            try {
+                return execute(address, cancellation);
+            } finally {
+                // DNS may ignore interruption. Keep its slot until the underlying task actually finishes.
+                callSlots.release();
+            }
+        });
+        try {
+            return future.get(properties.responseTimeout().toMillis(), TimeUnit.MILLISECONDS);
+        } catch (TimeoutException ignored) {
+            return new Failure(FailureKind.TIMEOUT, null);
+        } catch (InterruptedException ignored) {
+            Thread.currentThread().interrupt();
+            return new Failure(FailureKind.CANCELLED, null);
+        } catch (ExecutionException ignored) {
+            // Never attach a library exception: it can contain the URI, key or body.
+            return new Failure(FailureKind.INVALID_RESPONSE, null);
+        } finally {
+            cancellation.cancel();
+            future.cancel(true);
+            // ExecutorService.close() would wait for a DNS resolver that ignores interruption.
+            executor.shutdownNow();
+        }
+    }
+
+    private GeocodingResult execute(String address, CallCancellation cancellation) {
         CloseableHttpClient client = null;
-        ScheduledExecutorService deadlineExecutor = null;
-        ScheduledFuture<?> deadline = null;
-        AtomicBoolean timedOut = new AtomicBoolean();
         try {
             client = createHttpClient();
+            cancellation.register(client);
             CloseableHttpClient callClient = client;
-            HttpComponentsClientHttpRequestFactory factory = new HttpComponentsClientHttpRequestFactory(client);
+            HttpComponentsClientHttpRequestFactory factory = new HttpComponentsClientHttpRequestFactory(client) {
+                @Override
+                protected ClassicHttpRequest createHttpUriRequest(HttpMethod method, URI uri) {
+                    HttpUriRequestBase request = new HttpUriRequestBase(method.name(), uri);
+                    cancellation.register(request);
+                    return request;
+                }
+            };
             RestClient restClient = RestClient.builder()
                     .requestFactory(requestFactoryDecorator.apply(factory)).build();
             URI uri = UriComponentsBuilder.fromUriString(ENDPOINT)
                     .queryParam("address.addressLines", "{address}")
                     .queryParam("languageCode", "ja").queryParam("regionCode", "JP")
                     .encode().buildAndExpand(address).toUri();
-            deadlineExecutor = Executors.newSingleThreadScheduledExecutor(
-                    Thread.ofPlatform().daemon(true).name("google-geocoding-deadline").factory());
-            deadline = deadlineExecutor.schedule(() -> {
-                timedOut.set(true);
-                callClient.close(CloseMode.IMMEDIATE);
-            }, properties.responseTimeout().toMillis(), TimeUnit.MILLISECONDS);
-            GeocodingResult result = restClient.get().uri(uri).accept(MediaType.APPLICATION_JSON)
+            return restClient.get().uri(uri).accept(MediaType.APPLICATION_JSON)
                     .header("X-Goog-Api-Key", properties.apiKey())
                     .header("X-Goog-FieldMask", FIELD_MASK)
                     .exchange((request, response) -> {
@@ -95,22 +145,15 @@ final class GoogleGeocodingProvider implements GeocodingProvider {
                             response.close();
                         }
                     }, false);
-            return timedOut.get() ? new Failure(FailureKind.TIMEOUT, null) : result;
         } catch (ResourceAccessException failure) {
-            return new Failure(timedOut.get() || isTimeout(failure)
+            return new Failure(isTimeout(failure)
                     ? FailureKind.TIMEOUT : FailureKind.CONNECTION_ERROR, null);
         } catch (RuntimeException ignored) {
             // Never attach a library exception: it can contain the URI, key or body.
-            return new Failure(timedOut.get() ? FailureKind.TIMEOUT : FailureKind.INVALID_RESPONSE, null);
+            return new Failure(FailureKind.INVALID_RESPONSE, null);
         } finally {
-            if (deadline != null) {
-                deadline.cancel(false);
-            }
             if (client != null) {
                 client.close(CloseMode.IMMEDIATE);
-            }
-            if (deadlineExecutor != null) {
-                deadlineExecutor.shutdownNow();
             }
         }
     }
@@ -126,7 +169,7 @@ final class GoogleGeocodingProvider implements GeocodingProvider {
         return HttpClients.custom().disableAutomaticRetries().disableRedirectHandling()
                 .disableCookieManagement().disableAuthCaching().disableContentCompression()
                 .setConnectionManager(PoolingHttpClientConnectionManagerBuilder.create()
-                        .setDefaultConnectionConfig(connection).build())
+                        .setDnsResolver(dnsResolver).setDefaultConnectionConfig(connection).build())
                 .setDefaultRequestConfig(request).build();
     }
 
@@ -178,5 +221,37 @@ final class GoogleGeocodingProvider implements GeocodingProvider {
             }
         }
         return false;
+    }
+
+    private static final class CallCancellation {
+        private final AtomicBoolean cancelled = new AtomicBoolean();
+        private final AtomicReference<CloseableHttpClient> client = new AtomicReference<>();
+        private final AtomicReference<HttpUriRequestBase> request = new AtomicReference<>();
+
+        void register(CloseableHttpClient value) {
+            client.set(value);
+            if (cancelled.get()) {
+                value.close(CloseMode.IMMEDIATE);
+            }
+        }
+
+        void register(HttpUriRequestBase value) {
+            request.set(value);
+            if (cancelled.get()) {
+                value.cancel();
+            }
+        }
+
+        void cancel() {
+            cancelled.set(true);
+            HttpUriRequestBase currentRequest = request.get();
+            if (currentRequest != null) {
+                currentRequest.cancel();
+            }
+            CloseableHttpClient currentClient = client.get();
+            if (currentClient != null) {
+                currentClient.close(CloseMode.IMMEDIATE);
+            }
+        }
     }
 }

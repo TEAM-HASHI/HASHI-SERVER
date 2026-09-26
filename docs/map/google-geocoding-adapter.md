@@ -53,7 +53,9 @@ classpath에 따른 자동 선택의 영향을 받지 않는다. 다른 RestClie
 | 404 | CONFIGURATION_ERROR |
 | 429 | QUOTA_EXCEEDED |
 | 5xx | TRANSIENT_ERROR |
-| HTTP 408, 연결/응답 deadline | TIMEOUT |
+| HTTP 408, DNS/연결/응답 deadline | TIMEOUT |
+| 호출자 thread 중단 | CANCELLED |
+| 진행 중인 호출 4개로 실행 한도 도달 | CAPACITY_EXCEEDED |
 | 연결 실패·응답 도중 연결 유실 | CONNECTION_ERROR |
 | 3xx | REDIRECT_REJECTED |
 | 응답 크기 초과 | RESPONSE_TOO_LARGE |
@@ -80,7 +82,12 @@ Spring 설정 prefix는 `hashi.map.google-geocoding`이다. 별도 설정이 없
 키는 비밀 설정으로 공급하며 문서·명령줄 인자·로그에 넣지 않는다. 이 PR에서는 활성화하지 않는다.
 
 RestClient에는 전용 `HttpComponentsClientHttpRequestFactory`를 지정한다.
-연결/소켓 timeout 외에 호출별 deadline에서 client를 즉시 닫으므로 작은 조각을 계속 보내는 응답도 중단한다.
+각 호출은 virtual thread에서 실행하고 호출자는 response-timeout까지만 기다린다.
+DNS가 중단을 무시해도 호출자는 `TIMEOUT`으로 반환한다. 이때 Apache request를 취소하고
+전용 client를 즉시 닫아 DNS가 뒤늦게 끝나도 HTTP를 보내지 않는다. 호출자 중단은
+interrupt 상태를 유지하며 `CANCELLED`로 반환한다. 작은 조각을 계속 보내는 본문도 같은 deadline을 적용한다.
+실제 작업이 종료될 때까지 동시 실행 슬롯을 유지한다. provider 인스턴스당 최대 4개이며,
+장애 중 추가 호출은 큐에 쌓지 않고 `CAPACITY_EXCEEDED`로 반환한다. DNS 작업이 종료되면 슬롯을 회수한다.
 Content-Length와 별개로 최대 한도+1 byte만 읽고, 초과 시 스트림을 닫는다. 압축 본문은 거부한다.
 Jackson의 중첩 깊이·숫자 길이·문자열 길이도 제한한다.
 
@@ -100,6 +107,8 @@ properties, 후보 및 주소 구성요소의 `toString()`을 마스킹하고, �
 테스트는 합성 데이터와 mock/loopback HTTP만 사용한다. 실제 Google 계정·키·유료 API는 사용하지 않는다.
 `GoogleGeocodingWireTest`는 인코딩/헤더, redirect, 실제 연결 유실 후 재전송 여부,
 429/503, header/body deadline, Content-Length/chunked 크기 제한을 검증한다.
+`GoogleGeocodingDeadlineTest`는 중단을 무시하는 합성 DNS로 호출자 반환, 늦은 HTTP 차단,
+실행 슬롯 상한, 추가 호출 거부와 DNS 종료 후 회복을 검증한다.
 설정/파서 테스트는 활성·비활성, 빈/복수 후보, 누락/알 수 없는 값, 숫자 경계,
 잘못된 JSON과 예외/로그/toString 비노출을 검증한다. `GeocodingBoundaryTest`와
 `ModularityTests`가 모듈 외부 사용과 순환 의존을 검사한다.

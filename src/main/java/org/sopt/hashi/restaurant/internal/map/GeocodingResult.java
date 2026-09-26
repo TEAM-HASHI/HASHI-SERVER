@@ -33,6 +33,8 @@ public sealed interface GeocodingResult {
         QUOTA_EXCEEDED,
         TRANSIENT_ERROR,
         TIMEOUT,
+        CANCELLED,
+        CAPACITY_EXCEEDED,
         CONNECTION_ERROR,
         INVALID_RESPONSE,
         RESPONSE_TOO_LARGE,
