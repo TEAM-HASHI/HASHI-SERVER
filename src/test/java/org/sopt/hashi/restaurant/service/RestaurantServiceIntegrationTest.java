@@ -59,6 +59,9 @@ class RestaurantServiceIntegrationTest {
     @MockitoBean
     private MediaPort mediaPort;
 
+    @MockitoBean
+    private RestaurantMapService restaurantMapService;
+
     @Test
     void 식당_목록은_음식_분류로_필터링하지_않고_응답에는_음식_분류를_유지한다() {
         restaurantRepository.saveAllAndFlush(List.of(
