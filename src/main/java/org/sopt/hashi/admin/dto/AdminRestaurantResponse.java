@@ -35,7 +35,9 @@ public record AdminRestaurantResponse(
         List<String> hashtags,
         List<String> curationTypes,
         List<AdminRestaurantBusinessHourResponse> businessHours,
-        LocalDateTime createdAt) {
+        LocalDateTime createdAt,
+        String locationStatus,
+        long addressRevision) {
 
     public static AdminRestaurantResponse from(AdminRestaurantInfo info) {
         return new AdminRestaurantResponse(
@@ -65,7 +67,9 @@ public record AdminRestaurantResponse(
                 info.businessHours().stream()
                         .map(AdminRestaurantBusinessHourResponse::from)
                         .toList(),
-                info.createdAt());
+                info.createdAt(),
+                info.locationStatus(),
+                info.addressRevision());
     }
 
     public record AdminRestaurantMenuResponse(

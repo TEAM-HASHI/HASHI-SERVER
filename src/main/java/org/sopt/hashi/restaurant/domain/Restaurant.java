@@ -13,13 +13,17 @@ import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
 import jakarta.persistence.JoinColumn;
 import jakarta.persistence.OneToMany;
+import jakarta.persistence.OneToOne;
 import jakarta.persistence.OrderBy;
 import jakarta.persistence.Table;
 import java.math.BigDecimal;
+import java.time.Clock;
+import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
@@ -62,6 +66,15 @@ public class Restaurant extends BaseTimeEntity {
 
     @Column(name = "area", length = 20, nullable = false)
     private String area;
+
+    /** 운영 관광 지역은 별도 Aggregate의 ID로만 참조한다. null은 미분류다. */
+    @Column(name = "map_region_id")
+    private Long mapRegionId;
+
+    /** 소유 측 FK로 위치 없음도 추가 SELECT 없이 판별한다. soft delete 시 자식은 보존한다. */
+    @OneToOne(fetch = FetchType.LAZY, cascade = {CascadeType.PERSIST, CascadeType.MERGE})
+    @JoinColumn(name = "location_id", unique = true)
+    private RestaurantLocation location;
 
     @Enumerated(EnumType.STRING)
     @Column(name = "genre", length = 20, nullable = false)
@@ -171,7 +184,11 @@ public class Restaurant extends BaseTimeEntity {
         if (description != null) {
             this.description = description;
         }
-        if (address != null) {
+        boolean addressChanged = address != null && !Objects.equals(this.address, address);
+        if (addressChanged) {
+            if (location != null) {
+                location.addressChanged();
+            }
             this.address = address;
         }
         if (area != null) {
@@ -200,6 +217,65 @@ public class Restaurant extends BaseTimeEntity {
     /** 어드민 삭제(soft delete) — 사용자 노출만 차단하고 예약·리뷰가 참조하는 데이터는 보존한다. */
     public void softDelete() {
         this.deleted = true;
+    }
+
+    /** 실제 지역 존재·활성 검증은 후속 운영 Service에서 수행한다. null로 미분류로 되돌릴 수 있다. */
+    public void assignMapRegion(Long mapRegionId) {
+        if (mapRegionId != null && mapRegionId <= 0) {
+            throw new IllegalArgumentException("관광 지역 ID는 양수여야 합니다");
+        }
+        this.mapRegionId = mapRegionId;
+    }
+
+    /** 후속 Service가 식당 잠금과 같은 transaction에서 호출하고 durable 작업을 연결한다. */
+    public void requestLocationResolution() {
+        requireActiveForLocation();
+        if (location == null) {
+            location = RestaurantLocation.pending();
+        } else {
+            location.requestRetry();
+        }
+    }
+
+    public void refreshLocation() {
+        requireActiveForLocation();
+        if (location == null) {
+            throw new IllegalStateException("갱신할 위치가 없습니다");
+        }
+        location.beginRefresh();
+    }
+
+    /** Retention also applies to soft-deleted restaurants; original restaurant data stays intact. */
+    public boolean purgeGoogleLocation(long revision, UUID request, LocalDateTime obtained, LocalDateTime until,
+                                       LocalDateTime purgeBefore) {
+        return location != null && location.purgeGoogle(revision, request, obtained, until, purgeBefore);
+    }
+
+    public boolean retryLocationWhenDue(Clock clock) {
+        return !deleted && location != null && location.beginScheduledRetry(clock);
+    }
+
+    /** 후속 worker는 식당 잠금 후 revision/requestId뿐 아니라 job lease도 검사해야 한다. */
+    public boolean completeLocation(long expectedRevision, UUID expectedRequestId, MapCoordinates coordinates,
+                                    RestaurantLocationSource source, LocalDateTime obtainedAt,
+                                    LocalDateTime validUntil, Clock clock) {
+        return !deleted && location != null && location.complete(expectedRevision, expectedRequestId,
+                coordinates, source, obtainedAt, validUntil, clock);
+    }
+
+    public boolean deferLocation(long expectedRevision, UUID expectedRequestId,
+                                 LocalDateTime nextAttemptAt, Clock clock) {
+        return !deleted && location != null
+                && location.defer(expectedRevision, expectedRequestId, nextAttemptAt, clock);
+    }
+
+    public boolean rejectLocation(long expectedRevision, UUID expectedRequestId, RestaurantLocationStatus outcome) {
+        return !deleted && location != null && location.reject(expectedRevision, expectedRequestId, outcome);
+    }
+
+    /** 관광 지역 미분류 여부는 일반 지도 노출 조건에 포함하지 않는다. */
+    public boolean hasUsableMapLocation(Clock clock) {
+        return !deleted && location != null && location.isUsable(clock);
     }
 
     public void replaceHashtags(List<String> hashtags) {
@@ -310,5 +386,11 @@ public class Restaurant extends BaseTimeEntity {
     public void addBusinessHour(RestaurantBusinessHour businessHour) {
         businessHour.assignRestaurant(this);
         this.businessHours.add(businessHour);
+    }
+
+    private void requireActiveForLocation() {
+        if (deleted) {
+            throw new IllegalStateException("삭제된 식당의 위치를 요청할 수 없습니다");
+        }
     }
 }
