@@ -5,6 +5,7 @@ import org.sopt.hashi.auth.internal.jwt.JwtProperties;
 import java.util.List;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
+import org.springframework.http.HttpMethod;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.http.HttpHeaders;
 import org.springframework.security.config.Customizer;
@@ -38,6 +39,14 @@ public class SecurityConfig {
     static final String MAGAZINE_LIKE_PATH = "/api/v1/magazines/*/likes";
     /** 상태를 가진 신규 이미지 업로드 — purpose별 세부 인가는 media Service가 담당한다. */
     static final String MEDIA_PATH = "/api/v1/media/**";
+    /**
+     * 식당 컬렉션 공유 열람(#216) — 공개 컬렉션의 상세·저장 식당 목록은 비로그인도 GET할 수 있다.
+     * 목록(/api/v1/collections)·쓰기 메서드는 회원 전용이라 GET 두 경로만 연다. 비공개 여부는 user Service가 판정한다.
+     */
+    static final String[] COLLECTION_PUBLIC_GET_PATHS = {
+            "/api/v1/collections/*",
+            "/api/v1/collections/*/restaurants"
+    };
     /** 공개 경로 단일 소스 — {@link SwaggerAuthorizationCustomizer}가 같은 목록으로 문서 자물쇠를 판정한다. */
     static final String[] PUBLIC_PATHS = {
             "/swagger-ui/**",
@@ -75,6 +84,7 @@ public class SecurityConfig {
                         // 매거진 조회는 공개지만 좋아요는 회원만 — permitAll(/api/v1/magazines/**)보다 먼저 매칭한다.
                         .requestMatchers(MAGAZINE_LIKE_PATH).hasRole("USER")
                         .requestMatchers(PUBLIC_PATHS).permitAll()
+                        .requestMatchers(HttpMethod.GET, COLLECTION_PUBLIC_GET_PATHS).permitAll()
                         .requestMatchers(ONBOARDING_PATH).hasRole("ONBOARDING")
                         .requestMatchers(UPLOAD_PATH).hasAnyRole("USER", "ADMIN", "ONBOARDING")
                         .requestMatchers(MEDIA_PATH).hasAnyRole("USER", "ADMIN", "ONBOARDING")
