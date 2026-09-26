@@ -45,7 +45,10 @@ class AdminRestaurantServiceTest {
         given(restaurantPort.updateByAdmin(eq(1L), any(AdminRestaurantCommand.class)))
                 .willReturn(adminRestaurantInfo());
 
-        adminRestaurantService.update(1L, request);
+        var response = adminRestaurantService.update(1L, request);
+        assertThat(response.restaurantId()).isEqualTo(1L);
+        assertThat(response.locationStatus()).isEqualTo("PENDING");
+        assertThat(response.addressRevision()).isEqualTo(1);
 
         ArgumentCaptor<AdminRestaurantCommand> commandCaptor =
                 ArgumentCaptor.forClass(AdminRestaurantCommand.class);

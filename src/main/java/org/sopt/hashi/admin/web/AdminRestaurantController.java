@@ -3,18 +3,23 @@ package org.sopt.hashi.admin.web;
 import io.swagger.v3.oas.annotations.media.Content;
 import io.swagger.v3.oas.annotations.media.ExampleObject;
 import jakarta.validation.Valid;
+import jakarta.servlet.http.HttpServletResponse;
 import org.sopt.hashi.admin.code.AdminSuccessCode;
 import org.sopt.hashi.admin.dto.AdminRestaurantResponse;
 import org.sopt.hashi.admin.dto.CreateRestaurantRequest;
 import org.sopt.hashi.admin.dto.UpdateRestaurantRequest;
+import org.sopt.hashi.admin.dto.RestaurantLocationResponse;
+import org.sopt.hashi.admin.dto.RetryRestaurantLocationRequest;
 import org.sopt.hashi.admin.service.AdminRestaurantService;
 import org.sopt.hashi.shared.error.CommonErrorCode;
+import org.sopt.hashi.shared.error.CommonSuccessCode;
 import org.sopt.hashi.shared.response.SuccessResponse;
 import org.sopt.hashi.shared.swagger.ApiErrorResponse;
 import org.sopt.hashi.shared.swagger.ApiException;
 import org.sopt.hashi.shared.swagger.ApiSuccess;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.DeleteMapping;
+import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -154,5 +159,28 @@ public class AdminRestaurantController {
     public SuccessResponse<Void> delete(@PathVariable Long restaurantId) {
         adminRestaurantService.delete(restaurantId);
         return SuccessResponse.of(AdminSuccessCode.RESTAURANT_DELETED, null);
+    }
+
+    /** 식당 정보 저장 결과와 별개인 지도 위치 처리 상태를 조회한다. */
+    @GetMapping("/{restaurantId}/location")
+    @ApiSuccess(value = CommonSuccessCode.class, codes = {"OK"})
+    @ApiException(value = CommonErrorCode.class, codes = {"UNAUTHORIZED", "FORBIDDEN"})
+    @ApiErrorResponse(status = HttpStatus.NOT_FOUND, code = "RESTAURANT-004", message = "식당을 찾을 수 없습니다.")
+    public SuccessResponse<RestaurantLocationResponse> getLocation(@PathVariable Long restaurantId,
+                                                                   HttpServletResponse response) {
+        response.setHeader("Cache-Control", "no-store");
+        return SuccessResponse.of(CommonSuccessCode.OK, adminRestaurantService.getLocation(restaurantId));
+    }
+
+    /** 현재 주소 revision의 위치 확인을 재요청한다. PENDING은 기존 작업을 반환한다. */
+    @PostMapping("/{restaurantId}/location/retry")
+    @ApiSuccess(value = CommonSuccessCode.class, codes = {"OK"})
+    @ApiException(value = CommonErrorCode.class, codes = {"INVALID_INPUT", "UNAUTHORIZED", "FORBIDDEN"})
+    @ApiErrorResponse(status = HttpStatus.NOT_FOUND, code = "RESTAURANT-004", message = "식당을 찾을 수 없습니다.")
+    @ApiErrorResponse(status = HttpStatus.CONFLICT, code = "RESTAURANT-019", message = "현재 주소의 위치 상태를 다시 확인해주세요")
+    public SuccessResponse<RestaurantLocationResponse> retryLocation(@PathVariable Long restaurantId,
+            @Valid @RequestBody RetryRestaurantLocationRequest request, HttpServletResponse response) {
+        response.setHeader("Cache-Control", "no-store");
+        return SuccessResponse.of(CommonSuccessCode.OK, adminRestaurantService.retryLocation(restaurantId, request));
     }
 }
