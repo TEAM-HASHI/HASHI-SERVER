@@ -129,9 +129,23 @@ class RestaurantMapControllerTest {
 
     @Test
     void 잘못된_ID는_400이며_지도_페이지_임시_API를_제공하지_않는다() throws Exception {
-        mvc.perform(get("/api/v1/restaurants/0/map-location")).andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.code").value("COMMON-400"));
-        mvc.perform(get("/api/v1/restaurants/bad/map-location")).andExpect(status().isBadRequest());
+        for (long invalidId : new long[]{0L, -1L}) {
+            mvc.perform(get("/api/v1/restaurants/{restaurantId}/map-location", invalidId))
+                    .andExpect(status().isBadRequest())
+                    .andExpect(header().string("Cache-Control", "no-store"))
+                    .andExpect(jsonPath("$.code").value("COMMON-400"))
+                    .andExpect(jsonPath("$.data").isEmpty())
+                    .andExpect(jsonPath("$.errors.length()").value(1))
+                    .andExpect(jsonPath("$.errors[0].field").value("restaurantId"))
+                    .andExpect(jsonPath("$.errors[0].rejectedValue").value(invalidId))
+                    .andExpect(jsonPath("$.errors[0].reason").isNotEmpty());
+        }
+        mvc.perform(get("/api/v1/restaurants/bad/map-location")).andExpect(status().isBadRequest())
+                .andExpect(header().string("Cache-Control", "no-store"))
+                .andExpect(jsonPath("$.code").value("COMMON-400"))
+                .andExpect(jsonPath("$.errors[0].field").value("restaurantId"))
+                .andExpect(jsonPath("$.errors[0].rejectedValue").value("bad"))
+                .andExpect(jsonPath("$.errors[0].reason").value("정수 ID를 입력해 주세요."));
         mvc.perform(get("/api/v1/restaurants/map")).andExpect(status().isNotFound());
     }
 
