@@ -92,6 +92,7 @@ class LocationJobMySqlTest {
     @Autowired FakeProvider provider;
     @MockitoBean MediaPort mediaPort;
     @MockitoBean FileStorage fileStorage;
+    @MockitoBean RestaurantMapService restaurantMapService;
 
     @BeforeEach
     void reset() {
