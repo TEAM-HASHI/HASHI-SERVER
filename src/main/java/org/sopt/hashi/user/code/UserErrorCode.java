@@ -18,7 +18,7 @@ public enum UserErrorCode implements ErrorCode {
     // 토큰은 유효하나 회원 레코드가 없는 경우(탈퇴 직후 잔여 토큰 등)
     NOT_FOUND(HttpStatus.NOT_FOUND, "USER-005", "회원을 찾을 수 없습니다"),
 
-    // 식당 컬렉션(#216)
+    // 식당 컬렉션(#216) — 타인의 컬렉션 편집·타인의 비공개 컬렉션 열람도 존재를 숨기기 위해 COLLECTION_NOT_FOUND로 응답한다
     COLLECTION_NOT_FOUND(HttpStatus.NOT_FOUND, "USER-006", "컬렉션을 찾을 수 없습니다"),
     DUPLICATE_COLLECTION_NAME(HttpStatus.CONFLICT, "USER-007", "이미 같은 이름의 컬렉션이 있습니다"),
     UNSUPPORTED_COLLECTION_COLOR(HttpStatus.BAD_REQUEST, "USER-008", "지원하지 않는 컬렉션 색상입니다"),
@@ -29,9 +29,7 @@ public enum UserErrorCode implements ErrorCode {
     RESTAURANT_NOT_SAVED(HttpStatus.NOT_FOUND, "USER-013", "컬렉션에 저장되지 않은 식당입니다"),
     SAME_COLLECTION_MOVE(HttpStatus.BAD_REQUEST, "USER-014", "같은 컬렉션으로는 이동할 수 없습니다"),
     RESTAURANT_NOT_FOUND(HttpStatus.NOT_FOUND, "USER-015", "저장할 식당을 찾을 수 없습니다"),
-    UNSUPPORTED_SAVED_RESTAURANT_SORT(HttpStatus.BAD_REQUEST, "USER-016", "지원하지 않는 정렬 기준입니다"),
-    // 공유 링크로 들어왔는데 소유자가 비공개로 바꾼 경우 — 없음(006)과 구분해 클라이언트가 안내를 달리한다
-    COLLECTION_PRIVATE(HttpStatus.FORBIDDEN, "USER-017", "비공개 컬렉션입니다");
+    UNSUPPORTED_SAVED_RESTAURANT_SORT(HttpStatus.BAD_REQUEST, "USER-016", "지원하지 않는 정렬 기준입니다");
 
     private final HttpStatus status;
     private final String code;

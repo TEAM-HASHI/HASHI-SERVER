@@ -35,7 +35,8 @@ import org.springframework.web.bind.annotation.RestController;
 
 /**
  * 식당 컬렉션 API(#216, SAVED-004~008). 컬렉션 상세·저장 식당 목록 GET은 공개 컬렉션에 한해 비로그인도 조회할 수
- * 있고(SecurityConfig의 GET permitAll), 나머지는 로그인 회원 전용이며 소유자만 편집할 수 있다(남의 컬렉션은 403).
+ * 있고(SecurityConfig의 GET permitAll), 나머지는 로그인 회원 전용이며 소유자만 편집할 수 있다. 남의 컬렉션 편집·남의 비공개
+ * 컬렉션 열람은 존재를 숨기기 위해 없는 컬렉션과 같은 USER-006(404)으로 응답한다.
  * 공유 링크 복사는 클라이언트가 처리하고 서버는 공개 범위 변경(PATCH)만 담당한다.
  */
 @Validated
@@ -72,9 +73,9 @@ public class RestaurantCollectionController {
         return SuccessResponse.of(CommonSuccessCode.OK, restaurantCollectionService.getMyCollections(restaurantId));
     }
 
-    /** 컬렉션 상세 헤더 — 공개 컬렉션은 비로그인도 조회. 비공개 컬렉션은 소유자가 아니면 USER-017(403). */
+    /** 컬렉션 상세 헤더 — 공개 컬렉션은 비로그인도 조회. 비공개 컬렉션은 소유자가 아니면 USER-006(404). */
     @ApiException(value = CommonErrorCode.class, codes = {"INVALID_INPUT"})
-    @ApiException(value = UserErrorCode.class, codes = {"COLLECTION_NOT_FOUND", "COLLECTION_PRIVATE"})
+    @ApiException(value = UserErrorCode.class, codes = {"COLLECTION_NOT_FOUND"})
     @GetMapping("/{collectionId}")
     public SuccessResponse<RestaurantCollectionResponse> getCollection(
             @PathVariable @Positive Long collectionId) {
@@ -103,11 +104,10 @@ public class RestaurantCollectionController {
 
     /**
      * 저장 식당 목록 — 커서 페이지네이션. sort는 latest(기본)·rating·review, placeType은 restaurant·cafe·bar(없으면 전체).
-     * 공개 컬렉션은 비로그인도 조회할 수 있다.
+     * 공개 컬렉션은 비로그인도 조회할 수 있고, 비공개 컬렉션은 소유자가 아니면 USER-006(404).
      */
     @ApiException(value = CommonErrorCode.class, codes = {"INVALID_INPUT"})
-    @ApiException(value = UserErrorCode.class,
-            codes = {"COLLECTION_NOT_FOUND", "COLLECTION_PRIVATE", "UNSUPPORTED_SAVED_RESTAURANT_SORT"})
+    @ApiException(value = UserErrorCode.class, codes = {"COLLECTION_NOT_FOUND", "UNSUPPORTED_SAVED_RESTAURANT_SORT"})
     @GetMapping("/{collectionId}/restaurants")
     public SuccessResponse<SavedRestaurantListResponse> getSavedRestaurants(
             @PathVariable @Positive Long collectionId,
