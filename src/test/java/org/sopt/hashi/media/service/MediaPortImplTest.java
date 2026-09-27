@@ -53,6 +53,8 @@ class MediaPortImplTest {
 
     private static final String SPEC_DIGEST =
             "1b5759a9285732133699114e21101b3b9b43b5cd8e208bf1246d059f4293634f";
+    private static final String CARD_NEWS_SPEC_DIGEST =
+            "b8e67084bcdf81ac7fc94951c905726a97ade3783320c67e03c505f5643ddf75";
 
     @Mock
     private ImageAssetRepository imageAssetRepository;
@@ -301,6 +303,33 @@ class MediaPortImplTest {
     }
 
     @Test
+    void 카드뉴스_기본_이미지는_원본비율을_반영한_명목_기본_후보를_선택한다() {
+        UUID assetId = UUID.randomUUID();
+        MediaImageRequest request = new MediaImageRequest(
+                assetId, MediaImageRole.MAGAZINE_CARD_NEWS);
+        when(imageAssetRepository.findImageProjectionsByPublicIdIn(anyCollection()))
+                .thenReturn(List.of(new TestAssetImageProjection(
+                        assetId, MediaPurpose.MAGAZINE_CARD_NEWS,
+                        ImageProcessingStatus.READY, ImageBindingStatus.BOUND,
+                        MediaCleanupStatus.ACTIVE, 2, CARD_NEWS_SPEC_DIGEST,
+                        null, null, null, 2000, 4000)));
+        when(imageRenditionRepository.findActiveImageProjections(
+                anyCollection(), anyCollection()))
+                .thenReturn(List.of(
+                        rendition(assetId, ImageRole.MAGAZINE_CARD_NEWS, 288, 576),
+                        rendition(assetId, ImageRole.MAGAZINE_CARD_NEWS, 576, 1152),
+                        rendition(assetId, ImageRole.MAGAZINE_CARD_NEWS, 864, 1728)
+                ));
+        when(fileStorage.resolveFileUrl(anyString()))
+                .thenAnswer(invocation -> "https://cdn.hashi.test/" + invocation.getArgument(0));
+
+        MediaImage image = mediaPort.findImages(List.of(request)).get(request);
+
+        assertThat(image.defaultSource().width()).isEqualTo(576);
+        assertThat(image.defaultSource().height()).isEqualTo(1152);
+    }
+
+    @Test
     void PROCESSING과_FAILED는_source없이_상태만_반환한다() {
         UUID processingId = UUID.randomUUID();
         UUID failedId = UUID.randomUUID();
@@ -482,7 +511,7 @@ class MediaPortImplTest {
         return new TestAssetImageProjection(
                 publicId, purpose, status, bindingStatus, cleanupStatus,
                 activeSpecVersion, activeSpecDigest,
-                targetSpecVersion, targetSpecDigest, lastFailureSpecVersion);
+                targetSpecVersion, targetSpecDigest, lastFailureSpecVersion, null, null);
     }
 
     private AssetImageProjection failedProjection(
@@ -579,7 +608,9 @@ class MediaPortImplTest {
             String activeSpecDigest,
             Integer targetSpecVersion,
             String targetSpecDigest,
-            Integer lastFailureSpecVersion
+            Integer lastFailureSpecVersion,
+            Integer sourceWidth,
+            Integer sourceHeight
     ) implements AssetImageProjection {
 
         @Override
@@ -602,6 +633,12 @@ class MediaPortImplTest {
 
         @Override
         public String getActiveSpecDigest() { return activeSpecDigest; }
+
+        @Override
+        public Integer getSourceWidth() { return sourceWidth; }
+
+        @Override
+        public Integer getSourceHeight() { return sourceHeight; }
 
         @Override
         public Integer getTargetSpecVersion() { return targetSpecVersion; }
