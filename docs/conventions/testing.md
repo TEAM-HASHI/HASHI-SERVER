@@ -40,9 +40,27 @@ class SharedKernelTest {
             .should().dependOnClassesThat()
             .resideInAnyPackage(
                 "..restaurant..", "..review..", "..reservation..",
-                "..point..", "..magazine..", "..user..", "..support..");
+                "..point..", "..magazine..", "..user..", "..support..",
+                "..media..");
 }
 ```
+
+### media 구조와 상태 검증
+
+- **MUST**: `media` 모듈 통합 테스트는 `@ApplicationModuleTest`로 격리하고 외부 storage와 queue adapter를 모킹한다.
+- **MUST**: Aggregate 상태 전이, 중복 result, 순서가 뒤바뀐 result, active와 target spec 전환,
+  sourceVersionId, specVersion 또는 currentJobId가 다른 늦은 결과를 테스트한다.
+- **MUST**: 실제 MySQL 전용 migration과 unique 제약은 Testcontainers MySQL로 검증한다. H2 `create-drop` 결과만으로 통과 처리하지 않는다.
+- **MUST**: 콘텐츠 모듈의 일반 요청 테스트는 media 구현을 직접 부트스트랩하지 않고
+  `MediaPort`를 모킹한다. migration 전용 backfill runner 테스트만 `MediaBackfillPort`를
+  모킹하며 Controller와 일반 Service 테스트에서는 이 Port를 사용하지 않는다.
+- **MUST**: Java publisher와 Node worker는 같은 request, success result와 failure result JSON
+  Schema 또는 golden fixture로 specDigest를 포함한 queue wire 계약을 검증한다.
+- **MUST**: Java publisher와 Node worker는 append-only canonical spec manifest와 같은 manifest
+  JSON Schema를 사용하고 version, SHA-256 digest와 exact 산출 규격을 동일하게 해석하는지
+  검증한다.
+- **MUST**: 목록의 asset 수가 늘어도 `MediaPort` bulk 호출과 rendition 조회 query 수가 고정되는지
+  query-count 회귀 테스트를 둔다. 응답 item별 media 조회는 실패로 처리한다.
 
 ---
 
@@ -75,6 +93,8 @@ class ReviewModuleTest {
 
 - **MUST**: 이벤트 발행/구독은 `Scenario` API로 검증한다(발행 → 리스너 처리까지).
 - **MUST**: 핸들러 **멱등성**(같은 이벤트 2회 수신 시 결과 동일)을 테스트한다.
+- **MUST**: 외부 broker publisher 예외는 고정 listener ID, EPR 미완료 재전송, terminal job의
+  no-op 완료와 전용 executor 종료 시 미완료 publication 보존을 통합 테스트한다.
 
 ```java
 @ApplicationModuleTest
@@ -120,4 +140,7 @@ void 포인트는_음수가_될_수_없다() {
 - [ ] (shared) ArchUnit 의존 차단 규칙이 있는가
 - [ ] 모듈 테스트가 `@ApplicationModuleTest` + 타 모듈 포트 모킹으로 격리됐는가
 - [ ] 이벤트 핸들러의 멱등성을 테스트했는가
-- [ ] 도메인 규칙·VO를 순수 단위 테스트로 고정했는가
+- [ ] 외부 broker publisher 예외의 EPR 재전송과 terminal no-op 완료를 테스트했는가
+- [ ] 도메인 규칙과 VO를 순수 단위 테스트로 고정했는가
+- [ ] media의 상태 경쟁, queue 중복과 MySQL migration을 실제 계약에 맞게 검증했는가
+- [ ] media bulk 조회의 query 수가 응답 item 수에 따라 증가하지 않는가

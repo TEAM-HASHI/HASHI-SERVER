@@ -1,0 +1,83 @@
+package org.sopt.hashi.media.internal.cleanup;
+
+import java.time.Duration;
+import org.springframework.boot.context.properties.ConfigurationProperties;
+
+@ConfigurationProperties(prefix = "hashi.media.cleanup")
+public record MediaCleanupProperties(
+        boolean enabled,
+        Mode mode,
+        Duration uploadSafetyWindow,
+        Duration retryInterval,
+        Duration scanInterval,
+        int scanBatchSize,
+        int scanMaxBatches,
+        int storagePageSize,
+        int storageMaxPages,
+        Duration storageApiTimeout,
+        Duration storageAttemptTimeout,
+        Duration scanWorkBudget,
+        Duration storageWorkBudget,
+        Duration shutdownAwait
+) {
+
+    public MediaCleanupProperties {
+        mode = mode == null ? Mode.DRY_RUN : mode;
+        if (enabled && uploadSafetyWindow == null) {
+            throw new IllegalArgumentException("media cleanup requires an explicit upload safety window");
+        }
+        if (uploadSafetyWindow != null && (uploadSafetyWindow.isZero() || uploadSafetyWindow.isNegative())) {
+            throw new IllegalArgumentException("media cleanup upload safety window must be positive");
+        }
+        retryInterval = positiveDuration(retryInterval, Duration.ofMinutes(15));
+        scanInterval = positiveDuration(scanInterval, Duration.ofMinutes(30));
+        scanBatchSize = boundedCount(scanBatchSize, 25, 1000);
+        scanMaxBatches = boundedCount(scanMaxBatches, 2, 100);
+        storagePageSize = boundedCount(storagePageSize, 1000, 1000);
+        storageMaxPages = boundedCount(storageMaxPages, 10, 100);
+        storageApiTimeout = positiveDuration(storageApiTimeout, Duration.ofSeconds(15));
+        storageAttemptTimeout = positiveDuration(storageAttemptTimeout, Duration.ofSeconds(5));
+        if (storageAttemptTimeout.compareTo(storageApiTimeout) > 0) {
+            throw new IllegalArgumentException("cleanup attempt timeout must not exceed the API timeout");
+        }
+        scanWorkBudget = boundedDuration(scanWorkBudget, Duration.ofMinutes(2), Duration.ofMinutes(30));
+        storageWorkBudget = boundedDuration(storageWorkBudget, Duration.ofMinutes(1), Duration.ofMinutes(5));
+        shutdownAwait = boundedDuration(shutdownAwait, Duration.ofSeconds(20), Duration.ofMinutes(1));
+        if (storageApiTimeout.compareTo(storageWorkBudget) > 0) {
+            throw new IllegalArgumentException("cleanup API timeout must not exceed the storage work budget");
+        }
+    }
+
+    public boolean canDelete() {
+        return enabled && mode == Mode.DELETE;
+    }
+
+    public enum Mode {
+        DRY_RUN,
+        DELETE
+    }
+
+    private static Duration positiveDuration(Duration value, Duration defaultValue) {
+        Duration resolved = value == null ? defaultValue : value;
+        if (resolved.isZero() || resolved.isNegative()) {
+            throw new IllegalArgumentException("media cleanup durations must be positive");
+        }
+        return resolved;
+    }
+
+    private static int boundedCount(int value, int defaultValue, int maximum) {
+        int resolved = value == 0 ? defaultValue : value;
+        if (resolved < 1 || resolved > maximum) {
+            throw new IllegalArgumentException("media cleanup count is outside the supported range");
+        }
+        return resolved;
+    }
+
+    private static Duration boundedDuration(Duration value, Duration defaultValue, Duration maximum) {
+        Duration resolved = positiveDuration(value, defaultValue);
+        if (resolved.compareTo(maximum) > 0 || resolved.toMillis() < 1) {
+            throw new IllegalArgumentException("media cleanup duration is outside the supported range");
+        }
+        return resolved;
+    }
+}

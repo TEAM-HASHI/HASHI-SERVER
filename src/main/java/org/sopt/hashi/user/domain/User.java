@@ -8,11 +8,15 @@ import jakarta.persistence.Id;
 import jakarta.persistence.Table;
 import jakarta.persistence.UniqueConstraint;
 import java.time.LocalDate;
+import java.util.Objects;
+import java.util.UUID;
 import lombok.AccessLevel;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 import org.hibernate.annotations.SQLDelete;
 import org.hibernate.annotations.SQLRestriction;
+import org.hibernate.annotations.JdbcTypeCode;
+import org.hibernate.type.SqlTypes;
 import org.sopt.hashi.BaseTimeEntity;
 
 /**
@@ -59,23 +63,62 @@ public class User extends BaseTimeEntity {
     @Column(name = "profile_image_key", length = 500)
     private String profileImageKey;
 
+    /** 신규 media 파이프라인의 public asset ID. media 내부 PK나 JPA 관계는 저장하지 않는다. */
+    @JdbcTypeCode(SqlTypes.CHAR)
+    @Column(name = "profile_image_asset_id", length = 36, unique = true)
+    private UUID profileImageAssetId;
+
     @Column(name = "deleted", nullable = false)
     private boolean deleted;
 
     private User(String nickname, String nameEng, LocalDate birthDate,
-                 String phone, String email, String profileImageKey) {
+                 String phone, String email, String profileImageKey, UUID profileImageAssetId) {
         this.nickname = nickname;
         this.nameEng = nameEng;
         this.birthDate = birthDate;
         this.phone = phone;
         this.email = email;
         this.profileImageKey = profileImageKey;
+        this.profileImageAssetId = profileImageAssetId;
         this.deleted = false;
     }
 
     /** 온보딩 완료로 가입한다. */
     public static User onboard(String nickname, String nameEng, LocalDate birthDate,
                                String phone, String email, String profileImageKey) {
-        return new User(nickname, nameEng, birthDate, phone, email, profileImageKey);
+        return onboard(nickname, nameEng, birthDate, phone, email, profileImageKey, null);
+    }
+
+    /** legacy key 또는 public asset ID를 보관해 온보딩을 완료한다. 둘 다 null이면 기본 프로필이다. */
+    public static User onboard(String nickname, String nameEng, LocalDate birthDate,
+                               String phone, String email, String profileImageKey,
+                               UUID profileImageAssetId) {
+        if (profileImageKey != null && profileImageAssetId != null) {
+            throw new IllegalArgumentException("profile image sources are mutually exclusive");
+        }
+        return new User(
+                nickname, nameEng, birthDate, phone, email,
+                profileImageKey, profileImageAssetId);
+    }
+
+    /** 온보딩에서 media 소유권 인계·claim이 성공한 뒤 빈 프로필 슬롯에 연결한다. */
+    public void assignOnboardingProfileImage(UUID assetId) {
+        Objects.requireNonNull(assetId, "assetId must not be null");
+        if (profileImageKey != null || profileImageAssetId != null) {
+            throw new IllegalStateException("onboarding profile image is already assigned");
+        }
+        profileImageAssetId = assetId;
+    }
+
+    /** migration이 User를 잠근 뒤 호출한다. 기존 회원 정보와 legacy key는 그대로 보존한다. */
+    public boolean attachBackfilledProfileImage(String expectedKey, UUID assetId) {
+        Objects.requireNonNull(assetId, "assetId must not be null");
+        boolean unchangedSource = !deleted && profileImageKey != null
+                && profileImageKey.equals(expectedKey) && profileImageAssetId == null;
+        if (!unchangedSource) {
+            return false;
+        }
+        profileImageAssetId = assetId;
+        return true;
     }
 }

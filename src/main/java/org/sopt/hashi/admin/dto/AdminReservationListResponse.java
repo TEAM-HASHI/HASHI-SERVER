@@ -12,12 +12,12 @@ public record AdminReservationListResponse(
         long totalCount,
         int totalPages) {
 
-    public static AdminReservationListResponse from(Page<AdminReservationInfo> page) {
-        List<AdminReservationResponse> reservations = page.getContent().stream()
-                .map(AdminReservationResponse::from)
-                .toList();
+    public static AdminReservationListResponse from(
+            Page<AdminReservationInfo> page,
+            List<AdminReservationResponse> reservations
+    ) {
         return new AdminReservationListResponse(
-                reservations,
+                List.copyOf(reservations),
                 page.getNumber(),
                 page.getSize(),
                 page.getTotalElements(),

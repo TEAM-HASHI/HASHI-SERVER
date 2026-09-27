@@ -1,7 +1,11 @@
 package org.sopt.hashi.admin.dto;
 
+import com.fasterxml.jackson.annotation.JsonIgnore;
+import com.fasterxml.jackson.annotation.JsonProperty;
+import com.fasterxml.jackson.databind.JsonNode;
 import io.swagger.v3.oas.annotations.media.Schema;
 import jakarta.validation.Valid;
+import jakarta.validation.constraints.AssertTrue;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Pattern;
@@ -11,10 +15,12 @@ import java.math.BigDecimal;
 import java.time.DayOfWeek;
 import java.time.LocalTime;
 import java.util.List;
+import java.util.UUID;
 
 /**
  * 어드민 식당 등록 요청. imageKeys·메뉴 imageKey는 presigned URL로 업로드 완료된 S3 object key다.
  * genre·curationTypes는 사용자 API와 같은 소문자 케밥 값이고, foodCategory는 카드 표시용 자유 텍스트다(#145).
+ * placeType(음식점 분류, #211)은 "restaurant"·"cafe"·"bar" 중 하나로 필수다.
  * businessHours는 7개 요일(MONDAY~SUNDAY)을 중복 없이 모두 포함해야 한다(시간은 "HH:mm").
  */
 public record CreateRestaurantRequest(
@@ -41,6 +47,8 @@ public record CreateRestaurantRequest(
         @Schema(description = "음식 카테고리(카드 표시용 자유 텍스트)", example = "야키니쿠")
         @NotBlank(message = "음식 카테고리는 필수입니다")
         @Size(max = 20, message = "음식 카테고리는 20자 이내입니다") String foodCategory,
+        @Schema(description = "음식점 분류(restaurant·cafe·bar)", example = "restaurant")
+        @NotBlank(message = "음식점 분류는 필수입니다") String placeType,
         @Schema(description = "통화 코드", example = "JPY")
         @NotBlank(message = "통화는 필수입니다")
         @Size(min = 3, max = 3, message = "통화는 3자리 코드여야 합니다") String priceCurrency,
@@ -51,10 +59,15 @@ public record CreateRestaurantRequest(
         @NotNull(message = "최대 가격은 필수입니다")
         @PositiveOrZero(message = "최대 가격은 0 이상입니다") BigDecimal maxPrice,
         @Schema(description = "식당 이미지 S3 key 목록", example = "[\"restaurants/a1b2c3-1.jpg\"]")
-        @NotNull(message = "식당 이미지는 필수입니다")
         @Size(min = 1, message = "식당 이미지는 최소 1개 이상 필요합니다")
         List<@NotBlank(message = "이미지 키는 비어 있을 수 없습니다")
         @Size(max = 500, message = "이미지 키는 500자 이내입니다") String> imageKeys,
+        @Schema(description = "식당 이미지 asset ID 목록")
+        @Size(min = 1, message = "식당 이미지 asset은 최소 1개 이상 필요합니다")
+        List<@NotNull(message = "이미지 asset ID는 null일 수 없습니다") UUID> imageAssetIds,
+        @JsonProperty("images")
+        @Schema(hidden = true)
+        JsonNode unsupportedImages,
         List<@NotNull(message = "메뉴 항목은 null일 수 없습니다") @Valid MenuRequest> menus,
         @Schema(description = "해시태그 목록", example = "[\"현지인맛집\"]")
         @NotNull(message = "해시태그는 필수입니다")
@@ -67,6 +80,18 @@ public record CreateRestaurantRequest(
         @Size(min = 7, max = 7, message = "영업시간은 모든 요일(7개)을 포함해야 합니다")
         List<@NotNull(message = "영업시간 항목은 null일 수 없습니다") @Valid BusinessHourRequest> businessHours) {
 
+    @AssertTrue(message = "식당 이미지는 imageKeys 또는 imageAssetIds 중 하나만 필요합니다")
+    @JsonIgnore
+    public boolean isImageSourceValid() {
+        return (imageKeys == null) != (imageAssetIds == null);
+    }
+
+    @AssertTrue(message = "식당 등록에서는 images를 사용할 수 없습니다")
+    @JsonIgnore
+    public boolean isCreateImageContractValid() {
+        return unsupportedImages == null;
+    }
+
     /** 메뉴 항목 — 목록 전체가 함께 저장되므로 각 항목은 완전한 값으로 받는다. */
     public record MenuRequest(
             @Schema(description = "메뉴명", example = "특선 모둠 야키니쿠")
@@ -78,6 +103,8 @@ public record CreateRestaurantRequest(
             @Schema(description = "메뉴 이미지 S3 key(선택)", example = "restaurant-menus/a1b2c3-menu.jpg")
             @Pattern(regexp = ".*\\S.*", message = "메뉴 이미지 키는 공백일 수 없습니다")
             @Size(max = 500, message = "메뉴 이미지 키는 500자 이내입니다") String imageKey,
+            @Schema(description = "메뉴 이미지 asset ID(선택)")
+            UUID imageAssetId,
             @Schema(description = "통화 코드", example = "JPY")
             @NotBlank(message = "통화는 필수입니다")
             @Size(min = 3, max = 3, message = "통화는 3자리 코드여야 합니다") String priceCurrency,
@@ -86,6 +113,23 @@ public record CreateRestaurantRequest(
             @PositiveOrZero(message = "가격은 0 이상입니다") BigDecimal priceAmount,
             @Schema(description = "대표 메뉴 여부", example = "true")
             @NotNull(message = "대표 메뉴 여부는 필수입니다") Boolean main) {
+
+        public MenuRequest(
+                String name,
+                String description,
+                String imageKey,
+                String priceCurrency,
+                BigDecimal priceAmount,
+                Boolean main
+        ) {
+            this(name, description, imageKey, null, priceCurrency, priceAmount, main);
+        }
+
+        @AssertTrue(message = "메뉴 이미지는 imageKey와 imageAssetId를 함께 사용할 수 없습니다")
+        @JsonIgnore
+        public boolean isImageSourceValid() {
+            return imageKey == null || imageAssetId == null;
+        }
     }
 
     /**

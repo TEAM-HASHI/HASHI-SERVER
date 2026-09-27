@@ -1,6 +1,7 @@
 package org.sopt.hashi.reservation.dto;
 
 import java.time.LocalDateTime;
+import org.sopt.hashi.media.MediaImage;
 import org.sopt.hashi.reservation.ReservationStatus;
 import org.sopt.hashi.reservation.domain.Reservation;
 import org.sopt.hashi.reservation.ReservationType;
@@ -20,6 +21,7 @@ public record ReservationDetailResponse(
         String restaurantNameJa,
         String restaurantAddress,
         String restaurantImageUrl,
+        MediaImage restaurantThumbnailImage,
         LocalDateTime reservedAt,
         int adultCount,
         int teenCount,
@@ -31,9 +33,14 @@ public record ReservationDetailResponse(
         long amount) {
 
     /** 엔티티 + 유형별로 해석된 식당 표시 정보(name·nameJa·address·imageUrl)로 상세 응답을 만든다. */
-    public static ReservationDetailResponse of(Reservation reservation, String restaurantName,
-                                               String restaurantNameJa, String restaurantAddress,
-                                               String restaurantImageUrl) {
+    public static ReservationDetailResponse of(
+            Reservation reservation,
+            String restaurantName,
+            String restaurantNameJa,
+            String restaurantAddress,
+            String restaurantImageUrl,
+            MediaImage restaurantThumbnailImage
+    ) {
         return new ReservationDetailResponse(
                 reservation.getId(),
                 reservation.getReservationType(),
@@ -44,6 +51,7 @@ public record ReservationDetailResponse(
                 restaurantNameJa,
                 restaurantAddress,
                 restaurantImageUrl,
+                restaurantThumbnailImage,
                 reservation.getReservedAt(),
                 reservation.getAdultCount(),
                 reservation.getTeenCount(),
@@ -53,5 +61,22 @@ public record ReservationDetailResponse(
                 reservation.confirmExpectedAt(),
                 reservation.getUsedPoint(),
                 reservation.getAmount().longValueExact());
+    }
+
+    /** 기존 호출부의 점진 전환용 factory. */
+    public static ReservationDetailResponse of(
+            Reservation reservation,
+            String restaurantName,
+            String restaurantNameJa,
+            String restaurantAddress,
+            String restaurantImageUrl
+    ) {
+        return of(
+                reservation,
+                restaurantName,
+                restaurantNameJa,
+                restaurantAddress,
+                restaurantImageUrl,
+                null);
     }
 }

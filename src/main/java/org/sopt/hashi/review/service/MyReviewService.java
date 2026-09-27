@@ -1,12 +1,20 @@
 package org.sopt.hashi.review.service;
 
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 import lombok.extern.slf4j.Slf4j;
 import org.sopt.hashi.auth.CurrentUserProvider;
+import org.sopt.hashi.media.ImageReference;
+import org.sopt.hashi.media.MediaImage;
+import org.sopt.hashi.media.MediaImageRequest;
+import org.sopt.hashi.media.MediaImageRole;
+import org.sopt.hashi.media.MediaImageSelection;
+import org.sopt.hashi.media.MediaPort;
 import org.sopt.hashi.reservation.ReservationPort;
 import org.sopt.hashi.reservation.ReservationReviewInfo;
 import org.sopt.hashi.restaurant.RestaurantInfo;
@@ -40,6 +48,7 @@ public class MyReviewService {
     private final ReviewRepository reviewRepository;
     private final ReservationPort reservationPort;
     private final RestaurantPort restaurantPort;
+    private final MediaPort mediaPort;
     private final UserPort userPort;
     private final FileStorage fileStorage;
     private final CurrentUserProvider currentUserProvider;
@@ -48,6 +57,7 @@ public class MyReviewService {
             ReviewRepository reviewRepository,
             ReservationPort reservationPort,
             RestaurantPort restaurantPort,
+            MediaPort mediaPort,
             UserPort userPort,
             FileStorage fileStorage,
             CurrentUserProvider currentUserProvider
@@ -55,6 +65,7 @@ public class MyReviewService {
         this.reviewRepository = reviewRepository;
         this.reservationPort = reservationPort;
         this.restaurantPort = restaurantPort;
+        this.mediaPort = mediaPort;
         this.userPort = userPort;
         this.fileStorage = fileStorage;
         this.currentUserProvider = currentUserProvider;
@@ -91,12 +102,17 @@ public class MyReviewService {
                                 .toList())
                 .stream()
                 .collect(Collectors.toMap(RestaurantInfo::id, Function.identity()));
+        MediaProjection mediaProjection = loadThumbnailProjection(
+                restaurantsById.values().stream()
+                        .map(RestaurantInfo::thumbnailImageReference)
+                        .toList());
 
         List<MyReviewSummaryResponse> content = pageContent.stream()
                 .map(review -> toSummary(
                         review,
                         resolveReservation(reservationsById, review.getReservationId()),
-                        requiredRestaurant(restaurantsById, review.getRestaurantId())))
+                        requiredRestaurant(restaurantsById, review.getRestaurantId()),
+                        mediaProjection))
                 .toList();
         return new MyReviewListResponse(content, nextCursor, hasNext);
     }
@@ -111,12 +127,17 @@ public class MyReviewService {
         String reviewerNickname = userPort.findById(userId)
                 .map(UserInfo::nickname)
                 .orElse(WITHDRAWN_REVIEWER_NICKNAME);
+        MediaProjection mediaProjection = loadThumbnailProjection(
+                referenceList(restaurant.thumbnailImageReference()));
+        ProjectedImage thumbnail = projectThumbnail(
+                restaurant.thumbnailImageReference(), mediaProjection);
 
         return new MyReviewDetailResponse(
                 review.getId(),
                 restaurant.id(),
                 restaurant.name(),
-                restaurant.imageUrl(),
+                thumbnail.url(),
+                thumbnail.image(),
                 reservation.reservedAt(),
                 reservation.adultCount(),
                 reservation.childCount(),
@@ -155,13 +176,17 @@ public class MyReviewService {
     private MyReviewSummaryResponse toSummary(
             Review review,
             ReservationReviewInfo reservation,
-            RestaurantInfo restaurant
+            RestaurantInfo restaurant,
+            MediaProjection mediaProjection
     ) {
+        ProjectedImage thumbnail = projectThumbnail(
+                restaurant.thumbnailImageReference(), mediaProjection);
         return new MyReviewSummaryResponse(
                 review.getId(),
                 restaurant.id(),
                 restaurant.name(),
-                restaurant.imageUrl(),
+                thumbnail.url(),
+                thumbnail.image(),
                 reservation == null ? null : reservation.reservedAt(),
                 reservation == null ? null : reservation.adultCount(),
                 reservation == null ? null : reservation.childCount(),
@@ -216,6 +241,58 @@ public class MyReviewService {
     private void validateCursor(Long cursor) {
         if (cursor != null && cursor < 1) {
             throw new BusinessException(CommonErrorCode.INVALID_INPUT);
+        }
+    }
+
+    private MediaProjection loadThumbnailProjection(Collection<ImageReference> references) {
+        List<MediaImageRequest> requests = references.stream()
+                .filter(Objects::nonNull)
+                .map(ImageReference::assetId)
+                .filter(Objects::nonNull)
+                .map(assetId -> new MediaImageRequest(
+                        assetId, MediaImageRole.RESTAURANT_THUMBNAIL))
+                .distinct()
+                .toList();
+        if (requests.isEmpty()) {
+            return MediaProjection.empty();
+        }
+        return new MediaProjection(mediaPort.findImages(requests));
+    }
+
+    private List<ImageReference> referenceList(ImageReference reference) {
+        return reference == null ? List.of() : List.of(reference);
+    }
+
+    private ProjectedImage projectThumbnail(
+            ImageReference reference,
+            MediaProjection mediaProjection
+    ) {
+        MediaImage mediaImage = reference == null || reference.assetId() == null
+                ? null : mediaProjection.find(reference);
+        MediaImageSelection selection = MediaImageSelection.from(reference, mediaImage);
+        return new ProjectedImage(selection.url(), selection.image());
+    }
+
+    private record MediaProjection(Map<MediaImageRequest, MediaImage> images) {
+
+        private MediaProjection {
+            images = Map.copyOf(images);
+        }
+
+        private static MediaProjection empty() {
+            return new MediaProjection(Map.of());
+        }
+
+        private MediaImage find(ImageReference reference) {
+            return images.get(new MediaImageRequest(
+                    reference.assetId(), MediaImageRole.RESTAURANT_THUMBNAIL));
+        }
+    }
+
+    private record ProjectedImage(String url, MediaImage image) {
+
+        private static ProjectedImage empty() {
+            return new ProjectedImage(null, null);
         }
     }
 }

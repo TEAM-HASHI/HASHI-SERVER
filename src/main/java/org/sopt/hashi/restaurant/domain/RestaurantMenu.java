@@ -11,15 +11,26 @@ import jakarta.persistence.Id;
 import jakarta.persistence.JoinColumn;
 import jakarta.persistence.ManyToOne;
 import jakarta.persistence.Table;
+import jakarta.persistence.UniqueConstraint;
 import java.math.BigDecimal;
+import java.util.Objects;
+import java.util.UUID;
 import lombok.AccessLevel;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
+import org.hibernate.annotations.JdbcTypeCode;
+import org.hibernate.type.SqlTypes;
 import org.sopt.hashi.BaseTimeEntity;
 
 @Getter
 @Entity
-@Table(name = "restaurant_menu")
+@Table(
+        name = "restaurant_menu",
+        uniqueConstraints = @UniqueConstraint(
+                name = "uq_restaurant_menu_asset_id",
+                columnNames = "image_asset_id"
+        )
+)
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
 public class RestaurantMenu extends BaseTimeEntity {
 
@@ -40,6 +51,10 @@ public class RestaurantMenu extends BaseTimeEntity {
     @Column(name = "image_key", length = 500)
     private String imageKey;
 
+    @JdbcTypeCode(SqlTypes.CHAR)
+    @Column(name = "image_asset_id", length = 36)
+    private UUID imageAssetId;
+
     @Enumerated(EnumType.STRING)
     @Column(name = "price_currency", length = 3)
     private PriceCurrency priceCurrency;
@@ -50,29 +65,51 @@ public class RestaurantMenu extends BaseTimeEntity {
     @Column(name = "is_main", nullable = false)
     private boolean main;
 
-    private RestaurantMenu(String name, String description, String imageKey,
+    private RestaurantMenu(String name, String description, String imageKey, UUID imageAssetId,
                            PriceCurrency priceCurrency, BigDecimal priceAmount, boolean main) {
         this.name = name;
         this.description = description;
         this.imageKey = imageKey;
+        this.imageAssetId = imageAssetId;
         this.priceCurrency = priceCurrency;
         this.priceAmount = priceAmount;
         this.main = main;
     }
 
     public static RestaurantMenu create(String name, String description, String imageKey,
-                                        PriceCurrency priceCurrency, BigDecimal priceAmount, boolean main) {
-        return new RestaurantMenu(name, description, imageKey, priceCurrency, priceAmount, main);
+                                        PriceCurrency priceCurrency, BigDecimal priceAmount,
+                                        boolean main) {
+        return new RestaurantMenu(
+                name, description, imageKey, null, priceCurrency, priceAmount, main);
     }
 
-    public void update(String name, String description, String imageKey,
+    public static RestaurantMenu createWithAsset(String name, String description, UUID imageAssetId,
+                                                 PriceCurrency priceCurrency, BigDecimal priceAmount,
+                                                 boolean main) {
+        return new RestaurantMenu(name, description, null, Objects.requireNonNull(imageAssetId),
+                priceCurrency, priceAmount, main);
+    }
+
+    public void update(String name, String description, String imageKey, UUID imageAssetId,
                        PriceCurrency priceCurrency, BigDecimal priceAmount, boolean main) {
         this.name = name;
         this.description = description;
         this.imageKey = imageKey;
+        this.imageAssetId = imageAssetId;
         this.priceCurrency = priceCurrency;
         this.priceAmount = priceAmount;
         this.main = main;
+    }
+
+    boolean hasUnchangedLegacySource(String expectedImageKey) {
+        return imageAssetId == null && imageKey != null && Objects.equals(imageKey, expectedImageKey);
+    }
+
+    void attachBackfilledAsset(UUID imageAssetId) {
+        if (imageKey == null || this.imageAssetId != null) {
+            throw new IllegalStateException("restaurant menu image is not eligible for backfill");
+        }
+        this.imageAssetId = Objects.requireNonNull(imageAssetId);
     }
 
     void assignRestaurant(Restaurant restaurant) {

@@ -1,6 +1,7 @@
 package org.sopt.hashi.user.web;
 
 import jakarta.validation.Valid;
+import org.sopt.hashi.shared.swagger.ApiErrorResponse;
 import org.sopt.hashi.shared.error.CommonErrorCode;
 import org.sopt.hashi.shared.error.CommonSuccessCode;
 import org.sopt.hashi.shared.response.SuccessResponse;
@@ -40,6 +41,14 @@ public class UserController {
     @ApiException(value = CommonErrorCode.class, codes = {"INVALID_INPUT", "UNAUTHORIZED", "FORBIDDEN"})
     @ApiException(value = UserErrorCode.class,
             codes = {"DUPLICATE_NICKNAME", "DUPLICATE_EMAIL", "DUPLICATE_PHONE", "DUPLICATE_USER_INFO"})
+    @ApiErrorResponse(status = HttpStatus.NOT_FOUND, code = "MEDIA-001",
+            message = "이미지 자산을 찾을 수 없습니다")
+    @ApiErrorResponse(status = HttpStatus.FORBIDDEN, code = "MEDIA-002",
+            message = "해당 용도의 이미지를 업로드할 권한이 없습니다")
+    @ApiErrorResponse(status = HttpStatus.CONFLICT, code = "MEDIA-006",
+            message = "현재 이미지 상태에서는 요청을 처리할 수 없습니다")
+    @ApiErrorResponse(status = HttpStatus.CONFLICT, code = "MEDIA-007",
+            message = "이미 사용 중이거나 사용이 끝난 이미지입니다")
     @ApiSuccess(value = UserSuccessCode.class, codes = {"ONBOARDING_COMPLETED"})
     @ResponseStatus(HttpStatus.CREATED)
     @PostMapping("/onboarding")

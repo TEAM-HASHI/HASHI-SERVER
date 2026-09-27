@@ -66,6 +66,7 @@ git commit -m "<type>(<scope>): <subject> (#issue)"
 | `auth` | 인증/인가·가입 |
 | `admin` | 어드민(위임) |
 | `upload` | 파일 업로드(presigned 발급) |
+| `media` | 이미지 asset, 파생본과 변환 상태 |
 | `shared` | 공유 커널(틀·VO) |
 | `config` | 설정(root 직속) |
 

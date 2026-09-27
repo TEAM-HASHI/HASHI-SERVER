@@ -9,6 +9,7 @@ import org.junit.jupiter.api.Test;
 import org.sopt.hashi.restaurant.domain.Restaurant;
 import org.sopt.hashi.restaurant.domain.RestaurantCursor;
 import org.sopt.hashi.restaurant.domain.RestaurantGenre;
+import org.sopt.hashi.restaurant.domain.RestaurantPlaceType;
 import org.sopt.hashi.restaurant.domain.RestaurantImage;
 import org.sopt.hashi.restaurant.domain.RestaurantSort;
 import org.sopt.hashi.restaurant.domain.PriceCurrency;
@@ -83,6 +84,7 @@ class RestaurantCursorCodecTest {
                 "Tokyo",
                 RestaurantGenre.SUSHI,
                 "초밥",
+                RestaurantPlaceType.RESTAURANT,
                 PriceCurrency.JPY,
                 BigDecimal.valueOf(1000),
                 BigDecimal.valueOf(3000)

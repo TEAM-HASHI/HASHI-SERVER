@@ -1,21 +1,30 @@
 package org.sopt.hashi.restaurant.domain;
 
+import jakarta.persistence.LockModeType;
 import java.time.DayOfWeek;
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.EntityGraph;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.JpaSpecificationExecutor;
-import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Modifying;
+import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
 public interface RestaurantRepository extends JpaRepository<Restaurant, Long>, JpaSpecificationExecutor<Restaurant> {
 
     Optional<Restaurant> findByIdAndDeletedFalse(Long id);
 
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("select restaurant from Restaurant restaurant where restaurant.id = :restaurantId")
+    Optional<Restaurant> findByIdForUpdate(@Param("restaurantId") Long restaurantId);
+
     boolean existsByIdAndDeletedFalse(Long id);
+
+    List<Restaurant> findAllByIdInAndDeletedFalse(Collection<Long> ids);
 
     // 어드민 등록·수정 중복 검사(#230) — 비교는 컬럼 collation(utf8mb4_unicode_ci)을 따른다(대소문자·끝 공백 무시)
     boolean existsByNameAndDeletedFalse(String name);
@@ -33,6 +42,16 @@ public interface RestaurantRepository extends JpaRepository<Restaurant, Long>, J
     @EntityGraph(attributePaths = "images")
     @Query("select distinct r from Restaurant r where r.id = :restaurantId and r.deleted = false")
     Optional<Restaurant> findActiveByIdWithImages(@Param("restaurantId") Long restaurantId);
+
+    /** 예약·리뷰의 과거 표시를 위해 soft-delete 식당도 대표 이미지 association과 함께 조회한다. */
+    @EntityGraph(attributePaths = "images")
+    @Query("select distinct r from Restaurant r where r.id = :restaurantId")
+    Optional<Restaurant> findByIdWithImages(@Param("restaurantId") Long restaurantId);
+
+    /** 교차 모듈 목록 enrich에서 이미지 collection N+1 없이 soft-delete 식당까지 조회한다. */
+    @EntityGraph(attributePaths = "images")
+    @Query("select distinct r from Restaurant r where r.id in :restaurantIds")
+    List<Restaurant> findAllByIdWithImages(@Param("restaurantIds") List<Long> restaurantIds);
 
     // 랜덤 추천 — 큐레이션 조건 없이 전체 활성 식당에서 뽑는다(#154). rand() 정렬은 식당 수가 적은 규모를 전제로 한다.
     @Query(value = """

@@ -3,11 +3,14 @@ package org.sopt.hashi.restaurant;
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.List;
+import org.sopt.hashi.media.MediaImage;
 
 /**
  * 모듈 간 전달용 어드민 식당 상세 DTO — 진입점(admin)이 식당을 관리(등록·수정)할 때 받는 계약.
- * thumbnailUrl·imageUrls·메뉴 imageUrl은 저장된 S3 키를 restaurant가 조회 URL로 변환한 값이다
- * (키 자체는 노출하지 않는다). genre·curationTypes는 사용자 API와 같은 소문자 케밥 값이다.
+ * 기존 URL 필드는 legacy key 또는 READY media의 기본 후보를 호환 projection한 값이며, 신규 이미지
+ * 필드는 상태와 반응형 후보를 함께 전달한다. object key 자체는 노출하지 않는다.
+ * genre·curationTypes는 사용자 API와 같은 소문자 케밥 값이고, placeType(음식점 분류, #211)은
+ * "restaurant"·"cafe"·"bar"다.
  */
 public record AdminRestaurantInfo(
         Long restaurantId,
@@ -19,12 +22,15 @@ public record AdminRestaurantInfo(
         String area,
         String genre,
         String foodCategory,
+        String placeType,
         String thumbnailUrl,
+        RestaurantImageInfo thumbnailImage,
         String priceCurrency,
         BigDecimal minPrice,
         BigDecimal maxPrice,
         boolean deleted,
         List<String> imageUrls,
+        List<RestaurantImageInfo> heroImages,
         List<AdminRestaurantMenuInfo> menus,
         List<String> hashtags,
         List<String> curationTypes,
@@ -36,9 +42,24 @@ public record AdminRestaurantInfo(
             String name,
             String description,
             String imageUrl,
+            MediaImage listImage,
             String priceCurrency,
             BigDecimal priceAmount,
             boolean main) {
+
+        public AdminRestaurantMenuInfo(
+                Long menuId,
+                String name,
+                String description,
+                String imageUrl,
+                String priceCurrency,
+                BigDecimal priceAmount,
+                boolean main
+        ) {
+            this(
+                    menuId, name, description, imageUrl, null,
+                    priceCurrency, priceAmount, main);
+        }
     }
 
     /** 요일별 영업시간 — dayOfWeek는 MONDAY~SUNDAY, 시간은 HH:mm 문자열(휴무일은 null). */

@@ -12,12 +12,12 @@ public record AdminUserListResponse(
         long totalCount,
         int totalPages) {
 
-    public static AdminUserListResponse from(Page<AdminUserInfo> page) {
-        List<AdminUserResponse> users = page.getContent().stream()
-                .map(AdminUserResponse::from)
-                .toList();
+    public static AdminUserListResponse from(
+            Page<AdminUserInfo> page,
+            List<AdminUserResponse> users
+    ) {
         return new AdminUserListResponse(
-                users,
+                List.copyOf(users),
                 page.getNumber(),
                 page.getSize(),
                 page.getTotalElements(),

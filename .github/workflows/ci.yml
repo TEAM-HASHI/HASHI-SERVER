@@ -2,9 +2,6 @@
 
 on:
   pull_request:
-    branches:
-      - develop
-      - main
 
 permissions:
   contents: read
@@ -64,6 +61,7 @@ jobs:
     name: Build and Test
     runs-on: ubuntu-latest
     needs: validate-convention
+    timeout-minutes: 30
 
     steps:
       - name: Checkout source code
@@ -129,5 +127,32 @@ jobs:
       - name: Grant execute permission for Gradle
         run: chmod +x ./gradlew
 
+      - name: Require Docker for MySQL tests
+        run: docker info
+
       - name: Build with Gradle
         run: ./gradlew clean build --no-daemon
+
+      - name: Verify test execution
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import xml.etree.ElementTree as ET
+
+          report_root = Path("build/test-results/test")
+          reports = sorted(report_root.glob("TEST-*.xml"))
+          assert reports, "Test reports are missing"
+          assert (report_root / "TEST-org.sopt.hashi.ModularityTests.xml").is_file(), \
+              "Module verification did not produce a test report"
+
+          total = 0
+          for report in reports:
+              suite = ET.parse(report).getroot()
+              tests = int(suite.attrib["tests"])
+              assert tests > 0, f"{report.name}: no tests executed"
+              for outcome in ("failures", "errors", "skipped"):
+                  assert int(suite.attrib[outcome]) == 0, f"{report.name}: {outcome} must be zero"
+              total += tests
+
+          print(f"Test suites: {len(reports)}, tests: {total}, failures/errors/skips: 0")
+          PY
