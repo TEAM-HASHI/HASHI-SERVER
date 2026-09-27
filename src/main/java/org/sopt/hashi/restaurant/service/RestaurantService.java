@@ -392,6 +392,8 @@ public class RestaurantService {
         restaurant.replaceCurationTypes(curationTypes);
         restaurant.replaceBusinessHours(businessHours);
         validatePriceRange(restaurant);
+        // 입력 값 검증이 모두 끝난 뒤 조회한다 — 잘못된 요청은 중복 여부와 무관하게 400이 먼저 나간다
+        validateNotDuplicatedForCreate(command.name(), command.address());
 
         reconcileMediaBindings(claims, List.of());
         Restaurant saved = restaurantRepository.save(restaurant);
@@ -435,6 +437,9 @@ public class RestaurantService {
                 : toBusinessHours(command.businessHours());
         RestaurantImageUpdatePlan imagePlan = planImageUpdate(restaurant, command);
         RestaurantMenuUpdatePlan menuPlan = planMenuUpdate(restaurant, command.menus());
+
+        // 입력 값 검증이 모두 끝난 뒤, 다른 모듈(media) 호출과 엔티티 변경 전에 조회한다(#230)
+        validateNotDuplicatedForUpdate(restaurant, command.name(), command.address());
 
         List<MediaAssetUse> claims = new ArrayList<>(imagePlan.claims());
         claims.addAll(menuPlan.claims());
@@ -805,6 +810,32 @@ public class RestaurantService {
                 || command.hashtags() == null || command.hashtags().isEmpty();
         if (missingRequired) {
             throw new BusinessException(CommonErrorCode.INVALID_INPUT);
+        }
+    }
+
+    /** 식당명 또는 주소가 삭제되지 않은 다른 식당과 같으면 거절한다(#230). 둘 다 겹치면 식당명 에러가 우선이다. */
+    private void validateNotDuplicatedForCreate(String name, String address) {
+        if (restaurantRepository.existsByNameAndDeletedFalse(name)) {
+            throw new BusinessException(RestaurantErrorCode.DUPLICATE_NAME);
+        }
+        if (restaurantRepository.existsByAddressAndDeletedFalse(address)) {
+            throw new BusinessException(RestaurantErrorCode.DUPLICATE_ADDRESS);
+        }
+    }
+
+    /**
+     * 수정은 기존 값에서 바뀌는 필드만 검사하고 자기 자신은 비교에서 뺀다(#230). 바뀌지 않은 값까지 검사하면,
+     * 수정 요청에 기존 주소가 그대로 실려 올 때 이미 주소가 겹쳐 있던 식당은 다른 필드만 고쳐도 409로 막힌다.
+     */
+    private void validateNotDuplicatedForUpdate(Restaurant restaurant, String name, String address) {
+        boolean isNameChanged = name != null && !name.equals(restaurant.getName());
+        if (isNameChanged && restaurantRepository.existsByNameAndIdNotAndDeletedFalse(name, restaurant.getId())) {
+            throw new BusinessException(RestaurantErrorCode.DUPLICATE_NAME);
+        }
+        boolean isAddressChanged = address != null && !address.equals(restaurant.getAddress());
+        if (isAddressChanged
+                && restaurantRepository.existsByAddressAndIdNotAndDeletedFalse(address, restaurant.getId())) {
+            throw new BusinessException(RestaurantErrorCode.DUPLICATE_ADDRESS);
         }
     }
 
