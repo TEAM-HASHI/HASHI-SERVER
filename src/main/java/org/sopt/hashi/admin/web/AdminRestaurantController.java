@@ -76,6 +76,10 @@ public class AdminRestaurantController {
             }
             """)))
     @ApiException(value = CommonErrorCode.class, codes = {"INVALID_INPUT", "UNAUTHORIZED", "FORBIDDEN"})
+    @ApiErrorResponse(status = HttpStatus.CONFLICT, code = "RESTAURANT-020",
+            message = "이미 등록된 식당명입니다.")
+    @ApiErrorResponse(status = HttpStatus.CONFLICT, code = "RESTAURANT-021",
+            message = "이미 등록된 주소입니다.")
     @ApiSuccess(value = AdminSuccessCode.class, codes = {"RESTAURANT_CREATED"})
     @ResponseStatus(HttpStatus.CREATED)
     @PostMapping
@@ -120,6 +124,10 @@ public class AdminRestaurantController {
             message = "식당을 찾을 수 없습니다.")
     @ApiErrorResponse(status = HttpStatus.NOT_FOUND, code = "RESTAURANT-009",
             message = "메뉴를 찾을 수 없습니다.")
+    @ApiErrorResponse(status = HttpStatus.CONFLICT, code = "RESTAURANT-020",
+            message = "이미 등록된 식당명입니다.")
+    @ApiErrorResponse(status = HttpStatus.CONFLICT, code = "RESTAURANT-021",
+            message = "이미 등록된 주소입니다.")
     @ApiSuccess(value = AdminSuccessCode.class, codes = {"RESTAURANT_UPDATED"})
     @PatchMapping("/{restaurantId}")
     public SuccessResponse<AdminRestaurantResponse> update(

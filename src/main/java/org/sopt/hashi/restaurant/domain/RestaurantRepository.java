@@ -17,6 +17,15 @@ public interface RestaurantRepository extends JpaRepository<Restaurant, Long>, J
 
     boolean existsByIdAndDeletedFalse(Long id);
 
+    // 어드민 등록·수정 중복 검사(#230) — 비교는 컬럼 collation(utf8mb4_unicode_ci)을 따른다(대소문자·끝 공백 무시)
+    boolean existsByNameAndDeletedFalse(String name);
+
+    boolean existsByAddressAndDeletedFalse(String address);
+
+    boolean existsByNameAndIdNotAndDeletedFalse(String name, Long id);
+
+    boolean existsByAddressAndIdNotAndDeletedFalse(String address, Long id);
+
     @EntityGraph(attributePaths = "businessHours")
     @Query("select distinct r from Restaurant r where r.id = :restaurantId and r.deleted = false")
     Optional<Restaurant> findActiveByIdWithBusinessHours(@Param("restaurantId") Long restaurantId);

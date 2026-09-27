@@ -61,7 +61,8 @@ public class DevRestaurantDataGenerator {
                 "ダミー食堂-" + token,
                 genre.description() + " 더미 식당",
                 "테스트용 더미 데이터로 생성된 식당입니다. 실제 가게가 아닙니다.",
-                "도쿄도 도시마구 더미 1-1-1",
+                // 주소도 중복 검사 대상(#230)이라 이름처럼 토큰을 붙여 반복 생성이 409로 막히지 않게 한다
+                "도쿄도 도시마구 더미-" + token + " 1-1-1",
                 pick(AREAS, seed),
                 genre.value(),
                 foodCategory,
