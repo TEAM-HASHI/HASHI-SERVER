@@ -19,16 +19,6 @@ public record AdminMagazineCommand(
         List<Long> restaurantIds
 ) {
 
-    /** 배너·썸네일만 다루는 기존 호출부를 위한 생성자 — 호출부 전환 후 제거한다. */
-    public AdminMagazineCommand(
-            String title,
-            ImageCommand bannerImage,
-            ImageCommand thumbnailImage,
-            String instagramRedirectUrl
-    ) {
-        this(title, bannerImage, thumbnailImage, instagramRedirectUrl, null, null, null, null);
-    }
-
     /** legacy key와 신규 public asset ID 중 정확히 하나를 가진 이미지 교체 명령. */
     public record ImageCommand(String imageKey, UUID imageAssetId) {
 

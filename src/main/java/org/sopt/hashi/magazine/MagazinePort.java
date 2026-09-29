@@ -14,36 +14,12 @@ public interface MagazinePort {
      */
     MagazineInfo createByAdmin(AdminMagazineCommand command);
 
-    /** 기존 key 기반 호출부의 점진 전환을 위한 호환 계약. */
-    default MagazineInfo createByAdmin(
-            String title, String bannerKey, String thumbnailKey, String instagramRedirectUrl
-    ) {
-        return createByAdmin(new AdminMagazineCommand(
-                title,
-                new AdminMagazineCommand.ImageCommand(bannerKey, null),
-                new AdminMagazineCommand.ImageCommand(thumbnailKey, null),
-                instagramRedirectUrl));
-    }
-
     /**
      * 어드민 매거진 수정 — 부분 수정(PATCH). null 필드는 변경하지 않고, 카드뉴스·해시태그·연결 식당은
      * 보내면 전체 교체한다(빈 목록은 모두 지움). 매거진이 없으면 BusinessException(MAGAZINE-001 NOT_FOUND).
      * 연결 식당·카드뉴스 asset 검증은 등록과 같다(MAGAZINE-002, MAGAZINE-003).
      */
     MagazineInfo updateByAdmin(Long magazineId, AdminMagazineCommand command);
-
-    /** 기존 key 기반 PATCH 호출부의 점진 전환을 위한 호환 계약. */
-    default MagazineInfo updateByAdmin(
-            Long magazineId, String title, String bannerKey, String thumbnailKey,
-            String instagramRedirectUrl
-    ) {
-        return updateByAdmin(magazineId, new AdminMagazineCommand(
-                title,
-                bannerKey == null ? null : new AdminMagazineCommand.ImageCommand(bannerKey, null),
-                thumbnailKey == null ? null
-                        : new AdminMagazineCommand.ImageCommand(thumbnailKey, null),
-                instagramRedirectUrl));
-    }
 
     /** 어드민 매거진 삭제 — 매거진이 없으면 BusinessException(MAGAZINE-001 NOT_FOUND). */
     void deleteByAdmin(Long magazineId);
