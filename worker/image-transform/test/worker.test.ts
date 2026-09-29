@@ -5,6 +5,8 @@ import sharp from "sharp";
 
 import { ContractMismatchError } from "../src/errors";
 import { processImage } from "../src/image-processor";
+import { mediaProcessingJobId } from "../src/job-id";
+import { loadMediaSpec } from "../src/manifest";
 import type {
   ImageObjectStorage,
   OriginalObject,
@@ -21,6 +23,29 @@ const JOB_ID = "ebb9b9d8-c427-564b-a70e-0fd4e1925e5a";
 const SPEC_DIGEST = "1b5759a9285732133699114e21101b3b9b43b5cd8e208bf1246d059f4293634f";
 const VERSION_ID = "version-1";
 const ETAG = '"etag-value"';
+
+test("가늘고 긴 카드뉴스의 같은 저장 키는 한 번만 기록하고 성공 결과를 보낸다", async () => {
+  const source = await jpegSource(1, 1200);
+  const storage = new FakeStorage(original(source));
+  const publisher = new FakePublisher();
+  const worker = new ImageTransformWorker(storage, publisher);
+  await worker.processMessage(requestBody(source, {
+    purpose: "MAGAZINE_CARD_NEWS",
+    specVersion: 2,
+    specDigest: loadMediaSpec(2).digest,
+    jobId: mediaProcessingJobId(ASSET_ID, VERSION_ID, 2),
+  }));
+
+  assert.deepEqual(storage.writes.map(({ objectKey }) => objectKey),
+    [`media/renditions/${ASSET_ID}/v2/magazine-card-news/1.webp`]);
+  assert.equal(publisher.results.length, 1);
+  const result = publisher.results[0]!;
+  assert.equal(result.status, "SUCCEEDED");
+  if (result.status === "SUCCEEDED") {
+    assert.deepEqual(result.renditions.map(({ width, height }) => ({ width, height })),
+      [{ width: 1, height: 1200 }]);
+  }
+});
 
 test("reads the fixed source, writes deterministic renditions and publishes success", async () => {
   const source = await jpegSource(100, 100);

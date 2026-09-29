@@ -1,6 +1,5 @@
 import { ContractMismatchError } from "./errors";
 import type { PermanentFailureCode } from "./errors";
-import { IMAGE_LIMITS } from "./image-processor";
 import { mediaProcessingJobId } from "./job-id";
 import { SUPPORTED_SOURCE_MIME_TYPES, type SourceMimeType } from "./mime";
 
@@ -76,6 +75,7 @@ const UUID_V5_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-5[0-9a-f]{3}-[89ab][0-9a-f]{3}
 const SPEC_DIGEST_PATTERN = /^[0-9a-f]{64}$/;
 const PURPOSE_PATTERN = /^[A-Z][A-Z0-9_]*$/;
 const MAX_SIGNED_INT_32 = 2_147_483_647;
+const MAX_SOURCE_BYTES = 10 * 1024 * 1024;
 
 export function parseTransformRequest(body: string): TransformRequest {
   let value: unknown;
@@ -138,7 +138,7 @@ export function parseTransformRequest(body: string): TransformRequest {
   if (
     !Number.isSafeInteger(value.declaredByteSize) ||
     (value.declaredByteSize as number) < 1 ||
-    (value.declaredByteSize as number) > IMAGE_LIMITS.maxBytes
+    (value.declaredByteSize as number) > MAX_SOURCE_BYTES
   ) {
     throw new ContractMismatchError("Transform request declaredByteSize is invalid");
   }

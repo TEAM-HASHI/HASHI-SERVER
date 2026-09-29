@@ -29,7 +29,7 @@
 // auth/CurrentUserProvider.java  (auth가 공개)
 public interface CurrentUserProvider {
     Long currentUserId();          // 인증 안 됐으면 예외(UNAUTHORIZED)
-    boolean isAuthenticated();
+    boolean isAuthenticatedUser();   // 정식 로그인 회원(ROLE_USER)만 true — 어드민·온보딩은 false
 }
 ```
 

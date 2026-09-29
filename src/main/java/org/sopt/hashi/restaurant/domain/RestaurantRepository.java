@@ -2,6 +2,7 @@ package org.sopt.hashi.restaurant.domain;
 
 import jakarta.persistence.LockModeType;
 import java.time.DayOfWeek;
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 import org.springframework.data.domain.Pageable;
@@ -22,6 +23,17 @@ public interface RestaurantRepository extends JpaRepository<Restaurant, Long>, J
     Optional<Restaurant> findByIdForUpdate(@Param("restaurantId") Long restaurantId);
 
     boolean existsByIdAndDeletedFalse(Long id);
+
+    List<Restaurant> findAllByIdInAndDeletedFalse(Collection<Long> ids);
+
+    // 어드민 등록·수정 중복 검사(#230) — 비교는 컬럼 collation(utf8mb4_unicode_ci)을 따른다(대소문자·끝 공백 무시)
+    boolean existsByNameAndDeletedFalse(String name);
+
+    boolean existsByAddressAndDeletedFalse(String address);
+
+    boolean existsByNameAndIdNotAndDeletedFalse(String name, Long id);
+
+    boolean existsByAddressAndIdNotAndDeletedFalse(String address, Long id);
 
     @EntityGraph(attributePaths = "businessHours")
     @Query("select distinct r from Restaurant r where r.id = :restaurantId and r.deleted = false")

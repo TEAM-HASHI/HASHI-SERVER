@@ -6,14 +6,25 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.UUID;
 import lombok.extern.slf4j.Slf4j;
+import org.sopt.hashi.auth.CurrentUserProvider;
 import org.sopt.hashi.magazine.AdminMagazineCommand;
 import org.sopt.hashi.magazine.AdminMagazineCommand.ImageCommand;
 import org.sopt.hashi.magazine.MagazineInfo;
 import org.sopt.hashi.magazine.code.MagazineErrorCode;
 import org.sopt.hashi.magazine.domain.Magazine;
+import org.sopt.hashi.magazine.domain.MagazineCardNews;
+import org.sopt.hashi.magazine.domain.MagazineMeta;
+import org.sopt.hashi.magazine.domain.MagazineMetaRepository;
+import org.sopt.hashi.magazine.domain.MagazineReactionRepository;
+import org.sopt.hashi.magazine.domain.MagazineReactionStatus;
+import org.sopt.hashi.magazine.domain.MagazineReactionType;
 import org.sopt.hashi.magazine.domain.MagazineRepository;
 import org.sopt.hashi.magazine.dto.MagazineBannerListResponse;
 import org.sopt.hashi.magazine.dto.MagazineBannerListResponse.MagazineBannerResponse;
+import org.sopt.hashi.magazine.dto.MagazineDetailResponse;
+import org.sopt.hashi.magazine.dto.MagazineDetailResponse.MagazineRestaurantResponse;
+import org.sopt.hashi.magazine.dto.MagazineDetailResponse.PriceRangeResponse;
+import org.sopt.hashi.magazine.dto.MagazineDetailResponse.TodayBusinessHourResponse;
 import org.sopt.hashi.magazine.dto.MagazineListResponse;
 import org.sopt.hashi.magazine.dto.MagazineListResponse.MagazineSummaryResponse;
 import org.sopt.hashi.media.ImageReference;
@@ -24,6 +35,8 @@ import org.sopt.hashi.media.MediaImageRequest;
 import org.sopt.hashi.media.MediaImageRole;
 import org.sopt.hashi.media.MediaImageSelection;
 import org.sopt.hashi.media.MediaPort;
+import org.sopt.hashi.restaurant.RestaurantDetailInfo;
+import org.sopt.hashi.restaurant.RestaurantPort;
 import org.sopt.hashi.shared.error.BusinessException;
 import org.sopt.hashi.shared.error.CommonErrorCode;
 import org.sopt.hashi.shared.storage.FileStorage;
@@ -40,17 +53,31 @@ public class MagazineService {
     private static final int BANNER_COUNT = 5;
     private static final int DEFAULT_PAGE_SIZE = 10;
     private static final int MAX_PAGE_SIZE = 50;
+    /** 연결 식당 카드에 보여주는 식당 이미지 수(피그마 3칸, 식당 목록과 동일). */
+    private static final int RESTAURANT_IMAGE_COUNT = 3;
 
     private final MagazineRepository magazineRepository;
+    private final MagazineMetaRepository magazineMetaRepository;
+    private final MagazineReactionRepository magazineReactionRepository;
+    private final RestaurantPort restaurantPort;
+    private final CurrentUserProvider currentUserProvider;
     private final FileStorage fileStorage;
     private final MediaPort mediaPort;
 
     public MagazineService(
             MagazineRepository magazineRepository,
+            MagazineMetaRepository magazineMetaRepository,
+            MagazineReactionRepository magazineReactionRepository,
+            RestaurantPort restaurantPort,
+            CurrentUserProvider currentUserProvider,
             FileStorage fileStorage,
             MediaPort mediaPort
     ) {
         this.magazineRepository = magazineRepository;
+        this.magazineMetaRepository = magazineMetaRepository;
+        this.magazineReactionRepository = magazineReactionRepository;
+        this.restaurantPort = restaurantPort;
+        this.currentUserProvider = currentUserProvider;
         this.fileStorage = fileStorage;
         this.mediaPort = mediaPort;
     }
@@ -65,7 +92,7 @@ public class MagazineService {
                 .toList());
     }
 
-    /** 매거진 목록 — 최신순 커서 페이지네이션. ⚠️ 필터링은 MVP 이후 추가 예정이라 받지 않는다. */
+    /** 매거진 목록 — 최신순 커서 페이지네이션. ⚠️ 필터링·인기순 정렬은 MVP 이후 추가 예정이라 받지 않는다. */
     public MagazineListResponse getMagazines(Long cursor, Integer size) {
         int pageSize = normalizeSize(size);
         List<Magazine> rows = fetchPage(cursor, PageRequest.of(0, pageSize + 1));
@@ -83,7 +110,33 @@ public class MagazineService {
                 hasNext);
     }
 
-    /** 어드민 매거진 등록 — legacy key 또는 READY asset을 같은 transaction에서 연결한다. */
+    /**
+     * 매거진 상세(MAG-002) — 비로그인도 조회할 수 있고, 좋아요 여부만 로그인 회원에 한해 계산한다.
+     * 좋아요 수는 meta_magazine 카운터를 읽는다(리액션과 같은 트랜잭션에서 갱신되어 항상 실제 값).
+     * 연결 식당은 매핑의 노출 순서대로 RestaurantPort로 enrich하며, 삭제된 식당은 포트가 걸러낸다(§5-2).
+     */
+    public MagazineDetailResponse getDetail(Long magazineId) {
+        Magazine magazine = findMagazine(magazineId);
+        List<RestaurantDetailInfo> restaurants = restaurantPort.findActiveDetails(magazine.getRestaurantIds());
+
+        return new MagazineDetailResponse(
+                magazine.getId(),
+                magazine.getTitle(),
+                toCardNewsImageUrls(magazine),
+                magazine.getContent(),
+                List.copyOf(magazine.getHashtags()),
+                magazine.getCreatedAt(),
+                magazineMetaRepository.findLikeCountOrZero(magazineId),
+                isLikedByCurrentUser(magazineId),
+                restaurants.stream()
+                        .map(this::toRestaurantResponse)
+                        .toList());
+    }
+
+    /**
+     * 어드민 매거진 등록 — legacy key 또는 READY asset을 같은 transaction에서 연결한다.
+     * 카운터 행(meta_magazine)을 같은 트랜잭션에서 만들어 이후 원자 UPDATE가 항상 대상을 갖게 한다.
+     */
     @Transactional
     public MagazineInfo create(AdminMagazineCommand command) {
         requireCreateImages(command);
@@ -98,6 +151,7 @@ public class MagazineService {
                 banner.imageKey(), banner.imageAssetId(),
                 thumbnail.imageKey(), thumbnail.imageAssetId(),
                 command.instagramRedirectUrl()));
+        magazineMetaRepository.save(MagazineMeta.create(magazine.getId()));
         // 생성된 id는 응답 body에만 있어 로그로 남겨야 추적 가능하다 (adminId는 MDC)
         log.info("어드민 매거진 등록. magazineId={}", magazine.getId());
         return toInfo(magazine, loadProjection(List.of(magazine)));
@@ -144,6 +198,11 @@ public class MagazineService {
         log.info("어드민 매거진 삭제. magazineId={}", magazineId);
     }
 
+    private Magazine findMagazine(Long magazineId) {
+        return magazineRepository.findById(magazineId)
+                .orElseThrow(() -> new BusinessException(MagazineErrorCode.NOT_FOUND));
+    }
+
     private Magazine findMagazineForUpdate(Long magazineId) {
         return magazineRepository.findByIdForUpdate(magazineId)
                 .orElseThrow(() -> new BusinessException(MagazineErrorCode.NOT_FOUND));
@@ -161,6 +220,52 @@ public class MagazineService {
             return DEFAULT_PAGE_SIZE;
         }
         return Math.min(size, MAX_PAGE_SIZE);
+    }
+
+    // 비로그인·온보딩 토큰은 회원이 아니므로 좋아요 여부를 계산하지 않는다
+    private boolean isLikedByCurrentUser(Long magazineId) {
+        if (!currentUserProvider.isAuthenticatedUser()) {
+            return false;
+        }
+        return magazineReactionRepository.existsByMagazineIdAndUserIdAndReactionTypeAndStatus(
+                magazineId, currentUserProvider.currentUserId(),
+                MagazineReactionType.LIKE, MagazineReactionStatus.ACTIVE);
+    }
+
+    private List<String> toCardNewsImageUrls(Magazine magazine) {
+        return magazine.getCardNews().stream()
+                .map(MagazineCardNews::getFileKey)
+                .map(fileStorage::resolveFileUrl)
+                .toList();
+    }
+
+    private MagazineRestaurantResponse toRestaurantResponse(RestaurantDetailInfo restaurant) {
+        return new MagazineRestaurantResponse(
+                restaurant.id(),
+                restaurant.name(),
+                restaurant.rating(),
+                restaurant.area(),
+                restaurant.foodCategory(),
+                restaurant.imageUrls().stream()
+                        .limit(RESTAURANT_IMAGE_COUNT)
+                        .toList(),
+                toTodayBusinessHourResponse(restaurant),
+                new PriceRangeResponse(
+                        restaurant.priceRange().currency(),
+                        restaurant.priceRange().minPrice(),
+                        restaurant.priceRange().maxPrice()));
+    }
+
+    private TodayBusinessHourResponse toTodayBusinessHourResponse(RestaurantDetailInfo restaurant) {
+        if (restaurant.todayBusinessHour() == null) {
+            return null;
+        }
+        return new TodayBusinessHourResponse(
+                restaurant.todayBusinessHour().date(),
+                restaurant.todayBusinessHour().dayOfWeek(),
+                restaurant.todayBusinessHour().openTime(),
+                restaurant.todayBusinessHour().closeTime(),
+                restaurant.todayBusinessHour().closed());
     }
 
     // 매거진 큐레이선 응답

@@ -20,6 +20,8 @@ import org.springframework.security.core.context.SecurityContextHolder;
 /**
  * 보안 크리티컬: 온보딩 임시 인증(OnboardingPrincipal)은 "로그인 사용자"로 인정되지 않아야 한다
  * — 온보딩 토큰으로 회원 전용 도메인 로직(currentUserId)에 접근하지 못하도록 principal 타입으로 차단.
+ * 어드민 토큰은 MemberPrincipal을 같이 쓰므로 타입만으로는 못 거르고 권한(ROLE_USER)으로 차단한다
+ * — 그렇지 않으면 adminId가 userId로 오인되어 회원 전용 조회가 남의 데이터를 본다.
  */
 class CurrentUserProviderImplTest {
 
@@ -42,8 +44,19 @@ class CurrentUserProviderImplTest {
     void 회원_principal_인증() {
         authenticateWith(new MemberPrincipal(7L), AuthRoles.USER);
 
-        assertThat(provider.isAuthenticated()).isTrue();
+        assertThat(provider.isAuthenticatedUser()).isTrue();
         assertThat(provider.currentUserId()).isEqualTo(7L);
+    }
+
+    @Test
+    @DisplayName("어드민 토큰(MemberPrincipal + ROLE_ADMIN)은 회원으로 인정되지 않고 currentUserId는 UNAUTHORIZED")
+    void 어드민_role_거부() {
+        authenticateWith(new MemberPrincipal(9L), AuthRoles.ADMIN);
+
+        assertThat(provider.isAuthenticatedUser()).isFalse();
+        assertThatThrownBy(provider::currentUserId)
+                .isInstanceOf(BusinessException.class)
+                .hasFieldOrPropertyWithValue("errorCode", CommonErrorCode.UNAUTHORIZED);
     }
 
     @Test
@@ -51,7 +64,7 @@ class CurrentUserProviderImplTest {
     void 온보딩_principal_거부() {
         authenticateWith(new OnboardingPrincipal(555L), AuthRoles.ONBOARDING);
 
-        assertThat(provider.isAuthenticated()).isFalse();
+        assertThat(provider.isAuthenticatedUser()).isFalse();
         assertThatThrownBy(provider::currentUserId)
                 .isInstanceOf(BusinessException.class)
                 .hasFieldOrPropertyWithValue("errorCode", CommonErrorCode.UNAUTHORIZED);
@@ -60,7 +73,7 @@ class CurrentUserProviderImplTest {
     @Test
     @DisplayName("인증 컨텍스트가 없으면 currentUserId는 UNAUTHORIZED")
     void 미인증_거부() {
-        assertThat(provider.isAuthenticated()).isFalse();
+        assertThat(provider.isAuthenticatedUser()).isFalse();
         assertThatThrownBy(provider::currentUserId)
                 .isInstanceOf(BusinessException.class)
                 .hasFieldOrPropertyWithValue("errorCode", CommonErrorCode.UNAUTHORIZED);

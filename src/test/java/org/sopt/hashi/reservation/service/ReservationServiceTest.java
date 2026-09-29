@@ -138,7 +138,13 @@ class ReservationServiceTest {
                         "스시야",
                         "寿司屋",
                         "도쿄",
-                        new ImageReference(assetId, "https://legacy/original.jpg"))));
+                        null,
+                        null,
+                        new ImageReference(assetId, "https://legacy/original.jpg"),
+                        List.of(),
+                        null,
+                        null,
+                        null)));
         given(mediaPort.findImages(any())).willReturn(Map.of(request(assetId), processing));
 
         ReservationDetailResponse response = service.getMyReservation(101L);

@@ -16,11 +16,17 @@ public interface RestaurantPort {
     /** 식당 요약 정보를 조회한다 — 식당명 등 표시·enrich용. 없으면 empty. */
     Optional<RestaurantInfo> findSummaryById(Long restaurantId);
 
-    /** 여러 식당의 요약 정보를 한 번에 조회한다 — 목록 enrich용(§5-2). 존재하는 식당만 반환한다. */
+    /** 여러 식당의 요약 정보를 한 번에 조회한다 — 목록 enrich용(§5-2). 존재하는 식당만 반환한다(삭제된 식당 포함). */
     List<RestaurantInfo> findSummaries(Collection<Long> restaurantIds);
 
-    /** 식당 상세 정보를 조회한다 — 예약 상세 등 이름·일본어명·주소·대표이미지가 필요한 조회용. 없으면 empty. */
+    /** 식당 상세 정보를 조회한다 — 예약 상세 등 요약보다 많은 표시 정보가 필요한 조회용. 없으면 empty(삭제된 식당 포함). */
     Optional<RestaurantDetailInfo> findDetailById(Long restaurantId);
+
+    /**
+     * 사용자 노출용 식당 상세 목록 — 매거진 연결 식당 카드처럼 평점·메뉴 이미지·영업시간·가격대까지 내리는 enrich용.
+     * 삭제된 식당은 제외하고, 요청한 ID 순서를 유지하며 존재하는 식당만 반환한다.
+     */
+    List<RestaurantDetailInfo> findActiveDetails(Collection<Long> restaurantIds);
 
     /** 리뷰 생성 시 식당 평점 합계·리뷰 수·평균을 원자적으로 증가시킨다. */
     void increaseReviewStatistics(Long restaurantId, int rating);
