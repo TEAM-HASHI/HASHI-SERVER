@@ -326,6 +326,12 @@ class RestaurantMapQueryIntegrationTest {
         var response = service.getRegions();
         assertThat(response.regions()).extracting(RegionResponse::mapRegionId).containsExactly(region.getId(), other.getId());
         assertThat(response.regions()).extracting(RegionResponse::restaurantCount).containsExactly(1L, 0L);
+        var widerBounds = MapQueryBounds.parse("0.2", "1.2", "0", "1");
+        var regionalCriteria = MapSearchCriteria.of(widerBounds, region.getId(), null, null, null);
+        assertThat(service.findCandidates(regionalCriteria, 10).candidates())
+                .extracting(RestaurantMapCandidate::restaurantId).containsExactly(valid.getId());
+        assertThat(service.findMatchingCandidates(regionalCriteria, List.of(valid.getId(), outside.getId())))
+                .extracting(RestaurantMapCandidate::restaurantId).containsExactly(valid.getId());
         assertThat(output).contains("Map region mapping outside bounds: regionId=" + region.getId() + ", count=1");
     }
 

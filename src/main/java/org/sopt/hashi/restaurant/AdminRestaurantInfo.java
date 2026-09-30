@@ -35,7 +35,9 @@ public record AdminRestaurantInfo(
         List<String> hashtags,
         List<String> curationTypes,
         List<AdminRestaurantBusinessHourInfo> businessHours,
-        LocalDateTime createdAt) {
+        LocalDateTime createdAt,
+        String locationStatus,
+        long addressRevision) {
 
     public record AdminRestaurantMenuInfo(
             Long menuId,

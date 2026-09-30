@@ -44,7 +44,6 @@ public interface RestaurantPort {
      * 상세와 달리 영업시간·이미지 전체·가격대는 읽지 않는다. 삭제된 식당은 제외하고 존재하는 식당만 반환하며 순서는 보장하지 않는다.
      */
     List<RestaurantCardInfo> findActiveCards(Collection<Long> restaurantIds);
-
     /** 리뷰 생성 시 식당 평점 합계·리뷰 수·평균을 원자적으로 증가시킨다. */
     void increaseReviewStatistics(Long restaurantId, int rating);
 
@@ -68,4 +67,10 @@ public interface RestaurantPort {
      * 데이터는 보존한다. 식당이 없으면 BusinessException(RESTAURANT-004 NOT_FOUND).
      */
     void deleteByAdmin(Long restaurantId);
+
+    /** 관리자 위치 상태 조회. Entity/내부 enum과 provider 원문을 반환하지 않는다. */
+    RestaurantLocationInfo getLocationByAdmin(Long restaurantId);
+
+    /** expectedAddressRevision이 현재와 일치할 때 같은 주소의 새 작업을 등록한다. */
+    RestaurantLocationInfo retryLocationByAdmin(Long restaurantId, long expectedAddressRevision);
 }

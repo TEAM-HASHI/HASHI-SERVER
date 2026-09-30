@@ -18,7 +18,7 @@ import org.springframework.web.method.annotation.MethodArgumentTypeMismatchExcep
 
 /** 지도 입력 검증과 Service 본문 밖의 transaction 실패를 기존 응답 형식으로 변환한다. */
 @Order(0)
-@RestControllerAdvice(assignableTypes = RestaurantMapController.class)
+@RestControllerAdvice(assignableTypes = {RestaurantMapController.class, RestaurantMapPageController.class})
 public class RestaurantMapExceptionHandler {
 
     @ExceptionHandler(ConstraintViolationException.class)
