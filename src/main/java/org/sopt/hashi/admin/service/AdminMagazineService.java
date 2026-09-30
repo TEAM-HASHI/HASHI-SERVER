@@ -1,8 +1,10 @@
 package org.sopt.hashi.admin.service;
 
+import java.util.List;
 import java.util.UUID;
 import org.sopt.hashi.admin.dto.AdminMagazineResponse;
 import org.sopt.hashi.admin.dto.CreateMagazineRequest;
+import org.sopt.hashi.admin.dto.MagazineCardNewsRequest;
 import org.sopt.hashi.admin.dto.UpdateMagazineRequest;
 import org.sopt.hashi.magazine.AdminMagazineCommand;
 import org.sopt.hashi.magazine.AdminMagazineCommand.ImageCommand;
@@ -28,7 +30,11 @@ public class AdminMagazineService {
                         request.title(),
                         imageCommand(request.bannerKey(), request.bannerImageAssetId()),
                         imageCommand(request.thumbnailKey(), request.thumbnailImageAssetId()),
-                        request.instagramRedirectUrl())));
+                        request.instagramRedirectUrl(),
+                        request.content(),
+                        cardNewsCommands(request.cardNews()),
+                        request.hashtags(),
+                        request.restaurantIds())));
     }
 
     public AdminMagazineResponse update(Long magazineId, UpdateMagazineRequest request) {
@@ -38,7 +44,11 @@ public class AdminMagazineService {
                         request.title(),
                         imageCommand(request.bannerKey(), request.bannerImageAssetId()),
                         imageCommand(request.thumbnailKey(), request.thumbnailImageAssetId()),
-                        request.instagramRedirectUrl())));
+                        request.instagramRedirectUrl(),
+                        request.content(),
+                        cardNewsCommands(request.cardNews()),
+                        request.hashtags(),
+                        request.restaurantIds())));
     }
 
     public void delete(Long magazineId) {
@@ -50,5 +60,15 @@ public class AdminMagazineService {
             return null;
         }
         return new ImageCommand(imageKey, imageAssetId);
+    }
+
+    // null은 "변경 없음"이라 그대로 넘긴다
+    private List<ImageCommand> cardNewsCommands(List<MagazineCardNewsRequest> cardNews) {
+        if (cardNews == null) {
+            return null;
+        }
+        return cardNews.stream()
+                .map(item -> new ImageCommand(item.imageKey(), item.imageAssetId()))
+                .toList();
     }
 }

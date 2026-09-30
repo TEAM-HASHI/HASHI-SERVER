@@ -1,16 +1,23 @@
 package org.sopt.hashi.magazine.service;
 
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 import java.util.UUID;
+import java.util.stream.Collectors;
+import java.util.stream.Stream;
 import lombok.extern.slf4j.Slf4j;
 import org.sopt.hashi.auth.CurrentUserProvider;
 import org.sopt.hashi.magazine.AdminMagazineCommand;
 import org.sopt.hashi.magazine.AdminMagazineCommand.ImageCommand;
+import org.sopt.hashi.magazine.MagazineCardNewsInfo;
 import org.sopt.hashi.magazine.MagazineInfo;
 import org.sopt.hashi.magazine.code.MagazineErrorCode;
+import org.sopt.hashi.magazine.domain.CardNewsReplacement;
+import org.sopt.hashi.magazine.domain.CardNewsSource;
 import org.sopt.hashi.magazine.domain.Magazine;
 import org.sopt.hashi.magazine.domain.MagazineCardNews;
 import org.sopt.hashi.magazine.domain.MagazineMeta;
@@ -22,6 +29,7 @@ import org.sopt.hashi.magazine.domain.MagazineRepository;
 import org.sopt.hashi.magazine.dto.MagazineBannerListResponse;
 import org.sopt.hashi.magazine.dto.MagazineBannerListResponse.MagazineBannerResponse;
 import org.sopt.hashi.magazine.dto.MagazineDetailResponse;
+import org.sopt.hashi.magazine.dto.MagazineDetailResponse.CardNewsImageResponse;
 import org.sopt.hashi.magazine.dto.MagazineDetailResponse.MagazineRestaurantResponse;
 import org.sopt.hashi.magazine.dto.MagazineDetailResponse.PriceRangeResponse;
 import org.sopt.hashi.magazine.dto.MagazineDetailResponse.TodayBusinessHourResponse;
@@ -114,15 +122,21 @@ public class MagazineService {
      * 매거진 상세(MAG-002) — 비로그인도 조회할 수 있고, 좋아요 여부만 로그인 회원에 한해 계산한다.
      * 좋아요 수는 meta_magazine 카운터를 읽는다(리액션과 같은 트랜잭션에서 갱신되어 항상 실제 값).
      * 연결 식당은 매핑의 노출 순서대로 RestaurantPort로 enrich하며, 삭제된 식당은 포트가 걸러낸다(§5-2).
+     * 카드뉴스 이미지는 asset으로 연결된 것만 모아 MediaPort를 한 번 조회한다.
      */
     public MagazineDetailResponse getDetail(Long magazineId) {
         Magazine magazine = findMagazine(magazineId);
         List<RestaurantDetailInfo> restaurants = restaurantPort.findActiveDetails(magazine.getRestaurantIds());
+        MediaProjection cardNewsProjection = loadImages(cardNewsRequests(magazine));
 
         return new MagazineDetailResponse(
                 magazine.getId(),
                 magazine.getTitle(),
-                toCardNewsImageUrls(magazine),
+                toCardNewsImageUrls(magazine, cardNewsProjection),
+                toCardNewsInfos(magazine, cardNewsProjection).stream()
+                        .map(item -> new CardNewsImageResponse(
+                                item.cardNewsId(), item.displayOrder(), item.image(), item.legacyUrl()))
+                        .toList(),
                 magazine.getContent(),
                 List.copyOf(magazine.getHashtags()),
                 magazine.getCreatedAt(),
@@ -136,33 +150,45 @@ public class MagazineService {
     /**
      * 어드민 매거진 등록 — legacy key 또는 READY asset을 같은 transaction에서 연결한다.
      * 카운터 행(meta_magazine)을 같은 트랜잭션에서 만들어 이후 원자 UPDATE가 항상 대상을 갖게 한다.
+     * 상세 화면 데이터(본문·카드뉴스·해시태그·연결 식당)는 선택이며, 보내지 않으면 비워 둔다.
      */
     @Transactional
     public MagazineInfo create(AdminMagazineCommand command) {
         requireCreateImages(command);
+        validateDetailFields(command);
         List<MediaAssetUse> claims = new ArrayList<>();
         ResolvedImage banner = newImage(
                 command.bannerImage(), MediaAssetPurpose.MAGAZINE_BANNER, claims);
         ResolvedImage thumbnail = newImage(
                 command.thumbnailImage(), MediaAssetPurpose.MAGAZINE_THUMBNAIL, claims);
-        reconcileBindings(claims, List.of());
-        Magazine magazine = magazineRepository.save(Magazine.create(
+        Magazine created = Magazine.create(
                 command.title(),
                 banner.imageKey(), banner.imageAssetId(),
                 thumbnail.imageKey(), thumbnail.imageAssetId(),
-                command.instagramRedirectUrl()));
+                command.instagramRedirectUrl(),
+                command.content());
+        CardNewsReplacement cardNewsReplacement = planCardNews(
+                created, command.cardNews(), claims, new ArrayList<>());
+        reconcileBindings(claims, List.of());
+        // 자식(카드뉴스·연결 식당)은 저장 전에 붙여 매거진과 함께 cascade로 INSERT되게 한다
+        applyDetailFields(created, command, cardNewsReplacement);
+        Magazine magazine = magazineRepository.save(created);
         magazineMetaRepository.save(MagazineMeta.create(magazine.getId()));
         // 생성된 id는 응답 body에만 있어 로그로 남겨야 추적 가능하다 (adminId는 MDC)
         log.info("어드민 매거진 등록. magazineId={}", magazine.getId());
-        return toInfo(magazine, loadProjection(List.of(magazine)));
+        return toInfo(magazine);
     }
 
-    /** 어드민 매거진 수정 — 부분 수정(PATCH), null 필드는 변경하지 않는다. */
+    /**
+     * 어드민 매거진 수정 — 부분 수정(PATCH), null 필드는 변경하지 않는다.
+     * 카드뉴스·해시태그·연결 식당은 보내면 전체 교체하고(빈 목록은 모두 지움), 목록 순서가 노출 순서다.
+     */
     @Transactional
     public MagazineInfo update(Long magazineId, AdminMagazineCommand command) {
         if (command == null) {
             throw new BusinessException(CommonErrorCode.INVALID_INPUT);
         }
+        validateDetailFields(command);
         Magazine magazine = findMagazineForUpdate(magazineId);
         List<MediaAssetUse> claims = new ArrayList<>();
         List<MediaAssetUse> retires = new ArrayList<>();
@@ -180,13 +206,19 @@ public class MagazineService {
                 MediaAssetPurpose.MAGAZINE_THUMBNAIL,
                 claims,
                 retires);
+        CardNewsReplacement cardNewsReplacement = planCardNews(
+                magazine, command.cardNews(), claims, retires);
         reconcileBindings(claims, retires);
         magazine.update(
                 command.title(),
                 banner.imageKey(), banner.imageAssetId(),
                 thumbnail.imageKey(), thumbnail.imageAssetId(),
-                command.instagramRedirectUrl());
-        return toInfo(magazine, loadProjection(List.of(magazine)));
+                command.instagramRedirectUrl(),
+                command.content());
+        applyDetailFields(magazine, command, cardNewsReplacement);
+        // 새로 추가된 카드뉴스의 id를 응답에 담으려면 INSERT가 먼저 나가야 한다
+        magazineRepository.flush();
+        return toInfo(magazine);
     }
 
     /** 어드민 매거진 삭제. */
@@ -232,10 +264,41 @@ public class MagazineService {
                 MagazineReactionType.LIKE, MagazineReactionStatus.ACTIVE);
     }
 
-    private List<String> toCardNewsImageUrls(Magazine magazine) {
+    // 기존 URL 배열에는 표시 가능한 기존 주소와 READY 주소만 담는다(image-delivery-contract §9.3)
+    private List<String> toCardNewsImageUrls(Magazine magazine, MediaProjection projection) {
+        return magazine.getOrderedCardNews().stream()
+                .map(item -> projectCardNews(item, projection).url())
+                .filter(Objects::nonNull)
+                .toList();
+    }
+
+    // wrapper의 legacyUrl은 asset ID가 없는 카드뉴스에만 준다 — asset이 있으면 상태와 관계없이 null(§9.2)
+    private List<MagazineCardNewsInfo> toCardNewsInfos(Magazine magazine, MediaProjection projection) {
+        return magazine.getOrderedCardNews().stream()
+                .map(item -> {
+                    ProjectedImage image = projectCardNews(item, projection);
+                    return new MagazineCardNewsInfo(
+                            item.getId(),
+                            item.getDisplayOrder(),
+                            image.image(),
+                            item.getImageAssetId() == null ? image.url() : null);
+                })
+                .toList();
+    }
+
+    private ProjectedImage projectCardNews(MagazineCardNews item, MediaProjection projection) {
+        return projectImage(
+                item.getFileKey(),
+                item.getImageAssetId(),
+                MediaImageRole.MAGAZINE_CARD_NEWS,
+                projection);
+    }
+
+    private List<MediaImageRequest> cardNewsRequests(Magazine magazine) {
         return magazine.getCardNews().stream()
-                .map(MagazineCardNews::getFileKey)
-                .map(fileStorage::resolveFileUrl)
+                .map(item -> imageRequest(
+                        item.getImageAssetId(), MediaImageRole.MAGAZINE_CARD_NEWS))
+                .filter(Objects::nonNull)
                 .toList();
     }
 
@@ -312,7 +375,13 @@ public class MagazineService {
                 magazine.getCreatedAt());
     }
 
-    private MagazineInfo toInfo(Magazine magazine, MediaProjection projection) {
+    // 배너·썸네일·카드뉴스 asset을 모아 MediaPort를 한 번만 조회한다
+    private MagazineInfo toInfo(Magazine magazine) {
+        List<MediaImageRequest> requests = Stream.concat(
+                        slotRequests(List.of(magazine), true).stream(),
+                        cardNewsRequests(magazine).stream())
+                .toList();
+        MediaProjection projection = loadImages(requests);
         ProjectedImage banner = projectImage(
                 magazine.getBannerKey(),
                 magazine.getBannerImageAssetId(),
@@ -331,13 +400,91 @@ public class MagazineService {
                 thumbnail.url(),
                 thumbnail.image(),
                 magazine.getInstagramRedirectUrl(),
-                magazine.getCreatedAt());
+                magazine.getCreatedAt(),
+                magazine.getContent(),
+                toCardNewsInfos(magazine, projection),
+                List.copyOf(magazine.getHashtags()),
+                magazine.getRestaurantIds());
     }
 
     private void requireCreateImages(AdminMagazineCommand command) {
         if (command == null || command.bannerImage() == null || command.thumbnailImage() == null) {
             throw new BusinessException(CommonErrorCode.INVALID_INPUT);
         }
+    }
+
+    // 값의 형식(길이·공백·null·식당 ID 중복)은 요청 DTO가 검증한다. 여기서는 DTO가 확인하지 않는 것만 본다
+    private void validateDetailFields(AdminMagazineCommand command) {
+        validateCardNewsAssets(command.cardNews());
+        validateRestaurantIds(command.restaurantIds());
+    }
+
+    // 같은 asset을 카드뉴스 두 장에 쓸 수 없다 — image_asset_id 유니크 제약보다 먼저 거절한다
+    private void validateCardNewsAssets(List<ImageCommand> cardNews) {
+        if (cardNews == null) {
+            return;
+        }
+        List<UUID> assetIds = cardNews.stream()
+                .map(ImageCommand::imageAssetId)
+                .filter(Objects::nonNull)
+                .toList();
+        if (new HashSet<>(assetIds).size() != assetIds.size()) {
+            throw new BusinessException(MagazineErrorCode.CARD_NEWS_ASSET_DUPLICATED);
+        }
+    }
+
+    // 사용자에게 노출되는 식당만 연결할 수 있다 — 삭제된 식당은 상세에서 빠지므로 없는 식당과 같게 거절한다
+    private void validateRestaurantIds(List<Long> restaurantIds) {
+        if (restaurantIds == null || restaurantIds.isEmpty()) {
+            return;
+        }
+        Set<Long> activeIds = restaurantPort.findActiveDetails(restaurantIds).stream()
+                .map(RestaurantDetailInfo::id)
+                .collect(Collectors.toSet());
+        if (!activeIds.containsAll(restaurantIds)) {
+            log.warn("매거진 연결 식당 검증 실패 — 없는 식당 또는 삭제된 식당 포함. requested={}, active={}",
+                    restaurantIds, activeIds);
+            throw new BusinessException(MagazineErrorCode.RESTAURANT_NOT_FOUND);
+        }
+    }
+
+    private void applyDetailFields(
+            Magazine magazine,
+            AdminMagazineCommand command,
+            CardNewsReplacement cardNewsReplacement
+    ) {
+        if (cardNewsReplacement != null) {
+            magazine.replaceCardNews(cardNewsReplacement);
+        }
+        if (command.hashtags() != null) {
+            magazine.replaceHashtags(command.hashtags());
+        }
+        if (command.restaurantIds() != null) {
+            magazine.replaceRestaurants(command.restaurantIds());
+        }
+    }
+
+    /**
+     * 카드뉴스를 어떻게 교체할지는 Magazine이 정하고, 여기서는 그 결과를 media claim·retire로 옮기기만 한다.
+     * 카드뉴스를 보내지 않은 수정(null)에서는 계획을 세우지 않아 기존 카드뉴스를 읽지 않는다.
+     */
+    private CardNewsReplacement planCardNews(
+            Magazine magazine,
+            List<ImageCommand> cardNews,
+            List<MediaAssetUse> claims,
+            List<MediaAssetUse> retires
+    ) {
+        if (cardNews == null) {
+            return null;
+        }
+        CardNewsReplacement replacement = magazine.planCardNewsReplacement(cardNews.stream()
+                .map(image -> new CardNewsSource(image.imageKey(), image.imageAssetId()))
+                .toList());
+        replacement.addedAssetIds().forEach(assetId -> claims.add(
+                new MediaAssetUse(assetId, MediaAssetPurpose.MAGAZINE_CARD_NEWS)));
+        replacement.removedAssetIds().forEach(assetId -> retires.add(
+                new MediaAssetUse(assetId, MediaAssetPurpose.MAGAZINE_CARD_NEWS)));
+        return replacement;
     }
 
     private ResolvedImage newImage(
@@ -401,8 +548,12 @@ public class MagazineService {
     }
 
     private MediaProjection loadProjection(List<Magazine> magazines, boolean includeThumbnail) {
-        List<MediaImageRequest> requests = magazines.stream()
-                .flatMap(magazine -> java.util.stream.Stream.of(
+        return loadImages(slotRequests(magazines, includeThumbnail));
+    }
+
+    private List<MediaImageRequest> slotRequests(List<Magazine> magazines, boolean includeThumbnail) {
+        return magazines.stream()
+                .flatMap(magazine -> Stream.of(
                         imageRequest(
                                 magazine.getBannerImageAssetId(),
                                 MediaImageRole.MAGAZINE_BANNER),
@@ -412,11 +563,14 @@ public class MagazineService {
                                         MediaImageRole.MAGAZINE_THUMBNAIL)
                                 : null))
                 .filter(Objects::nonNull)
-                .distinct()
                 .toList();
-        return requests.isEmpty()
+    }
+
+    private MediaProjection loadImages(List<MediaImageRequest> requests) {
+        List<MediaImageRequest> distinctRequests = requests.stream().distinct().toList();
+        return distinctRequests.isEmpty()
                 ? MediaProjection.empty()
-                : new MediaProjection(mediaPort.findImages(requests));
+                : new MediaProjection(mediaPort.findImages(distinctRequests));
     }
 
     private MediaImageRequest imageRequest(UUID assetId, MediaImageRole role) {

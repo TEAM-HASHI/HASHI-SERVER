@@ -331,7 +331,7 @@ class MagazineMediaBackfillPersistenceIntegrationTest {
         Magazine deleted = saveMagazine("deleted");
         magazineService.delete(deleted.getId());
         magazineRepository.saveAndFlush(Magazine.create(
-                "asset only", null, UUID.randomUUID(), null, UUID.randomUUID(), "https://example.test/"));
+                "asset only", null, UUID.randomUUID(), null, UUID.randomUUID(), "https://example.test/", null));
         Magazine migrated = saveMagazine("migrated");
         transactionTemplate.executeWithoutResult(status -> {
             Magazine locked = magazineRepository.findByIdForUpdate(migrated.getId()).orElseThrow();
@@ -438,7 +438,8 @@ class MagazineMediaBackfillPersistenceIntegrationTest {
         MagazineMediaBackfillOutcome outcome = raceAgainstOwnerWrite(magazine, asset, lease, () -> {
             magazineService.update(magazine.getId(), new AdminMagazineCommand(
                     null, target == TARGET ? replacement : null,
-                    target == TARGET ? null : replacement, null));
+                    target == TARGET ? null : replacement, null,
+                    null, null, null, null));
             magazineRepository.flush();
         });
 
@@ -462,7 +463,8 @@ class MagazineMediaBackfillPersistenceIntegrationTest {
 
         MagazineMediaBackfillOutcome outcome = raceAgainstOwnerWrite(magazine, asset, lease, () -> {
             magazineService.update(magazine.getId(), new AdminMagazineCommand(
-                    "새 제목", null, null, "https://example.test/updated"));
+                    "새 제목", null, null, "https://example.test/updated",
+                    null, null, null, null));
             magazineRepository.flush();
         });
 
@@ -648,8 +650,9 @@ class MagazineMediaBackfillPersistenceIntegrationTest {
 
     private Magazine saveMagazine(String marker) {
         return magazineRepository.saveAndFlush(Magazine.create(
-                marker, "magazines/" + marker + "-banner.jpg", "magazines/" + marker + "-thumbnail.jpg",
-                "https://example.test/"));
+                marker, "magazines/" + marker + "-banner.jpg", null,
+                "magazines/" + marker + "-thumbnail.jpg", null,
+                "https://example.test/", null));
     }
 
     private Map<String, Object> magazineDetails(long magazineId) {

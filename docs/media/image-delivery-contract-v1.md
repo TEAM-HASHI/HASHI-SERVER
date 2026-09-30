@@ -717,7 +717,8 @@ wrapper 안에 둔다. 식당 이미지는 다음 형태를 사용한다.
 | 어드민 예약 | `restaurantImageUrl` | `restaurantThumbnailImage` |
 | 매거진 배너 | `bannerImageUrl` | `bannerImage` |
 | 매거진 목록 | `bannerImageUrl`, `thumbnailImageUrl` | `bannerImage`, `thumbnailImage` |
-| 어드민 매거진 생성과 수정 응답 | `bannerImageUrl`, `thumbnailImageUrl` | `bannerImage`, `thumbnailImage` |
+| 매거진 상세 | `cardNewsImageUrls` | `cardNewsImages` |
+| 어드민 매거진 생성과 수정 응답 | `bannerImageUrl`, `thumbnailImageUrl` | `bannerImage`, `thumbnailImage`, `cardNewsImages` |
 | 내 정보와 프로필 summary | `profileImageUrl` | `profileImage` |
 | 어드민 사용자 | `profileImageUrl` | `profileImage` |
 
@@ -728,6 +729,11 @@ wrapper 안에 둔다. 식당 이미지는 다음 형태를 사용한다.
 식당 wrapper는 `restaurantImageId`, `displayOrder`, `image`, `legacyUrl`을 제공한다.
 `legacyUrl`은 asset ID가 없는 기존 사진에만 제공한다. asset이 있으면 READY 여부나
 조회 결과 누락과 관계없이 `legacyUrl`은 `null`이다. 신규 원본 주소는 제공하지 않는다.
+
+매거진의 `cardNewsImages` 원소는 stable `cardNewsId`를 가진 카드뉴스 association wrapper이며
+`cardNewsId`, `displayOrder`, `image`, `legacyUrl`을 제공한다. `legacyUrl` 규칙과 아래 해석
+규칙은 식당 wrapper와 같고, 기존 `cardNewsImageUrls`의 같은 인덱스와 맞추지 않는다.
+카드뉴스는 원본 비율을 유지하므로(§11.2) 표시 크기는 `image`의 width와 height를 사용한다.
 
 ```json
 [
