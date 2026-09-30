@@ -111,6 +111,7 @@ class CollectionMapPortMySqlIntegrationTest {
     @Autowired JdbcTemplate jdbc;
     @MockitoBean CurrentUserProvider currentUser;
     @MockitoBean RestaurantService unusedRestaurantService;
+    @MockitoBean RestaurantLocationService unusedAdminLocationService;
     @MockitoBean MediaPort media;
     @MockitoBean FileStorage storage;
     @MockitoBean(name = "japanClock") Clock clock;
