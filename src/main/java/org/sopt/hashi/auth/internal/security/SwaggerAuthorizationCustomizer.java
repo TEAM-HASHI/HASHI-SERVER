@@ -1,6 +1,7 @@
 package org.sopt.hashi.auth.internal.security;
 
 import io.swagger.v3.oas.models.OpenAPI;
+import io.swagger.v3.oas.models.PathItem;
 import io.swagger.v3.oas.models.security.SecurityRequirement;
 import java.util.Arrays;
 import org.springdoc.core.customizers.GlobalOpenApiCustomizer;
@@ -25,19 +26,28 @@ public class SwaggerAuthorizationCustomizer implements GlobalOpenApiCustomizer {
         if (openApi.getPaths() == null) {
             return;
         }
-        openApi.getPaths().forEach((path, pathItem) -> pathItem.readOperations().forEach(operation -> {
-            if (requiresAuthentication(path)) {
+        openApi.getPaths().forEach((path, pathItem) -> pathItem.readOperationsMap().forEach((method, operation) -> {
+            if (requiresAuthentication(path, method)) {
                 operation.addSecurityItem(new SecurityRequirement().addList(BEARER_SCHEME_NAME));
             }
         }));
     }
 
-    /** SecurityConfig 매처와 같은 판정 — auth/me·매거진 좋아요는 공개 경로 하위지만 인증이 필요해 먼저 본다. */
-    private boolean requiresAuthentication(String path) {
+    /**
+     * SecurityConfig 매처와 같은 판정 — auth/me·매거진 좋아요는 공개 경로 하위지만 인증이 필요해 먼저 보고,
+     * 식당 컬렉션 상세·저장 식당 목록은 GET만 공개다(#216).
+     */
+    private boolean requiresAuthentication(String path, PathItem.HttpMethod method) {
         boolean isAuthenticatedUnderPublicPath = pathMatcher.match(SecurityConfig.AUTH_ME_PATH, path)
                 || pathMatcher.match(SecurityConfig.MAGAZINE_LIKE_PATH, path);
         if (isAuthenticatedUnderPublicPath) {
             return true;
+        }
+        boolean isPublicCollectionRead = method == PathItem.HttpMethod.GET
+                && Arrays.stream(SecurityConfig.COLLECTION_PUBLIC_GET_PATHS)
+                        .anyMatch(publicPath -> pathMatcher.match(publicPath, path));
+        if (isPublicCollectionRead) {
+            return false;
         }
         return Arrays.stream(SecurityConfig.PUBLIC_PATHS)
                 .noneMatch(publicPath -> pathMatcher.match(publicPath, path));

@@ -221,6 +221,8 @@ IAM 허용만으로 backfill이 실행되지는 않는다. 별도로 Spring의
 - original의 `media/originals/*`, delivery의 `media/renditions/*`에만 version 목록과 삭제를 허용한다.
   목록은 bucket ARN에 prefix 조건을 두고, 삭제는 해당 object ARN에 `DeleteObject`와
   `DeleteObjectVersion`을 부여한다. legacy 삭제, worker 권한과 bucket 설정 변경은 포함하지 않는다.
+- 두 bucket ARN의 `GetBucketVersioning`은 목록과 삭제 직전 `Enabled` 상태를 검증하는 데만 사용한다.
+  상태가 없거나 `Suspended`이면 Spring은 fail-closed하며, 이 policy는 versioning 상태 변경 권한을 주지 않는다.
 - 이 policy는 flag를 끌 때 회수할 수 있도록 Retain하지 않는다. 다른 경로로 이미 부여된 권한은
   회수하지 않으므로 활성화 전 EC2 role의 전체 유효 권한을 별도로 확인한다.
 - Spring 실행은 별도 `AWS_MEDIA_CLEANUP_ENABLED=false`, `AWS_MEDIA_CLEANUP_MODE=DRY_RUN`이
@@ -229,8 +231,10 @@ IAM 허용만으로 backfill이 실행되지는 않는다. 별도로 Spring의
   막거나 이미 삭제한 version을 복구해 주지 않는다.
 
 기본 처리량은 프로세스당 한 실행에서 최대 50개 asset이다. 검증·중단·재시도·지표 해석은
-[asset cleanup runbook](../../docs/media/asset-cleanup-runbook.md)을 따른다. DB 미참조 object와
-폐기 spec의 reconciliation은 별도 구현이며, 두 정리 작업과 dev E2E 전에는 issuance를 켜지 않는다.
+[asset cleanup runbook](../../docs/media/asset-cleanup-runbook.md)을 따른다. 같은 IAM policy를 사용하는
+DB 미참조 version과 폐기 spec 정리는 별도 Spring opt-in이며
+[object reconciliation runbook](../../docs/media/object-reconciliation-runbook.md)을 따른다. 두 정리 작업과
+dev E2E 전에는 issuance를 켜지 않는다.
 
 정체 복구는 기본적으로 처리 시작 10분 뒤부터 같은 결정적 job ID를 15분 간격, 최대 3회
 재발행한다. 값은 `AWS_MEDIA_PROCESSING_STALE_AGE`,

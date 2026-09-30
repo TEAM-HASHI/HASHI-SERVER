@@ -29,7 +29,10 @@ class MediaSpecRegistryTest {
                 1,
                 "1b5759a9285732133699114e21101b3b9b43b5cd8e208bf1246d059f4293634f"
         ));
-        assertThat(registry.find(2)).isEmpty();
+        assertThat(registry.find(2)).contains(new MediaSpecSnapshot(
+                2,
+                "b8e67084bcdf81ac7fc94951c905726a97ade3783320c67e03c505f5643ddf75"
+        ));
     }
 
     @Test
@@ -61,6 +64,63 @@ class MediaSpecRegistryTest {
                         expected(ImageRole.REVIEW_PREVIEW, 100, 100),
                         expected(ImageRole.REVIEW_DETAIL, 68, 99)
                 );
+    }
+
+    @Test
+    void 카드뉴스는_원본비율을_유지하고_3대4_후보를_선택한다() {
+        MediaSpecDefinition spec = new MediaSpecRegistry(objectMapper)
+                .findDefinition(2)
+                .orElseThrow();
+
+        assertThat(spec.expectedRenditions(MediaPurpose.MAGAZINE_CARD_NEWS, 2160, 2880))
+                .containsExactly(
+                        expected(ImageRole.MAGAZINE_CARD_NEWS, 432, 576),
+                        expected(ImageRole.MAGAZINE_CARD_NEWS, 864, 1152),
+                        expected(ImageRole.MAGAZINE_CARD_NEWS, 1296, 1728)
+                );
+        assertThat(spec.expectedRenditions(MediaPurpose.MAGAZINE_CARD_NEWS, 100, 100))
+                .containsExactly(expected(ImageRole.MAGAZINE_CARD_NEWS, 100, 100));
+        assertThat(spec.expectedRenditions(MediaPurpose.MAGAZINE_CARD_NEWS, 800, 1200))
+                .containsExactly(
+                        expected(ImageRole.MAGAZINE_CARD_NEWS, 384, 576),
+                        expected(ImageRole.MAGAZINE_CARD_NEWS, 768, 1152),
+                        expected(ImageRole.MAGAZINE_CARD_NEWS, 800, 1200)
+                );
+        assertThat(spec.expectedRenditions(MediaPurpose.MAGAZINE_CARD_NEWS, 300, 1000))
+                .containsExactly(
+                        expected(ImageRole.MAGAZINE_CARD_NEWS, 173, 576),
+                        expected(ImageRole.MAGAZINE_CARD_NEWS, 300, 1000)
+                );
+    }
+
+    @Test
+    void 카드뉴스_실제_규격은_worker와_공유하는_반례에서도_일치한다() throws IOException {
+        MediaSpecDefinition spec = new MediaSpecRegistry(objectMapper)
+                .findDefinition(2).orElseThrow();
+        try (InputStream input = new ClassPathResource(
+                "media-specs/fixtures/card-news-dimensions.json").getInputStream()) {
+            for (JsonNode fixture : objectMapper.readTree(input)) {
+                List<MediaRenditionDimensions> expected = objectMapper.convertValue(
+                        fixture.get("outputs"),
+                        objectMapper.getTypeFactory().constructCollectionType(
+                                List.class, MediaRenditionDimensions.class));
+                assertThat(spec.expectedRenditions(MediaPurpose.MAGAZINE_CARD_NEWS,
+                        fixture.get("sourceWidth").asInt(), fixture.get("sourceHeight").asInt()))
+                        .extracting(rendition -> new MediaRenditionDimensions(
+                                rendition.width(), rendition.height()))
+                        .containsExactlyElementsOf(expected);
+            }
+        }
+    }
+
+    @Test
+    void 카드뉴스의_기본_크기도_폭_중복을_제거한_최종_크기를_선택한다() {
+        MediaRoleSpec role = new MediaSpecRegistry(objectMapper)
+                .findDefinition(2).orElseThrow().roleSpecs().get(ImageRole.MAGAZINE_CARD_NEWS);
+        assertThat(role.defaultOutputDimensions(1, 1200))
+                .isEqualTo(new MediaRenditionDimensions(1, 1200));
+        assertThat(role.defaultOutputDimensions(2, 1200))
+                .isEqualTo(new MediaRenditionDimensions(2, 1200));
     }
 
     @Test

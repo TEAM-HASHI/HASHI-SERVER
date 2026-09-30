@@ -26,6 +26,15 @@ public interface RestaurantRepository extends JpaRepository<Restaurant, Long>, J
 
     List<Restaurant> findAllByIdInAndDeletedFalse(Collection<Long> ids);
 
+    // 어드민 등록·수정 중복 검사(#230) — 비교는 컬럼 collation(utf8mb4_unicode_ci)을 따른다(대소문자·끝 공백 무시)
+    boolean existsByNameAndDeletedFalse(String name);
+
+    boolean existsByAddressAndDeletedFalse(String address);
+
+    boolean existsByNameAndIdNotAndDeletedFalse(String name, Long id);
+
+    boolean existsByAddressAndIdNotAndDeletedFalse(String address, Long id);
+
     @EntityGraph(attributePaths = "businessHours")
     @Query("select distinct r from Restaurant r where r.id = :restaurantId and r.deleted = false")
     Optional<Restaurant> findActiveByIdWithBusinessHours(@Param("restaurantId") Long restaurantId);
@@ -173,4 +182,20 @@ public interface RestaurantRepository extends JpaRepository<Restaurant, Long>, J
               and rating_sum >= :rating
             """, nativeQuery = true)
     int decreaseReviewStatistics(@Param("restaurantId") Long restaurantId, @Param("rating") int rating);
+
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
+    @Query(value = """
+            update restaurant
+            set rating = round((rating_sum - :oldRating + :newRating) * 1.0 / review_count, 1),
+                rating_sum = rating_sum - :oldRating + :newRating
+            where id = :restaurantId
+              and review_count > 0
+              and rating_sum >= :oldRating
+              and rating_sum - :oldRating + :newRating >= 0
+            """, nativeQuery = true)
+    int updateReviewRatingStatistics(
+            @Param("restaurantId") Long restaurantId,
+            @Param("oldRating") int oldRating,
+            @Param("newRating") int newRating
+    );
 }

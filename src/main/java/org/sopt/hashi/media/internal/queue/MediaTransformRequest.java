@@ -60,7 +60,10 @@ public record MediaTransformRequest(
         if (!SOURCE_CONTENT_TYPES.contains(declaredContentType)) {
             throw new IllegalArgumentException("declaredContentType is unsupported");
         }
-        if (declaredByteSize < 1 || declaredByteSize > 5L * 1024 * 1024) {
+        long maxBytes = purpose == MediaPurpose.MAGAZINE_CARD_NEWS && specVersion >= 2
+                ? 10L * 1024 * 1024
+                : 5L * 1024 * 1024;
+        if (declaredByteSize < 1 || declaredByteSize > maxBytes) {
             throw new IllegalArgumentException("declaredByteSize is outside the worker limit");
         }
     }
