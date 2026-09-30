@@ -19,7 +19,7 @@ import org.springframework.stereotype.Component;
 public class MediaTransformResultParser {
 
     private static final int CURRENT_CONTRACT_VERSION = 1;
-    private static final int MAX_SOURCE_BYTES = 5 * 1024 * 1024;
+    private static final int MAX_SOURCE_BYTES = 10 * 1024 * 1024;
     private static final int MAX_SOURCE_DIMENSION = 10_000;
     private static final long MAX_SOURCE_PIXELS = 40_000_000L;
     private static final int MAX_RENDITIONS = 64;

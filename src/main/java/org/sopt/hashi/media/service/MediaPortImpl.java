@@ -38,6 +38,7 @@ import org.sopt.hashi.media.domain.MediaCleanupStatus;
 import org.sopt.hashi.media.domain.MediaOwnerType;
 import org.sopt.hashi.media.domain.MediaPurpose;
 import org.sopt.hashi.media.internal.spec.MediaRoleSpec;
+import org.sopt.hashi.media.internal.spec.MediaRenditionDimensions;
 import org.sopt.hashi.media.internal.spec.MediaSpecDefinition;
 import org.sopt.hashi.media.internal.spec.MediaSpecRegistry;
 import org.sopt.hashi.shared.error.BusinessException;
@@ -229,8 +230,17 @@ class MediaPortImpl implements MediaPort {
         }
 
         MediaRoleSpec roleSpec = definition.roleSpecs().get(internalRole);
+        MediaRenditionDimensions defaultDimensions =
+                "inside".equals(roleSpec.fit())
+                        && asset.getSourceWidth() != null && asset.getSourceHeight() != null
+                                ? roleSpec.defaultOutputDimensions(
+                                        asset.getSourceWidth(), asset.getSourceHeight())
+                                : null;
         RenditionImageProjection defaultRendition = renditions.stream()
-                .filter(rendition -> rendition.getWidth() == roleSpec.defaultWidth())
+                .filter(rendition -> defaultDimensions != null
+                        ? rendition.getWidth() == defaultDimensions.width()
+                                && rendition.getHeight() == defaultDimensions.height()
+                        : rendition.getWidth() == roleSpec.defaultWidth())
                 .findFirst()
                 .orElseGet(() -> renditions.getLast());
         Source defaultSource = toSource(defaultRendition);

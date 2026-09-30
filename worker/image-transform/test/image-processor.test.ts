@@ -1,4 +1,6 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import test from "node:test";
 
 import sharp, { type Metadata } from "sharp";
@@ -15,6 +17,134 @@ import { loadMediaSpec, type LoadedMediaSpec } from "../src/manifest";
 import { createTwoFrameApng, createWarningCorruptJpeg } from "./image-fixtures";
 
 const spec = loadMediaSpec(1);
+const cardNewsSpec = loadMediaSpec(2);
+
+const dimensionCases = JSON.parse(readFileSync(
+  resolve(__dirname, "../../../../media-specs/fixtures/card-news-dimensions.json"), "utf8",
+)) as {
+  sourceWidth: number;
+  sourceHeight: number;
+  outputs: { width: number; height: number }[];
+}[];
+
+for (const format of ["jpeg", "png", "webp"] as const) {
+  test(`${format} 카드뉴스의 실제 출력은 Java와 공유하는 픽셀 규격과 일치한다`, async () => {
+    for (const { sourceWidth: width, sourceHeight: height, outputs } of dimensionCases) {
+      const source = await sharp({
+        create: { width, height, channels: 3, background: "#557799" },
+      }).toFormat(format).toBuffer();
+      const result = await processImage({
+        bytes: source,
+        declaredByteSize: source.length,
+        declaredContentType: `image/${format}`,
+        purpose: "MAGAZINE_CARD_NEWS",
+        spec: cardNewsSpec,
+      });
+      assert.deepEqual(result.renditions.map(({ width, height }) => ({ width, height })), outputs,
+        `${format} ${width}x${height}`);
+      assert.equal(new Set(result.renditions.map((rendition) => rendition.width)).size,
+        result.renditions.length);
+      for (const rendition of result.renditions) {
+        const metadata = await sharp(rendition.bytes).metadata();
+        assert.equal(metadata.width, rendition.width);
+        assert.equal(metadata.height, rendition.height);
+        assert.equal(metadata.exif, undefined);
+      }
+    }
+  });
+}
+
+test("카드뉴스의 회전된 JPEG도 원본 방향 기준으로 정확히 변환한다", async () => {
+  const source = await sharp({
+    create: { width: 4096, height: 2733, channels: 3, background: "#557799" },
+  }).withMetadata({ orientation: 6 }).jpeg().toBuffer();
+  const result = await processImage({
+    bytes: source, declaredByteSize: source.length, declaredContentType: "image/jpeg",
+    purpose: "MAGAZINE_CARD_NEWS", spec: cardNewsSpec,
+  });
+  assert.equal(result.verifiedSource.width, 2733);
+  assert.equal(result.verifiedSource.height, 4096);
+  assert.deepEqual(result.renditions.map(({ width, height }) => ({ width, height })),
+    dimensionCases[1]!.outputs);
+});
+
+test("only card news accepts source bytes between 5MiB and 10MiB", async () => {
+  const bytes = Buffer.alloc(10 * 1024 * 1024);
+  bytes.set([0xff, 0xd8, 0xff]);
+  const input = { bytes, declaredByteSize: bytes.length, declaredContentType: "image/jpeg",
+    spec: cardNewsSpec };
+  await assert.rejects(processImage({ ...input, purpose: "MAGAZINE_CARD_NEWS" }),
+    (error: unknown) => error instanceof PermanentImageError && error.failureCode === "INVALID_IMAGE_DATA");
+  await assert.rejects(processImage({ ...input, purpose: "RESTAURANT" }),
+    (error: unknown) => error instanceof PermanentImageError && error.failureCode === "SOURCE_FILE_TOO_LARGE");
+  const oversized = Buffer.alloc(bytes.length + 1);
+  await assert.rejects(processImage({ ...input, bytes: oversized, declaredByteSize: oversized.length,
+    purpose: "MAGAZINE_CARD_NEWS" }),
+    (error: unknown) => error instanceof PermanentImageError && error.failureCode === "SOURCE_FILE_TOO_LARGE");
+});
+
+test("small card news preserves its full source dimensions", async () => {
+  const source = await sharp({
+    create: { width: 100, height: 100, channels: 3, background: "#557799" },
+  }).png().toBuffer();
+  const result = await processImage({
+    bytes: source,
+    declaredByteSize: source.length,
+    declaredContentType: "image/png",
+    purpose: "MAGAZINE_CARD_NEWS",
+    spec: cardNewsSpec,
+  });
+  assert.deepEqual(result.renditions.map(({ width, height }) => ({ width, height })),
+    [{ width: 100, height: 100 }]);
+});
+
+test("카드뉴스는 원본 비율을 유지하고 3:4 후보 안에서 자르지 않는다", async () => {
+  const source = await sharp({
+    create: { width: 1200, height: 800, channels: 3, background: "#557799" },
+  })
+    .png()
+    .toBuffer();
+
+  const result = await processImage({
+    bytes: source,
+    declaredByteSize: source.length,
+    declaredContentType: "image/png",
+    purpose: "MAGAZINE_CARD_NEWS",
+    spec: cardNewsSpec,
+  });
+
+  assert.deepEqual(
+    result.renditions.map(({ width, height }) => ({ width, height })),
+    [
+      { width: 432, height: 288 },
+      { width: 864, height: 576 },
+      { width: 1200, height: 800 },
+    ],
+  );
+});
+
+test("card-news inside candidates use both source dimensions and deduplicate outputs", async () => {
+  const role = cardNewsSpec.manifest.roles.MAGAZINE_CARD_NEWS!;
+  assert.deepEqual(selectRenditionDimensions(800, 1200, role), role.candidates);
+  assert.deepEqual(selectRenditionDimensions(300, 1000, role), role.candidates.slice(0, 2));
+
+  for (const [width, height, expected] of [
+    [800, 1200, [{ width: 384, height: 576 }, { width: 768, height: 1152 }, { width: 800, height: 1200 }]],
+    [300, 1000, [{ width: 173, height: 576 }, { width: 300, height: 1000 }]],
+  ] as const) {
+    const source = await sharp({
+      create: { width, height, channels: 3, background: "#557799" },
+    }).png().toBuffer();
+    const result = await processImage({
+      bytes: source,
+      declaredByteSize: source.length,
+      declaredContentType: "image/png",
+      purpose: "MAGAZINE_CARD_NEWS",
+      spec: cardNewsSpec,
+    });
+    assert.deepEqual(result.renditions.map(({ width, height }) => ({ width, height })), expected);
+  }
+});
 
 test("creates all standard card candidates in ascending order", async () => {
   const source = await sharp({

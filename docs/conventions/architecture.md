@@ -70,7 +70,7 @@
 - **MAY**: 승인된 backfill runner와 그 전용 checkpoint 접근은 소유 모듈의 `migration/`에 둔다.
   일반 요청의 비즈니스 로직이나 Repository를 옮기는 예외가 아니다. 콘텐츠 변경은 기존 Aggregate를
   사용하고, 실행 gate·잠금·재시작·종료 조건을 runbook에 명시한다. 전환 종료 후 runner와 함께 제거한다.
-- **SHOULD**: 복합 컨텍스트는 하위 도메인 패키지를 둘 수 있다(예: `user/bookmark/`,
+- **SHOULD**: 복합 컨텍스트는 하위 도메인 패키지를 둘 수 있다(예: `user/collection/`,
   `support/inquiry/`, `support/notice/`). 이 경우에도 일반 런타임 공개 지점은 `<Context>Port`로
   단일화한다.
 
@@ -126,9 +126,9 @@
 ### 5-2. 타 도메인 목록 참조 (매핑 테이블 + 포트 enrich)
 한 모듈이 **타 도메인 엔티티 목록**을 보유해야 할 때의 표준 패턴이다. 우리 아키텍처의 사례:
 - **매거진–식당**: 매거진 상세의 "관련 식당 리스트"(magazine 소유, 큐레이션). 1 매거진 : N 식당.
-- **찜/북마크**(`user/bookmark`): 사용자가 찜한 **식당·매거진** 목록(user 소유). 찜 대상은 식당·매거진 두 도메인이다.
+- **식당 컬렉션**(`user/collection`): 사용자가 식당을 묶어 저장하는 컬렉션과 저장 식당 매핑(user 소유, #216). 찜/북마크 설계를 대체한다. 1 컬렉션 : N 저장 식당.
 
-> 찜처럼 한 매핑이 **여러 도메인을 대상**으로 하면, 대상 도메인별 식별자(필요 시 대상 타입 구분)를 `Long` ID로 보관하고, 상세는 각 도메인 Port(`RestaurantPort`·`MagazinePort`)로 따로 enrich한다.
+> 한 매핑이 **여러 도메인을 대상**으로 해야 하면, 대상 도메인별 식별자(필요 시 대상 타입 구분)를 `Long` ID로 보관하고, 상세는 각 도메인 Port(`RestaurantPort`·`MagazinePort`)로 따로 enrich한다.
 
 - **MUST**: 매핑 테이블은 **소유 모듈의 애그리거트 자식**으로 둔다. 별도 모듈로 분리하지 않는다(§1: 엔티티 1개=모듈 1개 금지).
 - **MUST**: 매핑 행에서 자기 애그리거트 키(예: `magazine_id`)는 내부 관계로 두되, **타 도메인 키(예: `restaurant_id`)는 `Long` ID 값으로만** 보관한다. 타 도메인 엔티티를 `@ManyToOne` 등으로 참조하거나 FK·조인으로 묶지 않는다.
@@ -223,7 +223,7 @@
 review → restaurant, reservation, point, user   (작성자 닉네임·프사 enrich; 탈퇴 시 UserPort 빈 값 → "탈퇴한 회원" fallback)
 reservation → restaurant, user, point
 magazine → restaurant                (관련 식당 큐레이션, 매핑 테이블 + RestaurantPort)
-user → restaurant, magazine          (찜/bookmark, 매핑 테이블 + 각 Port)
+user → restaurant, media             (식당 컬렉션 — 저장 식당 매핑 테이블 + RestaurantPort enrich, 대표 이미지 MediaPort)
 admin → restaurant, magazine, reservation, user
 upload → shared (FileStorage)         (지원 모듈; 도메인 모듈 의존 없음)
 콘텐츠 도메인 → media (MediaPort)    (일반 요청의 asset 검증, claim, role별 bulk 조회)
