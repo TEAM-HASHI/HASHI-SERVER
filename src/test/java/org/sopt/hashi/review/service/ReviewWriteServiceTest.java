@@ -3,7 +3,9 @@ package org.sopt.hashi.review.service;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.BDDMockito.given;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 
@@ -91,7 +93,7 @@ class ReviewWriteServiceTest {
         assertThat(savedReview.getRestaurantId()).isEqualTo(RESTAURANT_ID);
         assertThat(savedReview.getUserId()).isEqualTo(USER_ID);
         assertThat(savedReview.getKeywords())
-                .containsExactly("FOOD_IS_DELICIOUS", "GOOD_VALUE");
+                .containsExactly("FOOD_IS_DELICIOUS", "GOOD_FOR_SOLO_DINING");
         assertThat(savedReview.getImages())
                 .extracting(image -> image.getFileKey(), image -> image.getDisplayOrder())
                 .containsExactly(
@@ -99,6 +101,31 @@ class ReviewWriteServiceTest {
                 );
         verify(pointPort).earnReviewReward(USER_ID, RESERVATION_ID);
         verify(restaurantPort).increaseReviewStatistics(RESTAURANT_ID, 5);
+    }
+
+    @Test
+    void 삭제된_이전_키워드_code로_리뷰를_작성할_수_없다() {
+        given(currentUserProvider.currentUserId()).willReturn(USER_ID);
+        given(reservationPort.getReviewInfoByIdAndUserId(RESERVATION_ID, USER_ID))
+                .willReturn(reservation(USER_ID, ReservationStatus.VISITED));
+        given(restaurantPort.existsById(RESTAURANT_ID)).willReturn(true);
+        given(reviewRepository.existsByReservationId(RESERVATION_ID)).willReturn(false);
+        CreateReviewRequest request = new CreateReviewRequest(
+                RESERVATION_ID,
+                5,
+                List.of("TRADITIONAL_ATMOSPHERE"),
+                "혼밥하기 좋은 식당인지 자세하게 작성한 리뷰입니다.",
+                List.of()
+        );
+
+        assertThatThrownBy(() -> reviewWriteService.create(request))
+                .isInstanceOfSatisfying(BusinessException.class, exception ->
+                        assertThat(exception.getErrorCode())
+                                .isEqualTo(ReviewErrorCode.UNSUPPORTED_KEYWORD));
+
+        verify(reviewRepository, never()).saveAndFlush(any(Review.class));
+        verify(restaurantPort, never()).increaseReviewStatistics(any(), anyInt());
+        verifyNoInteractions(pointPort);
     }
 
     @Test
@@ -147,7 +174,7 @@ class ReviewWriteServiceTest {
         return new CreateReviewRequest(
                 RESERVATION_ID,
                 5,
-                List.of("FOOD_IS_DELICIOUS", "GOOD_VALUE"),
+                List.of("FOOD_IS_DELICIOUS", "GOOD_FOR_SOLO_DINING"),
                 "음식이 맛있고 직원분들이 친절했습니다.",
                 List.of("uploads/reviews/2026/07/10/review-1.jpg")
         );

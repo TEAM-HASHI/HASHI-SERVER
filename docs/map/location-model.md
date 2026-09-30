@@ -39,7 +39,7 @@ BigDecimal에는 NaN/Infinity가 없으며 후속 HTTP 경계에서도 숫자 �
 displayOrder는 0 이상이다. 지역은 명시적으로 활성화하기 전까지 비활성이다.
 실제 코드·대표 위치·bounds를 migration에 넣지 않는다.
 
-V28은 새 두 테이블과 nullable 참조 두 개를 추가한다. 기존 데이터는 미분류/위치 없음으로 보존한다.
+V31은 새 두 테이블과 nullable 참조 두 개를 추가한다. 기존 데이터는 미분류/위치 없음으로 보존한다.
 마이그레이션에는 HTTP, job 생성, 업무 seed가 없다. 적용된 이전 migration은 수정하지 않는다.
 큰 restaurant 테이블의 DDL 소요·잠금 시간은 운영 대상 규모로 배포 전에 측정해야 한다.
 
