@@ -2,6 +2,7 @@ package org.sopt.hashi.restaurant.internal.map;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.awaitility.Awaitility.await;
 
 import io.lettuce.core.ClientOptions;
 import io.lettuce.core.SocketOptions;
@@ -130,7 +131,8 @@ class RedisMapSessionStoreIntegrationTest {
         assertThat(store.find(id)).isEqualTo(session);
         long after = redis.getExpire(PREFIX + id.slot(), java.util.concurrent.TimeUnit.MILLISECONDS);
         assertThat(after).isLessThan(before);
-        Thread.sleep(1500);
+        await().atMost(Duration.ofSeconds(10))
+                .untilAsserted(() -> assertThat(redis.hasKey(PREFIX + id.slot())).isFalse());
         assertThat(redis.hasKey(PREFIX + id.slot())).isFalse();
         assertCode(() -> store.find(id), RestaurantErrorCode.MAP_SESSION_EXPIRED);
         var replacement = store.save(session(Duration.ofMinutes(15)));
@@ -145,7 +147,8 @@ class RedisMapSessionStoreIntegrationTest {
         }
         var expiring = store.save(session(Duration.ofMillis(1400)));
         assertCode(() -> store.save(session(Duration.ofMinutes(15))), RestaurantErrorCode.MAP_CAPACITY_EXCEEDED);
-        Thread.sleep(1500);
+        await().atMost(Duration.ofSeconds(10))
+                .untilAsserted(() -> assertThat(redis.hasKey(PREFIX + expiring.slot())).isFalse());
         var replacement = store.save(session(Duration.ofMinutes(15)));
         assertThat(replacement.slot()).isEqualTo(expiring.slot());
         assertThat(redis.keys(PREFIX + "*")).hasSize(128);
