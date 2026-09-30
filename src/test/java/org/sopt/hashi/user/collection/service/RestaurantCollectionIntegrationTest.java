@@ -6,6 +6,8 @@ import static org.mockito.ArgumentMatchers.anyCollection;
 import static org.mockito.BDDMockito.given;
 
 import java.math.BigDecimal;
+import java.time.Clock;
+import java.time.Instant;
 import java.util.Collection;
 import java.util.List;
 import org.assertj.core.api.ThrowableAssert.ThrowingCallable;
@@ -14,8 +16,10 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.sopt.hashi.auth.CurrentUserProvider;
 import org.sopt.hashi.config.JpaAuditingConfig;
+import org.sopt.hashi.config.TimeConfig;
 import org.sopt.hashi.media.MediaPort;
 import org.sopt.hashi.restaurant.RestaurantCardInfo;
+import org.sopt.hashi.restaurant.RestaurantMapInfo;
 import org.sopt.hashi.restaurant.RestaurantPort;
 import org.sopt.hashi.shared.error.BusinessException;
 import org.sopt.hashi.shared.error.ErrorCode;
@@ -46,7 +50,8 @@ import org.springframework.transaction.annotation.Transactional;
 @DataJpaTest
 @Import({RestaurantCollectionService.class, SavedRestaurantQueryService.class,
         RestaurantCollectionFinder.class, SavedRestaurantEnricher.class, JpaAuditingConfig.class,
-        RestaurantSaveSummaryService.class, CollectionMapSnapshotStore.class})
+        RestaurantSaveSummaryService.class, CollectionMapSnapshotStore.class, CollectionMapQueryService.class,
+        TimeConfig.class})
 @TestPropertySource(properties = {
         "spring.flyway.enabled=false",
         "spring.jpa.hibernate.ddl-auto=create-drop",
@@ -71,6 +76,12 @@ class RestaurantCollectionIntegrationTest {
     private CollectionMapSnapshotStore snapshotStore;
 
     @Autowired
+    private CollectionMapQueryService mapService;
+
+    @MockitoBean(name = "japanClock")
+    private Clock mapClock;
+
+    @Autowired
     private RestaurantCollectionRepository restaurantCollectionRepository;
 
     @Autowired
@@ -88,6 +99,7 @@ class RestaurantCollectionIntegrationTest {
     @BeforeEach
     void setUp() {
         loginAs(OWNER_ID);
+        given(mapClock.instant()).willReturn(Instant.parse("2026-10-01T00:00:00Z"));
         given(restaurantPort.findActiveCards(anyCollection())).willAnswer(invocation -> {
             Collection<Long> restaurantIds = invocation.getArgument(0);
             return restaurantIds.stream().sorted().map(this::card).toList();
@@ -238,11 +250,33 @@ class RestaurantCollectionIntegrationTest {
         assertThat(updated.name()).isEqualTo("  교토  ");
         assertThat(updated.description()).isEqualTo("  설명  ");
         assertThat(collectionService.update(created.collectionId(),
+                new org.sopt.hashi.user.collection.dto.UpdateRestaurantCollectionRequest(null, null, "   ", null))
+                .description()).isEqualTo("   ");
+        assertThat(collectionService.update(created.collectionId(),
                 new org.sopt.hashi.user.collection.dto.UpdateRestaurantCollectionRequest(null, null, null, null))
-                .description()).isEqualTo("  설명  ");
+                .description()).isEqualTo("   ");
         assertThat(collectionService.update(created.collectionId(),
                 new org.sopt.hashi.user.collection.dto.UpdateRestaurantCollectionRequest(null, null, "", null))
                 .description()).isNull();
+    }
+
+    @Test
+    void 공백만인_이름은_거부하고_중복이름은_기존_409를_유지한다() {
+        for (String name : List.of(" ", "\u00a0\u3000", "\n\t")) {
+            assertBusinessError(() -> collectionService.create(
+                    new org.sopt.hashi.user.collection.dto.CreateRestaurantCollectionRequest(name, "red", null, "public")),
+                    org.sopt.hashi.shared.error.CommonErrorCode.INVALID_INPUT);
+        }
+        var first = collectionService.create(new org.sopt.hashi.user.collection.dto.CreateRestaurantCollectionRequest(
+                "  도쿄  ", "red", null, "public"));
+        var second = collectionService.create(new org.sopt.hashi.user.collection.dto.CreateRestaurantCollectionRequest(
+                "교토", "red", null, "public"));
+        assertBusinessError(() -> collectionService.create(
+                new org.sopt.hashi.user.collection.dto.CreateRestaurantCollectionRequest("  도쿄  ", "red", null, "public")),
+                UserErrorCode.DUPLICATE_COLLECTION_NAME);
+        assertBusinessError(() -> collectionService.update(second.collectionId(),
+                new org.sopt.hashi.user.collection.dto.UpdateRestaurantCollectionRequest(first.name(), null, null, null)),
+                UserErrorCode.DUPLICATE_COLLECTION_NAME);
     }
 
     @Test
@@ -261,6 +295,89 @@ class RestaurantCollectionIntegrationTest {
         var owned = snapshotStore.read(id, OWNER_ID);
         collectionService.delete(id);
         assertBusinessError(() -> snapshotStore.validate(owned, OWNER_ID), UserErrorCode.COLLECTION_NOT_FOUND);
+    }
+
+    @Test
+    void 저장_23개_중_좌표없는_2개는_관계를_보존하고_핀만_빠진다() {
+        Long id = saveCollection(OWNER_ID, "전체 지도", CollectionVisibility.PUBLIC,
+                java.util.stream.LongStream.rangeClosed(1, 23).boxed().toArray(Long[]::new));
+        given(restaurantPort.findActiveMapInfos(anyCollection())).willReturn(
+                java.util.stream.LongStream.rangeClosed(1, 23)
+                        .mapToObj(restaurantId -> mapInfo(restaurantId, restaurantId <= 21)).toList());
+        var response = mapService.getMarkers(id);
+        assertThat(response.visibleRestaurantCount()).isEqualTo(23);
+        assertThat(response.content().size()).isEqualTo(21);
+        assertThat(response.locationUnavailableCount()).isEqualTo(2);
+        assertThat(response.content()).extracting(marker -> marker.restaurantId())
+                .containsExactlyElementsOf(java.util.stream.LongStream.rangeClosed(1, 21).boxed().toList());
+        assertThat(savedRestaurantIds(id)).hasSize(23);
+    }
+
+    @Test
+    void 전체_1000개를_한_Port_호출로_조회하고_상한초과는_503이다() {
+        Long id = saveCollection(OWNER_ID, "상한 지도", CollectionVisibility.PUBLIC,
+                java.util.stream.LongStream.rangeClosed(1, 1000).boxed().toArray(Long[]::new));
+        given(restaurantPort.findActiveMapInfos(anyCollection())).willAnswer(invocation -> {
+            Collection<Long> ids = invocation.getArgument(0);
+            return ids.stream().map(restaurantId -> mapInfo(restaurantId, true)).toList();
+        });
+        assertThat(mapService.getMarkers(id).content().size()).isEqualTo(1000);
+        org.mockito.Mockito.verify(restaurantPort).findActiveMapInfos(
+                java.util.stream.LongStream.rangeClosed(1, 1000).boxed().toList());
+        Long overflow = saveCollection(OWNER_ID, "과량 지도", CollectionVisibility.PUBLIC,
+                java.util.stream.LongStream.rangeClosed(1, 1001).boxed().toArray(Long[]::new));
+        assertBusinessError(() -> mapService.getMarkers(overflow), UserErrorCode.COLLECTION_MAP_UNAVAILABLE);
+    }
+
+    @Test
+    void 조회중_공개범위_변경은_404이고_저장관계_이동은_409이다() {
+        Long id = saveCollection(OWNER_ID, "공유 지도", CollectionVisibility.PUBLIC, 101L);
+        org.mockito.Mockito.doAnswer(invocation -> {
+            collectionService.update(id,
+                    new org.sopt.hashi.user.collection.dto.UpdateRestaurantCollectionRequest(null, null, null, "private"));
+            given(currentUserProvider.isAuthenticatedUser()).willReturn(false);
+            return List.of(mapInfo(101L, true));
+        }).when(restaurantPort).findActiveMapInfos(anyCollection());
+        // 요청 시작 시 비회원이므로 owner ID가 final 검사에 유입되지 않는다.
+        given(currentUserProvider.isAuthenticatedUser()).willReturn(false);
+        assertBusinessError(() -> mapService.getMarkers(id), UserErrorCode.COLLECTION_NOT_FOUND);
+        loginAs(OWNER_ID);
+        Long target = saveCollection(OWNER_ID, "이동 대상", CollectionVisibility.PUBLIC);
+        org.mockito.Mockito.doAnswer(invocation -> {
+            collectionService.moveRestaurants(id, new MoveSavedRestaurantsRequest(target, List.of(101L)));
+            return List.of(mapInfo(101L, true));
+        }).when(restaurantPort).findActiveMapInfos(anyCollection());
+        assertBusinessError(() -> mapService.getMarkers(id), org.sopt.hashi.shared.error.CommonErrorCode.CONFLICT);
+    }
+
+    @Test
+    void 조회중_삭제와_Port_오류는_정상_핀_응답이_아니다() {
+        Long id = saveCollection(OWNER_ID, "삭제 지도", CollectionVisibility.PUBLIC, 101L);
+        given(restaurantPort.findActiveMapInfos(anyCollection())).willAnswer(invocation -> {
+            collectionService.delete(id);
+            return List.of(mapInfo(101L, true));
+        });
+        assertBusinessError(() -> mapService.getMarkers(id), UserErrorCode.COLLECTION_NOT_FOUND);
+        Long failed = saveCollection(OWNER_ID, "실패 지도", CollectionVisibility.PUBLIC, 101L);
+        org.mockito.Mockito.doThrow(new IllegalStateException("second batch unavailable"))
+                .when(restaurantPort).findActiveMapInfos(anyCollection());
+        assertBusinessError(() -> mapService.getMarkers(failed), UserErrorCode.COLLECTION_MAP_UNAVAILABLE);
+    }
+
+    @Test
+    void Port_조회중_만료된_좌표는_응답직전_다시_제외한다() {
+        Long id = saveCollection(OWNER_ID, "만료 지도", CollectionVisibility.PUBLIC, 101L);
+        given(restaurantPort.findActiveMapInfos(anyCollection())).willAnswer(invocation -> {
+            given(mapClock.instant()).willReturn(Instant.parse("2026-10-02T00:00:00Z"));
+            return List.of(mapInfo(101L, true));
+        });
+        assertThat(mapService.getMarkers(id).content().size()).isZero();
+    }
+
+    private RestaurantMapInfo mapInfo(Long id, boolean located) {
+        return new RestaurantMapInfo(id, "식당 " + id, "restaurant", "japanese", located
+                ? new RestaurantMapInfo.LocationInfo(new BigDecimal("35.6"), new BigDecimal("139.7"),
+                        Instant.parse("2026-10-02T00:00:00Z")) : null);
     }
 
     private Long saveCollection(Long userId, String name, CollectionVisibility visibility, Long... restaurantIds) {
