@@ -4,16 +4,13 @@
 
 이 문서는 한 서버 조립의 관리자 HTTP → 저장/위치 작업 → Google 대체 응답 → MySQL 위치 → 공개 지도 조회와 Redis 세션을 확인하는 방법이다. 실제 화면, 운영 Google 계정, 운영 DB, 유료 호출, 배포의 완료 증거가 아니다. 지도 전체 인수 조건은 [#219 계약](https://github.com/TEAM-HASHI/HASHI-SERVER/issues/219)과 PR #221의 문서에 있다.
 
-| 코드 | 원래 고정 기준 | 이 브랜치에 가져온 변경 |
+| 변경 | 결합한 Draft PR 기준 | 이 브랜치의 확인 범위 |
 | --- | --- | --- |
-| #220·#222·#224 | `0d77d91`, 이후 #224 `aaacb5d` | 시작 tree와 `1656dfe`. 위치 모델·adapter·관리자 저장/작업 경로와 개발용 fixture 잠금 수정 |
-| #223 | `98299f2`, `303fb5c` | `a592d1d`, `9f7e3e4`. 지도 오류 011~018과 위치 재처리 019, 두 Port 의존성을 함께 유지 |
-| #227 | `31a7998`, `c956780` | `291b46a`, `ee873b7`. 지도 페이지/Redis 세션과 OSIV 연결 반환 수정 |
-| #228 | `4ad25ea`, `4635276`, `fa7bc1e` | `ff7fad3`, `ec9ebd9`, `b9b6daf`와 최신 develop 결합. 지도 유지보수는 V33, 갱신/정리·정밀도 검증·CLI 테스트 격리 |
+| #220·#222·#224·#228 | #225·#226·#233·#235 | 위치 모델·Google adapter·관리자 저장/worker·유지보수, V31~V33 |
+| #223·#227 | #229·#234 | 공개 지도 조회·Redis 세션·페이지 재검증 |
+| #242 | #244 `c94c2fb` | 기존 #216 컬렉션 CRUD에 전체 핀·저장 수·본인 저장 여부 연결, V34 |
 
-이 브랜치의 자체 변경은 `RestaurantMapFlowIntegrationTest`와 이 문서다. develop에 병합된 #216 컬렉션 CRUD/스키마를 재구현하지 않는다. 지도 저장 요약과 전체 핀은 후속 #242 결합·인수 기준을 따른다.
-
-#227 첫 구현과 #228 구현의 원본/결합 커밋은 각각 stable patch-id가 일치한다. #223 첫 커밋은 `RestaurantErrorCode`와 `RestaurantPortImpl`의 양쪽 요구를 보존하는 충돌 해결이 들어가므로 원본과 patch-id가 달라질 수 있다. 결합 기준은 최종 파일의 API/상태·실제 테스트로 확인한다.
+이 브랜치의 자체 변경은 `RestaurantMapFlowIntegrationTest`와 이 문서다. develop에 병합된 #216 컬렉션 CRUD/스키마를 재구현하지 않는다. V28, V30, V31, V32, V33, V34 순서이며 기존 migration 파일은 수정하지 않는다. #242 결합 전 생긴 `RestaurantPortImpl.findActiveMapInfos` 중복 선언은 동일 메서드 하나를 제거했다.
 
 ## 로컬 실행 환경
 
@@ -24,13 +21,13 @@
 ```powershell
 $env:JAVA_HOME='C:\Users\venus\.jdks\ms-21.0.7'
 $env:PATH="$env:JAVA_HOME\bin;C:\Program Files\Docker\Docker\resources\bin;$env:PATH"
-.\gradlew test --tests org.sopt.hashi.restaurant.service.RestaurantMapFlowIntegrationTest --no-daemon
+.\gradlew test --tests '*RestaurantMapFlowIntegrationTest' --tests '*CollectionVersionMigrationTest' --no-daemon --console=plain --max-workers=2
 .\gradlew clean build --no-daemon
 ```
 
 테스트 주소 `東京都試験区架空町1丁目2番3号`, 식당·관광 지역·좌표는 합성 고정값이다. Google provider, 자동 `LocationJobScheduler`, 범위 밖의 `MediaPort`·`FileStorage`를 대체한다. worker는 테스트에서 직접 한 번 실행하고 관광 지역 관계는 fixture에서 직접 설정한다. 후보 정확도·주소 일치 판정은 실제 `LocationAdoptionPolicy`를 통과한다. 위치 작업 전역 호출 예산은 기본적으로 닫혀 있으므로 테스트 전용 MySQL row에서만 연다. Redis 서명 키도 테스트 문자열을 실행 중 메모리에만 설정한다. 운영 키나 주소 원문 응답을 로그/문서에 넣지 않는다.
 
-2026-09-27 첫 관련 검증은 5개 suite / 42개 테스트, failures·errors·skipped 모두 0건이었다(`RestaurantMapFlowIntegrationTest` 4, `RestaurantMapPageIntegrationTest` 17, `LocationMaintenanceMySqlTest` 18, `DevLocationJobMySqlTest` 2, `ModularityTests` 1). 리뷰 후 보강한 `RestaurantMapFlowIntegrationTest` 5개도 별도 재실행에서 모두 통과했다. 최종 전체 build와 원격 CI 결과는 별도로 확인한다.
+2026-10-01 결합 후 `RestaurantMapFlowIntegrationTest` 5개와 `CollectionVersionMigrationTest` 1개, 총 6개가 failures·errors·skipped 0건으로 통과했다. V31~V34가 있는 MySQL8.4 새 DB에서 Flyway와 Hibernate validation도 통과했다. 전체 build와 원격 CI 결과는 별도로 확인한다.
 
 ## 직접 연결한 흐름
 
@@ -44,12 +41,14 @@ $env:PATH="$env:JAVA_HOME\bin;C:\Program Files\Docker\Docker\resources\bin;$env:
 6. 별도의 READY fixture를 보존 경계 안으로 당긴다. provider 예산을 끄고 정리를 실행하여 실제 DB의 좌표·유효기간이 제거되고 현재 위치, Port, 기존 페이지 재조회에서 보이지 않는지 확인한다.
 
 7. 별도 합성 READY 식당 23개를 실제 DB에 만들어 공개 페이지를 10/10/3으로 순회한다. 모든 카드의 `restaurantId`가 중복 없이 예상 식당 ID와 일치하고 각 카드의 위치가 같은 핀 좌표인지 확인한다.
+8. 관리자 저장·worker 완료로 좌표가 확정된 식당을 USER가 기존 컬렉션 API로 저장한다. 익명 전체 핀, 공개 저장 사용자 수, 본인 저장 여부를 실제 HTTP와 MySQL로 확인한다. 주소 변경으로 좌표가 무효화되면 저장 관계는 남고 전체 핀만 빠지는지 확인한다.
 
 Redis TTL·유실·장애, cursor 변조와 중복 재시도는 [#227 자체 테스트](../../src/test/java/org/sopt/hashi/restaurant/service/RestaurantMapPageIntegrationTest.java)의 실제 Redis 검증을 참조한다. 갱신 등록·CLI dry-run/resume/stop·동시 정리의 상세 반례는 [#228 runbook](location-maintenance-runbook.md)과 해당 MySQL 테스트를 참조한다.
 
 ## 별도 인수와 운영 입력
 
 - 현재 CLIENT `/map`은 준비 중 화면이며 관리자도 새 위치 상태를 아직 표시하지 않는다. 이 테스트 성공은 UI QA가 아니다. 카메라 상태, chip 재선택, 카드·핀, 복귀·만료 처리는 실제 화면에서 따로 검증한다.
-- #242에서 `GET /collections/{id}/map-markers`, `GET /restaurants/save-counts`, `GET /users/me/restaurant-saves`를 develop의 실제 #216 저장 관계·권한과 연결한다. 23개 식당 중 위치 없는 2개가 있어도 목록과 별개로 유효 핀 21개를 한 응답에 반환해야 한다. 저장 수는 사용자 수로 세고, 공개 범위/소속 변경 번호를 응답 직전에 재확인하며 부분 200을 허용하지 않는다. 현재 첫 지도 페이지의 카드는 개인 저장 상태를 포함하지 않는다.
+- #242의 `GET /collections/{id}/map-markers`, `GET /restaurants/save-counts`, `GET /users/me/restaurant-saves`를 develop의 실제 #216 저장 관계·권한과 연결했다. 23개 식당 중 위치 없는 2개가 있어도 목록과 별개로 유효 핀 21개를 한 응답에 반환한다는 별도 #242 MySQL 테스트가 있다. 저장 수는 사용자 수로 세고, 공개 범위/소속 변경 번호를 응답 직전에 재확인하며 부분 200을 허용하지 않는다. 현재 첫 지도 페이지의 카드는 개인 저장 상태를 포함하지 않는다.
+- 공개 익명 신규 지도 세션의 128개 전역 슬롯은 배포 전 ingress·호출자 경계와 실제 용량 확인이 필요한 활성화 gate다. #227 문서의 NO-GO를 유지한다.
 - 관광 지역 대표 위치·범위·매핑, 운영 Google 계약/키 제한/보관 수명, Redis 용량과 장애 예산, DB 백업·복원 보존 절차는 실제 운영값이 필요하다. 합성 fixture는 이를 대신하지 않는다.
 - 실제 Google 호출, 운영 backfill/물리 정리, 배포, 병합은 이 검증의 실행 대상이 아니다.

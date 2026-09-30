@@ -201,6 +201,30 @@ class RestaurantMapFlowIntegrationTest {
         assertThat(firstPage.path("content").get(0).path("location").path("latitude").decimalValue())
                 .isEqualByComparingTo("10.123457");
 
+        String userToken = jwt.createAccessToken(42L, "ROLE_USER");
+        long collectionId = body(mvc.perform(post("/api/v1/collections")
+                        .header("Authorization", "Bearer " + userToken)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"name\":\"지도 통합\",\"color\":\"red\",\"visibility\":\"public\"}"))
+                .andExpect(status().isCreated())
+                .andReturn().getResponse().getContentAsString()).path("data").path("collectionId").asLong();
+        mvc.perform(post("/api/v1/collections/{collectionId}/restaurants", collectionId)
+                        .header("Authorization", "Bearer " + userToken)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"restaurantId\":" + id + "}"))
+                .andExpect(status().isCreated());
+        mvc.perform(get("/api/v1/collections/{collectionId}/map-markers", collectionId))
+                .andExpect(status().isOk()).andExpect(header().string("Cache-Control", "no-store"))
+                .andExpect(jsonPath("$.data.visibleRestaurantCount").value(1))
+                .andExpect(jsonPath("$.data.locationUnavailableCount").value(0))
+                .andExpect(jsonPath("$.data.content[0].restaurantId").value(id))
+                .andExpect(jsonPath("$.data.content[0].location.latitude").value(10.123457));
+        mvc.perform(get("/api/v1/restaurants/save-counts").param("restaurantIds", Long.toString(id)))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.data.restaurants[0].saveCount").value(1));
+        mvc.perform(get("/api/v1/users/me/restaurant-saves").param("restaurantIds", Long.toString(id))
+                        .header("Authorization", "Bearer " + userToken))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.data.restaurants[0].saved").value(true));
+
         mvc.perform(patch("/api/v1/admin/restaurants/{id}", id)
                         .header("Authorization", "Bearer " + token)
                         .contentType(MediaType.APPLICATION_JSON)
@@ -213,6 +237,11 @@ class RestaurantMapFlowIntegrationTest {
         mvc.perform(get("/api/v1/restaurants/map/regions"))
                 .andExpect(status().isOk()).andExpect(jsonPath("$.data.regions[0].restaurantCount").value(0));
         assertThat(port.findActiveMapInfos(List.of(id)).getFirst().location()).isNull();
+        mvc.perform(get("/api/v1/collections/{collectionId}/map-markers", collectionId))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.visibleRestaurantCount").value(1))
+                .andExpect(jsonPath("$.data.locationUnavailableCount").value(1))
+                .andExpect(jsonPath("$.data.content").isEmpty());
         mvc.perform(get("/api/v1/restaurants/map")
                         .param("querySessionId", firstPage.path("querySessionId").asText())
                         .param("sort", "recommend"))
