@@ -60,6 +60,10 @@ public class RestaurantCollection extends BaseTimeEntity {
     @Column(name = "visibility", length = 20, nullable = false)
     private CollectionVisibility visibility;
 
+    /** 메타데이터와 저장 관계 변경을 함께 식별한다. 자식 변경은 JPA @Version만으로 감지되지 않는다. */
+    @Column(name = "collection_version", nullable = false)
+    private long collectionVersion;
+
     /** 저장 순서(id 오름차순) — 커버 이미지는 오래된 저장부터, 최신순 목록은 그 역순이다. */
     @BatchSize(size = 100)
     @OrderBy("id ASC")
@@ -82,6 +86,7 @@ public class RestaurantCollection extends BaseTimeEntity {
 
     /** 부분 수정(PATCH) — null 필드는 기존 값을 유지한다(식당·매거진과 동일 정책). 설명은 빈 문자열로 비울 수 있다. */
     public void update(String name, CollectionColor color, String description, CollectionVisibility visibility) {
+        collectionVersion++;
         if (name != null) {
             this.name = name;
         }
@@ -89,7 +94,7 @@ public class RestaurantCollection extends BaseTimeEntity {
             this.color = color;
         }
         if (description != null) {
-            this.description = description.isBlank() ? null : description;
+            this.description = description.isEmpty() ? null : description;
         }
         if (visibility != null) {
             this.visibility = visibility;
@@ -118,12 +123,14 @@ public class RestaurantCollection extends BaseTimeEntity {
     public SavedRestaurant save(Long restaurantId) {
         SavedRestaurant saved = SavedRestaurant.create(this, restaurantId);
         savedRestaurants.add(saved);
+        collectionVersion++;
         return saved;
     }
 
     public void remove(Collection<Long> restaurantIds) {
         Set<Long> targets = Set.copyOf(restaurantIds);
         savedRestaurants.removeIf(saved -> targets.contains(saved.getRestaurantId()));
+        collectionVersion++;
     }
 
     public int savedRestaurantCount() {
