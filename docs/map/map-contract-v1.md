@@ -129,7 +129,7 @@ content의 각 항목은 지도 전용 DTO이며 기존 RestaurantSummaryRespons
 `placeType`, `reviewCount`, `priceRange:{currency,minPrice,maxPrice}`,
 `location:{latitude,longitude,validUntil}`을 추가한다. 엔티티는 노출하지 않는다.
 rating·reviewCount는 rankingAsOf 기준, 다른 표시 값과 좌표는 현재 유효한 값이다.
-개인 isSaved·savedCount를 restaurant 응답에 합치지 않는다(§6).
+개인 saved·saveCount를 restaurant 응답에 합치지 않는다(§6).
 
 빈 결과의 완전한 예시(좌표는 운영 설정을 뜻하지 않는 합성 데이터):
 
@@ -218,24 +218,26 @@ rating·reviewCount는 rankingAsOf 기준, 다른 표시 값과 좌표는 현재
 
 | API (담당 user) | 접근·응답 data |
 |---|---|
-| `GET /restaurants/save-counts?restaurantIds=1,2` | 공개. `content:[{restaurantId,savedCount}]` |
-| `GET /users/me/restaurant-saves?restaurantIds=1,2` | USER만. `content:[{restaurantId,isSaved}]`; 현재 사용자는 인증 문맥으로 결정 |
+| `GET /restaurants/save-counts?restaurantIds=1,2` | 공개. `restaurants:[{restaurantId,saveCount}]` |
+| `GET /users/me/restaurant-saves?restaurantIds=1,2` | USER만. `restaurants:[{restaurantId,saved}]`; 현재 사용자는 인증 문맥으로 결정 |
 | `GET /collections/{collectionId}/map-markers` | 공개 컬렉션은 비로그인 열람 가능, 비공개는 소유자만. 아래 전체 응답 |
 
 bulk IDs는 1~100개의 서로 다른 양의 정수다. 빈 값·중복·형식 오류·초과는 COMMON-400.
 user가 RestaurantPort로 현재 공개 식당만 검사해 요청 ID 순서로 반환하고, 없는/비공개 식당 ID는 생략한다.
-빠진 항목이나 조회 실패를 savedCount=0/isSaved=false로 바꾸지 않는다.
+빠진 항목이나 조회 실패를 saveCount=0/saved=false로 바꾸지 않는다.
 공개 집계에 사용자 ID·비공개 컬렉션 이름을 포함하지 않는다. 개인 응답은 공유 세션에 저장하지 않는다.
 
-savedCount는 해당 식당을 하나 이상 저장한 사용자 수다. 같은 사용자의 여러 컬렉션은 1명이다.
+saveCount는 해당 식당을 하나 이상 저장한 사용자 수다. 같은 사용자의 여러 컬렉션은 1명이다.
 마지막 관계 제거 때만 1 감소하는 것은 최신 SAVED_COLLECTION의 확정 규칙이다.
-isSaved는 현재 사용자의 소유 컬렉션에 하나 이상 저장됐는지다. 공개 컬렉션 열람만으로 true가 되지 않는다.
+saved는 현재 사용자의 소유 컬렉션에 하나 이상 저장됐는지다. 공개 컬렉션 열람만으로 true가 되지 않는다.
 미래 공동 편집자의 저장 귀속은 이번 범위 밖이며 역할·집계 정책을 별도로 정한다.
 저장 성공 시 #216 결과로 상태·집계를 갱신하고 실패 시 이전 값 유지, 처리 중 중복 클릭을 막는다.
 지도 카드와 상세의 저장 버튼은 즉시 boolean을 뒤집는 명령이 아니다. 로그인 사용자에게
 `SAVED_COLLECTION_SAVE`를 열어 대상 컬렉션 하나를 선택하게 한다. 비로그인 사용자는 로그인 완료 뒤
 저장 직전의 지도·선택 식당·목록 상태로 돌아오며 자동 저장이나 자동 모달 재열기는 하지 않는다.
 새 컬렉션 생성·수정에서 이름과 설명의 앞뒤 공백은 보존하고, 공백만인 이름은 거부한다.
+현재 develop의 #216 쓰기 서비스는 공백을 제거한다. 이 계약 차이는 #242의 컬렉션 쓰기 수정과
+생성·수정 인수 테스트로 해소해야 하며, #242 병합 전에는 공백 보존을 현재 동작으로 보지 않는다.
 공유 링크를 복사해도 공개 범위는 바뀌지 않으며, 명시적인 소유자 PATCH만 공개 상태를 변경한다.
 
 ### 전체 마커 응답과 실패
@@ -254,7 +256,8 @@ isSaved는 현재 사용자의 소유 컬렉션에 하나 이상 저장됐는지
 - 최초 실패는 핀 오류 상태, 재시도 실패는 기존의 아직 유효한 핀과 오류 안내를 유지한다.
   권한 상실/삭제(404)는 기존 컬렉션 핀·상세를 즉시 비운다. 버전 변경(409)은 새 전체 조회를 제공하고
   이전·새 버전 핀을 섞지 않는다. 원래부터 핀 0개인 성공과 실패를 구분한다.
-- 전부 반환할 자원이 없으면 USER-008로 전체 요청을 거절한다. 숨은 핀 개수 상한은 두지 않는다.
+- #242의 저장 관계 상한 1,000개 또는 전체 반환 용량을 넘으면 USER-017로 전체 요청을 거절한다.
+  일부 핀만 200으로 반환하지 않는다.
   실측 상한·응답 bytes·timeout이 전체 로드를 감당하지 못하면 출시 전에 계약을 개정해 자동 완주 전송을
   설계한다. 이 v1에는 외부 페이지 전송이 없다.
 - 공개 열람과 편집 권한은 분리한다. 공개 GET만 permitAll로 추가하고 쓰기·내 저장 조회를 함께
@@ -280,15 +283,16 @@ timestamp는 기존 LocalDateTime 형식이며, 새 data의 UTC 시각과 혼동
 | 404 RESTAURANT-004 | 기존 NOT_FOUND; 삭제·비노출 식당 | 해당 핀·지도 목록 제거 |
 | 409 RESTAURANT-018 | MAP_LOCATION_UNAVAILABLE | 좌표·선택 해제; 컬렉션 목록 유지 |
 | 409 RESTAURANT-019 | LOCATION_RETRY_CONFLICT | 관리자 상태 재조회 |
-| 404 USER-006 | COLLECTION_NOT_ACCESSIBLE; 없음·삭제·열람 불가 통합 | 컬렉션 표시 제거 |
-| 409 USER-007 | COLLECTION_VERSION_CHANGED | 전체 핀 새 조회 |
-| 503 USER-008 | COLLECTION_MAP_UNAVAILABLE; 전체 생성 실패/용량 초과 | 전체 재시도, 부분 성공 금지 |
-| 503 USER-009 | SAVE_SUMMARY_UNAVAILABLE | 집계/개인 상태만 재시도; false/0 대입 금지 |
+| 404 USER-006 | 기존 COLLECTION_NOT_FOUND; 없음·삭제·열람 불가 통합 | 컬렉션 표시 제거 |
+| 409 COMMON-409 | 기존 CONFLICT; 허용된 컬렉션의 version 변경 | 전체 핀 새 조회 |
+| 503 USER-017 | COLLECTION_MAP_UNAVAILABLE; 전체 생성 실패/용량 초과 | 전체 재시도, 부분 성공 금지 |
+| 500 COMMON-500 | #242 제안 구현에서 요약 조회의 예상하지 못한 서버 오류 | 집계/개인 상태 재시도; false/0 대입 금지 |
 | 401 COMMON-401 / 403 COMMON-403 | 기존 인증 필요 / 역할 불가 | 로그인·권한 안내 |
 
-user endpoint는 내부 RestaurantPort 통신/조회 실패를 해당 USER-008/009로 매핑하고 상세 원인은
-안전한 서버 로그로 한정한다. 인증 필터의 잘못된/만료 토큰 오류는 기존 auth 계약을 유지한다.
-예상하지 못한 서버 오류는 기존 COMMON-500이다. 신규 code는 각 소유 모듈 code 패키지에 둔다.
+컬렉션 지도 endpoint는 내부 RestaurantPort 통신/조회 실패를 USER-017로 매핑하고 상세 원인은
+안전한 서버 로그로 한정한다. 요약 endpoint의 전용 503 코드는 #242에서 확정되지 않았으므로
+기존 COMMON-500 경로를 #242 제안 구현 기준으로 기록한다. 인증 필터의 잘못된/만료 토큰 오류는 기존 auth 계약을 유지한다.
+신규 code는 각 소유 모듈 code 패키지에 둔다.
 
 410 예시(문구는 해당 enum 등록 시 그대로 사용):
 
