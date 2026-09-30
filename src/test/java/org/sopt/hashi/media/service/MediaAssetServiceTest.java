@@ -51,6 +51,7 @@ import org.springframework.util.unit.DataSize;
 class MediaAssetServiceTest {
 
     private static final CurrentActor USER = new CurrentActor(ActorType.USER, 1L);
+    private static final CurrentActor ADMIN = new CurrentActor(ActorType.ADMIN, 7L);
     private static final Clock CLOCK = Clock.fixed(
             Instant.parse("2026-08-27T00:00:00Z"),
             ZoneId.of("Asia/Tokyo")
@@ -111,8 +112,74 @@ class MediaAssetServiceTest {
                     .containsEntry("If-None-Match", "*");
             assertThat(upload.expectedContentLength()).isEqualTo(1024L);
         });
-        verify(transactionService).assertIssuanceAvailable();
+        verify(transactionService).assertIssuanceAvailable(MediaPurpose.REVIEW);
         verify(transactionService).createAssets(eq(USER), eq(MediaPurpose.REVIEW), anyList());
+    }
+
+    @Test
+    void 카드뉴스만_10MiB까지_업로드_요청을_허용한다() {
+        long fileSize = 10L * 1024 * 1024;
+        given(currentActorProvider.currentActor()).willReturn(ADMIN);
+        given(originalStorage.createPresignedUpload(
+                org.mockito.ArgumentMatchers.startsWith("media/originals/"),
+                eq("image/png"),
+                eq(fileSize)
+        )).willReturn(new PresignedOriginalUpload(
+                "https://s3.example.com/presigned",
+                Map.of("Content-Type", "image/png", "If-None-Match", "*"),
+                fileSize,
+                300,
+                "PUT"
+        ));
+
+        service.createAssets(new CreateMediaAssetsRequest(
+                MediaPurpose.MAGAZINE_CARD_NEWS,
+                List.of(new CreateMediaAssetsRequest.FileRequest("image/png", fileSize))
+        ));
+
+        verify(originalStorage).createPresignedUpload(
+                org.mockito.ArgumentMatchers.startsWith("media/originals/"),
+                eq("image/png"),
+                eq(fileSize)
+        );
+    }
+
+    @Test
+    void v1에서_지원하지_않는_카드뉴스는_업로드_URL_발급_전에_거부한다() {
+        given(currentActorProvider.currentActor()).willReturn(ADMIN);
+        willThrow(new BusinessException(MediaErrorCode.PIPELINE_UNAVAILABLE))
+                .given(transactionService).assertIssuanceAvailable(MediaPurpose.MAGAZINE_CARD_NEWS);
+
+        assertThatThrownBy(() -> service.createAssets(new CreateMediaAssetsRequest(
+                MediaPurpose.MAGAZINE_CARD_NEWS,
+                List.of(new CreateMediaAssetsRequest.FileRequest("image/png", 1024L)))))
+                .isInstanceOf(BusinessException.class)
+                .hasFieldOrPropertyWithValue("errorCode", MediaErrorCode.PIPELINE_UNAVAILABLE);
+        verifyNoInteractions(originalStorage);
+        verify(transactionService, never()).createAssets(eq(ADMIN), eq(MediaPurpose.MAGAZINE_CARD_NEWS), anyList());
+    }
+
+    @Test
+    void 카드뉴스도_10MiB를_넘으면_거부한다() {
+        given(currentActorProvider.currentActor()).willReturn(ADMIN);
+        assertThatThrownBy(() -> service.createAssets(new CreateMediaAssetsRequest(
+                MediaPurpose.MAGAZINE_CARD_NEWS,
+                List.of(new CreateMediaAssetsRequest.FileRequest("image/png", 10L * 1024 * 1024 + 1)))))
+                .isInstanceOf(BusinessException.class)
+                .hasFieldOrPropertyWithValue("errorCode", MediaErrorCode.FILE_SIZE_EXCEEDED);
+        verifyNoInteractions(transactionService, originalStorage);
+    }
+
+    @ParameterizedTest
+    @EnumSource(value = MediaPurpose.class, names = {"RESTAURANT", "RESTAURANT_MENU"})
+    void 식당과_메뉴는_기존_5MiB_제한을_유지한다(MediaPurpose purpose) {
+        given(currentActorProvider.currentActor()).willReturn(ADMIN);
+        assertThatThrownBy(() -> service.createAssets(new CreateMediaAssetsRequest(
+                purpose,
+                List.of(new CreateMediaAssetsRequest.FileRequest("image/png", 5L * 1024 * 1024 + 1)))))
+                .isInstanceOf(BusinessException.class)
+                .hasFieldOrPropertyWithValue("errorCode", MediaErrorCode.FILE_SIZE_EXCEEDED);
+        verifyNoInteractions(transactionService, originalStorage);
     }
 
     @Test

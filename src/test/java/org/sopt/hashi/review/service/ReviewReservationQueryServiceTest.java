@@ -108,8 +108,18 @@ class ReviewReservationQueryServiceTest {
         assertThat(response.reviewable()).isTrue();
         assertThat(response.reviewUnavailableReason()).isNull();
         assertThat(response.reviewKeywordOptions())
-                .extracting(ReviewContextResponse.ReviewKeywordOption::code)
-                .contains("FOOD_IS_DELICIOUS", "STAFF_IS_KIND", "GOOD_VALUE");
+                .extracting(option -> option.code() + ":" + option.label())
+                .containsExactly(
+                        "FOOD_IS_DELICIOUS:음식이 맛있어요",
+                        "MILD_SEASONING:향신료가 강하지 않아요",
+                        "GOOD_FOR_SOLO_DINING:혼밥하기 좋아요",
+                        "STAFF_IS_KIND:친절해요",
+                        "SPACIOUS_INTERIOR:매장이 넓어요",
+                        "CLEAN_INTERIOR:매장이 청결해요",
+                        "FAST_SERVICE:음식이 빨리 나와요",
+                        "PHOTO_FRIENDLY:사진이 잘 나와요",
+                        "GOOD_VALUE:가성비가 좋아요",
+                        "GOOD_FOR_CONVERSATION:대화하기 좋아요");
         verify(mediaPort).findImages(argThat(
                 requests -> List.copyOf(requests).equals(List.of(request(assetId)))));
     }

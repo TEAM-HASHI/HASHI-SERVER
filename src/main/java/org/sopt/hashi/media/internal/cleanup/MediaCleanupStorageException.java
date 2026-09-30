@@ -18,6 +18,7 @@ public class MediaCleanupStorageException extends RuntimeException {
 
     public enum Reason {
         STORAGE_UNAVAILABLE,
+        VERSIONING_NOT_ENABLED,
         INVALID_STORAGE_RESPONSE,
         PARTIAL_DELETE,
         INTERRUPTED

@@ -1,0 +1,9 @@
+[
+  {"sourceWidth":4096,"sourceHeight":2733,"outputs":[{"width":432,"height":288},{"width":864,"height":576},{"width":1296,"height":865}]},
+  {"sourceWidth":2733,"sourceHeight":4096,"outputs":[{"width":384,"height":576},{"width":769,"height":1152},{"width":1153,"height":1728}]},
+  {"sourceWidth":1,"sourceHeight":1200,"outputs":[{"width":1,"height":1200}]},
+  {"sourceWidth":2,"sourceHeight":1200,"outputs":[{"width":1,"height":576},{"width":2,"height":1200}]},
+  {"sourceWidth":3,"sourceHeight":3000,"outputs":[{"width":1,"height":1152},{"width":2,"height":1728}]},
+  {"sourceWidth":1200,"sourceHeight":1,"outputs":[{"width":432,"height":1},{"width":864,"height":1},{"width":1200,"height":1}]},
+  {"sourceWidth":1,"sourceHeight":1,"outputs":[{"width":1,"height":1}]}
+]
