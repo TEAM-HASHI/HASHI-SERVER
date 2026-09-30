@@ -1,35 +1,36 @@
 # Map Contract v1
 
-- 작성: 2026-09-26, [#219](https://github.com/TEAM-HASHI/HASHI-SERVER/issues/219)
-- 상태: 후속 구현을 위한 계약. 아래 신규 API·상태·오류는 아직 서버에 구현되지 않았다.
+- 작성: 2026-09-26, 최신 기획 대조: 2026-10-01, [#219](https://github.com/TEAM-HASHI/HASHI-SERVER/issues/219)
+- 상태: 지도 서버 구현 PR과 컬렉션 지도 연동의 기준 계약. 이 문서의 API를 모두 병합·배포했다고 뜻하지 않는다.
 - 구조 결정: [ADR 0002](../adr/0002-restaurant-map-query-and-location.md)
 - 구현 순서·테스트 인수 기준: [Implementation Plan](./implementation-plan.md)
 
 ## 1. 근거와 현재 구현
 
-기획 기준은 PLAN `cb29913817a113ac7b2bc4d8d92a4232a3998d2c`다.
+기획 기준은 PLAN `6f2c99c3d089ddb65f015121312e19f66572ea03`이다. 아래 링크도 이 고정 버전을 가리킨다.
 
 | 근거 | 확정 요구 |
 |---|---|
-| [MAP_MAIN](https://github.com/TEAM-HASHI/HASHI-PLAN/blob/cb29913817a113ac7b2bc4d8d92a4232a3998d2c/02_PRODUCT_SPEC/MAP/MAP_MAIN/MAP_MAIN.md) | 이동만으로 재조회하지 않음, 일반 목록·핀을 10개씩 함께 추가, 추천·별점·리뷰 정렬 |
-| [MAP_FILTERED](https://github.com/TEAM-HASHI/HASHI-PLAN/blob/cb29913817a113ac7b2bc4d8d92a4232a3998d2c/02_PRODUCT_SPEC/MAP/MAP_FILTERED/MAP_FILTERED.md) | 선택 chip 재선택도 현재 viewport로 새 조회, 정렬 유지 |
-| [MAP_RESTAURANT_DETAIL](https://github.com/TEAM-HASHI/HASHI-PLAN/blob/cb29913817a113ac7b2bc4d8d92a4232a3998d2c/02_PRODUCT_SPEC/MAP/MAP_RESTAURANT_DETAIL/MAP_RESTAURANT_DETAIL.md) | 상세 복귀 시 지도 상태 유지, 삭제·비노출 식당 선택 차단 |
-| [DEC-001](https://github.com/TEAM-HASHI/HASHI-PLAN/blob/cb29913817a113ac7b2bc4d8d92a4232a3998d2c/07_DECISIONS/DEC-001_MAP_INITIAL_CLUSTERING.md) | 행정구가 아닌 관광 지역 초기 클러스터, 이후 동적 클러스터 없음 |
-| [SAVED_COLLECTION](https://github.com/TEAM-HASHI/HASHI-PLAN/blob/cb29913817a113ac7b2bc4d8d92a4232a3998d2c/02_PRODUCT_SPEC/SAVED/SAVED_COLLECTION/SAVED_COLLECTION.md) | 유효 좌표만 핀, 좌표 없는 공개 식당은 목록 유지, 같은 사용자의 마지막 저장 관계 해제 때만 전체 저장 수 감소 |
+| [MAP_MAIN](https://github.com/TEAM-HASHI/HASHI-PLAN/blob/6f2c99c3d089ddb65f015121312e19f66572ea03/02_PRODUCT_SPEC/MAP/MAP_MAIN/MAP_MAIN.md) | 이동만으로 재조회하지 않음, 일반 목록·핀을 10개씩 함께 추가, 추천·별점·리뷰 정렬 |
+| [MAP_FILTERED](https://github.com/TEAM-HASHI/HASHI-PLAN/blob/6f2c99c3d089ddb65f015121312e19f66572ea03/02_PRODUCT_SPEC/MAP/MAP_FILTERED/MAP_FILTERED.md) | 선택 chip 재선택도 현재 viewport로 새 조회, 정렬 유지 |
+| [MAP_RESTAURANT_DETAIL](https://github.com/TEAM-HASHI/HASHI-PLAN/blob/6f2c99c3d089ddb65f015121312e19f66572ea03/02_PRODUCT_SPEC/MAP/MAP_RESTAURANT_DETAIL/MAP_RESTAURANT_DETAIL.md) | 상세 복귀 시 지도 상태 유지, 삭제·비노출 식당 선택 차단 |
+| [DEC-001](https://github.com/TEAM-HASHI/HASHI-PLAN/blob/6f2c99c3d089ddb65f015121312e19f66572ea03/07_DECISIONS/DEC-001_MAP_INITIAL_CLUSTERING.md) | 행정구가 아닌 관광 지역 초기 클러스터, 이후 동적 클러스터 없음 |
+| [SAVED_COLLECTION](https://github.com/TEAM-HASHI/HASHI-PLAN/blob/6f2c99c3d089ddb65f015121312e19f66572ea03/02_PRODUCT_SPEC/SAVED/SAVED_COLLECTION/SAVED_COLLECTION.md) | 유효 좌표만 핀, 좌표 없는 공개 식당은 목록 유지, 같은 사용자의 마지막 저장 관계 해제 때만 전체 저장 수 감소 |
+| [SAVED_COLLECTION_SAVE](https://github.com/TEAM-HASHI/HASHI-PLAN/blob/6f2c99c3d089ddb65f015121312e19f66572ea03/02_PRODUCT_SPEC/SAVED/SAVED_COLLECTION_SAVE/SAVED_COLLECTION_SAVE.md) | 저장 버튼은 컬렉션 선택 모달을 열고, 비로그인 사용자는 로그인 후 원래 지도 상태로 돌아온다. 생성·수정 이름/설명의 앞뒤 공백은 보존하고 공백만인 이름은 거부한다. |
 
 선택 컬렉션의 **모든 유효 핀을 목록과 독립 로드**하는 것은 이번 작업의 명시 요구다.
 지역 매핑·검색 진입 카메라·지역 필터 해제·세션 수명·전송 방식 등 아래의 세부 기술 규칙은
 M1에서 채택한 구현안이다. 기획 원문에 이미 확정된 UI 정책으로 소급해서 해석하지 않는다.
 
-SERVER 기준은 `5082e01d5c821be92726751f8f528092bde8bc7f`다.
+SERVER 기준은 `origin/develop`의 `053fdb3a050d48956241357934a43e191ef99ece`다. 지도 구현은 열린 Draft PR들의 HEAD에서 별도로 확인한다.
 
 | 현재 코드 근거 | 유지할 점 / 후속 차이 |
 |---|---|
 | [RestaurantController](../../src/main/java/org/sopt/hashi/restaurant/web/RestaurantController.java), [RestaurantService](../../src/main/java/org/sopt/hashi/restaurant/service/RestaurantService.java) | `/api/v1/restaurants`의 기존 cursor·`basic/popular/rating` 유지. 지도는 별도 API·정렬 타입 |
-| [Restaurant](../../src/main/java/org/sopt/hashi/restaurant/domain/Restaurant.java), [Specifications](../../src/main/java/org/sopt/hashi/restaurant/domain/RestaurantSpecifications.java), [Repository](../../src/main/java/org/sopt/hashi/restaurant/domain/RestaurantRepository.java) | 현재 공개 조건은 `deleted=false`; 별도 공개 상태·좌표·관광 지역 필드는 없음. 검색은 식당명·메뉴명 |
+| [Restaurant](../../src/main/java/org/sopt/hashi/restaurant/domain/Restaurant.java), [Specifications](../../src/main/java/org/sopt/hashi/restaurant/domain/RestaurantSpecifications.java), [Repository](../../src/main/java/org/sopt/hashi/restaurant/domain/RestaurantRepository.java) | 현재 공개 조건은 `deleted=false`; 지도 좌표·관광 지역은 미병합 지도 PR에 있다. 검색은 식당명·메뉴명 |
 | [RestaurantPlaceType](../../src/main/java/org/sopt/hashi/restaurant/domain/RestaurantPlaceType.java) | wire 값 `restaurant/cafe/bar`. `genre`·자유문구 `foodCategory`와 다른 축 |
 | [목록 DTO](../../src/main/java/org/sopt/hashi/restaurant/dto/RestaurantListResponse.java), [직렬화 테스트](../../src/test/java/org/sopt/hashi/restaurant/dto/RestaurantListResponseTest.java) | `content/hasNext`, 마지막 `nextCursor` 생략. 지도 전용 DTO로 확장 |
-| [RestaurantPort](../../src/main/java/org/sopt/hashi/restaurant/RestaurantPort.java), [user](../../src/main/java/org/sopt/hashi/user/UserPort.java) | `user → restaurant` 유지. 컬렉션 API는 아직 없고 [#216](https://github.com/TEAM-HASHI/HASHI-SERVER/issues/216)과 연동 필요 |
+| [RestaurantPort](../../src/main/java/org/sopt/hashi/restaurant/RestaurantPort.java), [컬렉션 Controller](../../src/main/java/org/sopt/hashi/user/collection/web/RestaurantCollectionController.java) | `user → restaurant` 유지. #216 컬렉션 CRUD·저장·커서 목록은 develop에 병합됐다. 지도 요약·전체 핀은 후속 #242에서 연결한다. |
 | [SecurityConfig](../../src/main/java/org/sopt/hashi/auth/internal/security/SecurityConfig.java), [RedisConfig](../../src/main/java/org/sopt/hashi/config/RedisConfig.java) | 식당 공개 경로·USER/ADMIN 분리 유지. 새 공개 컬렉션 GET matcher는 후속 변경. 지도 세션 TTL은 명시적으로 설정 |
 | [관리자 Controller](../../src/main/java/org/sopt/hashi/admin/web/AdminRestaurantController.java), [모듈 검증](../../src/test/java/org/sopt/hashi/ModularityTests.java) | admin은 Port에 위임. DB 작업·HTTP를 감싸는 transaction 경계를 새로 검증 |
 
@@ -211,9 +212,9 @@ rating·reviewCount는 rankingAsOf 기준, 다른 표시 값과 좌표는 현재
 
 ## 6. 저장 요약과 선택 컬렉션 전체 핀
 
-다음 경로는 #216에 제안하는 **M1 채택 경로**다. 현재 구현·담당자 합의 완료로 표시하지 않는다.
-#216의 실제 경로/오류 번호가 먼저 확정되면 FE·서버 mock과 이 문서를 함께 갱신한다.
-저장·이동·삭제 명령 API 자체는 #216 소유이며 여기서 두 번째 API를 만들지 않는다.
+#216의 컬렉션 CRUD·저장·이동·삭제·커서 목록 API는 develop에 병합됐다.
+다음 세 지도 요약/핀 경로는 #242에서 연결할 **M6 제안 계약**이며 develop에 이미 구현된 경로로 표시하지 않는다.
+기존 `POST /collections/{id}/restaurants`와 삭제·이동 명령을 중복 구현하지 않는다.
 
 | API (담당 user) | 접근·응답 data |
 |---|---|
@@ -231,6 +232,11 @@ savedCount는 해당 식당을 하나 이상 저장한 사용자 수다. 같은 
 isSaved는 현재 사용자의 소유 컬렉션에 하나 이상 저장됐는지다. 공개 컬렉션 열람만으로 true가 되지 않는다.
 미래 공동 편집자의 저장 귀속은 이번 범위 밖이며 역할·집계 정책을 별도로 정한다.
 저장 성공 시 #216 결과로 상태·집계를 갱신하고 실패 시 이전 값 유지, 처리 중 중복 클릭을 막는다.
+지도 카드와 상세의 저장 버튼은 즉시 boolean을 뒤집는 명령이 아니다. 로그인 사용자에게
+`SAVED_COLLECTION_SAVE`를 열어 대상 컬렉션 하나를 선택하게 한다. 비로그인 사용자는 로그인 완료 뒤
+저장 직전의 지도·선택 식당·목록 상태로 돌아오며 자동 저장이나 자동 모달 재열기는 하지 않는다.
+새 컬렉션 생성·수정에서 이름과 설명의 앞뒤 공백은 보존하고, 공백만인 이름은 거부한다.
+공유 링크를 복사해도 공개 범위는 바뀌지 않으며, 명시적인 소유자 PATCH만 공개 상태를 변경한다.
 
 ### 전체 마커 응답과 실패
 

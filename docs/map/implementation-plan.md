@@ -1,7 +1,7 @@
 # 지도 후속 구현과 인수 기준
 
-상태: [#219](https://github.com/TEAM-HASHI/HASHI-SERVER/issues/219)의 문서 계획.
-M2~M7은 아래의 작업 구분자이며 실제 등록된 GitHub 이슈 번호가 아니다.
+상태: [#219](https://github.com/TEAM-HASHI/HASHI-SERVER/issues/219)의 문서 계획을 2026-10-01 PLAN `6f2c99c`와 develop `053fdb3`에 대조했다.
+M2~M7은 아래의 작업 구분자다. 대응 이슈/PR은 별도로 추적하며, Draft PR이나 테스트 성공을 병합·배포로 취급하지 않는다.
 계약은 [Map Contract v1](./map-contract-v1.md), 구조 결정은 [ADR 0002](../adr/0002-restaurant-map-query-and-location.md)를 따른다.
 
 ## 1. 쪼갠 이슈 계획
@@ -13,13 +13,15 @@ M2~M7은 아래의 작업 구분자이며 실제 등록된 GitHub 이슈 번호�
 | M4a `[Feat] 관광 지역과 지도 후보 조회 추가` | M2. BBOX·필터·지역 count, 지도 DTO·map-location, 합성 fixture | 경계·삭제·만료·지역 미분류·bulk query 검증. 완성된 공개 페이지 API로 출시하지 않음 |
 | M4b `[Feat] 지도 정렬 세션과 페이지 연결 추가` | M4a. Redis 세션·절대 TTL·cursor·정렬 변경·오류 | 실제 Redis TTL/eviction/장애와 MySQL 재검사, 중복·누락 반례. M4a와 함께 Map Contract의 공개 조회 완성 |
 | M5 `[Feat] 기존 식당 좌표 보완과 수명 정리 추가` | M3. 조회 전용 dry-run·checkpoint·제한 실행·만료 전 갱신/제거 | resume·동시 실행·stop·expiry·백업 복구 방어. 유료 호출/운영 backfill 실행은 별도 승인과 결과 보고 |
-| M6 `[Feat] 컬렉션 전체 핀과 저장 요약 연동` | M2 Port 및 #216의 저장/권한 기반. user 공개 집계·내 상태·전체 핀 API | 소유권·비공개 접근·버전 변경·전체 반환·실패 원자성, security matcher와 모듈 경계. #216 쓰기 API 중복 구현 금지 |
+| M6 `#242 컬렉션 전체 핀과 저장 요약 연동` | M2 Port 및 develop에 병합된 #216의 저장/권한 기반. user 공개 집계·내 상태·전체 핀 API | 소유권·비공개 접근·버전 변경·전체 반환·실패 원자성, security matcher와 모듈 경계. #216 쓰기 API 중복 구현 금지 |
 | M7 `[Docs] 지도 통합 검증과 운영 절차 정리` | M3~M6와 FE/어드민 통합 | 화면 상태/카메라·부분 실패·귀속 표기·성능·quota·운영 gate 증거. 문서 통과를 배포 증거로 대체하지 않음 |
 
 학습 순서는 M2의 좌표 불변식 → M4a의 BBOX → M3의 짧은 transaction과 외부 HTTP →
 M4b의 정렬 세션 → M5/M6 통합이다. M3와 M4a는 M2 이후 독립 개발할 수 있으나 공유 Port·
-관리자 DTO·SecurityConfig·다음 Flyway 번호는 담당을 정한다. 실제 이슈 등록·작업방 생성·담당자
-연락은 이 문서 PR에서 수행하지 않는다. 각 구현은 최신 develop의 전용 worktree에서 시작한다.
+관리자 DTO·SecurityConfig·다음 Flyway 번호는 담당을 정한다. 현재 미병합 지도 migration은
+develop V28(매거진)·V30(컬렉션) 다음 V31(위치) → V32(작업) → V33(유지보수) 순서로 정리한다.
+M6가 schema를 추가하면 V34 이후를 사용하고, 병합·배포도 이 순서를 지킨다. 이미 적용된
+운영 Flyway 이력은 확인 없이 수정하거나 `outOfOrder`로 우회하지 않는다.
 
 ## 2. 테스트 인수 시나리오
 
@@ -74,7 +76,7 @@ M1은 문서 낮은 위험 리뷰 1명이다. 후속 DB·transaction·동시성�
 | 입력/검증 | 없을 때 가능한 일 | 운영 완료로 주장할 수 없는 것 |
 |---|---|---|
 | 관광 지역·지원 bounds·대표 화면·식당 매핑 | 합성 fixture와 validation | 실제 지역 count·대표 위치의 정확성 |
-| #216 실제 경로·오류 배정, FE 카메라/지역 해제·초기 안내 상태 확인 | 이 문서 기준 mock과 Port 개발 | 팀 통합 합의·화면 인수 완료 |
+| #242 지도 요약·전체 핀 경로 확정, FE 카메라/지역 해제·초기 안내 상태 확인 | #216 병합 API를 기준으로 M6 Port·mock 개발 | 팀 통합 합의·화면 인수 완료 |
 | Google 프로젝트·청구 지역/계약·키 제한·허용 보존 수명 | fake 호출과 장애 테스트 | 실계정 허가·과금·quota·Google 결과 보관 적합성 |
 | Redis 메모리·eviction·세션/전체 admission 예산 | 소규모 fixture·부하 도구 설계 | 처리 용량·응답 시간 보장 |
 | 대상 DB 수·주소 품질·backfill 호출/일일 한도·stop/resume·백업 수명 | 조회 전용 dry-run 설계 | 유료 호출·운영 backfill·물리 제거 실행 승인 |
