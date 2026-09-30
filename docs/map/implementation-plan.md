@@ -46,10 +46,11 @@ production 테스트를 추가하지 않는다.
 | LOC-04 / M3 | 0건·복수/저정확도·timeout·quota·권한 오류의 상태 분류, 제한 backoff·attempt 소진·관리자 재처리·동시 재처리 1개 작업 |
 | LOC-05 / M5·M7 | validUntil 경계에서 서버·FE 노출 중단, DB/복제 캐시 제거, refresh 실패로 수명 연장 없음, 만료 데이터 백업 복원도 공개 차단 |
 | COL-01 / M6 | 23개 공개 식당 중 2개 위치 없음. 목록 첫 10개와 독립적으로 핀 21개, visible=23/unavailable=2. 위치 없는 2개 목록 유지 |
-| COL-02 / M6 | 같은 사용자의 두 컬렉션에 저장해도 savedCount=1. 하나 제거하면 유지, 마지막 제거면 감소. 타 공개 컬렉션 열람은 내 저장 아님 |
+| COL-02 / M6 | 같은 사용자의 두 컬렉션에 저장해도 saveCount=1. 하나 제거하면 유지, 마지막 제거면 감소. 타 공개 컬렉션 열람은 내 저장 아님 |
 | COL-03 / M6 | 익명 공개 열람 성공, 비공개 타인/익명 404, 소유 USER 성공. ADMIN/ONBOARDING의 내 저장·편집 접근 차단. 쓰기 matcher 비공개 유지 |
 | COL-04 / M6 | 내부 두 번째 bulk 실패·응답 전 권한 철회/삭제·소속 version 변경. 부분 200 없음, 404면 FE 기존 핀 제거, 409면 전체 재조회 |
 | COL-05 / M6·M7 | 공개 집계/개인 상태 중 하나만 실패해도 false/0으로 대입하지 않음. 0개 핀 성공과 전체 조회 오류 구분. 전체 capacity 초과는 명시적 실패 |
+| COL-06 / M6 | #216 쓰기의 공백 제거를 #242에서 수정. 생성·수정 이름/설명 앞뒤 공백 보존, 공백만인 이름 거부, 기존 이름 중복 판정 유지 |
 | API-01 / M4·M6 | SuccessResponse/ErrorResponse·HTTP/code·errors·nextCursor 생략·UTC data 시각·no-store 직렬화와 실제 SecurityFilterChain 검증 |
 | API-02 / M2~M6 | RestaurantPort 밖 도메인 내부 참조/순환 없음. 지도 페이지·collection bulk의 ID 수 증가에 item별 DB/media 호출이 늘지 않음 |
 
