@@ -45,7 +45,8 @@ import org.springframework.transaction.annotation.Transactional;
  */
 @DataJpaTest
 @Import({RestaurantCollectionService.class, SavedRestaurantQueryService.class,
-        RestaurantCollectionFinder.class, SavedRestaurantEnricher.class, JpaAuditingConfig.class})
+        RestaurantCollectionFinder.class, SavedRestaurantEnricher.class, JpaAuditingConfig.class,
+        RestaurantSaveSummaryService.class, CollectionMapSnapshotStore.class})
 @TestPropertySource(properties = {
         "spring.flyway.enabled=false",
         "spring.jpa.hibernate.ddl-auto=create-drop",
@@ -62,6 +63,12 @@ class RestaurantCollectionIntegrationTest {
 
     @Autowired
     private SavedRestaurantQueryService queryService;
+
+    @Autowired
+    private RestaurantSaveSummaryService summaryService;
+
+    @Autowired
+    private CollectionMapSnapshotStore snapshotStore;
 
     @Autowired
     private RestaurantCollectionRepository restaurantCollectionRepository;
@@ -176,6 +183,84 @@ class RestaurantCollectionIntegrationTest {
                 .containsExactly(101L);
         assertThat(secondPage.hasNext()).isFalse();
         assertThat(secondPage.nextCursor()).isNull();
+    }
+
+    @Test
+    void 같은_사용자의_공개와_비공개_저장은_하나로_세고_마지막_제거만_저장수를_줄인다() {
+        Long first = saveCollection(OWNER_ID, "공개", CollectionVisibility.PUBLIC, 101L);
+        Long second = saveCollection(OWNER_ID, "비공개", CollectionVisibility.PRIVATE, 101L);
+        saveCollection(OTHER_USER_ID, "다른 회원", CollectionVisibility.PRIVATE, 101L);
+
+        assertThat(summaryService.getSaveCounts(List.of(101L)).restaurants().getFirst().saveCount()).isEqualTo(2);
+        assertThat(summaryService.getMySaves(List.of(101L)).restaurants().getFirst().saved()).isTrue();
+        collectionService.removeRestaurants(first, List.of(101L));
+        assertThat(summaryService.getSaveCounts(List.of(101L)).restaurants().getFirst().saveCount()).isEqualTo(2);
+        collectionService.delete(second);
+        assertThat(summaryService.getSaveCounts(List.of(101L)).restaurants().getFirst().saveCount()).isEqualTo(1);
+        assertThat(summaryService.getMySaves(List.of(101L)).restaurants().getFirst().saved()).isFalse();
+    }
+
+    @Test
+    void 삭제_미존재_식당은_요약에서_제외하고_요청_순서를_유지한다() {
+        saveCollection(OWNER_ID, "저장", CollectionVisibility.PUBLIC, 101L, 102L);
+        given(restaurantPort.findActiveCards(anyCollection())).willReturn(List.of(card(101L), card(103L)));
+
+        assertThat(summaryService.getSaveCounts(List.of(103L, 102L, 101L)).restaurants())
+                .extracting(item -> item.restaurantId()).containsExactly(103L, 101L);
+        assertThat(summaryService.getMySaves(List.of(103L, 102L, 101L)).restaurants())
+                .extracting(item -> item.saved()).containsExactly(false, true);
+    }
+
+    @Test
+    void 요약은_중복_ID와_빈목록_음수_상한초과를_거부한다() {
+        for (List<Long> ids : List.of(List.<Long>of(), List.of(1L, 1L), List.of(0L), List.of(-1L),
+                java.util.stream.LongStream.rangeClosed(1, 101).boxed().toList())) {
+            assertBusinessError(() -> summaryService.getSaveCounts(ids),
+                    org.sopt.hashi.shared.error.CommonErrorCode.INVALID_INPUT);
+        }
+    }
+
+    @Test
+    void 식당_Port_실패를_저장수_0이나_미저장으로_숨기지_않는다() {
+        given(restaurantPort.findActiveCards(anyCollection())).willThrow(new IllegalStateException("unavailable"));
+        assertThatThrownBy(() -> summaryService.getSaveCounts(List.of(1L))).isInstanceOf(IllegalStateException.class);
+        assertThatThrownBy(() -> summaryService.getMySaves(List.of(1L))).isInstanceOf(IllegalStateException.class);
+    }
+
+    @Test
+    void 생성과_수정은_이름과_설명의_공백을_보존한다() {
+        var created = collectionService.create(new org.sopt.hashi.user.collection.dto.CreateRestaurantCollectionRequest(
+                "  도쿄  ", "red", "   ", "public"));
+        assertThat(created.name()).isEqualTo("  도쿄  ");
+        assertThat(created.description()).isEqualTo("   ");
+        var updated = collectionService.update(created.collectionId(),
+                new org.sopt.hashi.user.collection.dto.UpdateRestaurantCollectionRequest("  교토  ", null, "  설명  ", null));
+        assertThat(updated.name()).isEqualTo("  교토  ");
+        assertThat(updated.description()).isEqualTo("  설명  ");
+        assertThat(collectionService.update(created.collectionId(),
+                new org.sopt.hashi.user.collection.dto.UpdateRestaurantCollectionRequest(null, null, null, null))
+                .description()).isEqualTo("  설명  ");
+        assertThat(collectionService.update(created.collectionId(),
+                new org.sopt.hashi.user.collection.dto.UpdateRestaurantCollectionRequest(null, null, "", null))
+                .description()).isNull();
+    }
+
+    @Test
+    void 지도_snapshot_이후_비공개_변경과_삭제는_404이고_멤버십_변경은_409이다() {
+        Long id = saveCollection(OWNER_ID, "지도", CollectionVisibility.PUBLIC, 102L, 101L);
+        var snapshot = snapshotStore.read(id, null);
+        assertThat(snapshot.restaurantIds()).containsExactly(101L, 102L);
+        snapshotStore.validate(snapshot, null);
+        collectionService.removeRestaurants(id, List.of(101L));
+        assertBusinessError(() -> snapshotStore.validate(snapshot, null),
+                org.sopt.hashi.shared.error.CommonErrorCode.CONFLICT);
+        var current = snapshotStore.read(id, null);
+        collectionService.update(id,
+                new org.sopt.hashi.user.collection.dto.UpdateRestaurantCollectionRequest(null, null, null, "private"));
+        assertBusinessError(() -> snapshotStore.validate(current, null), UserErrorCode.COLLECTION_NOT_FOUND);
+        var owned = snapshotStore.read(id, OWNER_ID);
+        collectionService.delete(id);
+        assertBusinessError(() -> snapshotStore.validate(owned, OWNER_ID), UserErrorCode.COLLECTION_NOT_FOUND);
     }
 
     private Long saveCollection(Long userId, String name, CollectionVisibility visibility, Long... restaurantIds) {
