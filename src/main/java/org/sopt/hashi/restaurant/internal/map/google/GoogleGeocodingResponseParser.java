@@ -57,6 +57,26 @@ final class GoogleGeocodingResponseParser {
         }
     }
 
+    /** 403은 권한 거부와 quota 초과가 겹친다. 원문 메시지와 details는 결과로 내보내지 않는다. */
+    GeocodingResult.FailureKind classifyForbidden(byte[] body) {
+        try {
+            JsonNode root = mapper.readTree(body);
+            JsonNode status = root == null ? null : root.path("error").path("status");
+            if (status == null || !status.isTextual()) {
+                return GeocodingResult.FailureKind.ACCESS_DENIED;
+            }
+            return switch (status.textValue()) {
+                case "RESOURCE_EXHAUSTED", "OVER_QUERY_LIMIT", "rateLimitExceeded", "userRateLimitExceeded" ->
+                        GeocodingResult.FailureKind.QUOTA_EXCEEDED;
+                case "OVER_DAILY_LIMIT", "dailyLimitExceeded" ->
+                        GeocodingResult.FailureKind.CONFIGURATION_ERROR;
+                default -> GeocodingResult.FailureKind.ACCESS_DENIED;
+            };
+        } catch (IOException | RuntimeException ignored) {
+            return GeocodingResult.FailureKind.ACCESS_DENIED;
+        }
+    }
+
     private GeocodingCandidate parseCandidate(JsonNode result) {
         require(result.isObject());
         JsonNode location = result.path("location");
