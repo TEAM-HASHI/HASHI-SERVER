@@ -18,6 +18,7 @@ import {
 
 export const IMAGE_LIMITS = Object.freeze({
   maxBytes: 5 * 1024 * 1024,
+  maxCardNewsBytes: 10 * 1024 * 1024,
   maxDimension: 10_000,
   maxFramePixels: 40_000_000,
   maxTotalDecodePixels: 40_000_000,
@@ -89,6 +90,7 @@ export async function processImage(
     input.bytes,
     input.declaredContentType,
     input.declaredByteSize,
+    sourceByteLimit(input.purpose, input.spec.manifest.specVersion),
   );
 
   const renditions: GeneratedRendition[] = [];
@@ -104,7 +106,15 @@ export async function processImage(
       roleSpec,
     );
     for (const target of dimensions) {
-      renditions.push(await renderRendition(input.bytes, role, roleSpec, target, encoder));
+        renditions.push(await renderRendition(
+          input.bytes,
+          source.orientedWidth,
+          source.orientedHeight,
+          role,
+          roleSpec,
+          target,
+          encoder,
+        ));
     }
   }
 
@@ -118,8 +128,9 @@ export async function inspectSource(
   bytes: Buffer,
   declaredContentType: string,
   declaredByteSize: number,
+  maxByteSize = IMAGE_LIMITS.maxBytes,
 ): Promise<InspectedSource> {
-  if (bytes.length > IMAGE_LIMITS.maxBytes) {
+  if (bytes.length > maxByteSize) {
     throw new PermanentImageError("SOURCE_FILE_TOO_LARGE", "Source exceeds byte limit");
   }
   if (bytes.length !== declaredByteSize) {
@@ -256,11 +267,26 @@ export function selectRenditionDimensions(
   role: RenditionRoleSpec,
 ): readonly RenditionDimensions[] {
   const standard = role.candidates
-    .filter((candidate) => candidate.width <= sourceWidth && candidate.height <= sourceHeight)
+    .filter((candidate) => role.fit === "inside"
+      || candidate.width <= sourceWidth && candidate.height <= sourceHeight)
     .toSorted((left, right) => left.width - right.width);
 
   if (standard.length > 0) {
-    return Object.freeze(standard);
+    const unique = new Map<number, RenditionDimensions>();
+    for (const candidate of standard) {
+      const output = expectedOutputDimensions(sourceWidth, sourceHeight, role, candidate);
+      const existing = unique.get(output.width);
+      // S3 keys and rendition identity use width; retain the fullest output per key.
+      if (existing === undefined || output.height >
+        expectedOutputDimensions(sourceWidth, sourceHeight, role, existing).height) {
+        unique.set(output.width, candidate);
+      }
+    }
+    return Object.freeze([...unique.values()]);
+  }
+
+  if (role.noUpscaleFallback.selection === "source-width") {
+    return Object.freeze([Object.freeze({ width: sourceWidth, height: sourceHeight })]);
   }
 
   for (let width = sourceWidth; width >= role.noUpscaleFallback.minimumWidth; width -= 1) {
@@ -280,16 +306,24 @@ function roundHalfUp(value: number): number {
   return Math.floor(value + 0.5);
 }
 
+function sourceByteLimit(purpose: string, specVersion: number): number {
+  return purpose === "MAGAZINE_CARD_NEWS" && specVersion >= 2
+    ? IMAGE_LIMITS.maxCardNewsBytes
+    : IMAGE_LIMITS.maxBytes;
+}
+
 async function renderRendition(
   source: Buffer,
+  sourceWidth: number,
+  sourceHeight: number,
   role: string,
   roleSpec: RenditionRoleSpec,
   target: RenditionDimensions,
   encoder: RenditionEncoder,
 ): Promise<GeneratedRendition> {
-  const output = await encoder(source, roleSpec, target);
-
-  if (output.width !== target.width || output.height !== target.height) {
+  const expected = expectedOutputDimensions(sourceWidth, sourceHeight, roleSpec, target);
+  const output = await encoder(source, roleSpec, expected);
+  if (output.width !== expected.width || output.height !== expected.height) {
     throw new ContractMismatchError("Sharp output dimensions differ from the canonical manifest");
   }
 
@@ -304,6 +338,26 @@ async function renderRendition(
   });
 }
 
+function expectedOutputDimensions(
+  sourceWidth: number,
+  sourceHeight: number,
+  roleSpec: RenditionRoleSpec,
+  target: RenditionDimensions,
+): RenditionDimensions {
+  if (roleSpec.fit === "cover") {
+    return target;
+  }
+  if (sourceWidth <= target.width && sourceHeight <= target.height) {
+    return { width: sourceWidth, height: sourceHeight };
+  }
+  if (sourceWidth * target.height >= sourceHeight * target.width) {
+    const width = Math.min(sourceWidth, target.width);
+    return { width, height: Math.max(1, roundHalfUp((width * sourceHeight) / sourceWidth)) };
+  }
+  const height = Math.min(sourceHeight, target.height);
+  return { width: Math.max(1, roundHalfUp((height * sourceWidth) / sourceHeight)), height };
+}
+
 async function encodeWebpRendition(
   source: Buffer,
   roleSpec: RenditionRoleSpec,
@@ -314,7 +368,9 @@ async function encodeWebpRendition(
     .resize({
       width: target.width,
       height: target.height,
-      fit: roleSpec.fit,
+      // Inside dimensions are already fitted to the source ratio and rounded by contract.
+      // Do not let JPEG shrink-on-load infer a different second dimension.
+      fit: roleSpec.fit === "inside" ? "fill" : roleSpec.fit,
       position: roleSpec.position,
       kernel: sharp.kernel.lanczos3,
       withoutEnlargement: true,

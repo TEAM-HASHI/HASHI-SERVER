@@ -352,6 +352,7 @@ jobs:
           test -f worker/image-transform/artifacts/package/package.json
           test -f worker/image-transform/artifacts/package/dist/handler.js
           test -f worker/image-transform/artifacts/package/media-specs/v1.json
+          test -f worker/image-transform/artifacts/package/media-specs/v2.json
 
       - name: Set up AWS SAM CLI 1.165.0
         uses: aws-actions/setup-sam@89ddb14d60e682855e3fea4be85b3c56485de310 # v3

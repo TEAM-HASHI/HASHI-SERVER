@@ -13,7 +13,7 @@ import org.sopt.hashi.shared.error.BusinessException;
 import org.springframework.stereotype.Service;
 
 /**
- * 유저 인증 오케스트레이션 — 카카오 로그인(가입 여부 판정·토큰 발급)과 재발급(회전).
+ * 유저 인증 오케스트레이션 — 카카오 로그인(가입 여부 판정·토큰 발급)·재발급(회전)·로그아웃(리프레시 폐기).
  */
 @Slf4j
 @Service
@@ -55,6 +55,18 @@ public class UserAuthService {
         refreshTokenStore.rotate(claims.role(), claims.subjectId(), presentedRefreshToken, newRefreshToken);
         String newAccessToken = jwtProvider.createAccessToken(claims.subjectId(), claims.role());
         return new TokenPair(newAccessToken, newRefreshToken);
+    }
+
+    /**
+     * 리프레시 쿠키로 로그아웃한다 — 유저 리프레시 토큰만 수용하고 세션(리프레시)을 폐기한다.
+     * 액세스 토큰은 무상태 JWT라 만료까지 유효하다(블랙리스트는 탈퇴 소관 — auth.md §3).
+     */
+    public void logout(String presentedRefreshToken) {
+        JwtProvider.JwtClaims claims = jwtProvider.parse(presentedRefreshToken);
+        if (!claims.isRefreshToken() || !AuthRoles.USER.equals(claims.role())) {
+            throw new BusinessException(AuthErrorCode.INVALID_TOKEN);
+        }
+        refreshTokenStore.revoke(AuthRoles.USER, claims.subjectId());
     }
 
     private KakaoLoginResult issueMemberTokens(Long userId) {

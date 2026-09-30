@@ -73,6 +73,18 @@ hashi:
       scan-work-budget: ${AWS_MEDIA_CLEANUP_SCAN_WORK_BUDGET:2m}
       storage-work-budget: ${AWS_MEDIA_CLEANUP_STORAGE_WORK_BUDGET:1m}
       shutdown-await: ${AWS_MEDIA_CLEANUP_SHUTDOWN_AWAIT:20s}
+    reconciliation:
+      # S3 version 목록을 읽는 별도 작업이다. 운영 승인 전에는 비활성·DRY_RUN을 유지한다.
+      enabled: ${AWS_MEDIA_RECONCILIATION_ENABLED:false}
+      mode: ${AWS_MEDIA_RECONCILIATION_MODE:DRY_RUN}
+      orphan-retention: ${AWS_MEDIA_RECONCILIATION_ORPHAN_RETENTION:7d}
+      scan-interval: ${AWS_MEDIA_RECONCILIATION_SCAN_INTERVAL:6h}
+      scan-page-size: ${AWS_MEDIA_RECONCILIATION_SCAN_PAGE_SIZE:100}
+      scan-max-pages: ${AWS_MEDIA_RECONCILIATION_SCAN_MAX_PAGES:2}
+      scan-work-budget: ${AWS_MEDIA_RECONCILIATION_SCAN_WORK_BUDGET:2m}
+      storage-api-timeout: ${AWS_MEDIA_RECONCILIATION_STORAGE_API_TIMEOUT:15s}
+      storage-attempt-timeout: ${AWS_MEDIA_RECONCILIATION_STORAGE_ATTEMPT_TIMEOUT:5s}
+      shutdown-await: ${AWS_MEDIA_RECONCILIATION_SHUTDOWN_AWAIT:20s}
     backfill:
       # 승인된 migration 실행 환경에서만 켠다. 일반 media 발급 활성화와 독립된 opt-in이다.
       enabled: ${AWS_MEDIA_BACKFILL_ENABLED:false}

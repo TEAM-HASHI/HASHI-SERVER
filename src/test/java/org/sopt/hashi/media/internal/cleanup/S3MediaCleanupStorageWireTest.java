@@ -49,6 +49,11 @@ class S3MediaCleanupStorageWireTest {
     private static final String DELETED = """
             <DeleteResult xmlns="http://s3.amazonaws.com/doc/2006-03-01/"/>
             """;
+    private static final String VERSIONING_ENABLED = """
+            <VersioningConfiguration xmlns="http://s3.amazonaws.com/doc/2006-03-01/">
+                <Status>Enabled</Status>
+            </VersioningConfiguration>
+            """;
 
     @Test
     void 실제_SDK가_version과_marker_null_version을_삭제_XML에_그대로_전달한다() throws Exception {
@@ -68,8 +73,12 @@ class S3MediaCleanupStorageWireTest {
         SdkHttpClient transport = mock(SdkHttpClient.class);
         List<String> bodies = new ArrayList<>();
         List<ExecutableHttpRequest> responses = List.of(
-                response(originalPage), response(DELETED), response(EMPTY),
-                response(deliveryPage), response(DELETED), response(EMPTY));
+                response(VERSIONING_ENABLED), response(originalPage),
+                response(VERSIONING_ENABLED), response(DELETED),
+                response(VERSIONING_ENABLED), response(EMPTY),
+                response(VERSIONING_ENABLED), response(deliveryPage),
+                response(VERSIONING_ENABLED), response(DELETED),
+                response(VERSIONING_ENABLED), response(EMPTY));
         when(transport.prepareRequest(any(HttpExecuteRequest.class))).thenAnswer(invocation -> {
             HttpExecuteRequest request = invocation.getArgument(0);
             bodies.add(requestBody(request));
@@ -85,18 +94,18 @@ class S3MediaCleanupStorageWireTest {
         }
 
         ArgumentCaptor<HttpExecuteRequest> captured = ArgumentCaptor.forClass(HttpExecuteRequest.class);
-        verify(transport, times(6)).prepareRequest(captured.capture());
-        HttpExecuteRequest originalDelete = captured.getAllValues().get(1);
-        HttpExecuteRequest deliveryDelete = captured.getAllValues().get(4);
+        verify(transport, times(12)).prepareRequest(captured.capture());
+        HttpExecuteRequest originalDelete = captured.getAllValues().get(3);
+        HttpExecuteRequest deliveryDelete = captured.getAllValues().get(9);
         assertThat(originalDelete.httpRequest().method()).isEqualTo(SdkHttpMethod.POST);
         assertThat(originalDelete.httpRequest().encodedPath()).isEqualTo("/test-originals");
         assertThat(originalDelete.httpRequest().rawQueryParameters()).containsKey("delete");
         assertThat(deliveryDelete.httpRequest().encodedPath()).isEqualTo("/test-delivery");
-        assertThat(xmlValues(bodies.get(1), "Key")).containsExactly(ORIGINAL_KEY, ORIGINAL_KEY);
-        assertThat(xmlValues(bodies.get(1), "VersionId")).containsExactly("v+/?=&", "marker-v1");
-        assertThat(xmlValues(bodies.get(1), "Quiet")).containsExactly("true");
-        assertThat(xmlValues(bodies.get(4), "Key")).containsExactly(DELIVERY_KEY);
-        assertThat(xmlValues(bodies.get(4), "VersionId")).containsExactly("null");
+        assertThat(xmlValues(bodies.get(3), "Key")).containsExactly(ORIGINAL_KEY, ORIGINAL_KEY);
+        assertThat(xmlValues(bodies.get(3), "VersionId")).containsExactly("v+/?=&", "marker-v1");
+        assertThat(xmlValues(bodies.get(3), "Quiet")).containsExactly("true");
+        assertThat(xmlValues(bodies.get(9), "Key")).containsExactly(DELIVERY_KEY);
+        assertThat(xmlValues(bodies.get(9), "VersionId")).containsExactly("null");
         assertThat(captured.getAllValues()).allSatisfy(request -> {
             assertThat(request.httpRequest().rawQueryParameters())
                     .doesNotContainKeys("key-marker", "version-id-marker");
@@ -122,8 +131,10 @@ class S3MediaCleanupStorageWireTest {
                 """.formatted(ORIGINAL_KEY);
         ExecutableHttpRequest pageResponse = response(page);
         ExecutableHttpRequest failureResponse = response(failure);
+        ExecutableHttpRequest listVersioningResponse = response(VERSIONING_ENABLED);
+        ExecutableHttpRequest deleteVersioningResponse = response(VERSIONING_ENABLED);
         when(transport.prepareRequest(any(HttpExecuteRequest.class)))
-                .thenReturn(pageResponse, failureResponse);
+                .thenReturn(listVersioningResponse, pageResponse, deleteVersioningResponse, failureResponse);
 
         try (S3Client client = client(transport)) {
             S3MediaCleanupStorage storage = new S3MediaCleanupStorage(
@@ -136,7 +147,7 @@ class S3MediaCleanupStorageWireTest {
                         assertThat(error.getCause()).isNull();
                     });
         }
-        verify(transport, times(2)).prepareRequest(any(HttpExecuteRequest.class));
+        verify(transport, times(4)).prepareRequest(any(HttpExecuteRequest.class));
     }
 
     @Test
@@ -145,7 +156,9 @@ class S3MediaCleanupStorageWireTest {
         ExecutableHttpRequest incompleteResponse = response("""
                 <ListVersionsResult xmlns="http://s3.amazonaws.com/doc/2006-03-01/"/>
                 """);
-        when(transport.prepareRequest(any(HttpExecuteRequest.class))).thenReturn(incompleteResponse);
+        ExecutableHttpRequest versioningResponse = response(VERSIONING_ENABLED);
+        when(transport.prepareRequest(any(HttpExecuteRequest.class)))
+                .thenReturn(versioningResponse, incompleteResponse);
 
         try (S3Client client = client(transport)) {
             S3MediaCleanupStorage storage = new S3MediaCleanupStorage(
@@ -155,7 +168,7 @@ class S3MediaCleanupStorageWireTest {
                     .isInstanceOfSatisfying(MediaCleanupStorageException.class, error ->
                             assertThat(error.getReason()).isEqualTo(Reason.INVALID_STORAGE_RESPONSE));
         }
-        verify(transport).prepareRequest(any(HttpExecuteRequest.class));
+        verify(transport, times(2)).prepareRequest(any(HttpExecuteRequest.class));
     }
 
     private S3Client client(SdkHttpClient transport) {

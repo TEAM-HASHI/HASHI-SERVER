@@ -9,6 +9,7 @@ import java.util.Optional;
 import org.sopt.hashi.media.domain.ImageAsset;
 import org.sopt.hashi.media.domain.ImageAssetRepository;
 import org.sopt.hashi.media.domain.ImageFormat;
+import org.sopt.hashi.media.domain.MediaPurpose;
 import org.sopt.hashi.media.internal.queue.MediaRenditionResult;
 import org.sopt.hashi.media.internal.queue.MediaTransformContractException;
 import org.sopt.hashi.media.internal.queue.MediaTransformFailedResult;
@@ -109,8 +110,13 @@ public class MediaTransformResultService {
     }
 
     private void validateVerifiedSource(ImageAsset asset, MediaVerifiedSource source) {
+        long maxBytes = asset.getPurpose() == MediaPurpose.MAGAZINE_CARD_NEWS
+                && asset.getTargetSpecVersion() != null && asset.getTargetSpecVersion() >= 2
+                ? 10L * 1024 * 1024
+                : 5L * 1024 * 1024;
         if (!asset.getDeclaredContentType().equalsIgnoreCase(source.mimeType())
-                || asset.getDeclaredBytes() != source.byteSize()) {
+                || asset.getDeclaredBytes() != source.byteSize()
+                || source.byteSize() > maxBytes) {
             throw contractMismatch(
                     "media result verified source differs from the upload declaration");
         }

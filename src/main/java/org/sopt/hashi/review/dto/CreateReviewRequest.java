@@ -22,7 +22,8 @@ public record CreateReviewRequest(
         @Max(value = 5, message = "별점은 5점 이하여야 합니다")
         Integer rating,
 
-        @Schema(description = "리뷰 키워드 코드(1~3개)", example = "[\"FOOD_IS_DELICIOUS\", \"STAFF_IS_KIND\"]")
+        @Schema(description = "리뷰 키워드 코드(1~3개)",
+                example = "[\"FOOD_IS_DELICIOUS\", \"GOOD_FOR_SOLO_DINING\"]")
         @NotNull(message = "리뷰 키워드는 필수입니다")
         @Size(min = 1, max = 3, message = "리뷰 키워드는 1개 이상 3개 이하로 선택해야 합니다")
         List<@NotBlank(message = "리뷰 키워드 코드는 비어 있을 수 없습니다") String> keywordCodes,

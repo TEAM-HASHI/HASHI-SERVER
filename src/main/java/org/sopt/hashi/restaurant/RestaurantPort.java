@@ -10,8 +10,11 @@ import java.util.Optional;
  */
 public interface RestaurantPort {
 
-    /** 식당 존재 여부를 확인한다 — 예약·리뷰 생성 시 식당 존재 검증용. */
+    /** 식당 존재 여부를 확인한다 — 예약·리뷰 생성 시 식당 존재 검증용. soft-delete된 식당도 존재로 본다. */
     boolean existsById(Long restaurantId);
+
+    /** 삭제되지 않은 식당인지 확인한다 — 컬렉션 저장처럼 사용자에게 노출 가능한 식당만 받아야 하는 검증용(#216). */
+    boolean existsActiveById(Long restaurantId);
 
     /** 식당 요약 정보를 조회한다 — 식당명 등 표시·enrich용. 없으면 empty. */
     Optional<RestaurantInfo> findSummaryById(Long restaurantId);
@@ -36,11 +39,19 @@ public interface RestaurantPort {
      */
     List<RestaurantMapInfo> findActiveMapInfos(Collection<Long> restaurantIds);
 
+    /**
+     * 사용자 노출용 식당 카드 목록 — 저장 컬렉션처럼 카드 표시와 평점·리뷰 수 정렬, 음식점 분류 필터가 필요한 enrich용(#216).
+     * 상세와 달리 영업시간·이미지 전체·가격대는 읽지 않는다. 삭제된 식당은 제외하고 존재하는 식당만 반환하며 순서는 보장하지 않는다.
+     */
+    List<RestaurantCardInfo> findActiveCards(Collection<Long> restaurantIds);
     /** 리뷰 생성 시 식당 평점 합계·리뷰 수·평균을 원자적으로 증가시킨다. */
     void increaseReviewStatistics(Long restaurantId, int rating);
 
     /** 리뷰 삭제 시 식당 평점 합계·리뷰 수·평균을 원자적으로 감소시킨다. */
     void decreaseReviewStatistics(Long restaurantId, int rating);
+
+    /** 리뷰 별점 변경 시 리뷰 수는 유지하고 평점 합계·평균을 원자적으로 갱신한다. */
+    void updateReviewRatingStatistics(Long restaurantId, int oldRating, int newRating);
 
     /** 어드민 식당 등록 — 이미지·메뉴 사진은 업로드 완료된 S3 키로 받는다. */
     AdminRestaurantInfo createByAdmin(AdminRestaurantCommand command);
