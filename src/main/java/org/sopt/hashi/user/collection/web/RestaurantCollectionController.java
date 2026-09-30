@@ -65,12 +65,18 @@ public class RestaurantCollectionController {
         return SuccessResponse.of(UserSuccessCode.COLLECTION_CREATED, restaurantCollectionService.create(request));
     }
 
-    /** 내 컬렉션 목록 — restaurantId를 주면 항목마다 그 식당의 저장 여부(saved)를 함께 내린다(저장·이동 모달용). */
+    /**
+     * 내 컬렉션 목록 — 생성일 최신순 커서 페이지네이션. cursor는 직전 응답의 nextCursor, size 기본 20·최대 50.
+     * restaurantId를 주면 항목마다 그 식당의 저장 여부(saved)를 함께 내린다(저장·이동 모달용).
+     */
     @ApiException(value = CommonErrorCode.class, codes = {"INVALID_INPUT", "UNAUTHORIZED", "FORBIDDEN"})
     @GetMapping
     public SuccessResponse<RestaurantCollectionListResponse> getMyCollections(
-            @RequestParam(required = false) @Positive Long restaurantId) {
-        return SuccessResponse.of(CommonSuccessCode.OK, restaurantCollectionService.getMyCollections(restaurantId));
+            @RequestParam(required = false) @Positive Long restaurantId,
+            @RequestParam(required = false) @Positive Long cursor,
+            @RequestParam(required = false) Integer size) {
+        return SuccessResponse.of(CommonSuccessCode.OK,
+                restaurantCollectionService.getMyCollections(restaurantId, cursor, size));
     }
 
     /** 컬렉션 상세 헤더 — 공개 컬렉션은 비로그인도 조회. 비공개 컬렉션은 소유자가 아니면 USER-006(404). */

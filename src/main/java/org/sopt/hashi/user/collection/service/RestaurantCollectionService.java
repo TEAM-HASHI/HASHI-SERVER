@@ -31,6 +31,8 @@ import org.sopt.hashi.user.collection.dto.SaveRestaurantRequest;
 import org.sopt.hashi.user.collection.dto.UpdateRestaurantCollectionRequest;
 import org.sopt.hashi.user.collection.service.SavedRestaurantEnricher.ThumbnailProjection;
 import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -94,14 +96,20 @@ public class RestaurantCollectionService {
     }
 
     /**
-     * 내 컬렉션 목록(SAVED-008·저장 모달·이동 모달) — 생성일 최신순.
-     * restaurantId가 있으면 항목마다 그 식당의 저장 여부를 함께 내려 저장 모달이 "이미 저장됨"을 표시할 수 있게 한다.
+     * 내 컬렉션 목록(SAVED-007·008·저장 모달·이동 모달) — 생성일 최신순 커서 페이지네이션(SAVED_COLLECTION_MANAGE "목록 추가 조회").
+     * 커서는 직전 페이지 마지막 컬렉션 id다. restaurantId가 있으면 항목마다 그 식당의 저장 여부를 함께 내려
+     * 저장 모달이 "이미 저장됨"을 표시할 수 있게 한다.
      */
-    public RestaurantCollectionListResponse getMyCollections(Long restaurantId) {
-        List<RestaurantCollection> collections =
-                restaurantCollectionRepository.findAllByUserIdOrderByIdDesc(currentUserProvider.currentUserId());
+    public RestaurantCollectionListResponse getMyCollections(Long restaurantId, Long cursor, Integer size) {
+        Long userId = currentUserProvider.currentUserId();
+        int pageSize = normalizeSize(size);
+        List<RestaurantCollection> rows = fetchPage(userId, cursor, PageRequest.of(0, pageSize + 1));
+        boolean hasNext = rows.size() > pageSize;
+        List<RestaurantCollection> collections = hasNext ? rows.subList(0, pageSize) : rows;
+        Long nextCursor = hasNext ? collections.getLast().getId() : null;
+        long totalCount = restaurantCollectionRepository.countByUserId(userId);
         if (collections.isEmpty()) {
-            return new RestaurantCollectionListResponse(List.of());
+            return new RestaurantCollectionListResponse(List.of(), totalCount, null, false);
         }
         // (컬렉션 ID, 저장된 식당 리스트)로 savedByCollection에 저장
         Map<Long, List<SavedRestaurant>> savedByCollection = savedRestaurantRepository
@@ -133,7 +141,20 @@ public class RestaurantCollectionService {
                             collection.getVisibility().value(), active.size(),
                             toCover(collection, active, thumbnails), saved);
                 })
-                .toList());
+                .toList(), totalCount, nextCursor, hasNext);
+    }
+
+    private List<RestaurantCollection> fetchPage(Long userId, Long cursor, Pageable pageable) {
+        return cursor == null
+                ? restaurantCollectionRepository.findAllByUserIdOrderByIdDesc(userId, pageable)
+                : restaurantCollectionRepository.findAllByUserIdAndIdLessThanOrderByIdDesc(userId, cursor, pageable);
+    }
+
+    private int normalizeSize(Integer size) {
+        if (size == null || size < 1) {
+            return SavedRestaurantQueryService.DEFAULT_PAGE_SIZE;
+        }
+        return Math.min(size, SavedRestaurantQueryService.MAX_PAGE_SIZE);
     }
 
     /** 컬렉션 상세 헤더(SAVED-004) — 공개 컬렉션은 비로그인도 조회할 수 있고, 비공개는 소유자만. */
