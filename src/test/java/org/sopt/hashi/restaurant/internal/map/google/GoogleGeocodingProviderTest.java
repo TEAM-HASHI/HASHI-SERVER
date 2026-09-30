@@ -45,6 +45,29 @@ class GoogleGeocodingProviderTest {
     }
 
     @ParameterizedTest
+    @CsvSource({"RESOURCE_EXHAUSTED,QUOTA_EXCEEDED", "OVER_QUERY_LIMIT,QUOTA_EXCEEDED",
+            "rateLimitExceeded,QUOTA_EXCEEDED", "PERMISSION_DENIED,ACCESS_DENIED"})
+    void HTTP_403의_제한된_상태값으로_quota와_권한오류를_구분하고_원문은_버린다(
+            String rpcStatus, FailureKind expected, CapturedOutput output) {
+        String body = "{\"error\":{\"code\":403,\"message\":\"" + GeocodingFixtures.API_KEY
+                + "\",\"status\":\"" + rpcStatus + "\",\"details\":[{\"private\":\""
+                + GeocodingFixtures.ADDRESS + "\"}]}}";
+        assertThat(provider(json(body, 403)).geocode(GeocodingFixtures.ADDRESS))
+                .isEqualTo(new Failure(expected, 403));
+        assertThat(output.getAll()).doesNotContain(GeocodingFixtures.API_KEY, GeocodingFixtures.ADDRESS);
+        assertThat(attempts).hasValue(1);
+    }
+
+    @Test
+    void HTTP_403의_잘못된_JSON이나_초과한_오류본문은_권한오류로_안전하게_되돌린다() {
+        assertThat(provider(json("{\"error\":", 403)).geocode(GeocodingFixtures.ADDRESS))
+                .isEqualTo(new Failure(FailureKind.ACCESS_DENIED, 403));
+        assertThat(provider(json("{\"error\":{\"message\":\"" + "x".repeat(8192)
+                + "\",\"status\":\"RESOURCE_EXHAUSTED\"}}", 403)).geocode(GeocodingFixtures.ADDRESS))
+                .isEqualTo(new Failure(FailureKind.ACCESS_DENIED, 403));
+    }
+
+    @ParameterizedTest
     @NullAndEmptySource
     @ValueSource(strings = {" ", "\t"})
     void 빈_입력은_HTTP_이전에_거부한다(String address) {
