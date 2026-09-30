@@ -18,6 +18,7 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.CyclicBarrier;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Function;
 import org.junit.jupiter.api.BeforeEach;
@@ -72,6 +73,7 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 @Transactional(propagation = Propagation.NOT_SUPPORTED)
 @DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_CLASS)
 class LocationJobMySqlTest {
+    private static final AtomicInteger RESTAURANT_SEQUENCE = new AtomicInteger();
     @Container
     @ServiceConnection
     static final MySQLContainer<?> MYSQL = new MySQLContainer<>("mysql:8.4")
@@ -260,8 +262,9 @@ class LocationJobMySqlTest {
         Claim old = transactions.claim(target(id)).orElseThrow();
         restaurantPort.deleteByAdmin(id);
         long jobCount = jobs.count();
-        var response = restaurantPort.updateByAdmin(id, addressCommand("東京都試験区架空町1-2-4"));
-        assertThat(response.address()).isEqualTo("東京都試験区架空町1-2-4");
+        var command = addressCommand("東京都試験区架空町1-2-4");
+        var response = restaurantPort.updateByAdmin(id, command);
+        assertThat(response.address()).isEqualTo(command.address());
         assertThat(jobs.count()).isEqualTo(jobCount);
         assertThat(restaurantRepository.findById(id).orElseThrow().isDeleted()).isTrue();
         assertThat(transactions.complete(old, ready())).isFalse();
@@ -380,6 +383,7 @@ class LocationJobMySqlTest {
     @Test
     void 작업_INSERT_실패는_신규식당과_주소변경과_관리자_재처리를_함께_rollback한다() {
         Long id = restaurants.createByAdmin(createCommand()).restaurantId();
+        String originalAddress = restaurantRepository.findById(id).orElseThrow().getAddress();
         Claim claim = transactions.claim(target(id)).orElseThrow();
         transactions.complete(claim, new Outcome(null, null, "NO_RESULTS"));
         long count = restaurantRepository.count();
@@ -398,7 +402,8 @@ class LocationJobMySqlTest {
         assertThat(restaurantRepository.count()).isEqualTo(count);
         assertThat(locations.get(id).locationStatus()).isEqualTo("REVIEW_REQUIRED");
         assertThat(locations.get(id).addressRevision()).isEqualTo(1);
-        assertThat(restaurantRepository.findById(id).orElseThrow().getAddress()).isEqualTo(LocationAdoptionPolicyTest.ADDRESS);
+        assertThat(restaurantRepository.findById(id).orElseThrow().getAddress())
+                .isEqualTo(originalAddress);
     }
 
     @Test
@@ -493,14 +498,17 @@ class LocationJobMySqlTest {
     }
 
     private AdminRestaurantCommand createCommand() {
-        return new AdminRestaurantCommand("합성 식당", "試験", "요약", "설명", LocationAdoptionPolicyTest.ADDRESS,
+        int sequence = RESTAURANT_SEQUENCE.incrementAndGet();
+        return new AdminRestaurantCommand("합성 식당 " + sequence, "試験", "요약", "설명",
+                LocationAdoptionPolicyTest.ADDRESS.replace("試験区", " ".repeat(sequence) + "試験区"),
                 "표시 지역", "sushi", "초밥", "restaurant", "JPY", BigDecimal.ONE, BigDecimal.TEN,
                 List.of("restaurants/synthetic.jpg"), null, null, null, List.of("합성"), List.of(),
                 Arrays.stream(DayOfWeek.values()).map(day -> new BusinessHourCommand(day, null, null, null, null, true)).toList());
     }
 
     private AdminRestaurantCommand addressCommand(String address) {
-        return new AdminRestaurantCommand(null, null, null, null, address, null, null, null, null, null,
+        String uniqueAddress = address.replace("試験区", " ".repeat(RESTAURANT_SEQUENCE.incrementAndGet()) + "試験区");
+        return new AdminRestaurantCommand(null, null, null, null, uniqueAddress, null, null, null, null, null,
                 null, null, null, null, null, null, null, null, null);
     }
 
