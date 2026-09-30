@@ -128,11 +128,6 @@ class RestaurantPortImpl implements RestaurantPort {
     }
 
     @Override
-    public List<RestaurantMapInfo> findActiveMapInfos(Collection<Long> restaurantIds) {
-        return restaurantMapService.findActiveMapInfos(restaurantIds);
-    }
-
-    @Override
     @Transactional
     public void increaseReviewStatistics(Long restaurantId, int rating) {
         if (restaurantRepository.increaseReviewStatistics(restaurantId, rating) == 0) {
