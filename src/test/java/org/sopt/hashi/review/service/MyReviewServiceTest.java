@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.BDDMockito.given;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 
@@ -39,6 +40,8 @@ import org.sopt.hashi.review.domain.ReviewRepository;
 import org.sopt.hashi.review.dto.MyReviewCountResponse;
 import org.sopt.hashi.review.dto.MyReviewDetailResponse;
 import org.sopt.hashi.review.dto.MyReviewListResponse;
+import org.sopt.hashi.review.dto.ReviewEditContextResponse;
+import org.sopt.hashi.review.dto.UpdateReviewRequest;
 import org.sopt.hashi.shared.error.BusinessException;
 import org.sopt.hashi.shared.error.CommonErrorCode;
 import org.sopt.hashi.shared.storage.FileStorage;
@@ -180,6 +183,85 @@ class MyReviewServiceTest {
     }
 
     @Test
+    void 리뷰_수정_화면에는_저장용_코드와_이미지_key를_반환한다() {
+        Review review = review(USER_ID);
+        review.replaceKeywords(List.of("음식이 맛있어요"));
+        given(currentUserProvider.currentUserId()).willReturn(USER_ID);
+        given(reviewRepository.findByIdAndUserIdAndDeletedFalse(REVIEW_ID, USER_ID))
+                .willReturn(Optional.of(review));
+        given(reservationPort.getReviewInfoByIdAndUserId(RESERVATION_ID, USER_ID))
+                .willReturn(reservation());
+        given(restaurantPort.findSummaryById(RESTAURANT_ID)).willReturn(Optional.of(restaurant()));
+        given(fileStorage.resolveFileUrl("uploads/reviews/20/1.jpg"))
+                .willReturn("https://cdn.example.com/reviews/20/1.jpg");
+
+        ReviewEditContextResponse response = myReviewService.getMyReviewEditContext(REVIEW_ID);
+
+        assertThat(response.restaurantThumbnailUrl())
+                .isEqualTo("https://cdn.example.com/restaurants/10/thumbnail.jpg");
+        assertThat(response.restaurantThumbnailImage()).isNull();
+        assertThat(response.selectedKeywordCodes()).containsExactly("FOOD_IS_DELICIOUS");
+        assertThat(response.reviewKeywordOptions())
+                .extracting(option -> option.code() + ":" + option.label())
+                .containsExactly(
+                        "FOOD_IS_DELICIOUS:음식이 맛있어요",
+                        "MILD_SEASONING:향신료가 강하지 않아요",
+                        "GOOD_FOR_SOLO_DINING:혼밥하기 좋아요",
+                        "STAFF_IS_KIND:친절해요",
+                        "SPACIOUS_INTERIOR:매장이 넓어요",
+                        "CLEAN_INTERIOR:매장이 청결해요",
+                        "FAST_SERVICE:음식이 빨리 나와요",
+                        "PHOTO_FRIENDLY:사진이 잘 나와요",
+                        "GOOD_VALUE:가성비가 좋아요",
+                        "GOOD_FOR_CONVERSATION:대화하기 좋아요");
+        assertThat(response.images()).singleElement().satisfies(image -> {
+            assertThat(image.fileKey()).isEqualTo("uploads/reviews/20/1.jpg");
+            assertThat(image.imageUrl()).isEqualTo("https://cdn.example.com/reviews/20/1.jpg");
+            assertThat(image.displayOrder()).isZero();
+        });
+        assertThat(response.teenCount()).isZero();
+        verifyNoInteractions(mediaPort);
+    }
+
+    @Test
+    void 리뷰_수정_화면의_식당_asset은_현재_media_응답을_사용한다() {
+        UUID assetId = UUID.randomUUID();
+        MediaImage readyImage = readyImage(
+                assetId, "https://cdn.example.com/restaurants/10/192.webp");
+        given(currentUserProvider.currentUserId()).willReturn(USER_ID);
+        given(reviewRepository.findByIdAndUserIdAndDeletedFalse(REVIEW_ID, USER_ID))
+                .willReturn(Optional.of(review(USER_ID)));
+        given(reservationPort.getReviewInfoByIdAndUserId(RESERVATION_ID, USER_ID))
+                .willReturn(reservation());
+        given(restaurantPort.findSummaryById(RESTAURANT_ID)).willReturn(Optional.of(restaurant(
+                new ImageReference(assetId, "https://legacy.example.com/restaurants/10.jpg"))));
+        given(mediaPort.findImages(any())).willReturn(Map.of(request(assetId), readyImage));
+        given(fileStorage.resolveFileUrl("uploads/reviews/20/1.jpg"))
+                .willReturn("https://cdn.example.com/reviews/20/1.jpg");
+
+        ReviewEditContextResponse response = myReviewService.getMyReviewEditContext(REVIEW_ID);
+
+        assertThat(response.restaurantThumbnailUrl())
+                .isEqualTo("https://cdn.example.com/restaurants/10/192.webp");
+        assertThat(response.restaurantThumbnailImage()).isEqualTo(readyImage);
+        verify(mediaPort).findImages(argThat(
+                requests -> List.copyOf(requests).equals(List.of(request(assetId)))));
+    }
+
+    @Test
+    void 타인이나_삭제된_리뷰의_수정_화면은_하위_정보를_조회하지_않고_404로_처리한다() {
+        given(currentUserProvider.currentUserId()).willReturn(USER_ID);
+        given(reviewRepository.findByIdAndUserIdAndDeletedFalse(REVIEW_ID, USER_ID))
+                .willReturn(Optional.empty());
+
+        assertThatThrownBy(() -> myReviewService.getMyReviewEditContext(REVIEW_ID))
+                .isInstanceOfSatisfying(BusinessException.class, exception ->
+                        assertThat(exception.getErrorCode()).isEqualTo(ReviewErrorCode.NOT_FOUND));
+
+        verifyNoInteractions(reservationPort, restaurantPort, mediaPort, userPort, fileStorage);
+    }
+
+    @Test
     void 커서_다음_페이지가_있으면_마지막_응답_리뷰_ID를_다음_커서로_반환한다() {
         UUID assetId = UUID.randomUUID();
         Review firstReview = review(USER_ID, 30L, RESERVATION_ID, RESTAURANT_ID);
@@ -211,23 +293,24 @@ class MyReviewServiceTest {
     }
 
     @Test
-    void 작성자는_리뷰를_soft_delete_할_수_있다() {
+    void 작성자는_잠근_리뷰를_soft_delete_할_수_있다() {
         Review review = review(USER_ID);
         given(currentUserProvider.currentUserId()).willReturn(USER_ID);
-        given(reviewRepository.findByIdAndUserIdAndDeletedFalse(REVIEW_ID, USER_ID))
+        given(reviewRepository.findOwnedActiveForUpdate(REVIEW_ID, USER_ID))
                 .willReturn(Optional.of(review));
-        given(reviewRepository.softDeleteByIdAndUserId(REVIEW_ID, USER_ID)).willReturn(1);
 
         myReviewService.deleteMyReview(REVIEW_ID);
 
-        verify(reviewRepository).softDeleteByIdAndUserId(REVIEW_ID, USER_ID);
+        assertThat(review.isDeleted()).isTrue();
+        verify(reviewRepository).findOwnedActiveForUpdate(REVIEW_ID, USER_ID);
+        verify(reviewRepository).flush();
         verify(restaurantPort).decreaseReviewStatistics(RESTAURANT_ID, 5);
     }
 
     @Test
     void 다른_사용자의_리뷰는_존재하지_않는_것처럼_처리한다() {
         given(currentUserProvider.currentUserId()).willReturn(USER_ID);
-        given(reviewRepository.findByIdAndUserIdAndDeletedFalse(REVIEW_ID, USER_ID))
+        given(reviewRepository.findOwnedActiveForUpdate(REVIEW_ID, USER_ID))
                 .willReturn(Optional.empty());
 
         assertThatThrownBy(() -> myReviewService.deleteMyReview(REVIEW_ID))
@@ -236,18 +319,160 @@ class MyReviewServiceTest {
     }
 
     @Test
-    void 동시에_삭제된_리뷰는_식당_통계를_중복_차감하지_않는다() {
-        Review review = review(USER_ID);
+    void 잠금_조회_시점에_삭제된_리뷰는_식당_통계를_중복_차감하지_않는다() {
         given(currentUserProvider.currentUserId()).willReturn(USER_ID);
-        given(reviewRepository.findByIdAndUserIdAndDeletedFalse(REVIEW_ID, USER_ID))
-                .willReturn(Optional.of(review));
-        given(reviewRepository.softDeleteByIdAndUserId(REVIEW_ID, USER_ID)).willReturn(0);
+        given(reviewRepository.findOwnedActiveForUpdate(REVIEW_ID, USER_ID))
+                .willReturn(Optional.empty());
 
         assertThatThrownBy(() -> myReviewService.deleteMyReview(REVIEW_ID))
                 .isInstanceOfSatisfying(BusinessException.class, exception ->
                         assertThat(exception.getErrorCode()).isEqualTo(ReviewErrorCode.NOT_FOUND));
 
         verifyNoInteractions(restaurantPort);
+    }
+
+    @Test
+    void 리뷰_수정은_잠근_aggregate를_교체하고_별점_통계를_갱신한다() {
+        Review review = review(USER_ID);
+        given(currentUserProvider.currentUserId()).willReturn(USER_ID);
+        given(reviewRepository.findOwnedActiveForUpdate(REVIEW_ID, USER_ID))
+                .willReturn(Optional.of(review));
+        UpdateReviewRequest request = new UpdateReviewRequest(
+                3,
+                List.of("GOOD_FOR_SOLO_DINING", "FAST_SERVICE"),
+                "가격도 합리적이고 음식도 빠르게 나와서 좋았습니다.",
+                List.of(
+                        "uploads/reviews/20/new-1.jpg",
+                        "uploads/reviews/20/new-2.jpg")
+        );
+
+        myReviewService.updateMyReview(REVIEW_ID, request);
+
+        assertThat(review.getRating()).isEqualTo(3);
+        assertThat(review.getContent()).isEqualTo(request.content());
+        assertThat(review.getKeywords()).containsExactly("GOOD_FOR_SOLO_DINING", "FAST_SERVICE");
+        assertThat(review.getImages())
+                .extracting(ReviewImage::getFileKey)
+                .containsExactly(
+                        "uploads/reviews/20/new-1.jpg",
+                        "uploads/reviews/20/new-2.jpg");
+        assertThat(review.getImages())
+                .extracting(ReviewImage::getDisplayOrder)
+                .containsExactly(0, 1);
+        verify(reviewRepository).findOwnedActiveForUpdate(REVIEW_ID, USER_ID);
+        verify(reviewRepository, times(2)).flush();
+        verify(restaurantPort).updateReviewRatingStatistics(RESTAURANT_ID, 5, 3);
+    }
+
+    @Test
+    void 별점이_같으면_이미지_전체_삭제만_반영하고_식당_통계를_갱신하지_않는다() {
+        Review review = review(USER_ID);
+        given(currentUserProvider.currentUserId()).willReturn(USER_ID);
+        given(reviewRepository.findOwnedActiveForUpdate(REVIEW_ID, USER_ID))
+                .willReturn(Optional.of(review));
+        UpdateReviewRequest request = new UpdateReviewRequest(
+                5,
+                List.of("FOOD_IS_DELICIOUS"),
+                "직원분들이 친절하고 음식이 정말 맛있었습니다.",
+                List.of()
+        );
+
+        myReviewService.updateMyReview(REVIEW_ID, request);
+
+        assertThat(review.getImages()).isEmpty();
+        verifyNoInteractions(restaurantPort);
+    }
+
+    @Test
+    void 기존_레거시_이미지_key는_유지할_수_있고_신규_key만_현행_경로를_검증한다() {
+        Review review = review(USER_ID);
+        review.replaceImages(List.of(ReviewImage.create("legacy/reviews/old.jpg", 0)));
+        given(currentUserProvider.currentUserId()).willReturn(USER_ID);
+        given(reviewRepository.findOwnedActiveForUpdate(REVIEW_ID, USER_ID))
+                .willReturn(Optional.of(review));
+        UpdateReviewRequest request = new UpdateReviewRequest(
+                5,
+                List.of("FOOD_IS_DELICIOUS"),
+                "기존 사진을 유지하면서 새로운 사진도 함께 추가합니다.",
+                List.of("legacy/reviews/old.jpg", "uploads/reviews/new.jpg")
+        );
+
+        myReviewService.updateMyReview(REVIEW_ID, request);
+
+        assertThat(review.getImages())
+                .extracting(ReviewImage::getFileKey)
+                .containsExactly("legacy/reviews/old.jpg", "uploads/reviews/new.jpg");
+    }
+
+    @Test
+    void 현행_경로가_아닌_신규_이미지_key는_거부한다() {
+        Review review = review(USER_ID);
+        given(currentUserProvider.currentUserId()).willReturn(USER_ID);
+        given(reviewRepository.findOwnedActiveForUpdate(REVIEW_ID, USER_ID))
+                .willReturn(Optional.of(review));
+        UpdateReviewRequest request = new UpdateReviewRequest(
+                5,
+                List.of("FOOD_IS_DELICIOUS"),
+                "직원분들이 친절하고 음식이 정말 맛있었습니다.",
+                List.of("legacy/reviews/new.jpg")
+        );
+
+        assertThatThrownBy(() -> myReviewService.updateMyReview(REVIEW_ID, request))
+                .isInstanceOfSatisfying(BusinessException.class, exception ->
+                        assertThat(exception.getErrorCode()).isEqualTo(CommonErrorCode.INVALID_INPUT));
+
+        verify(reviewRepository).findOwnedActiveForUpdate(REVIEW_ID, USER_ID);
+        verifyNoInteractions(restaurantPort);
+    }
+
+    @Test
+    void 중복된_이미지_key는_aggregate를_잠그기_전에_거부한다() {
+        given(currentUserProvider.currentUserId()).willReturn(USER_ID);
+        UpdateReviewRequest request = new UpdateReviewRequest(
+                5,
+                List.of("FOOD_IS_DELICIOUS"),
+                "직원분들이 친절하고 음식이 정말 맛있었습니다.",
+                List.of("uploads/reviews/same.jpg", "uploads/reviews/same.jpg")
+        );
+
+        assertThatThrownBy(() -> myReviewService.updateMyReview(REVIEW_ID, request))
+                .isInstanceOfSatisfying(BusinessException.class, exception ->
+                        assertThat(exception.getErrorCode()).isEqualTo(CommonErrorCode.INVALID_INPUT));
+
+        verifyNoInteractions(reviewRepository, restaurantPort);
+    }
+
+    @Test
+    void 삭제된_이전_키워드_code는_aggregate를_잠그기_전에_거부한다() {
+        given(currentUserProvider.currentUserId()).willReturn(USER_ID);
+        UpdateReviewRequest request = new UpdateReviewRequest(
+                5,
+                List.of("TRADITIONAL_ATMOSPHERE"),
+                "직원분들이 친절하고 음식이 정말 맛있었습니다.",
+                List.of()
+        );
+
+        assertThatThrownBy(() -> myReviewService.updateMyReview(REVIEW_ID, request))
+                .isInstanceOfSatisfying(BusinessException.class, exception ->
+                        assertThat(exception.getErrorCode()).isEqualTo(ReviewErrorCode.UNSUPPORTED_KEYWORD));
+
+        verifyNoInteractions(reviewRepository, restaurantPort);
+    }
+
+    @Test
+    void 알_수_없는_레거시_키워드는_수정_화면에서_조용히_누락하지_않는다() {
+        Review review = review(USER_ID);
+        review.replaceKeywords(List.of("과거 미확인 문구"));
+        given(currentUserProvider.currentUserId()).willReturn(USER_ID);
+        given(reviewRepository.findByIdAndUserIdAndDeletedFalse(REVIEW_ID, USER_ID))
+                .willReturn(Optional.of(review));
+        given(reservationPort.getReviewInfoByIdAndUserId(RESERVATION_ID, USER_ID))
+                .willReturn(reservation());
+        given(restaurantPort.findSummaryById(RESTAURANT_ID)).willReturn(Optional.of(restaurant()));
+
+        assertThatThrownBy(() -> myReviewService.getMyReviewEditContext(REVIEW_ID))
+                .isInstanceOfSatisfying(BusinessException.class, exception ->
+                        assertThat(exception.getErrorCode()).isEqualTo(ReviewErrorCode.UNSUPPORTED_KEYWORD));
     }
 
     @Test

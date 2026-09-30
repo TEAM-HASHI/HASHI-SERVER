@@ -10,7 +10,8 @@ import org.sopt.hashi.media.domain.MediaPurpose;
 final class MediaSpecManifestValidator {
 
     private static final int MANIFEST_SCHEMA_VERSION = 1;
-    private static final String PROCESSOR_REVISION = "sharp-webp-v1";
+    private static final String PROCESSOR_REVISION_V1 = "sharp-webp-v1";
+    private static final String PROCESSOR_REVISION_V2 = "sharp-webp-v2";
     private static final Set<String> ROOT_REQUIRED_FIELDS = Set.of(
             "manifestSchemaVersion", "specVersion", "processorRevision",
             "output", "purposes", "roles");
@@ -35,14 +36,15 @@ final class MediaSpecManifestValidator {
         requireInt(manifest, "manifestSchemaVersion", MANIFEST_SCHEMA_VERSION,
                 MANIFEST_SCHEMA_VERSION);
         requireInt(manifest, "specVersion", expectedSpecVersion, expectedSpecVersion);
-        requireText(manifest, "processorRevision", PROCESSOR_REVISION);
+        requireText(manifest, "processorRevision",
+                expectedSpecVersion == 1 ? PROCESSOR_REVISION_V1 : PROCESSOR_REVISION_V2);
         if (manifest.has("$schema") && !manifest.path("$schema").isTextual()) {
             throw invalid("media manifest $schema must be text");
         }
 
         validateOutput(manifest.path("output"));
-        validatePurposes(manifest.path("purposes"));
-        validateRoles(manifest.path("roles"));
+        validatePurposes(manifest.path("purposes"), expectedSpecVersion);
+        validateRoles(manifest.path("roles"), expectedSpecVersion);
     }
 
     private static void validateOutput(JsonNode output) {
@@ -56,9 +58,9 @@ final class MediaSpecManifestValidator {
         requireText(output, "dimensionRounding", "half-up");
     }
 
-    private static void validatePurposes(JsonNode purposes) {
+    private static void validatePurposes(JsonNode purposes, int specVersion) {
         requireObject(purposes, "media purposes must be an object");
-        requireEnumKeys(purposes, MediaPurpose.class, "media purposes");
+        requireKeys(purposes, expectedPurposeNames(specVersion), "media purposes");
         purposes.properties().forEach(entry -> {
             JsonNode roles = entry.getValue();
             if (!roles.isArray() || roles.isEmpty()) {
@@ -82,13 +84,14 @@ final class MediaSpecManifestValidator {
         });
     }
 
-    private static void validateRoles(JsonNode roles) {
+    private static void validateRoles(JsonNode roles, int specVersion) {
         requireObject(roles, "media roles must be an object");
-        requireEnumKeys(roles, ImageRole.class, "media roles");
-        roles.properties().forEach(entry -> validateRole(entry.getKey(), entry.getValue()));
+        requireKeys(roles, expectedRoleNames(specVersion), "media roles");
+        roles.properties().forEach(entry -> validateRole(
+                entry.getKey(), entry.getValue(), specVersion));
     }
 
-    private static void validateRole(String roleName, JsonNode role) {
+    private static void validateRole(String roleName, JsonNode role, int specVersion) {
         requireObject(role, "media role must be an object");
         requireFields(role, ROLE_FIELDS, ROLE_FIELDS, "media role " + roleName);
 
@@ -99,7 +102,7 @@ final class MediaSpecManifestValidator {
         int ratioWidth = requireInt(aspectRatio, "width", 1, Integer.MAX_VALUE);
         int ratioHeight = requireInt(aspectRatio, "height", 1, Integer.MAX_VALUE);
 
-        requireText(role, "fit", "cover");
+        requireOneOf(role, "fit", specVersion == 1 ? Set.of("cover") : Set.of("cover", "inside"));
         requireText(role, "position", "centre");
         requireInt(role, "quality", 1, 100);
         int defaultWidth = requireInt(role, "defaultWidth", 1, Integer.MAX_VALUE);
@@ -132,18 +135,38 @@ final class MediaSpecManifestValidator {
         requireObject(fallback, "media role noUpscaleFallback must be an object");
         requireFields(fallback, FALLBACK_FIELDS, FALLBACK_FIELDS,
                 "media role noUpscaleFallback");
-        requireText(fallback, "selection", "largest-croppable-width");
+        requireOneOf(fallback, "selection",
+                specVersion == 1
+                        ? Set.of("largest-croppable-width")
+                        : Set.of("largest-croppable-width", "source-width"));
         requireInt(fallback, "minimumWidth", 1, 1);
     }
 
-    private static <E extends Enum<E>> void requireEnumKeys(
-            JsonNode node, Class<E> enumType, String subject) {
+    private static Set<String> expectedPurposeNames(int specVersion) {
+        Set<String> names = new HashSet<>();
+        for (MediaPurpose value : MediaPurpose.values()) {
+            if (specVersion == 1 && value == MediaPurpose.MAGAZINE_CARD_NEWS) {
+                continue;
+            }
+            names.add(value.name());
+        }
+        return names;
+    }
+
+    private static Set<String> expectedRoleNames(int specVersion) {
+        Set<String> names = new HashSet<>();
+        for (ImageRole value : ImageRole.values()) {
+            if (specVersion == 1 && value == ImageRole.MAGAZINE_CARD_NEWS) {
+                continue;
+            }
+            names.add(value.name());
+        }
+        return names;
+    }
+
+    private static void requireKeys(JsonNode node, Set<String> expected, String subject) {
         Set<String> actual = new HashSet<>();
         node.fieldNames().forEachRemaining(actual::add);
-        Set<String> expected = new HashSet<>();
-        for (E value : enumType.getEnumConstants()) {
-            expected.add(value.name());
-        }
         if (!actual.equals(expected)) {
             throw invalid(subject + " must exactly match server capabilities");
         }
@@ -167,6 +190,13 @@ final class MediaSpecManifestValidator {
     private static void requireText(JsonNode node, String field, String expected) {
         JsonNode value = node.get(field);
         if (value == null || !value.isTextual() || !expected.equals(value.textValue())) {
+            throw invalid("media spec text field is unsupported: " + field);
+        }
+    }
+
+    private static void requireOneOf(JsonNode node, String field, Set<String> expected) {
+        JsonNode value = node.get(field);
+        if (value == null || !value.isTextual() || !expected.contains(value.textValue())) {
             throw invalid("media spec text field is unsupported: " + field);
         }
     }

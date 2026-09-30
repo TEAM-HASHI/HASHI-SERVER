@@ -35,7 +35,7 @@ PENDING 재처리는 기존 작업을 돌려준다. 작업 행은 최소 처리 
 
 ## 환경 독립적인 제어 행
 
-V29는 `restaurant_geocoding_budget(id=1)`을 `enabled=false`, `daily_limit=0`,
+V32는 `restaurant_geocoding_budget(id=1)`을 `enabled=false`, `daily_limit=0`,
 `max_concurrent=0`, `reserved_calls=0`으로 최초 생성한다. 이는 업무 데이터/운영 seed가 아닌
 안전한 필수 제어 상태이므로 database convention의 제어 데이터 예외를 사용한다.
 시작 코드나 repeatable migration으로 값을 초기화하지 않는다. 행 누락도 호출을 차단한다.
