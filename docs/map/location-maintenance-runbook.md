@@ -14,7 +14,7 @@ Google 호출과 자동 재시도는 #224 worker, HTTP는 #222 adapter 한 곳�
 
 기존 `./gradlew bootJar`의 `build/libs/app.jar`에 CLI도 들어 있다. 일반 서버와 CLI의 시작점은 다르다.
 CLI는 web, Flyway, worker, scheduler, Google adapter, Redis, SQS를 부트스트랩하지 않는다.
-먼저 배포 절차로 V30까지 migration을 적용해야 한다. CLI는 schema를 `validate`만 한다.
+먼저 배포 절차로 V31 위치, V32 작업, V33 유지보수 migration을 순서대로 적용해야 한다. CLI는 schema를 `validate`만 한다.
 `ddl-auto=create` 등의 입력은 validate로 덮어쓰며 SQL 초기화도 하지 않는다.
 
 접속값은 승인된 환경의 `SPRING_DATASOURCE_URL`, `SPRING_DATASOURCE_USERNAME`,
