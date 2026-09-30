@@ -60,7 +60,7 @@ class RestaurantMapMigrationTest {
         List<Map<String, Object>> menus = jdbc.queryForList("SELECT * FROM restaurant_menu");
         List<Map<String, Object>> hashtags = jdbc.queryForList("SELECT * FROM restaurant_hashtag");
 
-        Flyway migration = flyway("28");
+        Flyway migration = flyway("31");
         assertThat(migration.migrate().migrationsExecuted).isEqualTo(1);
         List<Map<String, Object>> upgraded = jdbc.queryForList("SELECT * FROM restaurant ORDER BY id");
         assertThat(upgraded).hasSize(2);
