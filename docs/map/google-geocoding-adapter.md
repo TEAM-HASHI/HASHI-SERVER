@@ -41,15 +41,19 @@ classpath에 따른 자동 선택의 영향을 받지 않는다. 다른 RestClie
 - `X-Goog-FieldMask`는 location, granularity, postalAddress의 regionCode/administrativeArea,
   addressComponents의 longText/shortText/types와 결과 types로 제한한다.
 - v3의 `status`, `error_message`, `partial_match`를 성공 판정에 사용하지 않는다.
-- 200 JSON 본문만 제한된 크기로 읽는다. 오류 본문은 읽지 않고 HTTP 상태로 분류한다.
-  `error.message`, details, Retry-After의 원문을 결과에 전달하지 않는다.
+- 성공 200 JSON은 설정된 크기 안에서 읽는다. 403은 권한 거부와 quota 초과가 겹치므로
+  JSON·비압축 응답의 처음 8KiB 안에서 `error.status`만 제한적으로 판독한다.
+  malformed·초과·비 JSON 오류는 ACCESS_DENIED로 분류한다. `error.message`, details,
+  Retry-After의 원문은 결과나 로그에 전달하지 않는다.
 - redirect, proxy, cookie, authenticator와 자동 SDK 재시도는 사용하지 않는다.
 
 | HTTP/상황 | 실패 분류 |
 |---|---|
 | 비활성 | DISABLED |
 | 빈 주소 또는 기존 주소 한도 255자 초과, HTTP 400/422 | INVALID_REQUEST |
-| 401/403 | ACCESS_DENIED |
+| 401, 403 PERMISSION_DENIED·알 수 없거나 읽을 수 없는 오류 | ACCESS_DENIED |
+| 403 RESOURCE_EXHAUSTED·OVER_QUERY_LIMIT·단기 rate limit | QUOTA_EXCEEDED |
+| 403 OVER_DAILY_LIMIT·dailyLimitExceeded | CONFIGURATION_ERROR; billing·키·일일 상한을 단기 재시도로 가정하지 않음 |
 | 404 | CONFIGURATION_ERROR |
 | 429 | QUOTA_EXCEEDED |
 | 5xx | TRANSIENT_ERROR |

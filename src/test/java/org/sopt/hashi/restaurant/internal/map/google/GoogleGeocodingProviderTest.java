@@ -46,7 +46,8 @@ class GoogleGeocodingProviderTest {
 
     @ParameterizedTest
     @CsvSource({"RESOURCE_EXHAUSTED,QUOTA_EXCEEDED", "OVER_QUERY_LIMIT,QUOTA_EXCEEDED",
-            "rateLimitExceeded,QUOTA_EXCEEDED", "PERMISSION_DENIED,ACCESS_DENIED"})
+            "rateLimitExceeded,QUOTA_EXCEEDED", "PERMISSION_DENIED,ACCESS_DENIED",
+            "OVER_DAILY_LIMIT,CONFIGURATION_ERROR", "dailyLimitExceeded,CONFIGURATION_ERROR"})
     void HTTP_403의_제한된_상태값으로_quota와_권한오류를_구분하고_원문은_버린다(
             String rpcStatus, FailureKind expected, CapturedOutput output) {
         String body = "{\"error\":{\"code\":403,\"message\":\"" + GeocodingFixtures.API_KEY
