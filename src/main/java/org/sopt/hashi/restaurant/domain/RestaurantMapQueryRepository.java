@@ -100,7 +100,8 @@ public class RestaurantMapQueryRepository {
                 """);
         if (criteria.mapRegionId() != null) {
             sql.append(" and r.map_region_id = :regionId")
-                    .append(" and exists (select 1 from map_region g where g.id = r.map_region_id and g.active = true)");
+                    .append(" and exists (select 1 from map_region g where g.id = r.map_region_id and g.active = true and ")
+                    .append(REGION_CONTAINS_LOCATION).append(")");
         }
         if (criteria.genre() != null) {
             sql.append(" and r.genre = :genre");
