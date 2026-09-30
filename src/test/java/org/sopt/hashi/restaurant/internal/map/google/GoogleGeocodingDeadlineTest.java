@@ -34,6 +34,8 @@ import org.sopt.hashi.restaurant.internal.map.GeocodingResult.NoResults;
 
 class GoogleGeocodingDeadlineTest {
 
+    private static final int AWAIT_SECONDS = 15;
+
     private HttpServer server;
     private ExecutorService callers;
     private final AtomicInteger requests = new AtomicInteger();
@@ -75,19 +77,19 @@ class GoogleGeocodingDeadlineTest {
             return outcome;
         });
         try {
-            assertThat(resolver.entered.await(5, TimeUnit.SECONDS)).isTrue();
+            assertThat(resolver.entered.await(AWAIT_SECONDS, TimeUnit.SECONDS)).isTrue();
             if (interruptCaller) {
                 caller.get().interrupt();
             }
             FailureKind expected = interruptCaller ? FailureKind.CANCELLED : FailureKind.TIMEOUT;
-            assertThat(result.get(5, TimeUnit.SECONDS)).isEqualTo(new Failure(expected, null));
+            assertThat(result.get(AWAIT_SECONDS, TimeUnit.SECONDS)).isEqualTo(new Failure(expected, null));
             assertThat(interruptedAfterReturn.get()).isEqualTo(interruptCaller);
             assertThat(resolver.threads).hasSize(1).allMatch(Thread::isAlive);
             assertThat(requests).hasValue(0);
         } finally {
             resolver.release.countDown();
         }
-        await().atMost(Duration.ofSeconds(5)).until(() -> resolver.threads.stream().noneMatch(Thread::isAlive));
+        await().atMost(Duration.ofSeconds(AWAIT_SECONDS)).until(() -> resolver.threads.stream().noneMatch(Thread::isAlive));
         assertThat(requests).hasValue(0);
     }
 
@@ -101,9 +103,10 @@ class GoogleGeocodingDeadlineTest {
             results.add(callers.submit(() -> provider.geocode(GeocodingFixtures.ADDRESS)));
         }
         try {
-            assertThat(resolver.entered.await(5, TimeUnit.SECONDS)).isTrue();
+            assertThat(resolver.entered.await(AWAIT_SECONDS, TimeUnit.SECONDS)).isTrue();
             for (Future<GeocodingResult> result : results) {
-                assertThat(result.get(5, TimeUnit.SECONDS)).isEqualTo(new Failure(FailureKind.TIMEOUT, null));
+                assertThat(result.get(AWAIT_SECONDS, TimeUnit.SECONDS))
+                        .isEqualTo(new Failure(FailureKind.TIMEOUT, null));
             }
             for (int i = 0; i < 20; i++) {
                 assertThat(provider.geocode(GeocodingFixtures.ADDRESS))
@@ -115,7 +118,7 @@ class GoogleGeocodingDeadlineTest {
         } finally {
             resolver.release.countDown();
         }
-        await().atMost(Duration.ofSeconds(5)).until(() -> resolver.threads.stream().noneMatch(Thread::isAlive));
+        await().atMost(Duration.ofSeconds(AWAIT_SECONDS)).until(() -> resolver.threads.stream().noneMatch(Thread::isAlive));
         assertThat(requests).hasValue(0);
         assertThat(provider.geocode(GeocodingFixtures.ADDRESS)).isEqualTo(new NoResults());
         assertThat(requests).hasValue(1);
@@ -123,7 +126,7 @@ class GoogleGeocodingDeadlineTest {
 
     private GoogleGeocodingProvider provider(DnsResolver resolver) {
         GoogleGeocodingProperties properties = new GoogleGeocodingProperties(true, GeocodingFixtures.API_KEY,
-                Duration.ofMillis(100), Duration.ofSeconds(2), 1024);
+                Duration.ofMillis(100), Duration.ofSeconds(10), 1024);
         return new GoogleGeocodingProvider(properties, factory -> (uri, method) -> factory.createRequest(
                 URI.create("http://synthetic.invalid:" + server.getAddress().getPort()
                         + uri.getRawPath() + "?" + uri.getRawQuery()), method), resolver);

@@ -73,6 +73,11 @@ Redis Cluster hash tag를 쓴다. 최대 128개의 EXISTS 검사 후 단 한 번
 Redis 공식 문서의 [SET NX/PXAT](https://redis.io/docs/latest/commands/set/)와
 [Lua 키 전달/실행 제약](https://redis.io/docs/latest/develop/programmability/eval-intro/)을 따른다.
 PXAT은 Redis 6.2 이상을 요구한다. 운영 버전·ACL·eviction·메모리 경쟁은 활성화 전 확인해야 한다.
+이 공개 API의 128개 슬롯은 호출자별 격리가 없다. 한 익명 호출자가 짧은 시간에 새 조회 128회를
+보내면 다른 사용자의 새 조회도 세션 만료 전까지 RESTAURANT-016을 받는다. 현재 저장소에는 이를
+막는 신뢰 가능한 ingress 제한이나 앱별 호출자 quota의 적용 증거가 없다. 공개 활성화 전
+실제 ingress 제한·호출자 식별 경계와 정상 트래픽 용량을 검증해야 하며, 그 전에는 출시 NO-GO다.
+Redis 슬롯 상한만으로 남용 방지를 완료했다고 보지 않는다.
 서버 TIME보다 미래 15분을 5초 넘겨 벗어나거나 이미 지난 deadline은 저장하지 않으므로 서버 시계도
 동기화해야 한다. 이 5초는 시계 차이 허용 범위이며 payload의 expiresAt이나 PXAT을 늘리지는 않는다.
 
