@@ -45,6 +45,7 @@ final class GoogleGeocodingProvider implements GeocodingProvider {
             + "results.postalAddress.administrativeArea,results.addressComponents.longText,"
             + "results.addressComponents.shortText,results.addressComponents.types,results.types";
     private static final int MAX_ADDRESS_LENGTH = 255;
+    private static final int MAX_ERROR_STATUS_BYTES = 8192;
     static final int MAX_CONCURRENT_CALLS = 4;
 
     private final GoogleGeocodingProperties properties;
@@ -176,7 +177,9 @@ final class GoogleGeocodingProvider implements GeocodingProvider {
     private GeocodingResult readResponse(ClientHttpResponse response) throws IOException {
         int status = response.getStatusCode().value();
         if (status != 200) {
-            // Classification needs no error message/details; avoid reading/storing arbitrary error bodies.
+            if (status == 403) {
+                return new Failure(classifyForbidden(response), status);
+            }
             return new Failure(classifyStatus(status), status);
         }
         MediaType contentType = response.getHeaders().getContentType();
@@ -194,6 +197,22 @@ final class GoogleGeocodingProvider implements GeocodingProvider {
             return new Failure(FailureKind.RESPONSE_TOO_LARGE, status);
         }
         return parser.parse(body);
+    }
+
+    private FailureKind classifyForbidden(ClientHttpResponse response) {
+        MediaType contentType = response.getHeaders().getContentType();
+        String encoding = response.getHeaders().getFirst(HttpHeaders.CONTENT_ENCODING);
+        if (contentType == null || !MediaType.APPLICATION_JSON.isCompatibleWith(contentType)
+                || (encoding != null && !encoding.equalsIgnoreCase("identity"))
+                || response.getHeaders().getContentLength() > MAX_ERROR_STATUS_BYTES) {
+            return FailureKind.ACCESS_DENIED;
+        }
+        try {
+            byte[] body = response.getBody().readNBytes(MAX_ERROR_STATUS_BYTES + 1);
+            return body.length > MAX_ERROR_STATUS_BYTES ? FailureKind.ACCESS_DENIED : parser.classifyForbidden(body);
+        } catch (IOException ignored) {
+            return FailureKind.ACCESS_DENIED;
+        }
     }
 
     private FailureKind classifyStatus(int status) {
