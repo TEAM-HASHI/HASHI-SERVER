@@ -41,6 +41,10 @@ public record MediaSpecDefinition(
         return new MediaSpecSnapshot(version, digest);
     }
 
+    public boolean supportsPurpose(MediaPurpose purpose) {
+        return purpose != null && purposeRoles.containsKey(purpose);
+    }
+
     public List<MediaExpectedRendition> expectedRenditions(
             MediaPurpose purpose, int sourceWidth, int sourceHeight) {
         List<ImageRole> roles = purposeRoles.get(purpose);
