@@ -45,6 +45,8 @@ public interface ImageAssetRepository extends JpaRepository<ImageAsset, Long> {
                    asset.cleanupStatus as cleanupStatus,
                    asset.activeSpecVersion as activeSpecVersion,
                    asset.activeSpecDigest as activeSpecDigest,
+                   asset.sourceWidth as sourceWidth,
+                   asset.sourceHeight as sourceHeight,
                    asset.targetSpecVersion as targetSpecVersion,
                    asset.targetSpecDigest as targetSpecDigest,
                    asset.lastFailureSpecVersion as lastFailureSpecVersion
@@ -243,6 +245,10 @@ public interface ImageAssetRepository extends JpaRepository<ImageAsset, Long> {
         Integer getActiveSpecVersion();
 
         String getActiveSpecDigest();
+
+        Integer getSourceWidth();
+
+        Integer getSourceHeight();
 
         Integer getTargetSpecVersion();
 

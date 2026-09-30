@@ -13,6 +13,7 @@ import org.springframework.data.domain.PageRequest;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.orm.jpa.DataJpaTest;
 import org.springframework.boot.test.autoconfigure.orm.jpa.TestEntityManager;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.TestPropertySource;
 
 @DataJpaTest
@@ -28,6 +29,9 @@ class RestaurantRepositoryTest {
 
     @Autowired
     private TestEntityManager entityManager;
+
+    @Autowired
+    private JdbcTemplate jdbcTemplate;
 
     @Test
     void 랜덤_추천은_현재_식당과_삭제된_식당을_제외한_전체_식당에서_뽑는다() {
@@ -257,6 +261,43 @@ class RestaurantRepositoryTest {
 
         assertThat(result.getImageAssetId()).isNull();
         assertThat(result.getImageKey()).isNull();
+    }
+
+    @Test
+    void 리뷰_별점_변경은_리뷰_수를_유지하고_합계와_평균을_원자적으로_갱신한다() {
+        Restaurant restaurant = saveRestaurant("평점 수정 식당");
+        jdbcTemplate.update("""
+                update restaurant
+                set rating_sum = 10, review_count = 2, rating = 5.0
+                where id = ?
+                """, restaurant.getId());
+        entityManager.clear();
+
+        int updatedCount = restaurantRepository.updateReviewRatingStatistics(
+                restaurant.getId(), 5, 4);
+        entityManager.clear();
+        Restaurant updated = restaurantRepository.findById(restaurant.getId()).orElseThrow();
+
+        assertThat(updatedCount).isEqualTo(1);
+        assertThat(updated.getRatingSum()).isEqualTo(9L);
+        assertThat(updated.getReviewCount()).isEqualTo(2L);
+        assertThat(updated.getRating()).isEqualByComparingTo("4.5");
+    }
+
+    @Test
+    void 리뷰_통계가_없거나_기존_별점보다_합계가_작으면_갱신하지_않는다() {
+        Restaurant restaurant = saveRestaurant("잘못된 평점 통계 식당");
+        jdbcTemplate.update("""
+                update restaurant
+                set rating_sum = 0, review_count = 1, rating = 0.0
+                where id = ?
+                """, restaurant.getId());
+        entityManager.clear();
+
+        assertThat(restaurantRepository.updateReviewRatingStatistics(
+                restaurant.getId(), 5, 3)).isZero();
+        assertThat(restaurantRepository.updateReviewRatingStatistics(
+                999_999L, 5, 3)).isZero();
     }
 
     private Restaurant saveRestaurant(String name) {

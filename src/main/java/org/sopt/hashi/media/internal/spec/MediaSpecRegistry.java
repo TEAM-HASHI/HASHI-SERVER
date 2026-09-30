@@ -21,12 +21,14 @@ import org.springframework.stereotype.Component;
 public class MediaSpecRegistry {
 
     private static final String V1_RESOURCE_PATH = "media-specs/v1.json";
+    private static final String V2_RESOURCE_PATH = "media-specs/v2.json";
 
     private final Map<Integer, MediaSpecDefinition> definitions;
 
     public MediaSpecRegistry(ObjectMapper objectMapper) {
         MediaSpecDefinition v1 = loadDefinition(objectMapper, V1_RESOURCE_PATH);
-        this.definitions = Map.of(v1.version(), v1);
+        MediaSpecDefinition v2 = loadDefinition(objectMapper, V2_RESOURCE_PATH);
+        this.definitions = Map.of(v1.version(), v1, v2.version(), v2);
     }
 
     public Optional<MediaSpecSnapshot> find(int version) {
@@ -93,7 +95,9 @@ public class MediaSpecRegistry {
                     requirePositiveInt(aspectRatio, "height"),
                     requirePositiveInt(roleNode, "defaultWidth"),
                     requirePositiveInt(fallback, "minimumWidth"),
-                    candidates
+                    candidates,
+                    roleNode.path("fit").asText(),
+                    fallback.path("selection").asText()
             ));
             if (previous != null) {
                 throw new IllegalArgumentException("duplicate media role: " + role);

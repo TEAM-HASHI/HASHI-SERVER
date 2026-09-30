@@ -60,8 +60,14 @@ class MediaCleanupInfrastructureTest {
     void 삭제는_media_원본과_파생본에만_허용하고_추가_statement나_보존_우회_권한은_없다() throws IOException {
         List<Node> statements = statements();
         assertThat(statements.stream().map(statement -> value(field(statement, "Sid"))))
-                .containsExactlyInAnyOrder("ListPrivateOriginalVersionsForCleanup", "ListRenditionVersionsForCleanup",
+                .containsExactlyInAnyOrder("InspectPrivateOriginalBucketVersioningForCleanup",
+                        "InspectDeliveryBucketVersioningForCleanup",
+                        "ListPrivateOriginalVersionsForCleanup", "ListRenditionVersionsForCleanup",
                         "DeletePrivateOriginalVersionsForCleanup", "DeleteRenditionVersionsForCleanup");
+        assertBucketVersioning("InspectPrivateOriginalBucketVersioningForCleanup",
+                "!GetAtt", "OriginalImageBucket.Arn");
+        assertBucketVersioning("InspectDeliveryBucketVersioningForCleanup", "!Sub",
+                "arn:${AWS::Partition}:s3:::${DeliveryBucketName}");
         assertDeletion("DeletePrivateOriginalVersionsForCleanup", "${OriginalImageBucket.Arn}/media/originals/*");
         assertDeletion("DeleteRenditionVersionsForCleanup",
                 "arn:${AWS::Partition}:s3:::${DeliveryBucketName}/media/renditions/*");
@@ -160,6 +166,14 @@ class MediaCleanupInfrastructureTest {
         assertThat(keys(condition)).containsExactly("StringLike");
         assertThat(keys(field(condition, "StringLike"))).containsExactly("s3:prefix");
         assertThat(value(field(condition, "StringLike", "s3:prefix"))).isEqualTo(prefix);
+    }
+
+    private void assertBucketVersioning(String sid, String tag, String resource) throws IOException {
+        Node statement = statement(sid);
+        assertThat(keys(statement)).containsExactlyInAnyOrder("Sid", "Effect", "Action", "Resource");
+        assertThat(value(field(statement, "Effect"))).isEqualTo("Allow");
+        assertThat(values(field(statement, "Action"))).containsExactly("s3:GetBucketVersioning");
+        assertTagged(field(statement, "Resource"), tag, resource);
     }
 
     private void assertDeletion(String sid, String resource) throws IOException {
