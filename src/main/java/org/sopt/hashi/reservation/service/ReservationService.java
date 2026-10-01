@@ -87,6 +87,7 @@ public class ReservationService {
     @Transactional
     public ReservationResponse create(CreateReservationRequest request) {
         Long userId = currentUserProvider.currentUserId();
+        validateReserverExists(userId);
         if (!restaurantPort.existsById(request.restaurantId())) {
             throw new BusinessException(ReservationErrorCode.RESTAURANT_NOT_FOUND);
         }
@@ -104,6 +105,7 @@ public class ReservationService {
     @Transactional
     public ReservationResponse createAnywhere(CreateAnywhereReservationRequest request) {
         Long userId = currentUserProvider.currentUserId();
+        validateReserverExists(userId);
         long usedPoint = defaultUsedPoint(request.usedPoint());
         Reservation reservation = reservationRepository.save(Reservation.anywhere(
                 userId, request.reserverName(), request.restaurantName(), request.restaurantAddress(),
@@ -113,6 +115,16 @@ public class ReservationService {
         usePointIfAny(userId, reservation);
         logCreated(reservation);
         return toResponse(reservation);
+    }
+
+    /**
+     * 예약자가 활성 회원인지 확인한다 — 탈퇴 조건 검사(미종료 예약 없음)와 예약 생성이 엇갈려 탈퇴 회원에게
+     * 새 예약이 남는 경합을 좁힌다. 탈퇴 회원의 토큰은 필터가 먼저 거부하므로 평소에는 통과한다.
+     */
+    private void validateReserverExists(Long userId) {
+        if (!userPort.existsById(userId)) {
+            throw new BusinessException(ReservationErrorCode.RESERVER_NOT_FOUND);
+        }
     }
 
     /** 결제 흐름(수수료·포인트)의 시작점이라 금액 확인이 필요한 문의 대응의 기준 기록이 된다. */
