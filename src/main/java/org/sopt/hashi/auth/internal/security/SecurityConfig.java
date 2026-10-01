@@ -43,6 +43,7 @@ public class SecurityConfig {
      * 식당 컬렉션 공유 열람(#216) — 공개 컬렉션의 상세·저장 식당 목록은 비로그인도 GET할 수 있다.
      * 목록(/api/v1/collections)·쓰기 메서드는 회원 전용이라 GET 두 경로만 연다. 비공개 여부는 user Service가 판정한다.
      */
+    static final String[] NOTICE_PUBLIC_GET_PATHS = {"/api/v1/notices", "/api/v1/notices/*"};
     static final String[] COLLECTION_PUBLIC_GET_PATHS = {
             "/api/v1/collections/*",
             "/api/v1/collections/*/restaurants"
@@ -85,6 +86,7 @@ public class SecurityConfig {
                         .requestMatchers(MAGAZINE_LIKE_PATH).hasRole("USER")
                         .requestMatchers(PUBLIC_PATHS).permitAll()
                         .requestMatchers(HttpMethod.GET, COLLECTION_PUBLIC_GET_PATHS).permitAll()
+                        .requestMatchers(HttpMethod.GET, NOTICE_PUBLIC_GET_PATHS).permitAll()
                         .requestMatchers(ONBOARDING_PATH).hasRole("ONBOARDING")
                         .requestMatchers(UPLOAD_PATH).hasAnyRole("USER", "ADMIN", "ONBOARDING")
                         .requestMatchers(MEDIA_PATH).hasAnyRole("USER", "ADMIN", "ONBOARDING")
