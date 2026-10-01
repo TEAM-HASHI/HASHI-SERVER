@@ -35,6 +35,7 @@ public class OnboardingService {
      */
     @Transactional
     public OnboardingResponse completeOnboarding(CompleteOnboardingRequest request) {
+        validateNicknameAllowed(request.nickname());
         validateNotDuplicated(request);
         User user = saveUser(request);
         authAccountPort.linkOnboardingAccount(user.getId());
@@ -45,6 +46,13 @@ public class OnboardingService {
         // 회원 생성 시점 기록 — 프로필 값은 개인정보라 ID만 남긴다
         log.info("온보딩 가입 완료. userId={}", user.getId());
         return new OnboardingResponse(user.getId());
+    }
+
+    /** 탈퇴 자리값 접두어·익명 닉네임 후보는 활성 회원이 쓸 수 없다(REVIEW_POLICY §3 — 탈퇴 회원과 혼동 방지). */
+    private void validateNicknameAllowed(String nickname) {
+        if (User.isReservedNickname(nickname)) {
+            throw new BusinessException(UserErrorCode.RESERVED_NICKNAME);
+        }
     }
 
     /** 닉네임·이메일·연락처는 유니크다. 일반적인 경우 어느 필드가 중복인지 구체적으로 알려준다. */
