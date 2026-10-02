@@ -1,8 +1,13 @@
 package org.sopt.hashi.auth.internal.security;
 
+import static org.hamcrest.Matchers.hasItem;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import java.util.Collections;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.sopt.hashi.auth.internal.jwt.JwtProvider;
@@ -81,11 +86,47 @@ class NoticeAuthorizationTest {
 
     @Test
     void 관리자_입력검증은_필드오류와_400을_반환한다() throws Exception {
-        mvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post("/api/v1/admin/notices")
+        mvc.perform(post("/api/v1/admin/notices")
                 .header("Authorization", "Bearer " + jwtProvider.createAccessToken(1L, "ROLE_ADMIN"))
-                .contentType("application/json").content("{\"title\":\"\",\"body\":[],\"imageAssetIds\":[]}"))
+                .contentType("application/json").content("{\"title\":\"\",\"body\":[],\"imageAssetIds\":null}"))
                 .andExpect(status().isBadRequest())
-                .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath("$.errors").isArray());
+                .andExpect(jsonPath("$.code").value("COMMON-400"))
+                .andExpect(jsonPath("$.errors[?(@.field == 'title')].reason", hasItem("제목은 필수입니다")))
+                .andExpect(jsonPath("$.errors[?(@.field == 'body')].reason", hasItem("본문은 필수입니다")))
+                .andExpect(jsonPath("$.errors[?(@.field == 'imageAssetIds')].reason", hasItem("이미지 목록은 필수입니다")));
+        verifyNoInteractions(adminNoticeService);
+    }
+
+    @Test
+    void 관리자_입력의_길이와_개수_위반은_한국어_필드오류를_반환한다() throws Exception {
+        String images = String.join(",", Collections.nCopies(11, "\"00000000-0000-4000-8000-000000000001\""));
+
+        mvc.perform(post("/api/v1/admin/notices")
+                .header("Authorization", "Bearer " + jwtProvider.createAccessToken(1L, "ROLE_ADMIN"))
+                .contentType("application/json").content("""
+                        {"title":"%s","body":[{"type":"PARAGRAPH","items":[[{"text":"본문"}]]}],
+                        "imageAssetIds":[%s]}
+                        """.formatted("가".repeat(101), images)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("COMMON-400"))
+                .andExpect(jsonPath("$.errors[?(@.field == 'title')].reason", hasItem("제목은 100자 이하여야 합니다")))
+                .andExpect(jsonPath("$.errors[?(@.field == 'imageAssetIds')].reason", hasItem("이미지는 10개 이하여야 합니다")));
+        verifyNoInteractions(adminNoticeService);
+    }
+
+    @Test
+    void 관리자_입력의_null_이미지ID는_한국어_필드오류를_반환한다() throws Exception {
+        mvc.perform(post("/api/v1/admin/notices")
+                .header("Authorization", "Bearer " + jwtProvider.createAccessToken(1L, "ROLE_ADMIN"))
+                .contentType("application/json").content("""
+                        {"title":"공지","body":[{"type":"PARAGRAPH","items":[[{"text":"본문"}]]}],
+                        "imageAssetIds":[null]}
+                        """))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("COMMON-400"))
+                .andExpect(jsonPath("$.errors[?(@.field == 'imageAssetIds[0]')].reason",
+                        hasItem("이미지 ID는 비어 있을 수 없습니다")));
+        verifyNoInteractions(adminNoticeService);
     }
 
     @Test

@@ -28,4 +28,7 @@ test("공지 원본은 10MiB까지 허용하고 초과·GIF를 거절한다", as
   const tooLarge = Buffer.alloc(bytes.length + 1);
   await assert.rejects(processImage({bytes: tooLarge, declaredByteSize: tooLarge.length, declaredContentType: "image/jpeg", purpose: "NOTICE", spec}),
     (error: unknown) => error instanceof PermanentImageError && error.failureCode === "SOURCE_FILE_TOO_LARGE");
+  const gif = await sharp({create: {width: 1, height: 1, channels: 3, background: "#557799"}}).gif().toBuffer();
+  await assert.rejects(processImage({bytes: gif, declaredByteSize: gif.length, declaredContentType: "image/gif", purpose: "NOTICE", spec}),
+    (error: unknown) => error instanceof PermanentImageError && error.failureCode === "UNSUPPORTED_IMAGE_TYPE");
 });

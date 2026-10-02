@@ -4,7 +4,7 @@
 
 ## API
 - GET /api/v1/notices?cursor=... : notices, nextCursor, hasNext. 게시일 DESC, ID DESC; 10개.
-- GET /api/v1/notices/{id} : 공개 게시 상세. 초안·삭제는 SUPPORT-400.
+- GET /api/v1/notices/{id} : 공개 게시 상세. 초안·삭제는 HTTP 404 (SUPPORT-400).
 - ADMIN /api/v1/admin/notices : POST 초안 작성, GET 최근 ID순 20개(beforeId 사용).
 - ADMIN /{id} : GET 상세, PUT 전체 수정, DELETE soft delete.
 - ADMIN /{id}/publication : POST 최초 게시. 재호출은 최초 게시일 유지.
