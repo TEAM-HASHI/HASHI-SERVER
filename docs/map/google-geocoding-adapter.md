@@ -2,9 +2,15 @@
 
 ## 범위와 호출 경계
 
-`restaurant.internal.map.GeocodingProvider.geocode(address)`는 저장 전 후보를 반환한다.
-기존 Controller, RestaurantPort, JPA, migration, SecurityConfig, Redis와 worker에는 연결하지 않는다.
+이 문서는 PR #226 (M3a, #222)의 adapter 범위를 기록한다.
+`restaurant.internal.map.GeocodingProvider.geocode(address)`는 저장 전 후보를 반환하며,
+원래 PR #226에서는 Controller, RestaurantPort, JPA, migration, SecurityConfig, Redis와 worker에 연결하지 않았다.
 M2 #220의 모델과 독립적으로 사용할 수 있다.
+
+2026-10-03 기준 통합 PR #233에는 관리자 등록·미삭제 식당의 주소 변경에 따른 job 생성,
+worker/lease와 이 provider의 연결, 관리자 위치 상태 DTO가 구현돼 있다.
+[위치 작업 문서](location-jobs.md)의 코드 연결은 운영 활성화나 실제 지역·주소 품질 검증,
+Google 보관 정책 승인 완료를 의미하지 않는다.
 
 Spring Boot BOM이 관리하는 `org.apache.httpcomponents.client5:httpclient5`를 추가한다.
 JDK 21.0.7 client로는 응답 없이 연결을 끊는 합성 테스트에서 GET 요청이 두 번 전송됐다.
@@ -22,7 +28,7 @@ classpath에 따른 자동 선택의 영향을 받지 않는다. 다른 RestClie
 
 후보의 위도/경도는 `BigDecimal`이며 각각 [-90, 90], [-180, 180]을 검증한다.
 명시적 `(0,0)`은 유효하다. 누락/문자열/비유한 좌표를 영점으로 대체하지 않는다.
-국가, 행정구역, 주소 구성요소, types, granularity를 반환하므로 M3b가 국가·주소·정확도를 검증할 수 있다.
+국가, 행정구역, 주소 구성요소, types, granularity를 반환하며 PR #233의 채택 정책이 국가·주소·정확도를 검증한다.
 누락되거나 새로 추가된 granularity는 `UNKNOWN`이고, 누락된 문자 메타데이터는 빈 문자열이다.
 알 수 없는 필드는 무시하지만 알려진 필드의 잘못된 자료형, JSON 중복 키, trailing token은 거부한다.
 후보 중 하나라도 형식이 잘못되면 전체 응답이 `INVALID_RESPONSE`다.
@@ -71,8 +77,8 @@ classpath에 따른 자동 선택의 영향을 받지 않는다. 다른 RestClie
 이 값이나 알 수 없는 값이 담긴 403은 `ACCESS_DENIED`로 분류한다.
 403 분류 검증은 합성 mock 응답 기준이며 실제 Google 403 응답을 확인한 결과가 아니다.
 현재 adapter는 quota의 일일/분당 한도를 구별하지 않으며 `ErrorInfo`를 추측해 추가 분류하지 않는다.
-이 분류는 worker의 재시도 허가가 아니다. M3b가 내부 호출 예산·attempt·오류 지속 시간을 함께 확인해
-제한 재시도/backoff를 결정해야 한다. 특히 quota를 무한 재시도하면 안 된다.
+이 분류만으로 재시도를 허가하지 않는다. PR #233의 worker는 내부 호출 예산·누적 attempt·공유 quota 대기를
+확인해 제한 재시도/backoff를 적용한다. 특히 quota를 무한 재시도하지 않는다.
 
 ## 제한과 설정
 
@@ -127,12 +133,14 @@ cause chain은 로그에 전달하지 않는다.
 잘못된 JSON과 예외/로그/toString 비노출을 검증한다. `GeocodingBoundaryTest`와
 `ModularityTests`가 모듈 외부 사용과 순환 의존을 검사한다.
 
-## 남은 M3b 연결
+## PR #233 연결 구현과 운영 전 확인
 
-1. DB transaction 밖에서 호출하도록 worker와 claim/완료 transaction Bean을 나눈다.
-2. 모든 후보의 국가·지원 지역·주소 일치·정확도를 판정하고 모호하면 검토 상태로 둔다.
+2026-10-03 기준 다음 1~4는 PR #233에 구현돼 있으며, 5는 운영 전 확인 사항이다.
+
+1. DB transaction 밖에서 호출하도록 worker와 claim/완료 transaction Bean을 나눴다.
+2. 후보 수·국가·지원 영역·주소 일치·정확도를 판정하고 모호하면 검토 상태로 둔다. 관광 지역 ID는 추론하지 않는다.
 3. 좌표 6자리 저장 정밀도 변환, source/obtainedAt/validUntil과 주소 revision을 적용한다.
-4. job/lease/revision을 재검사한 완료, 제한 재시도/backoff, quota·일일 예산과 운영 관측을 연결한다.
-5. 실제 계약·키 제한·quota·주소 품질과 보존 정책을 확인한 후 별도 승인으로 운영을 활성화한다.
+4. job/lease/revision을 재검사한 완료, 제한 재시도/backoff, quota·일일 예산과 안전한 상태 DTO를 연결했다.
+5. 실제 계약·키 제한·quota·주소 품질·지역과 보관 정책을 확인한 후 별도 승인으로 운영을 활성화한다.
 
-M3a adapter 완료는 주소 변환 기능이나 지도 전체 완료를 의미하지 않는다.
+M3a adapter와 PR #233의 worker 연결 구현은 실제 Google 호출 검증·운영 활성화나 지도 전체 완료를 의미하지 않는다.
