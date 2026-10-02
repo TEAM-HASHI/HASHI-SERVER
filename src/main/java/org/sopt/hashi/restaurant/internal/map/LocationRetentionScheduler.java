@@ -1,4 +1,4 @@
-package org.sopt.hashi.restaurant.migration;
+package org.sopt.hashi.restaurant.internal.map;
 
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
@@ -14,10 +14,10 @@ import org.springframework.stereotype.Component;
 @ConditionalOnProperty(prefix = "hashi.map.maintenance", name = "retention-enabled", havingValue = "true")
 public class LocationRetentionScheduler implements SmartLifecycle {
     private final LocationRetentionService service;
-    private final LocationMaintenanceProperties options;
+    private final LocationRetentionProperties options;
     private volatile ScheduledExecutorService executor;
 
-    public LocationRetentionScheduler(LocationRetentionService service, LocationMaintenanceProperties options) {
+    public LocationRetentionScheduler(LocationRetentionService service, LocationRetentionProperties options) {
         this.service = service;
         this.options = options;
     }

@@ -124,7 +124,22 @@ GRAFANA_ADMIN_PASSWORD
 
 ```text
 GRAFANA_ADMIN_USER
+HASHI_RESTAURANT_MAP_SESSION_ENABLED
+HASHI_RESTAURANT_MAP_SESSION_SIGNINGKEY
 ```
+
+지도 세션은 `HASHI_RESTAURANT_MAP_SESSION_ENABLED=false`가 기본값이다. 키 준비와 공개 활성화는
+별개이며, 키는 현재 EC2 런타임 환경 파일에서 관리한다. `HASHI_RESTAURANT_MAP_SESSION_SIGNINGKEY`는
+모든 서버가 공유하는 Base64 형식 32~64 byte 비밀값이다. 실제 키는 repository나 GitHub Actions에 중복 저장하지 않는다.
+비활성화 상태에서는 유효한 키를 넣어도 지도 목록 세 모드가 DB/Redis 접근 전에 RESTAURANT-014 / 503을 반환한다.
+활성화한 상태에서 키가 없거나 잘못되면 부팅은 유지하고 시작 시 값·예외 원문 없는 WARN을 한 번 남기며,
+지도 세션 요청은 같은 503을 반환한다. 비활성화 상태에서는 키 누락/오류로 WARN을 남기지 않는다.
+
+공개 활성화 전 신뢰 가능한 ingress 제한·호출자 식별 경계와 정상 트래픽 용량을 검증하고,
+후보 500개 초과 시 전체 실패하는 정책과 기획의 정합성을 확정해야 한다.
+[후속 이슈 #252](https://github.com/TEAM-HASHI/HASHI-SERVER/issues/252)에서 이를 별도로 다룬다.
+기본 비활성화 추가로 해당 문제가 해결되지는 않으며, 500개 상한 확대나 결과 잘라내기는 하지 않는다.
+상세 계약은 [지도 목록 운영 경계](../map/map-pagination.md#설정오류와-운영-경계)를 따른다.
 
 `GRAFANA_ADMIN_USER`를 생략하면 `admin`을 기본값으로 사용한다.
 `GRAFANA_ADMIN_PASSWORD`는 기본값이 없으며, 누락하거나 빈 값으로 두면 Docker Compose 실행이 실패한다.
@@ -178,6 +193,13 @@ compose 파일은 다음 경로의 환경변수 파일을 읽는다.
 env_file:
   - ../.env.dev
 ```
+
+기존 `env_file`만으로도 정확한 이름의 지도 세션 환경변수를 컨테이너에 전달할 수 있다.
+명시적인 `environment` 매핑은 기본 비활성화와 빈 키 기본값을 드러내기 위한 것이다.
+`environment`가 `env_file`보다 우선하므로, 기존 배포 명령처럼 `--env-file ../.env.dev`를 지정해
+같은 파일을 Compose 변수 치환에도 사용한다. 운영 compose도 `--env-file ../.env.prod`를 사용한다.
+이 옵션을 빼고 기본 치환값이 적용되면 `env_file`의 키가 빈 값으로 덮일 수 있다.
+실제 환경에서 `docker compose config` 전체 출력으로 키를 확인하지 않는다.
 
 애플리케이션 컨테이너는 localhost에만 바인딩한다.
 

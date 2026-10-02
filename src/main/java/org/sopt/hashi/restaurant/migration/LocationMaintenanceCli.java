@@ -2,8 +2,12 @@ package org.sopt.hashi.restaurant.migration;
 
 import java.time.Clock;
 import java.util.Map;
+import org.sopt.hashi.config.JpaAuditingConfig;
 import org.sopt.hashi.restaurant.domain.Restaurant;
 import org.sopt.hashi.restaurant.domain.RestaurantRepository;
+import org.sopt.hashi.restaurant.internal.map.LocationRetentionReader;
+import org.sopt.hashi.restaurant.internal.map.LocationRetentionService;
+import org.sopt.hashi.restaurant.internal.map.LocationRetentionTransactions;
 import org.sopt.hashi.restaurant.service.RestaurantLocationService;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.WebApplicationType;
@@ -58,10 +62,11 @@ public final class LocationMaintenanceCli {
             HibernateJpaAutoConfiguration.class, TransactionAutoConfiguration.class})
     @EntityScan(basePackageClasses = Restaurant.class)
     @EnableJpaRepositories(basePackageClasses = RestaurantRepository.class)
-    @Import({LocationMaintenanceConfiguration.class, LocationMaintenanceReader.class,
+    @Import({JpaAuditingConfig.class, LocationMaintenanceConfiguration.class, LocationMaintenanceReader.class,
             LocationMaintenanceStore.class, LocationMaintenanceTransactions.class,
             LocationMaintenanceInspection.class, LocationMaintenanceRunner.class,
-            LocationRetentionService.class, LocationRetentionTransactions.class, RestaurantLocationService.class})
+            LocationRetentionReader.class, LocationRetentionService.class, LocationRetentionTransactions.class,
+            RestaurantLocationService.class})
     static class CliConfiguration {
         @Bean("japanClock")
         Clock clock() {

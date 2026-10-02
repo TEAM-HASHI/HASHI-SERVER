@@ -49,7 +49,7 @@ import org.sopt.hashi.restaurant.migration.LocationMaintenanceProperties;
 import org.sopt.hashi.restaurant.migration.LocationMaintenanceProperties.Command;
 import org.sopt.hashi.restaurant.migration.LocationMaintenanceProperties.Mode;
 import org.sopt.hashi.restaurant.migration.LocationMaintenanceRunner;
-import org.sopt.hashi.restaurant.migration.LocationRetentionService;
+import org.sopt.hashi.restaurant.internal.map.LocationRetentionService;
 import org.sopt.hashi.restaurant.service.LocationJobTransactions.Outcome;
 import org.sopt.hashi.shared.storage.FileStorage;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -133,6 +133,7 @@ class RestaurantMapFlowIntegrationTest {
 
     @BeforeEach
     void resetSyntheticDatabase() {
+        sessionProperties.setEnabled(true);
         assertThat(TimeZone.getDefault().getID()).isEqualTo("UTC");
         assertThat(jdbc.queryForObject("select timestampdiff(second, utc_timestamp(), now())", Integer.class))
                 .isEqualTo(9 * 60 * 60);
@@ -282,7 +283,7 @@ class RestaurantMapFlowIntegrationTest {
                 set l.valid_until=UTC_TIMESTAMP(6)+interval 20 minute where r.id=?
                 """, id);
         jdbc.update("update restaurant_geocoding_budget set enabled=false where id=1");
-        assertThat(retention.purge(maintenanceOptions).purged()).isEqualTo(1);
+        assertThat(retention.purge(maintenanceOptions.retentionOptions()).purged()).isEqualTo(1);
         assertThat(jdbc.queryForObject("""
                 select count(*) from restaurant_location l join restaurant r on r.location_id=l.id
                 where r.id=? and (l.latitude is not null or l.longitude is not null or l.valid_until is not null)
