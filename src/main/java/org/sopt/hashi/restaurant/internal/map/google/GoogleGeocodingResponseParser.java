@@ -66,10 +66,8 @@ final class GoogleGeocodingResponseParser {
                 return GeocodingResult.FailureKind.ACCESS_DENIED;
             }
             return switch (status.textValue()) {
-                case "RESOURCE_EXHAUSTED", "OVER_QUERY_LIMIT", "rateLimitExceeded", "userRateLimitExceeded" ->
+                case "RESOURCE_EXHAUSTED" ->
                         GeocodingResult.FailureKind.QUOTA_EXCEEDED;
-                case "OVER_DAILY_LIMIT", "dailyLimitExceeded" ->
-                        GeocodingResult.FailureKind.CONFIGURATION_ERROR;
                 default -> GeocodingResult.FailureKind.ACCESS_DENIED;
             };
         } catch (IOException | RuntimeException ignored) {

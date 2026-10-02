@@ -52,8 +52,7 @@ classpath에 따른 자동 선택의 영향을 받지 않는다. 다른 RestClie
 | 비활성 | DISABLED |
 | 빈 주소 또는 기존 주소 한도 255자 초과, HTTP 400/422 | INVALID_REQUEST |
 | 401, 403 PERMISSION_DENIED·알 수 없거나 읽을 수 없는 오류 | ACCESS_DENIED |
-| 403 RESOURCE_EXHAUSTED·OVER_QUERY_LIMIT·단기 rate limit | QUOTA_EXCEEDED |
-| 403 OVER_DAILY_LIMIT·dailyLimitExceeded | CONFIGURATION_ERROR; billing·키·일일 상한을 단기 재시도로 가정하지 않음 |
+| 403 RESOURCE_EXHAUSTED | QUOTA_EXCEEDED |
 | 404 | CONFIGURATION_ERROR |
 | 429 | QUOTA_EXCEEDED |
 | 5xx | TRANSIENT_ERROR |
@@ -65,8 +64,15 @@ classpath에 따른 자동 선택의 영향을 받지 않는다. 다른 RestClie
 | 응답 크기 초과 | RESPONSE_TOO_LARGE |
 | JSON/자료형/좌표/Content-Type 오류, 그 밖의 상태 | INVALID_RESPONSE |
 
-이 분류는 worker의 재시도 허가가 아니다. 예산·attempt·오류 지속 시간과 함께 M3b가 결정한다.
-특히 quota를 무한 재시도하면 안 된다.
+2026-10-03 [v4 개요](https://developers.google.com/maps/documentation/geocoding/geocoding-v4-overview)와
+[AIP-193의 HTTP JSON 오류 형식](https://google.aip.dev/193#http11json-representation)을 다시 확인했다.
+`error.status`는 canonical code이며 v3/legacy의 `OVER_QUERY_LIMIT`, `rateLimitExceeded`,
+`userRateLimitExceeded`, `OVER_DAILY_LIMIT`, `dailyLimitExceeded`를 v4 상태로 해석하지 않는다.
+이 값이나 알 수 없는 값이 담긴 403은 `ACCESS_DENIED`로 분류한다.
+403 분류 검증은 합성 mock 응답 기준이며 실제 Google 403 응답을 확인한 결과가 아니다.
+현재 adapter는 quota의 일일/분당 한도를 구별하지 않으며 `ErrorInfo`를 추측해 추가 분류하지 않는다.
+이 분류는 worker의 재시도 허가가 아니다. M3b가 내부 호출 예산·attempt·오류 지속 시간을 함께 확인해
+제한 재시도/backoff를 결정해야 한다. 특히 quota를 무한 재시도하면 안 된다.
 
 ## 제한과 설정
 
@@ -106,7 +112,11 @@ HTTP 라이브러리 변경 시 응답 없이 연결을 끊는 wire 테스트를
 properties, 후보 및 주소 구성요소의 `toString()`을 마스킹하고, 파서/HTTP 예외 cause를 전달하지 않는다.
 새 transport의 logger는 logback에서 OFF로 두고, wire/header/request debug override가 있으면
 활성 Bean 생성을 거부한다. 운영에서도 HTTP/TLS wire dump나
-요청 헤더/body 수집을 켜지 않는다. 관측에 허용하는 값은 실패 종류와 HTTP 상태다.
+요청 헤더/body 수집을 켜지 않는다. 결과 관측에 허용하는 값은 실패 종류와 HTTP 상태다.
+예상하지 못한 `RuntimeException`과 작업의 `ExecutionException`은 `INVALID_RESPONSE`로 유지하며,
+진단 WARN에는 고정 phase(`execute`/`await`)와 예외 클래스명만 기록한다.
+`await`에서는 바로 아래 cause의 클래스명만 확인한다. 원문 메시지, Throwable, stacktrace와
+cause chain은 로그에 전달하지 않는다.
 
 테스트는 합성 데이터와 mock/loopback HTTP만 사용한다. 실제 Google 계정·키·유료 API는 사용하지 않는다.
 `GoogleGeocodingWireTest`는 인코딩/헤더, redirect, 실제 연결 유실 후 재전송 여부,

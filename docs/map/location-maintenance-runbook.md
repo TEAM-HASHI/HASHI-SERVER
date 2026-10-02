@@ -160,7 +160,7 @@ Invoke-LocationMaintenance --hashi.map.maintenance.command=PURGE --hashi.map.mai
 PURGE는 ID 범위 대신 Google/READY의 만료 시각 오름차순으로 최대 batch-size × max-batches 건을 다룬다.
 Google 호출·worker·전역 호출 예산을 켤 필요가 없다. 실제 DB의 좌표·source·obtainedAt·validUntil을
 모두 NULL로 만들고 REVIEW_REQUIRED로 둔다. 식당 원본과 자식 데이터는 보존한다.
-삭제된 식당도 포함한다. OPERATOR 좌표는 Google 보존 정책으로 지우지 않는다.
+삭제된 식당도 포함한다. ADMIN 좌표는 Google 보존 정책으로 지우지 않는다.
 조회 때 수집한 revision/request/obtainedAt/validUntil을 부모 잠금 아래 다시 비교하므로
 오래된 정리 작업이 동시 주소 변경이나 새로운 위치 결과를 지우지 않는다.
 
