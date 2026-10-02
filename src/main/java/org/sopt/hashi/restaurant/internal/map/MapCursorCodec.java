@@ -25,7 +25,7 @@ public class MapCursorCodec {
     }
 
     public void requireConfigured() {
-        properties.requireSigningKey();
+        properties.requireConfigured();
     }
 
     public String encode(MapSessionId session, RestaurantMapSort sort, int position) {

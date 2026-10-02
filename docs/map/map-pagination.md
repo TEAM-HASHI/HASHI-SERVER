@@ -5,7 +5,7 @@
 
 ## 요청과 응답
 
-`GET /api/v1/restaurants/map`은 익명 공개이며 다음 세 모드만 허용한다.
+`GET /api/v1/restaurants/map`은 활성화 시 익명 공개이며 기본 비활성화 상태다. 다음 세 모드만 허용한다.
 
 - 새 조회: 필수 south/north/west/east, 선택 mapRegionId/keyword/genre/placeType/sort.
 - 같은 조회의 정렬 변경: querySessionId와 sort만.
@@ -76,8 +76,11 @@ PXAT은 Redis 6.2 이상을 요구한다. 운영 버전·ACL·eviction·메모�
 이 공개 API의 128개 슬롯은 호출자별 격리가 없다. 한 익명 호출자가 짧은 시간에 새 조회 128회를
 보내면 다른 사용자의 새 조회도 세션 만료 전까지 RESTAURANT-016을 받는다. 현재 저장소에는 이를
 막는 신뢰 가능한 ingress 제한이나 앱별 호출자 quota의 적용 증거가 없다. 공개 활성화 전
-실제 ingress 제한·호출자 식별 경계와 정상 트래픽 용량을 검증해야 하며, 그 전에는 출시 NO-GO다.
-Redis 슬롯 상한만으로 남용 방지를 완료했다고 보지 않는다.
+실제 ingress 제한·호출자 식별 경계와 정상 트래픽 용량을 검증해야 하며, 그 전에는 기본 비활성화와 출시 NO-GO를 유지한다.
+후보 500개 초과 시 전체 실패하는 정책과 기획의 전체 결과 조회·실패 회복 안내 사이의 차이도
+[후속 이슈 #252](https://github.com/TEAM-HASHI/HASHI-SERVER/issues/252)에서 해결해야 한다.
+실제 조회 범위의 후보 규모와 제품 정책을 확정하기 전에는 활성화하지 않는다. 500개 상한을 유지하며
+임의 확대나 결과 잘라내기는 하지 않는다. 기본 비활성화와 Redis 슬롯 상한만으로 이 이슈나 남용 방지가 해결되지는 않는다.
 서버 TIME보다 미래 15분을 5초 넘겨 벗어나거나 이미 지난 deadline은 저장하지 않으므로 서버 시계도
 동기화해야 한다. 이 5초는 시계 차이 허용 범위이며 payload의 expiresAt이나 PXAT을 늘리지는 않는다.
 
@@ -92,9 +95,21 @@ payload 상한은 8MiB이고 Redis allocator/key overhead는 별도다. 운영 Q
 
 ## 설정·오류와 운영 경계
 
+`hashi.restaurant.map.session.enabled`는 기본 `false`이며 환경 변수 이름은
+`HASHI_RESTAURANT_MAP_SESSION_ENABLED`다. 키 준비와 공개 활성화는 별개다.
+비활성화 상태에서는 유효한 키가 있어도 신규 조회·정렬 변경·다음 페이지 모두 DB/Redis 접근 전에
+RESTAURANT-014 / 503을 반환한다. 기존 입력 검증은 유지한다.
+
 `hashi.restaurant.map.session.signing-key`에 모든 서버가 공유하는 Base64 형식 32~64 byte 비밀값을
-설정한다. 환경 변수 이름은 `HASHI_RESTAURANT_MAP_SESSION_SIGNINGKEY`다. 코드 기본값·랜덤 생성·로그
-출력이 없고 요청 시 검증하므로 누락/형식 오류는 지도 세션만 503이며 부팅·관광 안내·기존 API는 유지된다.
+설정한다. 환경 변수 이름은 `HASHI_RESTAURANT_MAP_SESSION_SIGNINGKEY`다. 키 기본값·랜덤 생성·로그
+출력은 없다. 활성화 상태에서 키 누락/형식 오류는 지도 세션만 503이며 부팅·관광 안내·기존 API는 유지된다.
+이 경우에만 시작 시 고정 WARN을 한 번 남기고, 키 값·예외 원문·Throwable/cause는 기록하지 않는다.
+비활성화 상태의 키 누락/오류와 활성화 상태의 유효한 키에는 WARN을 남기지 않는다.
+
+dev/prod compose의 기존 `env_file`은 이미 해당 환경변수를 전달할 수 있다. 명시적인 `environment`
+매핑은 enabled 기본 `false`와 빈 키 기본값을 보여준다. 기존 배포처럼 `--env-file`로 동일 런타임
+파일을 Compose 변수 치환에도 사용해야 하며, [EC2 런타임 설정](../infra/dev-deploy.md#5-ec2-런타임-환경변수)을 따른다.
+유효한 키와 `enabled=true`만으로 ingress·용량 검증이나 #252의 제품 정책 결정이 완료되는 것은 아니다.
 키 교체 때 기존 cursor는 검증 실패한다. 회전 기간 복수 키 지원은 이 변경에 포함하지 않는다.
 
 커서는 최대 512자 계약 안에서 74자 Base64url 토큰이며 version/slot/UUID/sort/후보 위치에 HMAC-SHA256을
@@ -102,7 +117,7 @@ payload 상한은 8MiB이고 Redis allocator/key overhead는 별도다. 운영 Q
 payload 포함 가능성 때문에 cause도 외부 로그에 전달하지 않는다.
 
 - RESTAURANT-013 / 410: 만료·유실·UUID 불일치·구버전/손상 세션.
-- RESTAURANT-014 / 503: 서명 설정 누락/오류·Redis 읽기/쓰기/연결 장애.
+- RESTAURANT-014 / 503: 지도 세션 비활성화·서명 설정 누락/오류·Redis 읽기/쓰기/연결 장애.
 - RESTAURANT-015 / 503: DB 조회/transaction 장애.
 - RESTAURANT-016 / 503: 후보·bytes·슬롯 수용 한도 초과.
 - 기존 011/012/017/018은 #223 의미를 유지한다.

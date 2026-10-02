@@ -6,6 +6,10 @@ import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.mockingDetails;
 
+import ch.qos.logback.classic.Level;
+import ch.qos.logback.classic.Logger;
+import ch.qos.logback.classic.spi.ILoggingEvent;
+import ch.qos.logback.core.read.ListAppender;
 import java.math.BigDecimal;
 import java.time.DayOfWeek;
 import java.time.Duration;
@@ -25,6 +29,8 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.EnumSource;
+import org.junit.jupiter.params.provider.ValueSource;
+import org.slf4j.LoggerFactory;
 import org.sopt.hashi.config.TimeConfig;
 import org.sopt.hashi.media.MediaPort;
 import org.sopt.hashi.restaurant.AdminRestaurantCommand;
@@ -256,18 +262,60 @@ class LocationJobMySqlTest {
         assertThatThrownBy(() -> locations.get(id)).isInstanceOf(BusinessException.class);
     }
 
-    @Test
-    void 삭제된_식당의_주소_편집은_허용하되_새_위치_작업은_만들지_않는다() {
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    void 삭제된_식당의_주소_편집은_허용하되_위치와_작업은_변경하지_않는다(boolean isReady) {
         Long id = restaurantPort.createByAdmin(createCommand()).restaurantId();
         Claim old = transactions.claim(target(id)).orElseThrow();
+        if (isReady) {
+            assertThat(transactions.complete(old, ready())).isTrue();
+        }
         restaurantPort.deleteByAdmin(id);
+        String snapshotSql = "SELECT l.* FROM restaurant_location l JOIN restaurant r ON r.location_id=l.id WHERE r.id=?";
+        var locationBefore = jdbc.queryForMap(snapshotSql, id);
         long jobCount = jobs.count();
         var command = addressCommand("東京都試験区架空町1-2-4");
         var response = restaurantPort.updateByAdmin(id, command);
         assertThat(response.address()).isEqualTo(command.address());
         assertThat(jobs.count()).isEqualTo(jobCount);
+        assertThat(jdbc.queryForMap(snapshotSql, id)).isEqualTo(locationBefore);
+        assertThat(response.locationStatus()).isEqualTo(isReady ? "READY" : "PENDING");
         assertThat(restaurantRepository.findById(id).orElseThrow().isDeleted()).isTrue();
         assertThat(transactions.complete(old, ready())).isFalse();
+        assertThatThrownBy(() -> locations.get(id)).isInstanceOf(BusinessException.class);
+    }
+
+    @Test
+    void provider_예외는_예산과_재시도를_유지하고_진단에는_클래스명만_남긴다() {
+        Long id = restaurants.createByAdmin(createCommand()).restaurantId();
+        Target target = target(id);
+        provider.answer.set(address -> {
+            throw new IllegalStateException("synthetic-secret-key " + address + " SELECT private_column",
+                    new IllegalArgumentException("synthetic-secret-cause"));
+        });
+        Logger logger = (Logger) LoggerFactory.getLogger(RestaurantLocationWorker.class);
+        ListAppender<ILoggingEvent> appender = new ListAppender<>();
+        appender.start();
+        logger.addAppender(appender);
+        try {
+            worker.process(target);
+            var status = locations.get(id);
+            assertThat(status.locationStatus()).isEqualTo("RETRY_WAIT");
+            assertThat(status.failureCode()).isEqualTo("TRANSIENT_ERROR");
+            assertThat(status.attempt()).isEqualTo(1);
+            assertThat(status.nextAttemptAt()).isNotNull();
+            assertThat(used()).isEqualTo(1);
+            assertThat(appender.list).singleElement().satisfies(event -> {
+                assertThat(event.getLevel()).isEqualTo(Level.WARN);
+                assertThat(event.getFormattedMessage()).isEqualTo(
+                        "Location worker failure operation=location-provider-call exceptionType=java.lang.IllegalStateException");
+                assertThat(event.getArgumentArray()).containsExactly("java.lang.IllegalStateException");
+                assertThat(event.getThrowableProxy()).isNull();
+            });
+        } finally {
+            logger.detachAppender(appender);
+            appender.stop();
+        }
     }
 
     @Test

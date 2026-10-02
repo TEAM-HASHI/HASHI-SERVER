@@ -5,6 +5,10 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.anyCollection;
 import static org.mockito.BDDMockito.given;
 
+import ch.qos.logback.classic.Level;
+import ch.qos.logback.classic.Logger;
+import ch.qos.logback.classic.spi.ILoggingEvent;
+import ch.qos.logback.core.read.ListAppender;
 import java.math.BigDecimal;
 import java.time.Clock;
 import java.time.Instant;
@@ -14,6 +18,7 @@ import org.assertj.core.api.ThrowableAssert.ThrowingCallable;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.slf4j.LoggerFactory;
 import org.sopt.hashi.auth.CurrentUserProvider;
 import org.sopt.hashi.config.JpaAuditingConfig;
 import org.sopt.hashi.config.TimeConfig;
@@ -359,9 +364,36 @@ class RestaurantCollectionIntegrationTest {
         });
         assertBusinessError(() -> mapService.getMarkers(id), UserErrorCode.COLLECTION_NOT_FOUND);
         Long failed = saveCollection(OWNER_ID, "실패 지도", CollectionVisibility.PUBLIC, 101L);
-        org.mockito.Mockito.doThrow(new IllegalStateException("second batch unavailable"))
-                .when(restaurantPort).findActiveMapInfos(anyCollection());
-        assertBusinessError(() -> mapService.getMarkers(failed), UserErrorCode.COLLECTION_MAP_UNAVAILABLE);
+        String privateDetail = "collectionId=" + failed + " SELECT private_sql key=synthetic-secret";
+        String privateCause = "private-address 35.654321 139.123456";
+        var failure = new IllegalStateException(privateDetail, new IllegalArgumentException(privateCause));
+        org.mockito.Mockito.doThrow(failure).when(restaurantPort).findActiveMapInfos(anyCollection());
+        Logger logger = (Logger) LoggerFactory.getLogger(CollectionMapQueryService.class);
+        Level previousLevel = logger.getLevel();
+        ListAppender<ILoggingEvent> logs = new ListAppender<>();
+        logger.setLevel(Level.WARN);
+        logs.start();
+        logger.addAppender(logs);
+        try {
+            assertThatThrownBy(() -> mapService.getMarkers(failed))
+                    .isInstanceOfSatisfying(BusinessException.class, error -> {
+                        assertThat(error.getErrorCode()).isEqualTo(UserErrorCode.COLLECTION_MAP_UNAVAILABLE);
+                        assertThat(error.getCause()).isSameAs(failure);
+                    });
+            assertThat(logs.list).singleElement().satisfies(event -> {
+                assertThat(event.getLevel()).isEqualTo(Level.WARN);
+                assertThat(event.getFormattedMessage()).isEqualTo(
+                        "Collection map failed. operation=collection-map-port exceptionType=IllegalStateException");
+                assertThat(event.getArgumentArray()).containsExactly("IllegalStateException");
+                assertThat(event.getThrowableProxy()).isNull();
+                assertThat(event.getFormattedMessage()).doesNotContain(privateDetail, privateCause,
+                        "collectionId=", "private_sql", "synthetic-secret", "35.654321", "139.123456");
+            });
+        } finally {
+            logger.detachAppender(logs);
+            logs.stop();
+            logger.setLevel(previousLevel);
+        }
     }
 
     @Test

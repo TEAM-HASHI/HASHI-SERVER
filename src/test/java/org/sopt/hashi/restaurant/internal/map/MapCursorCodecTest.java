@@ -78,6 +78,7 @@ class MapCursorCodecTest {
 
     static MapSessionProperties configured() {
         var properties = new MapSessionProperties();
+        properties.setEnabled(true);
         properties.setSigningKey(Base64.getEncoder().encodeToString(
                 "synthetic-map-test-key-32-bytes-only".getBytes(StandardCharsets.UTF_8)));
         return properties;

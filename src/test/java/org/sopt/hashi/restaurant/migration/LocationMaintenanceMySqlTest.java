@@ -30,6 +30,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.parallel.Isolated;
 import org.slf4j.LoggerFactory;
+import org.sopt.hashi.config.JpaAuditingConfig;
 import org.sopt.hashi.config.TimeConfig;
 import org.sopt.hashi.restaurant.domain.MapCoordinates;
 import org.sopt.hashi.restaurant.domain.PriceCurrency;
@@ -44,6 +45,10 @@ import org.sopt.hashi.restaurant.internal.map.GeocodingCandidate;
 import org.sopt.hashi.restaurant.internal.map.GeocodingProvider;
 import org.sopt.hashi.restaurant.internal.map.GeocodingResult;
 import org.sopt.hashi.restaurant.internal.map.LocationJobProperties;
+import org.sopt.hashi.restaurant.internal.map.LocationRetentionReader;
+import org.sopt.hashi.restaurant.internal.map.LocationRetentionScheduler;
+import org.sopt.hashi.restaurant.internal.map.LocationRetentionService;
+import org.sopt.hashi.restaurant.internal.map.LocationRetentionTransactions;
 import org.sopt.hashi.restaurant.internal.map.RestaurantLocationWorker;
 import org.sopt.hashi.restaurant.migration.LocationMaintenanceProperties.Command;
 import org.sopt.hashi.restaurant.migration.LocationMaintenanceProperties.Mode;
@@ -74,7 +79,8 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 @Testcontainers
 @DataJpaTest(showSql = false)
 @AutoConfigureTestDatabase(replace = AutoConfigureTestDatabase.Replace.NONE)
-@Import({LocationMaintenanceReader.class, LocationMaintenanceStore.class, LocationMaintenanceTransactions.class,
+@Import({JpaAuditingConfig.class, LocationRetentionReader.class,
+        LocationMaintenanceReader.class, LocationMaintenanceStore.class, LocationMaintenanceTransactions.class,
         LocationMaintenanceInspection.class, LocationMaintenanceRunner.class, LocationRetentionService.class,
         LocationRetentionTransactions.class, RestaurantLocationService.class, LocationJobTransactions.class,
         RestaurantLocationWorker.class, LocationRetryPolicy.class, LocationAdoptionPolicy.class,
@@ -100,6 +106,7 @@ class LocationMaintenanceMySqlTest {
     @Autowired RestaurantLocationJobRepository jobs;
     @Autowired RestaurantLocationService locations;
     @Autowired LocationMaintenanceReader reader;
+    @Autowired LocationRetentionReader retentionReader;
     @Autowired LocationMaintenanceStore store;
     @Autowired LocationMaintenanceInspection inspection;
     @Autowired LocationMaintenanceTransactions maintenance;
@@ -459,7 +466,8 @@ class LocationMaintenanceMySqlTest {
         long deleted = ready(Duration.ofMinutes(10), true);
         long future = ready(Duration.ofDays(3), false);
         jdbc.update("UPDATE restaurant_geocoding_budget SET enabled=false WHERE id=1");
-        var result = retention.purge(options(Command.PURGE, Mode.BACKFILL, true, null, null, 10, 80));
+        var result = retention.purge(
+                options(Command.PURGE, Mode.BACKFILL, true, null, null, 10, 80).retentionOptions());
         assertThat(result.purged()).isEqualTo(2);
         assertThat(result.dueRemaining()).isZero();
         assertCleared(active, "REVIEW_REQUIRED");
@@ -480,7 +488,7 @@ class LocationMaintenanceMySqlTest {
     @Test
     void 오래된정리snapshot은_주소수정과_새결과를_지우지않고_백업의만료값도_노출하지않는다() {
         long id = ready(Duration.ofMinutes(20), false);
-        var old = reader.purgeCandidates(reader.now().plusHours(1), 100).getFirst();
+        var old = retentionReader.purgeCandidates(reader.now().plusHours(1), 100).getFirst();
         tx.executeWithoutResult(status -> {
             var restaurant = restaurants.findByIdForUpdate(id).orElseThrow();
             restaurant.updateBasicInfo(null, null, null, null, ADDRESS + "別館", null, null, null, null, null, null, null);
@@ -499,7 +507,8 @@ class LocationMaintenanceMySqlTest {
                 """, id);
         tx.executeWithoutResult(status -> assertThat(restaurants.findById(id).orElseThrow()
                 .hasUsableMapLocation(clock(reader.now()))).isFalse());
-        assertThat(retention.purge(options(Command.PURGE, Mode.BACKFILL, true, null, null, 10, 80)).purged()).isEqualTo(1);
+        assertThat(retention.purge(options(Command.PURGE, Mode.BACKFILL, true, null, null, 10, 80)
+                .retentionOptions()).purged()).isEqualTo(1);
         assertCleared(id, "REVIEW_REQUIRED");
     }
 
@@ -520,7 +529,7 @@ class LocationMaintenanceMySqlTest {
         drain(options.runId());
         worker.process(target(id));
         assertThat(maintenance.status(options.runId()).completion().currentlyUsableLocations()).isEqualTo(1);
-        assertThat(reader.purgeCandidates(reader.now().plusHours(1), 100)).isEmpty();
+        assertThat(retentionReader.purgeCandidates(reader.now().plusHours(1), 100)).isEmpty();
     }
 
     @Test
@@ -550,8 +559,8 @@ class LocationMaintenanceMySqlTest {
                 UPDATE restaurant_location l JOIN restaurant r ON r.location_id=l.id
                 SET l.valid_until=? WHERE r.id=?
                 """, LocationMaintenanceReader.sqlTime(boundary), id);
-        assertThat(reader.purgeCandidates(boundary.minusNanos(1000), 10)).isEmpty();
-        assertThat(reader.purgeCandidates(boundary, 10)).extracting(LocationMaintenanceReader.Candidate::restaurantId)
+        assertThat(retentionReader.purgeCandidates(boundary.minusNanos(1000), 10)).isEmpty();
+        assertThat(retentionReader.purgeCandidates(boundary, 10)).extracting(LocationRetentionReader.Candidate::restaurantId)
                 .containsExactly(id);
         tx.executeWithoutResult(status -> {
             var restaurant = restaurants.findById(id).orElseThrow();
@@ -563,7 +572,7 @@ class LocationMaintenanceMySqlTest {
     @Test
     void 정리잠금대기중_새결과가저장돼도_오래된snapshot은_삭제하지않는다() throws Exception {
         long id = ready(Duration.ofMinutes(20), false);
-        var old = reader.purgeCandidates(reader.now().plusHours(1), 100).getFirst();
+        var old = retentionReader.purgeCandidates(reader.now().plusHours(1), 100).getFirst();
         CountDownLatch locked = new CountDownLatch(1);
         CountDownLatch release = new CountDownLatch(1);
         try (var executor = Executors.newVirtualThreadPerTaskExecutor()) {
@@ -631,7 +640,7 @@ class LocationMaintenanceMySqlTest {
 
     @Test
     void 배포jar의_실제launcher는_SELECT전용계정으로_확인하고_새프로세스에서_재개한다() throws Exception {
-        original();
+        long first = original();
         long upper = original();
         var root = rootJdbc();
         root.execute("CREATE USER IF NOT EXISTS 'maintenance_reader'@'%' IDENTIFIED BY 'fixture_only'");
@@ -653,10 +662,14 @@ class LocationMaintenanceMySqlTest {
                 "--hashi.map.maintenance.after-id=" + after, "--hashi.map.maintenance.upper-id=" + upper,
                 "--hashi.map.maintenance.batch-size=1", "--hashi.map.maintenance.max-batches=1");
         assertThat(maintenance.status(runId).registration().enqueued()).isEqualTo(1);
+        var firstAudit = locationAudit(first);
+        assertThat(firstAudit).hasSize(2).doesNotContainValue(null);
         runCli("hashi", "hashi", "--hashi.map.maintenance.command=RESUME",
                 "--hashi.map.maintenance.execute=true", "--hashi.map.maintenance.run-id=" + runId);
         assertThat(maintenance.status(runId).registration().enqueued()).isEqualTo(2);
         assertThat(maintenance.status(runId).registration().state()).isEqualTo("SCANNED");
+        assertThat(locationAudit(first).get("created_at")).isEqualTo(firstAudit.get("created_at"));
+        assertThat(locationAudit(upper)).hasSize(2).doesNotContainValue(null);
 
         // Inspect the same bootstrap without SpringApplication's JVM-global logging initialization.
         new ApplicationContextRunner().withUserConfiguration(LocationMaintenanceCli.CliConfiguration.class)
@@ -671,6 +684,13 @@ class LocationMaintenanceMySqlTest {
                     assertThat(context.getBeansOfType(org.flywaydb.core.Flyway.class)).isEmpty();
                 });
         assertThat(rootLogger.getLevel()).isEqualTo(originalLogLevel);
+    }
+
+    private Map<String, Object> locationAudit(long restaurantId) {
+        return jdbc.queryForMap("""
+                SELECT l.created_at, l.updated_at FROM restaurant_location l
+                JOIN restaurant r ON r.location_id=l.id WHERE r.id=?
+                """, restaurantId);
     }
 
     private String runCli(String username, String password, String... args) throws Exception {

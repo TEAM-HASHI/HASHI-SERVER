@@ -1,4 +1,4 @@
-package org.sopt.hashi.restaurant.migration;
+package org.sopt.hashi.restaurant.internal.map;
 
 import java.time.Instant;
 import java.time.ZoneOffset;
@@ -7,15 +7,15 @@ import org.springframework.transaction.support.TransactionSynchronizationManager
 
 @Service
 public class LocationRetentionService {
-    private final LocationMaintenanceReader reader;
+    private final LocationRetentionReader reader;
     private final LocationRetentionTransactions transactions;
 
-    public LocationRetentionService(LocationMaintenanceReader reader, LocationRetentionTransactions transactions) {
+    public LocationRetentionService(LocationRetentionReader reader, LocationRetentionTransactions transactions) {
         this.reader = reader;
         this.transactions = transactions;
     }
 
-    public Report purge(LocationMaintenanceProperties options) {
+    public Report purge(LocationRetentionProperties options) {
         if (TransactionSynchronizationManager.isActualTransactionActive()) {
             throw new IllegalStateException("Retention loop must run outside a transaction");
         }

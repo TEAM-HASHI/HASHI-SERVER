@@ -4,6 +4,7 @@ import java.time.Clock;
 import java.time.Instant;
 import java.util.Comparator;
 import java.util.List;
+import lombok.extern.slf4j.Slf4j;
 import org.sopt.hashi.auth.CurrentUserProvider;
 import org.sopt.hashi.restaurant.RestaurantMapInfo;
 import org.sopt.hashi.restaurant.RestaurantPort;
@@ -19,6 +20,7 @@ import org.springframework.dao.DataAccessException;
 import org.springframework.transaction.TransactionException;
 
 /** DB snapshot와 최종 검사 사이의 Port 호출에는 user transaction/부모 잠금을 유지하지 않는다. */
+@Slf4j
 @Service
 public class CollectionMapQueryService {
     private final CollectionMapSnapshotStore snapshots;
@@ -41,6 +43,8 @@ public class CollectionMapQueryService {
         try {
             return readMarkers(collectionId);
         } catch (DataAccessException | TransactionException exception) {
+            log.warn("Collection map failed. operation=collection-map-snapshot exceptionType={}",
+                    exception.getClass().getSimpleName());
             throw new BusinessException(UserErrorCode.COLLECTION_MAP_UNAVAILABLE, exception);
         }
     }
@@ -67,6 +71,8 @@ public class CollectionMapQueryService {
         try {
             return restaurants.findActiveMapInfos(ids);
         } catch (RuntimeException exception) {
+            log.warn("Collection map failed. operation=collection-map-port exceptionType={}",
+                    exception.getClass().getSimpleName());
             throw new BusinessException(UserErrorCode.COLLECTION_MAP_UNAVAILABLE, exception);
         }
     }

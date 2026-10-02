@@ -1,5 +1,6 @@
 package org.sopt.hashi.restaurant.migration;
 
+import org.sopt.hashi.restaurant.internal.map.LocationRetentionService;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 
@@ -26,7 +27,7 @@ public class LocationMaintenanceRunner {
             case STATUS -> transactions.status(options.requiredRunId());
             case PURGE -> {
                 options.requireWriteOptIn();
-                yield retention.purge(options);
+                yield retention.purge(options.retentionOptions());
             }
             case STOP -> {
                 options.requireWriteOptIn();
