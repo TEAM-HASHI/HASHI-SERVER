@@ -41,11 +41,12 @@ public class SecurityConfig {
     static final String MEDIA_PATH = "/api/v1/media/**";
     /**
      * 식당 컬렉션 공유 열람(#216) — 공개 컬렉션의 상세·저장 식당 목록은 비로그인도 GET할 수 있다.
-     * 목록(/api/v1/collections)·쓰기 메서드는 회원 전용이라 GET 두 경로만 연다. 비공개 여부는 user Service가 판정한다.
+     * 목록(/api/v1/collections)·쓰기 메서드는 회원 전용이며 상세·목록·전체 핀 GET만 연다. 비공개 여부는 user Service가 판정한다.
      */
     static final String[] COLLECTION_PUBLIC_GET_PATHS = {
             "/api/v1/collections/*",
-            "/api/v1/collections/*/restaurants"
+            "/api/v1/collections/*/restaurants",
+            "/api/v1/collections/*/map-markers"
     };
     /** 공개 경로 단일 소스 — {@link SwaggerAuthorizationCustomizer}가 같은 목록으로 문서 자물쇠를 판정한다. */
     static final String[] PUBLIC_PATHS = {

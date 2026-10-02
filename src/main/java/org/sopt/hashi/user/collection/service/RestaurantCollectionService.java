@@ -166,7 +166,7 @@ public class RestaurantCollectionService {
     /** 컬렉션 수정(SAVED-007) — 부분 수정. 이름을 바꾸면 다른 컬렉션과 중복될 수 없다. */
     @Transactional
     public RestaurantCollectionResponse update(Long collectionId, UpdateRestaurantCollectionRequest request) {
-        RestaurantCollection collection = collectionFinder.findOwned(collectionId);
+        RestaurantCollection collection = collectionFinder.findOwnedForUpdate(collectionId);
         String name = request.name() == null ? null : normalizeName(request.name());
         boolean isRenamingToTakenName = name != null
                 && restaurantCollectionRepository.existsByUserIdAndNameAndIdNot(
@@ -186,7 +186,7 @@ public class RestaurantCollectionService {
     /** 컬렉션 삭제(SAVED-007) — 컬렉션과 저장 관계만 지우고 식당 원본은 건드리지 않는다. */
     @Transactional
     public void delete(Long collectionId) {
-        RestaurantCollection collection = collectionFinder.findOwned(collectionId);
+        RestaurantCollection collection = collectionFinder.findOwnedForUpdate(collectionId);
         restaurantCollectionRepository.delete(collection);
         log.info("컬렉션 삭제. collectionId={}, userId={}", collection.getId(), collection.getUserId());
     }
@@ -197,7 +197,7 @@ public class RestaurantCollectionService {
      */
     @Transactional
     public RestaurantCollectionResponse saveRestaurant(Long collectionId, SaveRestaurantRequest request) {
-        RestaurantCollection collection = collectionFinder.findOwned(collectionId);
+        RestaurantCollection collection = collectionFinder.findOwnedForUpdate(collectionId);
         Long restaurantId = request.restaurantId();
         if (!restaurantPort.existsActiveById(restaurantId)) {
             throw new BusinessException(UserErrorCode.RESTAURANT_NOT_FOUND);
@@ -215,7 +215,7 @@ public class RestaurantCollectionService {
     @Transactional
     public RestaurantCollectionResponse removeRestaurants(Long collectionId, List<Long> restaurantIds) {
         Set<Long> targets = distinctIds(restaurantIds);
-        RestaurantCollection collection = collectionFinder.findOwned(collectionId);
+        RestaurantCollection collection = collectionFinder.findOwnedForUpdate(collectionId);
         requireAllSaved(collection, targets);
         collection.remove(targets);
         return toResponse(collection, true);
@@ -231,8 +231,13 @@ public class RestaurantCollectionService {
             throw new BusinessException(UserErrorCode.SAME_COLLECTION_MOVE);
         }
         Set<Long> targets = distinctIds(request.restaurantIds());
-        RestaurantCollection source = collectionFinder.findOwned(collectionId);
-        RestaurantCollection target = collectionFinder.findOwned(request.targetCollectionId());
+        // 반대 방향의 이동도 같은 순서로 두 부모를 잠근 후 자식 목록을 읽는다.
+        Long firstId = Math.min(collectionId, request.targetCollectionId());
+        Long secondId = Math.max(collectionId, request.targetCollectionId());
+        RestaurantCollection first = collectionFinder.findOwnedForUpdate(firstId);
+        RestaurantCollection second = collectionFinder.findOwnedForUpdate(secondId);
+        RestaurantCollection source = collectionId.equals(firstId) ? first : second;
+        RestaurantCollection target = collectionId.equals(firstId) ? second : first;
         requireAllSaved(source, targets);
         boolean isAnyAlreadyInTarget = targets.stream().anyMatch(target::contains);
         if (isAnyAlreadyInTarget) {
@@ -342,24 +347,13 @@ public class RestaurantCollectionService {
         return ids;
     }
 
-    /**
-     * 컬렉션명 앞뒤 공백 제거 — strip()(Character.isWhitespace)은 NBSP 같은 줄바꿈 금지 공백을 남기고, DTO의 유니코드 공백 검사는
-     * 정보 구분 제어문자를 공백으로 보지 않는다. 두 정의를 합쳐 앞뒤를 잘라야 공백만으로 된 이름이 저장되지 않고,
-     * '도쿄'와 '도쿄 '(끝에 NBSP)가 다른 이름으로 중복 금지를 우회하지 않는다. 빈 이름을 막는 최종 방어선이다.
-     */
+    /** 생성·수정 모두 입력 공백을 보존한다. 공백만인 이름은 서비스에서도 거부한다(2026-10-01 결정). */
     private String normalizeName(String name) {
-        int start = 0;
-        int end = name.length();
-        while (start < end && isBlankChar(name.charAt(start))) {
-            start++;
-        }
-        while (end > start && isBlankChar(name.charAt(end - 1))) {
-            end--;
-        }
-        if (start == end) {
+        if (name == null || name.isEmpty() || name.length() > RestaurantCollection.NAME_MAX_LENGTH
+                || name.chars().allMatch(character -> isBlankChar((char) character))) {
             throw new BusinessException(CommonErrorCode.INVALID_INPUT);
         }
-        return name.substring(start, end);
+        return name;
     }
 
     private static boolean isBlankChar(char character) {
@@ -367,7 +361,7 @@ public class RestaurantCollectionService {
     }
 
     private String normalizeDescription(String description) {
-        return description == null || description.isBlank() ? null : description;
+        return description == null || description.isEmpty() ? null : description;
     }
 
     private CollectionColor toColor(String value) {
