@@ -50,7 +50,8 @@ class UserProfileServiceTest {
     @BeforeEach
     void setUp() {
         userProfileService = new UserProfileService(
-                userRepository, fileStorage, currentUserProvider, mediaPort);
+                userRepository, fileStorage, currentUserProvider, mediaPort,
+                new ProfileAvailabilityChecker(userRepository));
         when(currentUserProvider.currentUserId()).thenReturn(1L);
     }
 
