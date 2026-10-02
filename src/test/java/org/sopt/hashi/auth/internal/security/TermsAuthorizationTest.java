@@ -1,8 +1,13 @@
 package org.sopt.hashi.auth.internal.security;
 
+import static org.hamcrest.Matchers.hasItem;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import java.util.Collections;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.sopt.hashi.auth.internal.jwt.JwtProvider;
@@ -81,11 +86,56 @@ class TermsAuthorizationTest {
 
     @Test
     void 관리자_입력검증은_필드오류와_400을_반환한다() throws Exception {
-        mvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post("/api/v1/admin/terms")
+        mvc.perform(post("/api/v1/admin/terms")
                 .header("Authorization", "Bearer " + jwtProvider.createAccessToken(1L, "ROLE_ADMIN"))
-                .contentType("application/json").content("{\"title\":\"\",\"body\":[],\"imageAssetIds\":[]}"))
+                .contentType("application/json").content("""
+                        {"type":null,"title":"","version":"","effectiveDate":null,"clauses":[]}
+                        """))
                 .andExpect(status().isBadRequest())
-                .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath("$.errors").isArray());
+                .andExpect(jsonPath("$.code").value("COMMON-400"))
+                .andExpect(jsonPath("$.errors[?(@.field == 'type')].reason", hasItem("약관 유형은 필수입니다")))
+                .andExpect(jsonPath("$.errors[?(@.field == 'title')].reason", hasItem("약관 제목은 필수입니다")))
+                .andExpect(jsonPath("$.errors[?(@.field == 'version')].reason", hasItem("약관 버전은 필수입니다")))
+                .andExpect(jsonPath("$.errors[?(@.field == 'effectiveDate')].reason",
+                        hasItem("약관 시행일은 필수입니다")))
+                .andExpect(jsonPath("$.errors[?(@.field == 'clauses')].reason",
+                        hasItem("약관 조항은 최소 1개 이상 필요합니다")));
+        verifyNoInteractions(adminTermsService);
+    }
+
+    @Test
+    void 관리자_입력의_길이와_형식_위반은_한국어_필드오류를_반환한다() throws Exception {
+        String clauses = String.join(",", Collections.nCopies(201, "{\"heading\":\"조항\",\"content\":\"내용\"}"));
+
+        mvc.perform(post("/api/v1/admin/terms")
+                .header("Authorization", "Bearer " + jwtProvider.createAccessToken(1L, "ROLE_ADMIN"))
+                .contentType("application/json").content("""
+                        {"type":"SERVICE_TERMS","title":"%s","version":"v 1",
+                        "effectiveDate":"2026-10-03","clauses":[%s]}
+                        """.formatted("가".repeat(101), clauses)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("COMMON-400"))
+                .andExpect(jsonPath("$.errors[?(@.field == 'title')].reason", hasItem("약관 제목은 100자 이내입니다")))
+                .andExpect(jsonPath("$.errors[?(@.field == 'version')].reason",
+                        hasItem("약관 버전은 영문 또는 숫자로 시작하고 영문, 숫자, 점, 밑줄, 하이픈으로 50자 이내여야 합니다")))
+                .andExpect(jsonPath("$.errors[?(@.field == 'clauses')].reason",
+                        hasItem("약관 조항은 최대 200개까지 등록할 수 있습니다")));
+        verifyNoInteractions(adminTermsService);
+    }
+
+    @Test
+    void 관리자_입력의_null_조항은_한국어_필드오류를_반환한다() throws Exception {
+        mvc.perform(post("/api/v1/admin/terms")
+                .header("Authorization", "Bearer " + jwtProvider.createAccessToken(1L, "ROLE_ADMIN"))
+                .contentType("application/json").content("""
+                        {"type":"SERVICE_TERMS","title":"이용약관","version":"v1",
+                        "effectiveDate":"2026-10-03","clauses":[null]}
+                        """))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("COMMON-400"))
+                .andExpect(jsonPath("$.errors[?(@.field == 'clauses[0]')].reason",
+                        hasItem("약관 조항은 null일 수 없습니다")));
+        verifyNoInteractions(adminTermsService);
     }
 
     @Test
