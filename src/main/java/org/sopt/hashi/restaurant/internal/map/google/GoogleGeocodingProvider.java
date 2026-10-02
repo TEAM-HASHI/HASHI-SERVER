@@ -13,6 +13,7 @@ import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.UnaryOperator;
+import lombok.extern.slf4j.Slf4j;
 import org.apache.hc.client5.http.DnsResolver;
 import org.apache.hc.client5.http.SystemDefaultDnsResolver;
 import org.apache.hc.client5.http.classic.methods.HttpUriRequestBase;
@@ -38,6 +39,7 @@ import org.springframework.web.client.ResourceAccessException;
 import org.springframework.web.client.RestClient;
 import org.springframework.web.util.UriComponentsBuilder;
 
+@Slf4j
 final class GoogleGeocodingProvider implements GeocodingProvider {
 
     static final String ENDPOINT = "https://geocode.googleapis.com/v4/geocode/address";
@@ -102,8 +104,11 @@ final class GoogleGeocodingProvider implements GeocodingProvider {
         } catch (InterruptedException ignored) {
             Thread.currentThread().interrupt();
             return new Failure(FailureKind.CANCELLED, null);
-        } catch (ExecutionException ignored) {
-            // Never attach a library exception: it can contain the URI, key or body.
+        } catch (ExecutionException failure) {
+            // Log only the immediate failure type; exceptions can contain the URI, key or body.
+            Throwable cause = failure.getCause();
+            log.warn("Google geocoding failure phase=await exceptionType={}",
+                    (cause == null ? failure : cause).getClass().getName());
             return new Failure(FailureKind.INVALID_RESPONSE, null);
         } finally {
             cancellation.cancel();
@@ -149,8 +154,9 @@ final class GoogleGeocodingProvider implements GeocodingProvider {
         } catch (ResourceAccessException failure) {
             return new Failure(isTimeout(failure)
                     ? FailureKind.TIMEOUT : FailureKind.CONNECTION_ERROR, null);
-        } catch (RuntimeException ignored) {
-            // Never attach a library exception: it can contain the URI, key or body.
+        } catch (RuntimeException failure) {
+            // Never pass the exception itself, its message or cause chain to the logger.
+            log.warn("Google geocoding failure phase=execute exceptionType={}", failure.getClass().getName());
             return new Failure(FailureKind.INVALID_RESPONSE, null);
         } finally {
             if (client != null) {
