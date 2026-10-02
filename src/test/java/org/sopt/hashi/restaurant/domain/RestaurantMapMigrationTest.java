@@ -92,7 +92,7 @@ class RestaurantMapMigrationTest {
         for (String change : List.of(
                 "latitude=0", "longitude=0", "status='READY'", "status='UNKNOWN'", "status='pending'",
                 "status='PENDING '", "address_revision=0",
-                "lock_version=-1", "source='OPERATOR'", "obtained_at=NOW(6)", "valid_until=NOW(6)",
+                "lock_version=-1", "source='ADMIN'", "obtained_at=NOW(6)", "valid_until=NOW(6)",
                 "status='RETRY_WAIT'", "next_attempt_at=NOW(6)")) {
             assertThatThrownBy(() -> jdbc.update("UPDATE restaurant_location SET " + change + " WHERE id=1"))
                     .as(change).isInstanceOf(DataAccessException.class);
@@ -104,7 +104,7 @@ class RestaurantMapMigrationTest {
                 """);
         for (String change : List.of(
                 "latitude=NULL", "longitude=NULL", "latitude=90.000001", "longitude=-180.000001",
-                "source=NULL", "source='UNKNOWN'", "source='operator'", "source='OPERATOR '",
+                "source=NULL", "source='UNKNOWN'", "source='OPERATOR'", "source='admin'", "source='ADMIN '",
                 "obtained_at=NULL", "valid_until=NULL",
                 "valid_until=obtained_at", "status='FAILED'", "next_attempt_at=NOW(6)")) {
             assertThatThrownBy(() -> jdbc.update("UPDATE restaurant_location SET " + change + " WHERE id=1"))

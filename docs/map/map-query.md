@@ -13,7 +13,7 @@
 
 `GET /restaurants/map` 페이지 API, Redis 세션·추천 순서·정렬·cursor·10개 카드·이미지/가격대 조합은
 후속 [#227](https://github.com/TEAM-HASHI/HASHI-SERVER/issues/227)에서 구현한다.
-기존 일반 식당 목록·검색·cursor에는 변경이 없다.
+기존 일반 식당 목록의 정렬·cursor는 유지한다. 검색 입력 정규화와 리터럴 검색은 아래 공통 정책으로 맞춘다.
 
 ## 조회 조건과 데이터
 
@@ -25,9 +25,19 @@ native SQL의 기준 시각은 UTC 문자열을 `DATETIME(6)`으로 명시 변�
 
 조회용 `MapQueryBounds`는 저장용 `MapBounds`와 별개다. SDK의 긴 소수점 입력을 반올림·절삭하지 않고
 MySQL DECIMAL 좌표와 비교한다. 경계는 포함하고 역전·날짜변경선 횡단·유효 범위·1도 초과·지원 영역을 검증한다.
-`MapSearchCriteria.of`는 wire 분류 값과 양의 지역 ID, 검색어를 검증한다. 검색어는 공백을 정규화한
-1~100 코드포인트이며 개행·제어문자는 거절한다. 식당명·메뉴명 검색은 대소문자를 구분하지 않는다.
-`!`를 SQL LIKE escape 문자로 지정하고 `%`, `_`, `!`를 모두 리터럴로 변환한다. 메뉴는 `EXISTS`로 검색한다.
+`MapSearchCriteria.of`는 wire 분류 값과 양의 지역 ID, 검색어를 검증한다. 지도 검색어가 있으면
+정규화 후 최대 100 코드포인트이며 개행·제어문자는 거절한다. 일반 식당 목록과 지도는
+`RestaurantSearchKeyword` 정책으로 Unicode 공백을 포함한 앞뒤 공백만 제거한다.
+식당명·메뉴명은 원문으로 저장하므로 검색어 내부의 반복 ASCII/Unicode 공백을 그대로 보존한다.
+미지정(null)은 두 API 모두 필터를 생략한다. 명시적 빈 문자열·공백만 있는 입력은 일반 목록에서
+필터를 생략하지만, 지도에서는 기존 `MAP-03` 계약대로 400으로 거절한다.
+식당명·메뉴명 검색은 대소문자를 구분하지 않으며
+`!`를 SQL LIKE escape 문자로 지정해 `%`, `_`, `!`를 모두 리터럴로 검색한다.
+지도는 메뉴를 `EXISTS`로 검색하며, 일반 목록의 기존 메뉴 JOIN과 중복 제거 방식은 유지한다.
+이는 PLAN `MAP_MAIN` §4.2의 목록 검색 조건 승계를 위한 정합화다. 일반 식당 목록은 기존 와일드카드
+해석과 Unicode 앞뒤 공백 처리에서 변경된다. 지도도 내부 공백을 보존해 저장명 그대로 검색할 때
+누락되지 않게 한다. API별 입력 허용 차이를 유지하면서 유효 검색어의 결과를 맞춘다.
+지도 전용 blank·길이·제어문자 검증, 일반 목록의 정렬·cursor 및 별도 자동완성 API는 유지한다.
 
 후보 조회는 한 SQL에서 순위 값만 가져온다. `capacity + 1`개를 SQL 상한으로 사용하고 초과하면
 `RESTAURANT-016`으로 전체 실패한다. 최종 후보 수·bytes·동시 세션 수용 한도는 후속 Redis 담당자가 측정해 정한다.
@@ -42,6 +52,13 @@ displayOrder·ID 순으로 반환한다. 유효 위치가 cameraBounds 밖에 �
 ## 설정
 
 운영 좌표와 지역 seed는 포함하지 않았다. 다음 설정 키의 `south`, `north`, `west`, `east`를 준비한다.
+
+현재 스택에는 관광 지역을 등록·활성화하고 식당의 소속을 지정하는 production 쓰기 경로가 없다.
+`MapRegion`과 `Restaurant.assignMapRegion` 모델·조회만으로는 PLAN `MAP_MAIN` §4.1의
+초기 관광 지역 클러스터를 활성화할 수 없다. 후속 작업에서 승인된 실제 지역 데이터,
+관리자 쓰기 경로의 권한·존재·활성·범위 검증, 식당 소속 지정과 운영 검증을 함께 제공해야 한다.
+실제 지역 값 없이 가상 업무 seed나 공개 쓰기 API를 이 조회 변경에 추가하지 않는다.
+후속 범위는 [#251](https://github.com/TEAM-HASHI/HASHI-SERVER/issues/251)에서 추적한다.
 
 | 설정 | 의미 |
 | --- | --- |
@@ -70,9 +87,16 @@ ID 조회는 내부 500개 단위이며 모두 모은 뒤 반환한다. 중간 �
 ## 오류와 검증
 
 기존 SuccessResponse/ErrorResponse를 유지한다. 좌표 응답은 `Cache-Control: no-store`, data의 만료 시각은 UTC `Z`다.
-선택 식당 ID의 양수 제약·정수 형식 위반은 400 `COMMON-400`과 `restaurantId`의 필드별 `errors`를 반환한다.
+선택 식당 ID의 양수 제약·정수 형식 위반은 공통 `GlobalExceptionHandler`에 위임해
+400 `COMMON-400`, `data: null`을 반환하고 현재 다른 API처럼 `errors`를 생략한다.
+이 오류는 Controller 본문 실행 전 발생하므로 기존 Spring Security cache header writer가
+`Cache-Control: no-cache, no-store, max-age=0, must-revalidate`를 설정한다.
+정상 응답과 본문 실행 이후 오류의 `no-store`는 Controller 또는 DB/transaction advice가 설정한다.
 식당 삭제/없음은 404 `RESTAURANT-004`, 위치만 무효하면 409 `RESTAURANT-018`, DB 장애는 503 `RESTAURANT-015`다.
 SecurityFilterChain과 기존 공개 경로 정책은 유지한다.
+
+DB 조회 실패와 Service 본문 밖 transaction 실패는 고정 operation `restaurant-map-query`와
+예외 클래스명만 WARN으로 남긴다. SQL·검색어·좌표·예외 메시지·cause·stack trace는 기록하지 않는다.
 
 - `RestaurantMapQueryIntegrationTest`: MySQL 8.4, Flyway 전체 migration 후 validate, 실제 후보·집계·Port 조회.
 - `RestaurantMapControllerTest`: 실제 SecurityFilterChain, HTTP wrapper·오류·UTC 직렬화·no-store.

@@ -354,7 +354,7 @@ class RestaurantMapFlowIntegrationTest {
                 restaurant.requestLocationResolution();
                 restaurant.completeLocation(1, restaurant.getLocation().getRequestId(),
                         MapCoordinates.of(new BigDecimal("10.5"), new BigDecimal("20.5")),
-                        RestaurantLocationSource.OPERATOR, LocalDateTime.now(clock).minusHours(1),
+                        RestaurantLocationSource.ADMIN, LocalDateTime.now(clock).minusHours(1),
                         LocalDateTime.now(clock).plusHours(1), clock);
                 ids.add(restaurants.save(restaurant).getId());
             }

@@ -111,7 +111,8 @@ ID는 양의 정수다. 활성 지역을 displayOrder·ID 오름차순으로 반
 - `placeType=restaurant|cafe|bar`; 전체는 생략한다. `all`, 빈 값, 대문자는 허용하지 않는다.
 - `genre=sushi|noodle|rice-bowl|nabe|fried|grill|etc`; 전체는 생략한다.
   `foodCategory`·hashtag 검색을 추가하지 않는다.
-- keyword는 생략 가능하다. 전달 시 앞뒤 공백 제거·연속 공백 하나로 정규화한 1~100자이며
+- keyword는 생략 가능하다. 전달 시 앞뒤 공백을 제거한 1~100자이며 내부 공백은 보존한다.
+  식당·메뉴 이름이 원문으로 저장되므로 검색어의 내부 공백만 줄여 기존 이름 검색을 누락시키지 않는다.
   개행·제어문자를 거절한다. 식당명·메뉴명의 대소문자 구분 없는 부분 검색이다.
   `%`, `_`는 검색 와일드카드가 아닌 문자로 escape한다. 새 지도 API의 검증 규칙이다.
 - `sort=recommend|rating|reviews`, 기본 recommend. rating은 평균 별점 내림차순,

@@ -26,7 +26,7 @@ CREATE TABLE restaurant_location (
     ),
     CONSTRAINT chk_location_ready CHECK (
         (status = 'READY' AND latitude IS NOT NULL AND longitude IS NOT NULL
-            AND source IS NOT NULL AND source IN ('GOOGLE_GEOCODING', 'OPERATOR')
+            AND source IS NOT NULL AND source IN ('GOOGLE_GEOCODING', 'ADMIN')
             AND CHAR_LENGTH(source) = CHAR_LENGTH(TRIM(source))
             AND obtained_at IS NOT NULL AND valid_until IS NOT NULL AND obtained_at < valid_until)
         OR (status <> 'READY' AND latitude IS NULL AND longitude IS NULL

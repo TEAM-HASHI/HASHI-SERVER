@@ -80,7 +80,7 @@ class RestaurantLocationTimezoneTest {
         LocalDateTime validUntil = NOW.plusHours(1);
         LocalDateTime nextAttempt = NOW.plusMinutes(5);
         RestaurantLocation ready = RestaurantLocation.pending();
-        assertThat(ready.complete(1, ready.getRequestId(), point(), RestaurantLocationSource.OPERATOR,
+        assertThat(ready.complete(1, ready.getRequestId(), point(), RestaurantLocationSource.ADMIN,
                 obtained, validUntil, CLOCK)).isTrue();
         RestaurantLocation retry = RestaurantLocation.pending();
         assertThat(retry.defer(1, retry.getRequestId(), nextAttempt, CLOCK)).isTrue();
@@ -99,7 +99,7 @@ class RestaurantLocationTimezoneTest {
             RestaurantLocation loadedRetry = session.find(RestaurantLocation.class, retry.getId());
             assertTimesAndBoundaries(loadedReady, loadedRetry, obtained, validUntil, nextAttempt);
             loadedReady.beginRefresh();
-            assertThat(loadedReady.complete(1, loadedReady.getRequestId(), point(), RestaurantLocationSource.OPERATOR,
+            assertThat(loadedReady.complete(1, loadedReady.getRequestId(), point(), RestaurantLocationSource.ADMIN,
                     obtained.plusMinutes(1), validUntil.plusMinutes(1), CLOCK)).isTrue();
             assertThat(loadedRetry.beginScheduledRetry(clockAt(nextAttempt))).isTrue();
             assertThat(loadedRetry.defer(1, loadedRetry.getRequestId(), nextAttempt.plusMinutes(1),
