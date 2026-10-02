@@ -2,18 +2,17 @@ package org.sopt.hashi.restaurant.migration;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
-import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import java.time.Duration;
 import java.time.Instant;
 import java.util.UUID;
-import java.util.concurrent.CountDownLatch;
-import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.Test;
 import org.sopt.hashi.restaurant.internal.map.LocationJobProperties;
+import org.sopt.hashi.restaurant.internal.map.LocationRetentionProperties;
+import org.sopt.hashi.restaurant.internal.map.LocationRetentionService;
 import org.springframework.boot.test.context.runner.ApplicationContextRunner;
 
 class LocationMaintenanceConfigurationTest {
@@ -67,25 +66,18 @@ class LocationMaintenanceConfigurationTest {
     }
 
     @Test
-    void 정리scheduler는_다른스케줄러나_HTTPexecutor없이_전용thread에서_실행하고_종료된다() throws Exception {
+    void 정리명령은_동의확인후_영구정리옵션으로_전달한다() {
         var service = mock(LocationRetentionService.class);
-        CountDownLatch called = new CountDownLatch(1);
-        AtomicReference<String> name = new AtomicReference<>();
-        when(service.purge(any())).thenAnswer(invocation -> {
-            name.set(Thread.currentThread().getName());
-            called.countDown();
-            return new LocationRetentionService.Report(Instant.now(), 0, 0, 0, 0);
-        });
-        var scheduler = new LocationRetentionScheduler(service,
-                options(LocationMaintenanceProperties.Command.DRY_RUN, false, null, null, null));
-        try {
-            scheduler.start();
-            assertThat(called.await(5, TimeUnit.SECONDS)).isTrue();
-            assertThat(name.get()).isEqualTo("location-retention");
-        } finally {
-            scheduler.stop();
-        }
-        assertThat(scheduler.isRunning()).isFalse();
+        var expected = new LocationRetentionProperties(25, 3, Duration.ofDays(2), Duration.ofHours(2),
+                true, Duration.ofMinutes(2));
+        var report = new LocationRetentionService.Report(Instant.now(), 0, 0, 0, 0);
+        when(service.purge(expected)).thenReturn(report);
+        var options = new LocationMaintenanceProperties(LocationMaintenanceProperties.Command.PURGE, null,
+                true, null, 99, 100L, 25, 3, null, null, Duration.ofDays(2), Duration.ofHours(2),
+                true, Duration.ofMinutes(2));
+
+        assertThat(new LocationMaintenanceRunner(null, null, service).execute(options)).isSameAs(report);
+        verify(service).purge(expected);
     }
 
     private static LocationMaintenanceProperties options(LocationMaintenanceProperties.Command command,

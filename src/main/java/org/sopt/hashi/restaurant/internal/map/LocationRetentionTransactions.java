@@ -1,9 +1,9 @@
-package org.sopt.hashi.restaurant.migration;
+package org.sopt.hashi.restaurant.internal.map;
 
 import java.time.Duration;
 import org.sopt.hashi.restaurant.domain.Restaurant;
 import org.sopt.hashi.restaurant.domain.RestaurantRepository;
-import org.sopt.hashi.restaurant.migration.LocationMaintenanceReader.Candidate;
+import org.sopt.hashi.restaurant.internal.map.LocationRetentionReader.Candidate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Isolation;
 import org.springframework.transaction.annotation.Propagation;
@@ -12,9 +12,9 @@ import org.springframework.transaction.annotation.Transactional;
 @Service
 public class LocationRetentionTransactions {
     private final RestaurantRepository restaurants;
-    private final LocationMaintenanceReader reader;
+    private final LocationRetentionReader reader;
 
-    public LocationRetentionTransactions(RestaurantRepository restaurants, LocationMaintenanceReader reader) {
+    public LocationRetentionTransactions(RestaurantRepository restaurants, LocationRetentionReader reader) {
         this.restaurants = restaurants;
         this.reader = reader;
     }

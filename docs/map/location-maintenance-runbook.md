@@ -144,7 +144,32 @@ run 시작 후 얻은 새 결과도 제외하여 겹치는 run이 방금 성공�
 `Restaurant.refreshLocation()`이 먼저 PENDING으로 전환하면서
 이전 좌표·source·obtainedAt·validUntil을 비우고, 기존 enqueue 흐름으로 연결한다.
 갱신 실패로 이전 validUntil을 늘리거나 이전 좌표를 되살리지 않는다.
-정기 갱신 실행 시각·검토·등록/호출 한도는 운영 배치 담당자가 명시적으로 관리한다.
+
+### 출시 전 REFRESH 운영 계약
+
+책임 역할은 **HASHI 백엔드 운영 담당**이다. 실제 담당자와 부재 시 대체 담당자는 아직 지정하지 않았다.
+기본 `refresh-ahead=1d`, `purge-ahead=1h`에서는 **6시간마다** 승인된 외부 실행기가 다음 절차를
+수행하도록 출시 전에 구성한다. 이 문서는 운영 계약이며 자동 실행 설정이나 배포 완료의 증거가 아니다.
+서버에는 REFRESH 자동 스케줄러가 없고, 아래 retention 스케줄러는 정리만 수행한다.
+
+1. 새 주기마다 REFRESH `DRY_RUN`으로 대상·최신 upper-id·예상 호출량을 확인한다.
+   담당자가 승인한 한도 안인지 run별 예산과 전역 일일 예산, 다른 run·관리자 작업의 사용량을 함께 검토한다.
+2. 검토한 범위로 새 run-id의 `START`를 실행하고, ACTIVE이면 같은 run-id의 `RESUME`으로 이어간다.
+   이미 SCANNED인 run을 재사용해도 새 주기의 범위를 다시 검사하지 않는다.
+3. STATUS에서 SCANNED/LIMIT_REACHED 등 등록 결과와 실제 job 완료를 구분해 확인한다.
+   PENDING/LEASED/RETRY_WAIT 큐 잔량·대기 시간, FAILED/REVIEW_REQUIRED, 호출 예산 소진과
+   현재 유효한 위치 수를 감시한다. 프로세스 실패·실행 누락·등록 한도 도달·잔량 적체는 담당자와
+   대체 담당자에게 알리고 purge 여유시간 전에 복구 또는 승인된 후속 처리를 결정한다.
+
+6시간 주기만으로 갱신을 보장하지 않는다. **주기 + 실행 지연 + 범위 검사 시간 + 큐 대기 +
+provider 재시도/복구 여유**가 `refresh-ahead - purge-ahead`(기본 23시간) 안에 들어오도록
+등록 처리량과 호출 예산을 검증해야 한다. 이미 만료했어도 READY로 남은 행은 다른 조건이 맞으면
+REFRESH가 선택할 수 있지만, retention이 먼저 REVIEW_REQUIRED로 정리하면 REFRESH 대상에서 빠진다.
+이 경우 상태와 실패 원인을 검토한 별도 재처리가 필요하다.
+
+**담당자·대체 담당자, 실행 주기와 자동 실행 구성, 완료/실패 알림·큐 잔량 기준, 예산과 복구 절차를
+승인하고 검증하기 전에는 출시 NO-GO다.** 수동 6시간 실행은 제한된 개발 검증에만 사용할 수 있으며
+운영 자동 실행 준비를 대신하지 않는다. 실제 외부 실행기 설정·Google 호출은 이번 변경에 포함하지 않는다.
 
 ```powershell
 Invoke-LocationMaintenance --hashi.map.maintenance.command=START --hashi.map.maintenance.execute=true `
@@ -165,6 +190,8 @@ Google 호출·worker·전역 호출 예산을 켤 필요가 없다. 실제 DB�
 오래된 정리 작업이 동시 주소 변경이나 새로운 위치 결과를 지우지 않는다.
 
 일반 서버의 정기 정리는 `hashi.map.maintenance.retention-enabled=true`로 별도 승인 후 활성화한다.
+상시 정리 Scheduler/Service/Transactions와 전용 Reader·설정은 `restaurant.internal.map`에 둔다.
+임시 backfill CLI의 `restaurant.migration`을 제거해도 정리 기능이 해당 패키지에 의존하지 않는다.
 기본 false이며 Google 설정과 독립적이다. 전용 `location-retention` executor에서 실행하므로
 media 스케줄러나 Google HTTP 대기에 막히지 않는다. 다른 전역 scheduler 설정은 변경하지 않는다.
 기본 poll-delay=1m, purge-ahead=1h, refresh-ahead=1d, batch-size=50, max-batches=1이다.
@@ -195,6 +222,8 @@ media 스케줄러나 Google HTTP 대기에 막히지 않는다. 다른 전역 s
 
 `LocationMaintenanceMySqlTest`는 실제 MySQL 8.4와 fake provider로 migration/validate, 재시작,
 동시 run/worker, checkpoint rollback, stop 경합, 주소/삭제 경합, lease 복구, UTC/JDBC 교차 조건,
-물리 정리와 백업 복구 방어, app.jar launcher의 SELECT 전용 dry-run을 검증한다.
+물리 정리와 백업 복구 방어, app.jar launcher의 SELECT 전용 dry-run과 START/RESUME을 검증한다.
+실제 CLI가 START로 만든 위치 행의 created_at/updated_at이 채워지고 RESUME에서 기존 created_at이
+유지되는지도 DB에서 확인한다. CLI는 서버와 같은 `JpaAuditingConfig`를 명시적으로 불러온다.
 합성 fixture의 EXPLAIN·쿼리 수는 쿼리 형태를 확인하는 자료이며 운영 데이터에서의 지연/처리량 보장이 아니다.
 최종 실행 명령·XML 결과·독립 리뷰·CI와 미실행 운영 항목은 PR 검증 증거에 기록한다.

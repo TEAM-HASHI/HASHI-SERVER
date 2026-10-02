@@ -2,6 +2,7 @@ package org.sopt.hashi.restaurant.migration;
 
 import java.time.Duration;
 import java.util.UUID;
+import org.sopt.hashi.restaurant.internal.map.LocationRetentionProperties;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 
 @ConfigurationProperties(prefix = "hashi.map.maintenance")
@@ -16,31 +17,25 @@ public record LocationMaintenanceProperties(
     public LocationMaintenanceProperties {
         command = command == null ? Command.DRY_RUN : command;
         mode = mode == null ? Mode.BACKFILL : mode;
-        batchSize = batchSize == null ? 50 : batchSize;
-        maxBatches = maxBatches == null ? 1 : maxBatches;
+        var retention = new LocationRetentionProperties(batchSize, maxBatches, refreshAhead, purgeAhead,
+                retentionEnabled, pollDelay);
+        batchSize = retention.batchSize();
+        maxBatches = retention.maxBatches();
         maxRegistrations = maxRegistrations == null ? 10 : maxRegistrations;
         maxCalls = maxCalls == null ? 80 : maxCalls;
-        refreshAhead = refreshAhead == null ? Duration.ofDays(1) : refreshAhead;
-        purgeAhead = purgeAhead == null ? Duration.ofHours(1) : purgeAhead;
-        pollDelay = pollDelay == null ? Duration.ofMinutes(1) : pollDelay;
-        range(batchSize, 1, 100, "batch-size");
-        range(maxBatches, 1, 100, "max-batches");
+        refreshAhead = retention.refreshAhead();
+        purgeAhead = retention.purgeAhead();
+        pollDelay = retention.pollDelay();
         range(maxRegistrations, 1, 10000, "max-registrations");
         range(maxCalls, 0, 80000, "max-calls");
         if (afterId < 0 || (upperId != null && upperId < afterId)) {
             throw new IllegalArgumentException("Invalid maintenance ID range");
         }
-        boolean invalidWindows = pollDelay.compareTo(Duration.ofSeconds(1)) < 0
-                || pollDelay.compareTo(Duration.ofHours(1)) > 0
-                || purgeAhead.compareTo(pollDelay.multipliedBy(2)) < 0
-                || refreshAhead.compareTo(purgeAhead) <= 0
-                || refreshAhead.compareTo(Duration.ofDays(30)) > 0;
-        if (invalidWindows) {
-            throw new IllegalArgumentException("Require 2 * poll-delay <= purge-ahead < refresh-ahead <= 30d");
-        }
-        if (refreshAhead.getNano() % 1_000 != 0) {
-            throw new IllegalArgumentException("refresh-ahead must use whole microseconds");
-        }
+    }
+
+    public LocationRetentionProperties retentionOptions() {
+        return new LocationRetentionProperties(batchSize, maxBatches, refreshAhead, purgeAhead,
+                retentionEnabled, pollDelay);
     }
 
     void requireWriteOptIn() {
