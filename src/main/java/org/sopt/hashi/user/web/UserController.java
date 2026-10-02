@@ -15,7 +15,9 @@ import org.sopt.hashi.user.dto.OnboardingResponse;
 import org.sopt.hashi.user.dto.ProfileSummaryResponse;
 import org.sopt.hashi.user.service.OnboardingService;
 import org.sopt.hashi.user.service.UserProfileService;
+import org.sopt.hashi.user.service.UserWithdrawalService;
 import org.springframework.http.HttpStatus;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -23,18 +25,21 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 
-/** 회원 온보딩·프로필 API. */
+/** 회원 온보딩·프로필·탈퇴 API. */
 @RestController
 @RequestMapping("/api/v1/users")
 public class UserController {
 
     private final OnboardingService onboardingService;
     private final UserProfileService userProfileService;
+    private final UserWithdrawalService userWithdrawalService;
 
     public UserController(OnboardingService onboardingService,
-                          UserProfileService userProfileService) {
+                          UserProfileService userProfileService,
+                          UserWithdrawalService userWithdrawalService) {
         this.onboardingService = onboardingService;
         this.userProfileService = userProfileService;
+        this.userWithdrawalService = userWithdrawalService;
     }
 
     /** 온보딩(가입 완료) — 로그인 시 받은 signup_token 쿠키(또는 온보딩 토큰)로 인증. 성공 시 정식 JWT가 응답에 실려 즉시 로그인 상태가 된다. */
@@ -72,5 +77,22 @@ public class UserController {
     @GetMapping("/me/profile-summary")
     public SuccessResponse<ProfileSummaryResponse> getMyProfileSummary() {
         return SuccessResponse.of(CommonSuccessCode.OK, userProfileService.getMyProfileSummary());
+    }
+
+    /**
+     * 회원 탈퇴 — 방문 완료·취소가 아닌 예약이 있으면 거절한다(RESERVATION-008). 성공 즉시 토큰이 차단되므로 클라이언트는
+     * 보관한 토큰을 버리고 로그인 화면으로 보낸다. 리뷰는 남고 작성자는 익명 닉네임으로 보인다.
+     */
+    @ApiException(value = CommonErrorCode.class, codes = {"UNAUTHORIZED", "FORBIDDEN"})
+    @ApiException(value = UserErrorCode.class, codes = {"NOT_FOUND"})
+    @ApiErrorResponse(status = HttpStatus.CONFLICT, code = "RESERVATION-008",
+            message = "방문 완료나 취소되지 않은 예약이 있어 탈퇴할 수 없습니다")
+    @ApiErrorResponse(status = HttpStatus.CONFLICT, code = "MEDIA-006",
+            message = "현재 이미지 상태에서는 요청을 처리할 수 없습니다")
+    @ApiSuccess(value = UserSuccessCode.class, codes = {"WITHDRAWN"})
+    @DeleteMapping("/me")
+    public SuccessResponse<Void> withdraw() {
+        userWithdrawalService.withdraw();
+        return SuccessResponse.of(UserSuccessCode.WITHDRAWN);
     }
 }

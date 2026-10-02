@@ -25,6 +25,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 /**
  * user 공개 포트 구현 — 회원 정보를 Repository에서 조회해 공개 계약으로 변환한다.
+ * 탈퇴 회원은 프로필 요약(findProfiles)에만 익명 닉네임으로 포함하고 나머지 조회에서는 제외한다.
  */
 @Component
 @Transactional(readOnly = true)
@@ -43,8 +44,13 @@ class UserPortImpl implements UserPort {
 
     @Override
     public Optional<UserInfo> findById(Long userId) {
-        return userRepository.findById(userId)
+        return userRepository.findByIdAndDeletedFalse(userId)
                 .map(this::toUserInfo);
+    }
+
+    @Override
+    public boolean existsById(Long userId) {
+        return userRepository.existsByIdAndDeletedFalse(userId);
     }
 
     @Override
@@ -78,8 +84,8 @@ class UserPortImpl implements UserPort {
                                                int page, int size) {
         Pageable pageable = PageRequest.of(Math.max(page, 0), normalizeSize(size), sortType.toSort());
         Page<User> users = hasKeyword(nicknameKeyword)
-                ? userRepository.findByNicknameContaining(nicknameKeyword.trim(), pageable)
-                : userRepository.findAll(pageable);
+                ? userRepository.findByNicknameContainingAndDeletedFalse(nicknameKeyword.trim(), pageable)
+                : userRepository.findByDeletedFalse(pageable);
         return users.map(this::toAdminInfo);
     }
 
@@ -93,7 +99,11 @@ class UserPortImpl implements UserPort {
                 user.getEmail());
     }
 
+    /** 탈퇴 회원은 익명 닉네임과 기본 프로필(이미지 없음)로 내린다 — 리뷰 작성자 표시 정책(REVIEW_POLICY). */
     private UserProfileInfo toProfileInfo(User user) {
+        if (user.isDeleted()) {
+            return new UserProfileInfo(user.getId(), user.getAnonymousNickname(), null);
+        }
         return new UserProfileInfo(
                 user.getId(),
                 user.getNickname(),

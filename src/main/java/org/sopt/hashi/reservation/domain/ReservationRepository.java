@@ -38,4 +38,7 @@ public interface ReservationRepository extends JpaRepository<Reservation, Long> 
 
     /** 내 예약 상태 필터 건수 — 목록 응답 totalCount용. */
     long countByUserIdAndReservationStatusIn(Long userId, Collection<ReservationStatus> statuses);
+
+    /** 탈퇴 조건 — 아직 끝나지 않은(방문 완료·취소가 아닌) 예약이 있는지. */
+    boolean existsByUserIdAndReservationStatusIn(Long userId, Collection<ReservationStatus> statuses);
 }

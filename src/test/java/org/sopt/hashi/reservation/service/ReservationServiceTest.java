@@ -1,6 +1,7 @@
 package org.sopt.hashi.reservation.service;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.BDDMockito.given;
@@ -27,13 +28,16 @@ import org.sopt.hashi.media.MediaImageStatus;
 import org.sopt.hashi.media.MediaPort;
 import org.sopt.hashi.point.PointPort;
 import org.sopt.hashi.reservation.AdminReservationInfo;
+import org.sopt.hashi.reservation.code.ReservationErrorCode;
 import org.sopt.hashi.reservation.domain.Reservation;
 import org.sopt.hashi.reservation.domain.ReservationRepository;
+import org.sopt.hashi.reservation.dto.CreateReservationRequest;
 import org.sopt.hashi.reservation.dto.ReservationDetailResponse;
 import org.sopt.hashi.reservation.dto.ReservationListResponse;
 import org.sopt.hashi.restaurant.RestaurantDetailInfo;
 import org.sopt.hashi.restaurant.RestaurantInfo;
 import org.sopt.hashi.restaurant.RestaurantPort;
+import org.sopt.hashi.shared.error.BusinessException;
 import org.sopt.hashi.user.UserPort;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageImpl;
@@ -171,6 +175,20 @@ class ReservationServiceTest {
         assertThat(response.getContent()).singleElement()
                 .satisfies(info -> assertThat(info.restaurantImageReference()).isEqualTo(reference));
         verifyNoInteractions(mediaPort);
+    }
+
+    @Test
+    void 탈퇴한_회원은_예약을_생성할_수_없고_식당_조회나_저장에_닿지_않는다() {
+        ReservationService service = createService();
+        given(currentUserProvider.currentUserId()).willReturn(7L);
+        given(userPort.existsById(7L)).willReturn(false);
+
+        assertThatThrownBy(() -> service.create(new CreateReservationRequest(
+                "예약자", 10L, LocalDateTime.of(2030, 8, 1, 19, 0), 2, 0, 0, null, 0L, 4_000L)))
+                .isInstanceOf(BusinessException.class)
+                .hasFieldOrPropertyWithValue("errorCode", ReservationErrorCode.RESERVER_NOT_FOUND);
+
+        verifyNoInteractions(restaurantPort, reservationRepository, pointPort);
     }
 
     private ReservationService createService() {

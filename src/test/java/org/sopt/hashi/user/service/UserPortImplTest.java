@@ -8,6 +8,7 @@ import static org.mockito.Mockito.verifyNoInteractions;
 import java.time.LocalDate;
 import java.util.Arrays;
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -79,6 +80,19 @@ class UserPortImplTest {
                         new ImageReference(
                                 assetId,
                                 "https://cdn.example.com/users/1/profile.jpg")));
+    }
+
+    @Test
+    void 탈퇴_회원은_프로필_목록에_익명_닉네임과_이미지_없음으로_포함되고_단건_조회에서는_제외된다() {
+        User withdrawn = createUser(3L, "탈퇴전닉네임", "users/3/profile.jpg");
+        withdrawn.withdraw();
+        given(userRepository.findAllById(List.of(3L))).willReturn(List.of(withdrawn));
+        given(userRepository.findByIdAndDeletedFalse(3L)).willReturn(Optional.empty());
+
+        assertThat(userPort.findProfiles(List.of(3L)))
+                .containsExactly(new UserProfileInfo(3L, withdrawn.getAnonymousNickname(), null));
+        assertThat(userPort.findById(3L)).isEmpty();
+        verifyNoInteractions(fileStorage);
     }
 
     private User createUser(Long id, String nickname, String profileImageKey) {
