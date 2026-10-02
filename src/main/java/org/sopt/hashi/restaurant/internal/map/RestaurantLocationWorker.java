@@ -1,5 +1,6 @@
 package org.sopt.hashi.restaurant.internal.map;
 
+import lombok.extern.slf4j.Slf4j;
 import org.sopt.hashi.restaurant.internal.map.GeocodingResult.Candidates;
 import org.sopt.hashi.restaurant.internal.map.GeocodingResult.Failure;
 import org.sopt.hashi.restaurant.internal.map.GeocodingResult.FailureKind;
@@ -12,6 +13,7 @@ import org.springframework.transaction.support.TransactionSynchronizationManager
 
 /** HTTP 대기 구간에는 transaction이 없다. DB 단계는 별도 proxy Bean을 호출한다. */
 @Component
+@Slf4j
 public class RestaurantLocationWorker {
     private final LocationJobTransactions transactions;
     private final GeocodingProvider provider;
@@ -46,6 +48,8 @@ public class RestaurantLocationWorker {
             result = provider.geocode(claim.address());
         } catch (RuntimeException exception) {
             // No provider message/cause is logged or retained. Unknown transmission is not refunded.
+            log.warn("Location worker failure operation=location-provider-call exceptionType={}",
+                    exception.getClass().getName());
             result = new Failure(FailureKind.TRANSIENT_ERROR, null);
         }
         Outcome outcome = switch (result) {

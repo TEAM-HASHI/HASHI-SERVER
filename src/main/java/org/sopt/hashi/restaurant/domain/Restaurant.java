@@ -186,7 +186,7 @@ public class Restaurant extends BaseTimeEntity {
         }
         boolean addressChanged = address != null && !Objects.equals(this.address, address);
         if (addressChanged) {
-            if (location != null) {
+            if (location != null && !deleted) {
                 location.addressChanged();
             }
             this.address = address;
