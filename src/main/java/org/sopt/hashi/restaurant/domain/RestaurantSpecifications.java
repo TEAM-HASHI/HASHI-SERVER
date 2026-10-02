@@ -67,20 +67,22 @@ public final class RestaurantSpecifications {
     }
 
     public static Specification<Restaurant> keywordContains(String keyword) {
+        String likeKeyword = RestaurantSearchKeyword.containsPattern(RestaurantSearchKeyword.normalize(keyword));
         return (root, query, criteriaBuilder) -> {
-            if (keyword == null || keyword.isBlank()) {
+            if (likeKeyword == null) {
                 return criteriaBuilder.conjunction();
             }
             if (query != null) {
                 query.distinct(true);
             }
 
-            String likeKeyword = "%" + keyword.trim().toLowerCase() + "%";
             Join<Restaurant, RestaurantMenu> menus = root.join("menus", JoinType.LEFT);
 
             return criteriaBuilder.or(
-                    criteriaBuilder.like(criteriaBuilder.lower(root.get("name")), likeKeyword),
-                    criteriaBuilder.like(criteriaBuilder.lower(menus.get("name")), likeKeyword)
+                    criteriaBuilder.like(criteriaBuilder.lower(root.get("name")), likeKeyword,
+                            RestaurantSearchKeyword.LIKE_ESCAPE),
+                    criteriaBuilder.like(criteriaBuilder.lower(menus.get("name")), likeKeyword,
+                            RestaurantSearchKeyword.LIKE_ESCAPE)
             );
         };
     }

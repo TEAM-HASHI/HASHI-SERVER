@@ -2,6 +2,10 @@ package org.sopt.hashi.restaurant.internal.map.google;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import ch.qos.logback.classic.Level;
+import ch.qos.logback.classic.Logger;
+import ch.qos.logback.classic.spi.ILoggingEvent;
+import ch.qos.logback.core.read.ListAppender;
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.net.URI;
@@ -14,6 +18,7 @@ import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
 import org.junit.jupiter.params.provider.NullAndEmptySource;
 import org.junit.jupiter.params.provider.ValueSource;
+import org.slf4j.LoggerFactory;
 import org.sopt.hashi.restaurant.internal.map.GeocodingResult.Failure;
 import org.sopt.hashi.restaurant.internal.map.GeocodingResult.FailureKind;
 import org.springframework.boot.test.system.CapturedOutput;
@@ -45,9 +50,10 @@ class GoogleGeocodingProviderTest {
     }
 
     @ParameterizedTest
-    @CsvSource({"RESOURCE_EXHAUSTED,QUOTA_EXCEEDED", "OVER_QUERY_LIMIT,QUOTA_EXCEEDED",
-            "rateLimitExceeded,QUOTA_EXCEEDED", "PERMISSION_DENIED,ACCESS_DENIED",
-            "OVER_DAILY_LIMIT,CONFIGURATION_ERROR", "dailyLimitExceeded,CONFIGURATION_ERROR"})
+    @CsvSource({"RESOURCE_EXHAUSTED,QUOTA_EXCEEDED", "OVER_QUERY_LIMIT,ACCESS_DENIED",
+            "rateLimitExceeded,ACCESS_DENIED", "userRateLimitExceeded,ACCESS_DENIED",
+            "PERMISSION_DENIED,ACCESS_DENIED", "UNKNOWN,ACCESS_DENIED",
+            "OVER_DAILY_LIMIT,ACCESS_DENIED", "dailyLimitExceeded,ACCESS_DENIED"})
     void HTTP_403의_제한된_상태값으로_quota와_권한오류를_구분하고_원문은_버린다(
             String rpcStatus, FailureKind expected, CapturedOutput output) {
         String body = "{\"error\":{\"code\":403,\"message\":\"" + GeocodingFixtures.API_KEY
@@ -106,6 +112,45 @@ class GoogleGeocodingProviderTest {
         });
         assertThat(provider.geocode(GeocodingFixtures.ADDRESS)).isEqualTo(new Failure(FailureKind.TIMEOUT, null));
         assertThat(attempts).hasValue(1);
+    }
+
+    @ParameterizedTest
+    @CsvSource({"false,execute,java.lang.IllegalStateException", "true,await,java.lang.AssertionError"})
+    void 예상하지_못한_실패는_분류를_유지하며_WARN에_단계와_클래스명만_남긴다(
+            boolean isError, String phase, String exceptionType, CapturedOutput output) {
+        String privateUrl = "https://private.invalid/geocode?address=" + GeocodingFixtures.ADDRESS;
+        String privateMessage = "synthetic-private-message " + GeocodingFixtures.API_KEY + privateUrl;
+        String privateCause = "synthetic-private-cause " + GeocodingFixtures.API_KEY;
+        GoogleGeocodingProvider provider = new GoogleGeocodingProvider(properties(), ignored -> (uri, method) -> {
+            attempts.incrementAndGet();
+            IllegalArgumentException cause = new IllegalArgumentException(privateCause);
+            if (isError) {
+                throw new AssertionError(privateMessage, cause);
+            }
+            throw new IllegalStateException(privateMessage, cause);
+        });
+        Logger logger = (Logger) LoggerFactory.getLogger(GoogleGeocodingProvider.class);
+        ListAppender<ILoggingEvent> appender = new ListAppender<>();
+        appender.start();
+        logger.addAppender(appender);
+        try {
+            Failure expected = new Failure(FailureKind.INVALID_RESPONSE, null);
+            assertThat(provider.geocode(GeocodingFixtures.ADDRESS)).isEqualTo(expected);
+            assertThat(attempts).hasValue(1);
+            assertThat(appender.list).singleElement().satisfies(event -> {
+                assertThat(event.getLevel()).isEqualTo(Level.WARN);
+                assertThat(event.getFormattedMessage()).isEqualTo(
+                        "Google geocoding failure phase=" + phase + " exceptionType=" + exceptionType);
+                assertThat(event.getArgumentArray()).containsExactly(exceptionType);
+                assertThat(event.getThrowableProxy()).isNull();
+            });
+            assertThat(output.getAll()).doesNotContain(privateUrl, privateMessage, privateCause,
+                    GeocodingFixtures.API_KEY, GeocodingFixtures.ADDRESS,
+                    "java.lang.IllegalArgumentException", "Caused by:");
+        } finally {
+            logger.detachAppender(appender);
+            appender.stop();
+        }
     }
 
     @Test

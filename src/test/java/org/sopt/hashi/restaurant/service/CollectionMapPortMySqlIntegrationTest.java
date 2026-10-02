@@ -185,7 +185,7 @@ class CollectionMapPortMySqlIntegrationTest {
             if (index < located) {
                 restaurant.requestLocationResolution();
                 restaurant.completeLocation(1, restaurant.getLocation().getRequestId(),
-                        MapCoordinates.of(new BigDecimal("35.6"), new BigDecimal("139.7")), RestaurantLocationSource.OPERATOR,
+                        MapCoordinates.of(new BigDecimal("35.6"), new BigDecimal("139.7")), RestaurantLocationSource.ADMIN,
                         now.minusHours(1), now.plusHours(1), FIXED);
             }
             rows.add(restaurant);

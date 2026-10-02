@@ -14,6 +14,7 @@ import java.time.Instant;
 import java.time.ZoneOffset;
 import java.util.List;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
 import org.sopt.hashi.auth.internal.jwt.JwtProvider;
 import org.sopt.hashi.auth.internal.onboarding.OnboardingJwtIssuer;
 import org.sopt.hashi.auth.internal.security.CookieUtil;
@@ -34,6 +35,8 @@ import org.sopt.hashi.shared.exception.GlobalExceptionHandler;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
 import org.springframework.boot.test.context.TestConfiguration;
+import org.springframework.boot.test.system.CapturedOutput;
+import org.springframework.boot.test.system.OutputCaptureExtension;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.ComponentScan.Filter;
 import org.springframework.context.annotation.FilterType;
@@ -113,39 +116,40 @@ class RestaurantMapControllerTest {
     }
 
     @Test
-    void 지역설정_미완료와_DB_실패는_503_코드로_구분한다() throws Exception {
+    @ExtendWith(OutputCaptureExtension.class)
+    void 지역설정_미완료와_DB_실패는_503_코드로_구분하고_안전한_진단만_남긴다(CapturedOutput output) throws Exception {
         given(repository.findActiveRegions(any())).willReturn(List.of());
         mvc.perform(get("/api/v1/restaurants/map/regions")).andExpect(status().isServiceUnavailable())
                 .andExpect(jsonPath("$.code").value("RESTAURANT-017"));
-        given(repository.findActiveRegions(any())).willThrow(new DataAccessResourceFailureException("synthetic-private-detail"));
+        String secret = "synthetic-sql-search-coordinate-credential";
+        given(repository.findActiveRegions(any())).willThrow(new DataAccessResourceFailureException(
+                secret, new IllegalStateException("synthetic-private-cause")));
         String body = mvc.perform(get("/api/v1/restaurants/map/regions")).andExpect(status().isServiceUnavailable())
                 .andExpect(header().string("Cache-Control", "no-store"))
                 .andExpect(jsonPath("$.code").value("RESTAURANT-015"))
                 .andExpect(jsonPath("$.timestamp").exists())
                 .andExpect(jsonPath("$.path").value("/api/v1/restaurants/map/regions"))
                 .andExpect(jsonPath("$.errors").doesNotExist()).andReturn().getResponse().getContentAsString();
-        assertThat(body).doesNotContain("synthetic-private-detail");
+        assertThat(body).doesNotContain(secret, "synthetic-private-cause");
+        assertThat(output.getOut()).contains("operation=restaurant-map-query exceptionType=DataAccessResourceFailureException");
+        assertThat(output.getAll()).doesNotContain(secret, "synthetic-private-cause", "Caused by:");
     }
 
     @Test
-    void 잘못된_ID는_400과_필드오류를_반환한다() throws Exception {
+    void 잘못된_ID는_공통_400_형식과_보안필터의_no_store를_반환한다() throws Exception {
         for (long invalidId : new long[]{0L, -1L}) {
             mvc.perform(get("/api/v1/restaurants/{restaurantId}/map-location", invalidId))
                     .andExpect(status().isBadRequest())
-                    .andExpect(header().string("Cache-Control", "no-store"))
+                    .andExpect(header().string("Cache-Control", "no-cache, no-store, max-age=0, must-revalidate"))
                     .andExpect(jsonPath("$.code").value("COMMON-400"))
                     .andExpect(jsonPath("$.data").isEmpty())
-                    .andExpect(jsonPath("$.errors.length()").value(1))
-                    .andExpect(jsonPath("$.errors[0].field").value("restaurantId"))
-                    .andExpect(jsonPath("$.errors[0].rejectedValue").value(invalidId))
-                    .andExpect(jsonPath("$.errors[0].reason").isNotEmpty());
+                    .andExpect(jsonPath("$.errors").doesNotExist());
         }
         mvc.perform(get("/api/v1/restaurants/bad/map-location")).andExpect(status().isBadRequest())
-                .andExpect(header().string("Cache-Control", "no-store"))
+                .andExpect(header().string("Cache-Control", "no-cache, no-store, max-age=0, must-revalidate"))
                 .andExpect(jsonPath("$.code").value("COMMON-400"))
-                .andExpect(jsonPath("$.errors[0].field").value("restaurantId"))
-                .andExpect(jsonPath("$.errors[0].rejectedValue").value("bad"))
-                .andExpect(jsonPath("$.errors[0].reason").value("정수 ID를 입력해 주세요."));
+                .andExpect(jsonPath("$.data").isEmpty())
+                .andExpect(jsonPath("$.errors").doesNotExist());
     }
 
     @Test
@@ -155,14 +159,18 @@ class RestaurantMapControllerTest {
     }
 
     @Test
-    void transaction_시작_실패도_지도전용_503으로_변환하고_원인을_노출하지_않는다() throws Exception {
+    @ExtendWith(OutputCaptureExtension.class)
+    void transaction_실패도_지도전용_503과_안전한_진단만_남긴다(CapturedOutput output) throws Exception {
         given(repository.findActiveMapInfos(any(), any()))
-                .willThrow(new CannotCreateTransactionException("synthetic-private-connection"));
+                .willThrow(new CannotCreateTransactionException("synthetic-private-connection",
+                        new IllegalStateException("synthetic-private-cause")));
         String body = mvc.perform(get("/api/v1/restaurants/1/map-location"))
                 .andExpect(status().isServiceUnavailable()).andExpect(header().string("Cache-Control", "no-store"))
                 .andExpect(jsonPath("$.code").value("RESTAURANT-015"))
                 .andReturn().getResponse().getContentAsString();
-        assertThat(body).doesNotContain("synthetic-private-connection");
+        assertThat(body).doesNotContain("synthetic-private-connection", "synthetic-private-cause");
+        assertThat(output.getOut()).contains("operation=restaurant-map-query exceptionType=CannotCreateTransactionException");
+        assertThat(output.getAll()).doesNotContain("synthetic-private-connection", "synthetic-private-cause", "Caused by:");
     }
 
     @TestConfiguration(proxyBeanMethods = false)

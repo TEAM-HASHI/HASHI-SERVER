@@ -132,7 +132,7 @@ class LocationMaintenanceMySqlTest {
         jdbc.update("DELETE FROM restaurant_location_maintenance_run");
         jdbc.update("DELETE FROM restaurant_location_job");
         // Keep prior parent/child fixture rows; make them ineligible for this case's retention scan.
-        jdbc.update("UPDATE restaurant_location SET source='OPERATOR' WHERE status='READY'");
+        jdbc.update("UPDATE restaurant_location SET source='ADMIN' WHERE status='READY'");
         jdbc.update("""
                 UPDATE restaurant_geocoding_budget SET enabled=true, daily_limit=1000, max_concurrent=4,
                     reserved_calls=0, budget_day=NULL, blocked_until=NULL WHERE id=1

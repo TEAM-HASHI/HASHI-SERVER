@@ -146,7 +146,7 @@ class RestaurantLocationTest {
         assertThatThrownBy(() -> restaurant.completeLocation(1, request, POINT, null, NOW, NOW.plusDays(1), CLOCK))
                 .isInstanceOf(NullPointerException.class);
         assertThatThrownBy(() -> restaurant.completeLocation(1, request, null,
-                RestaurantLocationSource.OPERATOR, NOW, NOW.plusDays(1), CLOCK))
+                RestaurantLocationSource.ADMIN, NOW, NOW.plusDays(1), CLOCK))
                 .isInstanceOf(NullPointerException.class);
         assertThatThrownBy(() -> restaurant.deferLocation(1, request, NOW, CLOCK))
                 .isInstanceOf(IllegalArgumentException.class);
@@ -159,9 +159,9 @@ class RestaurantLocationTest {
     void DB_시간_정밀도로_내린_후에도_유효기간을_검증한다() {
         Restaurant restaurant = pending();
         assertThatThrownBy(() -> restaurant.completeLocation(1, request(restaurant), POINT,
-                RestaurantLocationSource.OPERATOR, NOW, NOW.plusNanos(999), CLOCK))
+                RestaurantLocationSource.ADMIN, NOW, NOW.plusNanos(999), CLOCK))
                 .isInstanceOf(IllegalArgumentException.class);
-        restaurant.completeLocation(1, request(restaurant), POINT, RestaurantLocationSource.OPERATOR,
+        restaurant.completeLocation(1, request(restaurant), POINT, RestaurantLocationSource.ADMIN,
                 NOW.minusNanos(1), NOW.plusSeconds(1).plusNanos(999), CLOCK);
         assertThat(restaurant.getLocation().getObtainedAt()).isEqualTo(NOW.minusNanos(1000));
         assertThat(restaurant.getLocation().getValidUntil()).isEqualTo(NOW.plusSeconds(1));

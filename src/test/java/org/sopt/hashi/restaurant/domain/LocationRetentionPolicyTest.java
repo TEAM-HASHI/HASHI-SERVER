@@ -38,8 +38,8 @@ class LocationRetentionPolicyTest {
         assertThat(location.getObtainedAt()).isNull();
         assertThat(location.getValidUntil()).isNull();
         assertThat(location.getRequestId()).isNotEqualTo(request);
-        var operator = ready(RestaurantLocationSource.OPERATOR);
-        assertThat(operator.purgeGoogle(1, operator.getRequestId(), NOW.minusHours(1), NOW.plusHours(1),
+        var admin = ready(RestaurantLocationSource.ADMIN);
+        assertThat(admin.purgeGoogle(1, admin.getRequestId(), NOW.minusHours(1), NOW.plusHours(1),
                 NOW.plusHours(2))).isFalse();
     }
 
