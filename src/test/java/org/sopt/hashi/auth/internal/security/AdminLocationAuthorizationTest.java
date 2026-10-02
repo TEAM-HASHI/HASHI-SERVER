@@ -11,6 +11,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.sopt.hashi.admin.service.AdminRestaurantService;
 import org.sopt.hashi.admin.web.AdminRestaurantController;
@@ -48,22 +49,23 @@ class AdminLocationAuthorizationTest {
     @MockitoBean RestaurantPort restaurants;
     @MockitoBean OnboardingTokenStore onboardingTokenStore;
 
-    @Test
-    void ADMIN은_실제_controller_service_port로_상태와_재처리_계약을_사용한다() throws Exception {
-        var state = new RestaurantLocationInfo(1L, "PENDING", 3, null, 0, null, null, false);
+    @ParameterizedTest
+    @ValueSource(longs = {0, 3})
+    void ADMIN은_실제_controller_service_port로_상태와_재처리_계약을_사용한다(long revision) throws Exception {
+        var state = new RestaurantLocationInfo(1L, "PENDING", revision, null, 0, null, null, false);
         given(restaurants.getLocationByAdmin(1L)).willReturn(state);
-        given(restaurants.retryLocationByAdmin(1L, 3)).willReturn(state);
+        given(restaurants.retryLocationByAdmin(1L, revision)).willReturn(state);
         mvc.perform(get(PATH).header("Authorization", admin()))
                 .andExpect(status().isOk()).andExpect(header().string("Cache-Control", "no-store"))
                 .andExpect(jsonPath("$.code").value("COMMON-200"))
                 .andExpect(jsonPath("$.data.locationStatus").value("PENDING"))
-                .andExpect(jsonPath("$.data.addressRevision").value(3))
+                .andExpect(jsonPath("$.data.addressRevision").value((int) revision))
                 .andExpect(jsonPath("$.data.leaseToken").doesNotExist())
                 .andExpect(jsonPath("$.data.address").doesNotExist());
         mvc.perform(post(PATH + "/retry").header("Authorization", admin()).contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"expectedAddressRevision\":3}"))
+                        .content("{\"expectedAddressRevision\":" + revision + "}"))
                 .andExpect(status().isOk()).andExpect(jsonPath("$.code").value("COMMON-200"));
-        verify(restaurants).retryLocationByAdmin(1L, 3);
+        verify(restaurants).retryLocationByAdmin(1L, revision);
     }
 
     @ParameterizedTest
@@ -85,11 +87,29 @@ class AdminLocationAuthorizationTest {
     }
 
     @ParameterizedTest
-    @ValueSource(strings = {"{}", "{\"expectedAddressRevision\":null}", "{\"expectedAddressRevision\":-1}",
-            "{\"expectedAddressRevision\":\"bad\"}"})
-    void 누락과_음수와_잘못된_revision은_기존_400_봉투로_거부한다(String body) throws Exception {
+    @CsvSource(delimiter = '|', textBlock = """
+            {} | 주소 버전은 필수입니다
+            {"expectedAddressRevision":null} | 주소 버전은 필수입니다
+            {"expectedAddressRevision":-1} | 주소 버전은 0 이상입니다
+            """)
+    void 누락과_null과_음수_revision은_400과_한국어_필드_메시지로_거부한다(String body, String reason) throws Exception {
         mvc.perform(post(PATH + "/retry").header("Authorization", admin()).contentType(MediaType.APPLICATION_JSON).content(body))
-                .andExpect(status().isBadRequest()).andExpect(jsonPath("$.code").value("COMMON-400"));
+                .andExpect(status().isBadRequest()).andExpect(jsonPath("$.code").value("COMMON-400"))
+                .andExpect(jsonPath("$.message").value("잘못된 요청입니다"))
+                .andExpect(jsonPath("$.path").value(PATH + "/retry"))
+                .andExpect(jsonPath("$.errors.length()").value(1))
+                .andExpect(jsonPath("$.errors[0].field").value("expectedAddressRevision"))
+                .andExpect(jsonPath("$.errors[0].reason").value(reason));
+        verifyNoInteractions(restaurants);
+    }
+
+    @Test
+    void 숫자가_아닌_revision은_기존_400_봉투로_거부한다() throws Exception {
+        mvc.perform(post(PATH + "/retry").header("Authorization", admin()).contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"expectedAddressRevision\":\"bad\"}"))
+                .andExpect(status().isBadRequest()).andExpect(jsonPath("$.code").value("COMMON-400"))
+                .andExpect(jsonPath("$.message").value("잘못된 요청입니다"))
+                .andExpect(jsonPath("$.errors").doesNotExist());
         verifyNoInteractions(restaurants);
     }
 
