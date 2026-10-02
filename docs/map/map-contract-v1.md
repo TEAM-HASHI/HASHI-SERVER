@@ -266,7 +266,10 @@ saved는 현재 사용자의 소유 컬렉션에 하나 이상 저장됐는지�
 ## 7. 오류와 응답 수명
 
 [ErrorResponse](../../src/main/java/org/sopt/hashi/shared/response/ErrorResponse.java)를 유지한다.
-실패는 `success:false,code,message,data:null,timestamp,path`; 검증 오류에만 `errors` 배열을 넣는다.
+실패는 `success:false,code,message,data:null,timestamp,path`다. 본문 DTO 검증 실패에는 `errors`를 넣는다.
+경로·쿼리 파라미터의 제약 위반과 타입 오류는 기존 `GlobalExceptionHandler`의 400 응답을 따른다.
+이 레거시 경로에는 `errors`가 없으며, 지도만 별도 형식으로 확장하지 않는다. 모든 검증 오류에
+필드 정보를 제공하는 목표와 현재 응답의 차이는 전역 API 계약을 함께 정비할 때 해소한다.
 timestamp는 기존 LocalDateTime 형식이며, 새 data의 UTC 시각과 혼동해 전역 직렬화를 변경하지 않는다.
 
 | HTTP / code | enum 의미 (신규는 채택안) | FE 처리 |
@@ -317,7 +320,23 @@ FE는 좌표를 영구 저장소에 남기지 않고 각 validUntil에 폐기한
 [공식 권장 용도](https://developers.google.com/maps/documentation/geocoding/best-practices)를
 확인했지만 실제 Google 프로젝트·계약·청구 지역·키·quota는 확인하지 않았다.
 
-2026-09-26 조회한 [서비스 조항 §6.3](https://cloud.google.com/maps-platform/terms/maps-service-terms)은
+Hashi의 FE 지도 제공자는 **Google Maps**로 계획한다. 실제 Google 청구 계정의 주소와 적용 계약은
+아직 확인하지 않았다. 사용자가 지도를 보는 국가나 식당 소재지로 청구 지역을 추정하지 않는다.
+2026-10-03 확인한 조항에서 지도와 함께 사용할 수 있는 데이터의 범위는 다음과 같다.
+
+| 적용 계약 | Google Maps에 Geocoding 결과 표시 | 다른 제공자 지도에 표시 |
+|---|---|---|
+| [비-EEA 청구 계정 조항 §6.2](https://cloud.google.com/maps-platform/terms/maps-service-terms) | 다른 계약·귀속·보존 조건을 충족하는 경우 가능 | Geocoding 콘텐츠 병용 금지 |
+| [EEA 청구 계정 조항 §6.1](https://cloud.google.com/terms/maps-platform/eea/maps-service-terms) | 위도·경도·place_id는 지도 병용 제한의 예외. 다른 Geocoding 콘텐츠는 지도와 병용 불가 | 같은 필드 예외만 적용. 다른 콘텐츠까지 허용된다고 해석하지 않음 |
+| 청구 지역·적용 계약 미확인 | 실제 연동 활성화 보류 | 실제 연동 활성화 보류 |
+
+이 표는 지도 표시 조건만 정리한 것이며 API 사용이나 장기 저장을 승인하는 근거가 아니다.
+서버가 반환하는 식당 주소는 Hashi 원본이고 Google formatted address로 대체하지 않는다.
+M3 유료 호출과 M7 화면 인수 전에 계정 담당자가 적용 계약을 확인하고, FE에서 사용할 지도
+제공자·반환 필드·귀속 표기와의 조합을 인수 기록에 남긴다. 계정 ID·결제 정보·키는 기록하지 않는다.
+
+같은 날 조회한 [비-EEA 서비스 조항 §6.3](https://cloud.google.com/maps-platform/terms/maps-service-terms)과
+[EEA 서비스 조항 §6.2](https://cloud.google.com/terms/maps-platform/eea/maps-service-terms)는
 위경도 임시 보관을 기본 최대 30일로 제한하고, 장기 보관 예외에는 특정 최종 사용자별 격리 조건을 둔다.
 Hashi 공용 식당 DB가 그 예외를 충족한다고 가정하지 않는다. 실제 계약 확인 전에는 유료 호출·운영
 backfill을 활성화하지 않고 fake adapter로 개발한다. MySQL에 넣어도 Google 결과의 보존 제한은 적용된다.
@@ -339,7 +358,8 @@ backfill을 활성화하지 않고 fake adapter로 개발한다. MySQL에 넣어
 지도 표시·귀속 표기·공개 이용약관/개인정보처리방침을 통합 QA한다. Place ID의 별도 보관 허용을
 좌표 무기한 저장 허용으로 해석하지 않는다. 서버 키·브라우저 키·Map ID와 운영 값을 문서/로그에 적지 않는다.
 
-실제 연동 전에는 대표 위치·지역 매핑, Google 계약/청구/허용 보존 기간, 키 제한, timeout·quota·
+실제 연동 전에는 대표 위치·지역 매핑, 위 표의 청구 지역·지도 제공자 조합과 적용 계약,
+허용 보존 기간, 키 제한, timeout·quota·
 재시도 한도, Redis 인증 데이터와의 용량 경쟁을 확인한다. backfill은 대상 수·주소 품질·예상 호출량을
 **조회 전용 dry-run**으로 확인한 뒤 checkpoint·중단·복구 기준과 별도 운영 승인을 갖춘다.
 이 PR은 Java·dependency·migration·유료 호출·운영 데이터 변경·배포를 포함하지 않는다.

@@ -9,12 +9,13 @@ M2~M7은 아래의 작업 구분자다. 대응 이슈/PR은 별도로 추적하�
 | 단위 / 이슈 제목안 | 선행·범위 | 인수 증거·제외 범위 |
 |---|---|---|
 | M2 `[Feat] 식당 위치와 관광 지역 모델 추가` | M1. restaurant 위치/지역 모델, nullable legacy 전환, revision·좌표 쌍·수명 제약, Port 값 계약 | 실제 MySQL migration·제약·기존 데이터 호환, ModularityTests. Google 호출·기존 주소 일괄 변환 제외 |
-| M3 `[Feat] 식당 주소 좌표 변환 작업 추가` | M2. 관리자 원자 저장, durable 작업·lease·CAS, Google adapter, 상태·재처리 API | fake provider와 transaction/경합 검증, 실패 후 재개. 새 dependency·DB·보안 영향 사전 설명. 운영 호출 기본 비활성 |
+| M3 `[Feat] 식당 주소 좌표 변환 작업 추가` | M2. 관리자 원자 저장, durable 작업·lease·CAS, Google adapter, 상태·재처리 API | fake provider와 transaction/경합 검증, 실패 후 재개. 새 dependency·DB·보안 영향 사전 설명. 유료 호출 전 실제 청구 지역·계약과 FE 지도 제공자/사용 필드의 허용 조합 확인. 운영 호출 기본 비활성 |
 | M4a `[Feat] 관광 지역과 지도 후보 조회 추가` | M2. BBOX·필터·지역 count, 지도 DTO·map-location, 합성 fixture | 경계·삭제·만료·지역 미분류·bulk query 검증. 완성된 공개 페이지 API로 출시하지 않음 |
 | M4b `[Feat] 지도 정렬 세션과 페이지 연결 추가` | M4a. Redis 세션·절대 TTL·cursor·정렬 변경·오류 | 실제 Redis TTL/eviction/장애와 MySQL 재검사, 중복·누락 반례. M4a와 함께 Map Contract의 공개 조회 완성 |
+| 후속 `#251 관리자 관광 지역 설정과 식당 지역 지정` | M2·M4a. 지역 목록/설정 API와 식당 소속 지정·해제 | ADMIN 권한, 중복·동시 수정, 관리자 등록부터 공개 집계까지 합성 데이터 검증. 실제 대표 좌표·식당 소속은 기획 승인 후 입력 |
 | M5 `[Feat] 기존 식당 좌표 보완과 수명 정리 추가` | M3. 조회 전용 dry-run·checkpoint·제한 실행·만료 전 갱신/제거 | resume·동시 실행·stop·expiry·백업 복구 방어. 유료 호출/운영 backfill 실행은 별도 승인과 결과 보고 |
 | M6 `#242 컬렉션 전체 핀과 저장 요약 연동` | M2 Port 및 develop에 병합된 #216의 저장/권한 기반. user 공개 집계·내 상태·전체 핀 API | 소유권·비공개 접근·버전 변경·전체 반환·실패 원자성, security matcher와 모듈 경계. #216 쓰기 API 중복 구현 금지 |
-| M7 `[Docs] 지도 통합 검증과 운영 절차 정리` | M3~M6와 FE/어드민 통합 | 화면 상태/카메라·부분 실패·귀속 표기·성능·quota·운영 gate 증거. 문서 통과를 배포 증거로 대체하지 않음 |
+| M7 `[Docs] 지도 통합 검증과 운영 절차 정리` | M3~M6와 FE/어드민 통합 | 화면 상태/카메라·부분 실패·귀속 표기·성능·quota·운영 gate 증거. 실제 청구 지역·적용 계약과 FE 지도 제공자/표시 필드의 허용 조합을 인수 기록으로 확인. 문서 통과를 배포 증거로 대체하지 않음 |
 
 학습 순서는 M2의 좌표 불변식 → M4a의 BBOX → M3의 짧은 transaction과 외부 HTTP →
 M4b의 정렬 세션 → M5/M6 통합이다. M3와 M4a는 M2 이후 독립 개발할 수 있으나 공유 Port·
@@ -22,6 +23,11 @@ M4b의 정렬 세션 → M5/M6 통합이다. M3와 M4a는 M2 이후 독립 개�
 develop V28(매거진)·V30(컬렉션) 다음 V31(위치) → V32(작업) → V33(유지보수) 순서로 정리한다.
 M6가 schema를 추가하면 V34 이후를 사용하고, 병합·배포도 이 순서를 지킨다. 이미 적용된
 운영 Flyway 이력은 확인 없이 수정하거나 `outOfOrder`로 우회하지 않는다.
+
+2026-10-03 기준 다른 담당자의 미병합 PR #249도 V31을 사용한다. 위 번호는 현재 스택의
+번호이며 병합 순서가 확정된 예약 번호가 아니다. 먼저 병합된 migration을 기준으로 남은
+미적용 파일·테스트·문서의 번호를 함께 조정하고, 최종 조합에서 중복 검사와 빈 DB 검증을 한다.
+다른 PR의 번호만 피하려고 높은 번호를 선점하거나, 적용된 migration의 checksum을 바꾸지 않는다.
 
 ## 2. 테스트 인수 시나리오
 
@@ -76,9 +82,9 @@ M1은 문서 낮은 위험 리뷰 1명이다. 후속 DB·transaction·동시성�
 
 | 입력/검증 | 없을 때 가능한 일 | 운영 완료로 주장할 수 없는 것 |
 |---|---|---|
-| 관광 지역·지원 bounds·대표 화면·식당 매핑 | 합성 fixture와 validation | 실제 지역 count·대표 위치의 정확성 |
+| 관광 지역·지원 bounds·대표 화면·식당 매핑 및 등록 경로 | 합성 fixture와 validation. 지역 등록·식당 소속 지정 기능은 별도 구현 필요 | 실제 지역 count·대표 위치의 정확성, 최초 클러스터 화면 완료 |
 | #242 지도 요약·전체 핀 경로 확정, FE 카메라/지역 해제·초기 안내 상태 확인 | #216 병합 API를 기준으로 M6 Port·mock 개발 | 팀 통합 합의·화면 인수 완료 |
-| Google 프로젝트·청구 지역/계약·키 제한·허용 보존 수명 | fake 호출과 장애 테스트 | 실계정 허가·과금·quota·Google 결과 보관 적합성 |
+| Google 프로젝트·청구 지역/계약·FE 지도 제공자와 표시 필드의 허용 조합·키 제한·허용 보존 수명 | fake 호출과 장애 테스트, [계약 §8](./map-contract-v1.md#8-google-출처보존과-운영-전환)의 조합 검토 | 실계정 허가·과금·quota·지도 표시 및 Google 결과 보관 적합성 |
 | Redis 메모리·eviction·세션/전체 admission 예산 | 소규모 fixture·부하 도구 설계 | 처리 용량·응답 시간 보장 |
 | 대상 DB 수·주소 품질·backfill 호출/일일 한도·stop/resume·백업 수명 | 조회 전용 dry-run 설계 | 유료 호출·운영 backfill·물리 제거 실행 승인 |
 
