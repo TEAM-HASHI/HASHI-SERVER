@@ -1,9 +1,13 @@
 package org.sopt.hashi.restaurant.service;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.assertj.core.api.Assertions.catchThrowableOfType;
 import static org.mockito.BDDMockito.given;
 
+import ch.qos.logback.classic.Level;
+import ch.qos.logback.classic.Logger;
+import ch.qos.logback.classic.spi.ILoggingEvent;
+import ch.qos.logback.core.read.ListAppender;
 import jakarta.persistence.EntityManagerFactory;
 import java.math.BigDecimal;
 import java.time.Clock;
@@ -18,10 +22,12 @@ import org.hibernate.resource.jdbc.spi.StatementInspector;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.slf4j.LoggerFactory;
 import org.sopt.hashi.auth.CurrentUserProvider;
 import org.sopt.hashi.config.JpaAuditingConfig;
 import org.sopt.hashi.config.TimeConfig;
 import org.sopt.hashi.media.MediaPort;
+import org.sopt.hashi.restaurant.code.RestaurantErrorCode;
 import org.sopt.hashi.restaurant.domain.MapCoordinates;
 import org.sopt.hashi.restaurant.domain.PriceCurrency;
 import org.sopt.hashi.restaurant.domain.Restaurant;
@@ -30,6 +36,7 @@ import org.sopt.hashi.restaurant.domain.RestaurantLocationSource;
 import org.sopt.hashi.restaurant.domain.RestaurantMapQueryRepository;
 import org.sopt.hashi.restaurant.domain.RestaurantPlaceType;
 import org.sopt.hashi.restaurant.domain.RestaurantRepository;
+import org.sopt.hashi.restaurant.internal.map.MapQueryFailureLogger;
 import org.sopt.hashi.restaurant.internal.map.MapQueryProperties;
 import org.sopt.hashi.shared.error.BusinessException;
 import org.sopt.hashi.shared.storage.FileStorage;
@@ -76,6 +83,8 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 class CollectionMapPortMySqlIntegrationTest {
     private static final Instant NOW = Instant.parse("2026-10-01T00:00:00Z");
     private static final Clock FIXED = Clock.fixed(NOW, ZoneOffset.UTC);
+    private static final String PRIVATE_DETAIL = "SELECT private_sql collectionId=987654321 key=synthetic-secret";
+    private static final String PRIVATE_CAUSE = "private-address 35.654321 139.123456";
     private static final AtomicInteger BATCHES = new AtomicInteger();
     private static volatile boolean failSecondBatch;
 
@@ -93,7 +102,8 @@ class CollectionMapPortMySqlIntegrationTest {
             return properties -> properties.put("hibernate.session_factory.statement_inspector", (StatementInspector) sql -> {
                 if (sql.contains("date_format(l.valid_until") && sql.contains("from restaurant r left join")) {
                     if (BATCHES.incrementAndGet() == 2 && failSecondBatch) {
-                        throw new DataAccessResourceFailureException("synthetic second batch failure");
+                        throw new DataAccessResourceFailureException(PRIVATE_DETAIL,
+                                new IllegalStateException(PRIVATE_CAUSE));
                     }
                 }
                 return sql;
@@ -169,10 +179,54 @@ class CollectionMapPortMySqlIntegrationTest {
     void 실제_둘째_batch_SQL실패는_부분_핀_대신_503이다() {
         Long collectionId = seedCollection("실패 경로", seedRestaurants(501, 501));
         failSecondBatch = true;
-        assertThatThrownBy(() -> maps.getMarkers(collectionId))
-                .isInstanceOfSatisfying(BusinessException.class,
-                        error -> assertThat(error.getErrorCode()).isEqualTo(UserErrorCode.COLLECTION_MAP_UNAVAILABLE));
-        assertThat(BATCHES).hasValue(2);
+        Logger collectionLogger = (Logger) LoggerFactory.getLogger(CollectionMapQueryService.class);
+        Logger queryLogger = (Logger) LoggerFactory.getLogger(MapQueryFailureLogger.class);
+        Level collectionLevel = collectionLogger.getLevel();
+        Level queryLevel = queryLogger.getLevel();
+        ListAppender<ILoggingEvent> logs = new ListAppender<>();
+        collectionLogger.setLevel(Level.WARN);
+        queryLogger.setLevel(Level.WARN);
+        logs.start();
+        collectionLogger.addAppender(logs);
+        queryLogger.addAppender(logs);
+        try {
+            BusinessException failure = catchThrowableOfType(
+                    () -> maps.getMarkers(collectionId), BusinessException.class);
+            assertThat(failure).isNotNull();
+            assertThat(failure.getErrorCode()).isEqualTo(UserErrorCode.COLLECTION_MAP_UNAVAILABLE);
+            assertThat(failure.getCause()).isInstanceOfSatisfying(BusinessException.class, downstream -> {
+                assertThat(downstream.getErrorCode()).isEqualTo(RestaurantErrorCode.MAP_QUERY_UNAVAILABLE);
+                assertThat(downstream.getCause()).isInstanceOf(DataAccessResourceFailureException.class)
+                        .hasMessage(PRIVATE_DETAIL).hasCauseInstanceOf(IllegalStateException.class);
+            });
+            assertThat(BATCHES).hasValue(2);
+            assertThat(logs.list).hasSize(2);
+            assertThat(logs.list).filteredOn(event -> event.getLoggerName().equals(collectionLogger.getName()))
+                    .singleElement().satisfies(event -> {
+                        assertThat(event.getFormattedMessage()).isEqualTo(
+                                "Collection map failed. operation=collection-map-port exceptionType=BusinessException");
+                        assertThat(event.getArgumentArray()).containsExactly("BusinessException");
+                    });
+            assertThat(logs.list).filteredOn(event -> event.getLoggerName().equals(queryLogger.getName()))
+                    .singleElement().satisfies(event -> {
+                        assertThat(event.getFormattedMessage()).isEqualTo(
+                                "Map query failed. operation=restaurant-map-query exceptionType="
+                                        + "DataAccessResourceFailureException");
+                        assertThat(event.getArgumentArray()).containsExactly("DataAccessResourceFailureException");
+                    });
+            assertThat(logs.list).allSatisfy(event -> {
+                assertThat(event.getLevel()).isEqualTo(Level.WARN);
+                assertThat(event.getThrowableProxy()).isNull();
+                assertThat(event.getFormattedMessage()).doesNotContain(PRIVATE_DETAIL, PRIVATE_CAUSE,
+                        "987654321", "private_sql", "synthetic-secret", "35.654321", "139.123456");
+            });
+        } finally {
+            collectionLogger.detachAppender(logs);
+            queryLogger.detachAppender(logs);
+            logs.stop();
+            collectionLogger.setLevel(collectionLevel);
+            queryLogger.setLevel(queryLevel);
+        }
     }
 
     private List<Restaurant> seedRestaurants(int count, int located) {
