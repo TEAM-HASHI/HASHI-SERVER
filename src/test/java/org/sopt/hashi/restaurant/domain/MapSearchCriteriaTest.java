@@ -40,10 +40,10 @@ class MapSearchCriteriaTest {
     }
 
     @Test
-    void Unicode_공백과_특수문자를_정규화하고_100자를_코드포인트로_센다() {
-        var criteria = criteria("  A\u00a0\u3000B %_!\\  ");
-        assertThat(criteria.keyword()).isEqualTo("A B %_!\\");
-        assertThat(criteria.keywordPattern()).isEqualTo("%a b !%!_!!\\%");
+    void Unicode_앞뒤공백만_제거하고_내부공백과_100자_코드포인트를_보존한다() {
+        var criteria = criteria(" \u00a0\u3000 A\u00a0\u3000B  %_!\\ \u00a0\u3000 ");
+        assertThat(criteria.keyword()).isEqualTo("A\u00a0\u3000B  %_!\\");
+        assertThat(criteria.keywordPattern()).isEqualTo("%a\u00a0\u3000b  !%!_!!\\%");
         assertThat(criteria("가".repeat(100)).keyword()).hasSize(100);
         assertThat(criteria("😀".repeat(100)).keyword().codePointCount(0, 200)).isEqualTo(100);
         assertThatThrownBy(() -> criteria("가".repeat(101))).isInstanceOf(BusinessException.class);

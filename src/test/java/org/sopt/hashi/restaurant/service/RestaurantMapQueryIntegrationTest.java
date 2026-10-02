@@ -245,6 +245,8 @@ class RestaurantMapQueryIntegrationTest {
         Restaurant menuMatch = ready("menu only", ".5", ".5");
         menuMatch.addMenu(menu(matchingName));
         ready(nonMatchingName, ".5", ".5");
+        Restaurant otherMenu = ready("other menu only", ".5", ".5");
+        otherMenu.addMenu(menu(nonMatchingName));
         Restaurant deleted = ready(matchingName + " deleted", ".5", ".5");
         deleted.softDelete();
         flushAndReset();
@@ -282,7 +284,10 @@ class RestaurantMapQueryIntegrationTest {
                 Arguments.of("!", "wow! house", "wow house"),
                 Arguments.of("\\", "slash\\name", "slashname"),
                 Arguments.of("%_!\\", "100%_!\\ hit", "100ANY!\\ false"),
-                Arguments.of("  SUSHI \u00a0\u3000 HOUSE  ", "Sushi House", "SushiXHouse")
+                Arguments.of(" \u00a0\u3000SUSHI  HOUSE\u00a0\u3000 ", "Sushi  House", "Sushi House"),
+                Arguments.of(" \u3000SUSHI\u00a0\u00a0HOUSE\u00a0 ", "Sushi\u00a0\u00a0House", "Sushi\u00a0House"),
+                Arguments.of(" \u00a0SUSHI\u3000\u3000HOUSE\u3000 ", "Sushi\u3000\u3000House", "Sushi\u3000House"),
+                Arguments.of("  SUSHI \u00a0\u3000 HOUSE  ", "Sushi \u00a0\u3000 House", "SushiXHouse")
         );
     }
 

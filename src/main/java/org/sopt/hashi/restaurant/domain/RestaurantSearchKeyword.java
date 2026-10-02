@@ -14,7 +14,7 @@ final class RestaurantSearchKeyword {
         if (keyword == null) {
             return null;
         }
-        String normalized = keyword.replaceAll("(?U)\\s+", " ").strip();
+        String normalized = keyword.replaceAll("(?U)^\\s+|\\s+$", "");
         return normalized.isEmpty() ? null : normalized;
     }
 
