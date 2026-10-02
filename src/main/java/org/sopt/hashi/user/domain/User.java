@@ -121,4 +121,33 @@ public class User extends BaseTimeEntity {
         profileImageAssetId = assetId;
         return true;
     }
+
+    /** 부분 수정(PATCH) — null 필드는 기존 값을 유지한다(식당·매거진·컬렉션과 동일 정책). 영문 이름은 수정 화면 범위 밖이다(MYP-002). */
+    public void updateProfile(String nickname, LocalDate birthDate, String phone, String email) {
+        if (nickname != null) {
+            this.nickname = nickname;
+        }
+        if (birthDate != null) {
+            this.birthDate = birthDate;
+        }
+        if (phone != null) {
+            this.phone = phone;
+        }
+        if (email != null) {
+            this.email = email;
+        }
+    }
+
+    /** media claim이 성공한 새 asset으로 프로필 사진을 바꾼다. 기존 key 사진은 참조만 끊는다(물리 삭제 정책은 ADR 0001 후속). */
+    public void replaceProfileImage(UUID assetId) {
+        Objects.requireNonNull(assetId, "assetId must not be null");
+        this.profileImageKey = null;
+        this.profileImageAssetId = assetId;
+    }
+
+    /** 프로필 사진 연결을 끊고 기본 프로필로 돌린다. asset 자체의 retire는 호출 측이 MediaPort로 한다. */
+    public void removeProfileImage() {
+        this.profileImageKey = null;
+        this.profileImageAssetId = null;
+    }
 }

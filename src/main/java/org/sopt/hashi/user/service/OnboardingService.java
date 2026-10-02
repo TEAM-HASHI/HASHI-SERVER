@@ -20,13 +20,16 @@ public class OnboardingService {
     private final UserRepository userRepository;
     private final AuthAccountPort authAccountPort;
     private final MediaPort mediaPort;
+    private final ProfileAvailabilityChecker availabilityChecker;
 
     public OnboardingService(UserRepository userRepository,
                              AuthAccountPort authAccountPort,
-                             MediaPort mediaPort) {
+                             MediaPort mediaPort,
+                             ProfileAvailabilityChecker availabilityChecker) {
         this.userRepository = userRepository;
         this.authAccountPort = authAccountPort;
         this.mediaPort = mediaPort;
+        this.availabilityChecker = availabilityChecker;
     }
 
     /**
@@ -35,7 +38,8 @@ public class OnboardingService {
      */
     @Transactional
     public OnboardingResponse completeOnboarding(CompleteOnboardingRequest request) {
-        validateNotDuplicated(request);
+        // 닉네임·이메일·연락처는 유니크다 — 가입은 제외할 본인이 없으므로 전체 회원과 비교한다
+        availabilityChecker.requireAvailable(request.nickname(), request.email(), request.phone(), null);
         User user = saveUser(request);
         authAccountPort.linkOnboardingAccount(user.getId());
         if (request.profileImageAssetId() != null) {
@@ -45,19 +49,6 @@ public class OnboardingService {
         // 회원 생성 시점 기록 — 프로필 값은 개인정보라 ID만 남긴다
         log.info("온보딩 가입 완료. userId={}", user.getId());
         return new OnboardingResponse(user.getId());
-    }
-
-    /** 닉네임·이메일·연락처는 유니크다. 일반적인 경우 어느 필드가 중복인지 구체적으로 알려준다. */
-    private void validateNotDuplicated(CompleteOnboardingRequest request) {
-        if (userRepository.existsByNickname(request.nickname())) {
-            throw new BusinessException(UserErrorCode.DUPLICATE_NICKNAME);
-        }
-        if (userRepository.existsByEmail(request.email())) {
-            throw new BusinessException(UserErrorCode.DUPLICATE_EMAIL);
-        }
-        if (userRepository.existsByPhone(request.phone())) {
-            throw new BusinessException(UserErrorCode.DUPLICATE_PHONE);
-        }
     }
 
     private User saveUser(CompleteOnboardingRequest request) {

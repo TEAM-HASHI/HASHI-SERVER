@@ -41,7 +41,8 @@ class OnboardingServiceTest {
 
     @BeforeEach
     void setUp() {
-        onboardingService = new OnboardingService(userRepository, authAccountPort, mediaPort);
+        onboardingService = new OnboardingService(
+                userRepository, authAccountPort, mediaPort, new ProfileAvailabilityChecker(userRepository));
         when(userRepository.save(any(User.class))).thenAnswer(invocation -> {
             User user = invocation.getArgument(0);
             assertThat(user.getProfileImageAssetId()).isNull();

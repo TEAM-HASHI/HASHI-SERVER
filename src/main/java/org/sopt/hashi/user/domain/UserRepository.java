@@ -23,4 +23,11 @@ public interface UserRepository extends JpaRepository<User, Long> {
     boolean existsByEmail(String email);
 
     boolean existsByPhone(String phone);
+
+    // 내 정보 수정·회원의 중복 확인 — 본인 행은 제외하고 본다
+    boolean existsByNicknameAndIdNot(String nickname, Long id);
+
+    boolean existsByEmailAndIdNot(String email, Long id);
+
+    boolean existsByPhoneAndIdNot(String phone, Long id);
 }
