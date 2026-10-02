@@ -50,8 +50,10 @@ class MapQuerySessionTest {
     @Test
     void 운영설정은_키를_출력하는_getter없이도_바인딩된다() {
         String key = Base64.getEncoder().encodeToString("synthetic-map-test-key-32-bytes-only".getBytes());
-        var binder = new Binder(new MapConfigurationPropertySource(Map.of("hashi.restaurant.map.session.signing-key", key)));
+        var binder = new Binder(new MapConfigurationPropertySource(Map.of(
+                "hashi.restaurant.map.session.enabled", "true", "hashi.restaurant.map.session.signing-key", key)));
         var properties = binder.bind("hashi.restaurant.map.session", Bindable.of(MapSessionProperties.class)).get();
+        properties.requireConfigured();
         assertThat(properties.requireSigningKey().getEncoded()).isEqualTo(Base64.getDecoder().decode(key));
         assertThat(properties.toString()).doesNotContain(key);
     }

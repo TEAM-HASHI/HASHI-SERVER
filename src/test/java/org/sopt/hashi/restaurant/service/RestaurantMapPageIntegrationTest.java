@@ -178,6 +178,7 @@ class RestaurantMapPageIntegrationTest {
 
     @BeforeEach
     void resetSyntheticData() {
+        properties.setEnabled(true);
         jdbc.update("update restaurant set deleted=true");
         redis.getConnectionFactory().getConnection().serverCommands().flushDb();
         properties.setSigningKey(Base64.getEncoder().encodeToString("synthetic-map-test-key-32-bytes-only".getBytes()));
@@ -360,10 +361,12 @@ class RestaurantMapPageIntegrationTest {
         assertThat(redis.keys(PREFIX + "*")).isEmpty();
     }
 
-    @Test
-    void 키_누락은_지도세션만_503이며_기존목록과_보안경로는_그대로이다() throws Exception {
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    void 비활성화나_키_누락은_지도세션만_503이며_기존목록과_보안경로는_그대로이다(boolean enabled) throws Exception {
         activeRegion();
-        properties.setSigningKey(null);
+        properties.setEnabled(enabled);
+        if (enabled) properties.setSigningKey(null);
         mvc.perform(newQuery()).andExpect(status().isServiceUnavailable())
                 .andExpect(jsonPath("$.code").value("RESTAURANT-014"));
         mvc.perform(get("/api/v1/restaurants")).andExpect(status().isOk());
