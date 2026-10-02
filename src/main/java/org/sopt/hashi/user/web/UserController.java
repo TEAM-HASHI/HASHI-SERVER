@@ -45,8 +45,7 @@ public class UserController {
     /** 온보딩(가입 완료) — 로그인 시 받은 signup_token 쿠키(또는 온보딩 토큰)로 인증. 성공 시 정식 JWT가 응답에 실려 즉시 로그인 상태가 된다. */
     @ApiException(value = CommonErrorCode.class, codes = {"INVALID_INPUT", "UNAUTHORIZED", "FORBIDDEN"})
     @ApiException(value = UserErrorCode.class,
-            codes = {"DUPLICATE_NICKNAME", "DUPLICATE_EMAIL", "DUPLICATE_PHONE", "DUPLICATE_USER_INFO",
-                    "RESERVED_NICKNAME"})
+            codes = {"DUPLICATE_NICKNAME", "DUPLICATE_EMAIL", "DUPLICATE_PHONE", "DUPLICATE_USER_INFO"})
     @ApiErrorResponse(status = HttpStatus.NOT_FOUND, code = "MEDIA-001",
             message = "이미지 자산을 찾을 수 없습니다")
     @ApiErrorResponse(status = HttpStatus.FORBIDDEN, code = "MEDIA-002",

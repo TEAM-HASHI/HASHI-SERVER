@@ -29,10 +29,7 @@ public enum UserErrorCode implements ErrorCode {
     RESTAURANT_NOT_SAVED(HttpStatus.NOT_FOUND, "USER-013", "컬렉션에 저장되지 않은 식당입니다"),
     SAME_COLLECTION_MOVE(HttpStatus.BAD_REQUEST, "USER-014", "같은 컬렉션으로는 이동할 수 없습니다"),
     RESTAURANT_NOT_FOUND(HttpStatus.NOT_FOUND, "USER-015", "저장할 식당을 찾을 수 없습니다"),
-    UNSUPPORTED_SAVED_RESTAURANT_SORT(HttpStatus.BAD_REQUEST, "USER-016", "지원하지 않는 정렬 기준입니다"),
-
-    // 회원 탈퇴(#243) — 탈퇴 자리값 접두어·익명 닉네임 후보는 활성 회원이 쓸 수 없다
-    RESERVED_NICKNAME(HttpStatus.BAD_REQUEST, "USER-017", "사용할 수 없는 닉네임입니다");
+    UNSUPPORTED_SAVED_RESTAURANT_SORT(HttpStatus.BAD_REQUEST, "USER-016", "지원하지 않는 정렬 기준입니다");
 
     private final HttpStatus status;
     private final String code;

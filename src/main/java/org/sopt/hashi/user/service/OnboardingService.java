@@ -35,7 +35,6 @@ public class OnboardingService {
      */
     @Transactional
     public OnboardingResponse completeOnboarding(CompleteOnboardingRequest request) {
-        validateNicknameAllowed(request.nickname());
         validateNotDuplicated(request);
         User user = saveUser(request);
         authAccountPort.linkOnboardingAccount(user.getId());
@@ -48,16 +47,15 @@ public class OnboardingService {
         return new OnboardingResponse(user.getId());
     }
 
-    /** 탈퇴 자리값 접두어·익명 닉네임 후보는 활성 회원이 쓸 수 없다(REVIEW_POLICY §3 — 탈퇴 회원과 혼동 방지). */
-    private void validateNicknameAllowed(String nickname) {
-        if (User.isReservedNickname(nickname)) {
-            throw new BusinessException(UserErrorCode.RESERVED_NICKNAME);
-        }
-    }
-
-    /** 닉네임·이메일·연락처는 유니크다. 일반적인 경우 어느 필드가 중복인지 구체적으로 알려준다. */
+    /**
+     * 닉네임·이메일·연락처는 유니크다. 일반적인 경우 어느 필드가 중복인지 구체적으로 알려준다.
+     * 탈퇴 자리값 접두어·익명 닉네임 후보도 활성 회원이 쓸 수 없는데(REVIEW_POLICY §3 — 탈퇴 회원과 혼동 방지),
+     * 사용자 입장에서는 이미 쓰이는 닉네임과 다를 바 없어 별도 코드 없이 닉네임 중복으로 응답한다.
+     */
     private void validateNotDuplicated(CompleteOnboardingRequest request) {
-        if (userRepository.existsByNickname(request.nickname())) {
+        boolean isNicknameTaken = User.isReservedNickname(request.nickname())
+                || userRepository.existsByNickname(request.nickname());
+        if (isNicknameTaken) {
             throw new BusinessException(UserErrorCode.DUPLICATE_NICKNAME);
         }
         if (userRepository.existsByEmail(request.email())) {

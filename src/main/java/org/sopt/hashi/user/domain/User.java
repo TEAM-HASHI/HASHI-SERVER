@@ -39,7 +39,7 @@ import org.sopt.hashi.BaseTimeEntity;
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
 public class User extends BaseTimeEntity {
 
-    /** 탈퇴 회원의 유니크 컬럼 자리값 — 실제 가입 입력과 겹치지 않는 형식이며, 닉네임 접두어는 온보딩에서 예약어로 거절한다. */
+    /** 탈퇴 회원의 유니크 컬럼 자리값 — 실제 가입 입력과 겹치지 않는 형식이며, 닉네임 접두어는 온보딩에서 중복 닉네임으로 거절한다. */
     private static final String WITHDRAWN_NICKNAME_PREFIX = "탈퇴회원#";
     private static final String WITHDRAWN_EMAIL_FORMAT = "withdrawn+%d@hashi.invalid";
     private static final String WITHDRAWN_PHONE_FORMAT = "withdrawn-%d";

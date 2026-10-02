@@ -95,14 +95,14 @@ class OnboardingServiceTest {
     }
 
     @Test
-    void 익명_닉네임_후보나_탈퇴_자리값_접두어_닉네임은_가입을_거절한다() {
+    void 익명_닉네임_후보나_탈퇴_자리값_접두어_닉네임은_중복으로_가입을_거절한다() {
         for (String nickname : List.of("한입여행자", "탈퇴회원#3")) {
             CompleteOnboardingRequest request = new CompleteOnboardingRequest(
                     nickname, "HASHI", LocalDate.of(1998, 1, 1), "01012345678", "hashi@example.com", null, null);
 
             assertThatThrownBy(() -> onboardingService.completeOnboarding(request))
                     .isInstanceOf(BusinessException.class)
-                    .hasFieldOrPropertyWithValue("errorCode", UserErrorCode.RESERVED_NICKNAME);
+                    .hasFieldOrPropertyWithValue("errorCode", UserErrorCode.DUPLICATE_NICKNAME);
         }
         verify(userRepository, never()).save(any(User.class));
         verifyNoInteractions(authAccountPort, mediaPort);
