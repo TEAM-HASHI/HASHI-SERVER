@@ -31,6 +31,8 @@ import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
 public class SecurityConfig {
 
     private static final String ONBOARDING_PATH = "/api/v1/users/onboarding";
+    /** 닉네임·연락처·이메일 중복 확인 — 온보딩 폼(임시 토큰)과 내 정보 수정 화면(회원)이 함께 쓴다. 어드민은 제외. */
+    private static final String PROFILE_AVAILABILITY_PATH = "/api/v1/users/availability";
     /** 내 인증 정보 조회 — /api/v1/auth/**(permitAll) 아래에 있지만 인증이 필요해 예외로 먼저 매칭한다. */
     static final String AUTH_ME_PATH = "/api/v1/auth/me";
     /** presigned URL 발급 — 온보딩(프로필 사진 업로드) 단계에서도 필요해 임시 권한까지 허용한다. */
@@ -86,6 +88,7 @@ public class SecurityConfig {
                         .requestMatchers(PUBLIC_PATHS).permitAll()
                         .requestMatchers(HttpMethod.GET, COLLECTION_PUBLIC_GET_PATHS).permitAll()
                         .requestMatchers(ONBOARDING_PATH).hasRole("ONBOARDING")
+                        .requestMatchers(PROFILE_AVAILABILITY_PATH).hasAnyRole("USER", "ONBOARDING")
                         .requestMatchers(UPLOAD_PATH).hasAnyRole("USER", "ADMIN", "ONBOARDING")
                         .requestMatchers(MEDIA_PATH).hasAnyRole("USER", "ADMIN", "ONBOARDING")
                         .requestMatchers("/api/v1/admin/**").hasRole("ADMIN")
