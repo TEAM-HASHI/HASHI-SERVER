@@ -17,6 +17,8 @@ import org.hibernate.Hibernate;
 import org.hibernate.SessionFactory;
 import org.hibernate.stat.Statistics;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.EnumSource;
 import org.sopt.hashi.config.TimeConfig;
 import org.sopt.hashi.media.MediaPort;
 import org.sopt.hashi.restaurant.AdminRestaurantCommand;
@@ -79,11 +81,13 @@ class RestaurantMapSchemaValidationTest {
     @MockitoBean
     private FileStorage fileStorage;
 
-    @Test
-    void 빈_스키마_migration과_validate_후_위치_좌표와_지역을_정확히_왕복한다() {
+    @ParameterizedTest
+    @EnumSource(RestaurantLocationSource.class)
+    void 빈_스키마_migration과_validate_후_위치_좌표와_출처와_지역을_정확히_왕복한다(
+            RestaurantLocationSource source) {
         MapRegion region = regions.saveAndFlush(MapRegion.create("ROUNDTRIP", "합성 지역", point(), bounds(), 0));
         region.activate();
-        Restaurant restaurant = ready();
+        Restaurant restaurant = ready(source);
         restaurant.assignMapRegion(region.getId());
         restaurants.saveAndFlush(restaurant);
         Long id = restaurant.getId();
@@ -94,7 +98,9 @@ class RestaurantMapSchemaValidationTest {
         assertThat(reloaded.getLocation().getCoordinates()).isEqualTo(point());
         assertThat(reloaded.getLocation().getObtainedAt()).isEqualTo(NOW);
         assertThat(reloaded.getLocation().getValidUntil()).isEqualTo(NOW.plusDays(1));
-        assertThat(reloaded.getLocation().getSource()).isEqualTo(RestaurantLocationSource.GOOGLE_GEOCODING);
+        assertThat(reloaded.getLocation().getSource()).isEqualTo(source);
+        assertThat(jdbc.queryForObject("SELECT source FROM restaurant_location WHERE id=?", String.class,
+                reloaded.getLocation().getId())).isEqualTo(source.name());
         assertThat(reloaded.getMapRegionId()).isEqualTo(region.getId());
         assertThat(regions.findAllByActiveTrueOrderByDisplayOrderAscIdAsc())
                 .extracting(MapRegion::getCode).contains("ROUNDTRIP");
@@ -224,10 +230,14 @@ class RestaurantMapSchemaValidationTest {
     }
 
     private Restaurant ready() {
+        return ready(RestaurantLocationSource.GOOGLE_GEOCODING);
+    }
+
+    private Restaurant ready(RestaurantLocationSource source) {
         Restaurant restaurant = restaurant();
         restaurant.requestLocationResolution();
         restaurant.completeLocation(1, restaurant.getLocation().getRequestId(), point(),
-                RestaurantLocationSource.GOOGLE_GEOCODING, NOW, NOW.plusDays(1), CLOCK);
+                source, NOW, NOW.plusDays(1), CLOCK);
         return restaurant;
     }
 
