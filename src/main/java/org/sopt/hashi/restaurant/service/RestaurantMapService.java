@@ -26,6 +26,7 @@ import org.sopt.hashi.restaurant.dto.RestaurantMapRegionsResponse.PositionRespon
 import org.sopt.hashi.restaurant.dto.RestaurantMapRegionsResponse.QueryLimitsResponse;
 import org.sopt.hashi.restaurant.dto.RestaurantMapRegionsResponse.RegionResponse;
 import org.sopt.hashi.restaurant.internal.map.MapQueryProperties;
+import org.sopt.hashi.restaurant.internal.map.MapQueryFailureLogger;
 import org.sopt.hashi.shared.error.BusinessException;
 import org.sopt.hashi.shared.error.CommonErrorCode;
 import org.springframework.beans.factory.annotation.Qualifier;
@@ -166,6 +167,7 @@ public class RestaurantMapService {
         try {
             return query.get();
         } catch (DataAccessException exception) {
+            MapQueryFailureLogger.warn(exception);
             throw new BusinessException(RestaurantErrorCode.MAP_QUERY_UNAVAILABLE, exception);
         }
     }

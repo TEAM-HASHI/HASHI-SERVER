@@ -16,11 +16,11 @@ import org.springframework.util.LinkedMultiValueMap;
 
 class RestaurantMapPageRequestTest {
     @Test
-    void BBOX와_정규화조건을_공유하고_정렬은_추천을_기본값으로_한다() {
+    void BBOX와_검색어_내부공백을_보존하고_정렬은_추천을_기본값으로_한다() {
         var parameters = bounds();
         parameters.add("keyword", "  sushi   A ");
         var request = RestaurantMapPageRequest.from(parameters);
-        assertThat(request.criteria().keyword()).isEqualTo("sushi A");
+        assertThat(request.criteria().keyword()).isEqualTo("sushi   A");
         assertThat(request.sort()).isEqualTo(RestaurantMapSort.RECOMMEND);
         assertThat(request.toString()).doesNotContain("sushi");
     }

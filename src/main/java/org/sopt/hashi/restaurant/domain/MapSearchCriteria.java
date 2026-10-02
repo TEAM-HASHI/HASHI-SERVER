@@ -1,6 +1,5 @@
 package org.sopt.hashi.restaurant.domain;
 
-import java.util.Locale;
 import org.sopt.hashi.restaurant.code.RestaurantErrorCode;
 import org.sopt.hashi.shared.error.BusinessException;
 import org.sopt.hashi.shared.error.CommonErrorCode;
@@ -27,8 +26,7 @@ public record MapSearchCriteria(MapQueryBounds bounds, Long mapRegionId, Restaur
 
     /** !를 명시적 LIKE escape 문자로 사용한다. 사용자 입력의 !, %, _ 모두 리터럴이다. */
     public String keywordPattern() {
-        return keyword == null ? null : "%" + keyword.toLowerCase(Locale.ROOT)
-                .replace("!", "!!").replace("%", "!%").replace("_", "!_") + "%";
+        return RestaurantSearchKeyword.containsPattern(keyword);
     }
 
     private static String normalizeKeyword(String keyword) {
@@ -42,9 +40,12 @@ public record MapSearchCriteria(MapQueryBounds bounds, Long mapRegionId, Restaur
         if (forbidden) {
             throw new BusinessException(CommonErrorCode.INVALID_INPUT);
         }
-        String normalized = keyword.replaceAll("(?U)\\s+", " ").strip();
+        String normalized = RestaurantSearchKeyword.normalize(keyword);
+        if (normalized == null) {
+            throw new BusinessException(CommonErrorCode.INVALID_INPUT);
+        }
         int length = normalized.codePointCount(0, normalized.length());
-        if (length < 1 || length > 100) {
+        if (length > 100) {
             throw new BusinessException(CommonErrorCode.INVALID_INPUT);
         }
         return normalized;

@@ -29,6 +29,7 @@ import java.time.LocalDateTime;
 import java.time.LocalTime;
 import java.time.ZoneId;
 import java.time.ZoneOffset;
+import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.Base64;
 import java.util.List;
@@ -142,6 +143,7 @@ import org.testcontainers.utility.DockerImageName;
 @DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_CLASS)
 class RestaurantMapPageIntegrationTest {
     private static final Clock CLOCK = Clock.system(ZoneId.of("Asia/Tokyo"));
+    private static final DateTimeFormatter UTC_DATETIME = DateTimeFormatter.ofPattern("uuuu-MM-dd HH:mm:ss.SSSSSS");
     private static final String PATH = "/api/v1/restaurants/map";
     private static final String PREFIX = "hashi:restaurant:map:{sessions-v1}:slot:";
     private static final MapSearchCriteria CRITERIA = MapSearchCriteria.of(
@@ -257,7 +259,8 @@ class RestaurantMapPageIntegrationTest {
         var session = orderedSession(Duration.ofMinutes(15));
         String token = cursors.encode(session, RestaurantMapSort.RECOMMEND, 5);
         jdbc.update("update restaurant set deleted=true where id in (?,?)", ids.get(0), ids.get(5));
-        jdbc.update("update restaurant_location set valid_until=UTC_TIMESTAMP(6) where id=(select location_id from restaurant where id=?)", ids.get(6));
+        jdbc.update("update restaurant_location set valid_until=cast(? as datetime(6)) "
+                + "where id=(select location_id from restaurant where id=?)", expiredLocationTimestamp(), ids.get(6));
         new TransactionTemplate(transactions).executeWithoutResult(status -> restaurants.findById(ids.get(7)).orElseThrow()
                 .updateBasicInfo(null, null, null, null, "changed fixture address", null, null, null, null, null, null, null));
         jdbc.update("update restaurant set place_type='CAFE' where id=?", ids.get(8));
@@ -342,7 +345,8 @@ class RestaurantMapPageIntegrationTest {
         assertThat(one.get("content")).hasSize(1);
         assertThat(tenQueries).isEqualTo(oneQueries).isLessThanOrEqualTo(7);
         System.out.println("MAP_CARD_QUERIES one=" + oneQueries + " ten=" + tenQueries + " mediaBulk=1");
-        jdbc.update("update restaurant_location set valid_until=UTC_TIMESTAMP(6) where status='READY'");
+        jdbc.update("update restaurant_location set valid_until=cast(? as datetime(6)) where status='READY'",
+                expiredLocationTimestamp());
         assertThat(page(newQuery()).get("content")).isEmpty();
         assertThat(port.findActiveMapInfos(List.of(ids.getFirst()))).hasSize(1)
                 .allSatisfy(info -> assertThat(info.location()).isNull());
@@ -466,6 +470,11 @@ class RestaurantMapPageIntegrationTest {
                 snapshot.rankingAsOf(), Instant.now().plus(ttl)));
     }
 
+    /** DB와 JVM 벽시계 차이에도 테스트의 조회 Clock보다 확실히 과거인 만료값을 저장한다. */
+    private String expiredLocationTimestamp() {
+        return UTC_DATETIME.format(LocalDateTime.ofInstant(CLOCK.instant().minusSeconds(1), ZoneOffset.UTC));
+    }
+
     private Long activeRegion() {
         return new TransactionTemplate(transactions).execute(status -> {
             var region = MapRegion.create("FIXTURE_" + UUID.randomUUID().toString().replace("-", "").toUpperCase(),
@@ -484,7 +493,7 @@ class RestaurantMapPageIntegrationTest {
             restaurant.requestLocationResolution();
             LocalDateTime now = LocalDateTime.ofInstant(CLOCK.instant(), ZoneOffset.UTC);
             restaurant.completeLocation(1, restaurant.getLocation().getRequestId(),
-                    MapCoordinates.of(new BigDecimal(".5"), new BigDecimal(".5")), RestaurantLocationSource.OPERATOR,
+                    MapCoordinates.of(new BigDecimal(".5"), new BigDecimal(".5")), RestaurantLocationSource.ADMIN,
                     now.minusHours(1), now.plusHours(1), CLOCK);
             if (cards) {
                 restaurant.addImage(RestaurantImage.createLegacy("fixture/image" + index, 1));
