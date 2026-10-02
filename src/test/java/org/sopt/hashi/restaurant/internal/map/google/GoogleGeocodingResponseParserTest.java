@@ -84,6 +84,17 @@ class GoogleGeocodingResponseParserTest {
         assertThat(parse(body)).isEqualTo(new Failure(FailureKind.INVALID_RESPONSE, 200));
     }
 
+    @ParameterizedTest
+    @CsvSource({"RESOURCE_EXHAUSTED,QUOTA_EXCEEDED", "PERMISSION_DENIED,ACCESS_DENIED",
+            "UNKNOWN,ACCESS_DENIED", "OVER_QUERY_LIMIT,ACCESS_DENIED", "rateLimitExceeded,ACCESS_DENIED",
+            "userRateLimitExceeded,ACCESS_DENIED", "OVER_DAILY_LIMIT,ACCESS_DENIED",
+            "dailyLimitExceeded,ACCESS_DENIED"})
+    void HTTP_403에서_canonical_quota만_구분하고_legacy와_알_수_없는_상태는_권한오류다(
+            String status, FailureKind expected) {
+        byte[] body = ("{\"error\":{\"status\":\"" + status + "\"}}").getBytes(StandardCharsets.UTF_8);
+        assertThat(parser.classifyForbidden(body)).isEqualTo(expected);
+    }
+
     static Stream<String> invalidBodies() {
         return Stream.of("", " ", "null", "[]", "true", "1", "\"text\"", "{", "{}{}", "{}garbage",
                 "{\"results\":null}", "{\"results\":{}}", "{\"results\":[null]}", "{\"results\":[{}]}",
