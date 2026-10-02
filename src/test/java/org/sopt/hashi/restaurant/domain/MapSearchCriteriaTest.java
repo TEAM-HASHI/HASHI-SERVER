@@ -50,8 +50,15 @@ class MapSearchCriteriaTest {
     }
 
     @ParameterizedTest
-    @ValueSource(strings = {"", "   ", "a\nb", "a\tb", "a\rb", "a\u0000b", "a\u007fb", "a\u2028b", "a\u200bb"})
-    void 빈_검색어와_제어문자를_거절한다(String keyword) {
+    @ValueSource(strings = {"", "   ", "\u00a0\u3000"})
+    void 명시적인_빈_검색어는_기존_지도_계약대로_거절한다(String keyword) {
+        assertThatThrownBy(() -> criteria(keyword)).isInstanceOfSatisfying(BusinessException.class,
+                exception -> assertThat(exception.getErrorCode()).isEqualTo(CommonErrorCode.INVALID_INPUT));
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"a\nb", "a\tb", "a\rb", "a\u0000b", "a\u007fb", "a\u2028b", "a\u200bb"})
+    void 제어문자를_거절한다(String keyword) {
         assertThatThrownBy(() -> criteria(keyword)).isInstanceOfSatisfying(BusinessException.class,
                 exception -> assertThat(exception.getErrorCode()).isEqualTo(CommonErrorCode.INVALID_INPUT));
     }

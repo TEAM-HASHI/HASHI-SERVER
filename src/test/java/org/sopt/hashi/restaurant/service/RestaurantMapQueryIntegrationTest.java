@@ -16,12 +16,18 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.stream.Stream;
 import org.hibernate.SessionFactory;
 import org.hibernate.resource.jdbc.spi.StatementInspector;
 import org.hibernate.stat.Statistics;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.Arguments;
+import org.junit.jupiter.params.provider.MethodSource;
+import org.junit.jupiter.params.provider.NullAndEmptySource;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.sopt.hashi.media.MediaPort;
 import org.sopt.hashi.restaurant.RestaurantMapInfo;
 import org.sopt.hashi.restaurant.RestaurantPort;
@@ -42,9 +48,11 @@ import org.sopt.hashi.restaurant.domain.RestaurantMapQueryRepository;
 import org.sopt.hashi.restaurant.domain.RestaurantMenu;
 import org.sopt.hashi.restaurant.domain.RestaurantPlaceType;
 import org.sopt.hashi.restaurant.domain.RestaurantRepository;
+import org.sopt.hashi.restaurant.dto.RestaurantListResponse.RestaurantSummaryResponse;
 import org.sopt.hashi.restaurant.dto.RestaurantMapRegionsResponse.RegionResponse;
 import org.sopt.hashi.restaurant.internal.map.MapQueryProperties;
 import org.sopt.hashi.shared.error.BusinessException;
+import org.sopt.hashi.shared.error.CommonErrorCode;
 import org.sopt.hashi.shared.storage.FileStorage;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.support.BeanDefinitionRegistry;
@@ -97,6 +105,7 @@ class RestaurantMapQueryIntegrationTest {
             .withUrlParam("serverTimezone", "Asia/Seoul");
 
     @Autowired private RestaurantMapService service;
+    @Autowired private RestaurantService restaurantService;
     @Autowired private RestaurantMapQueryRepository queries;
     @Autowired private RestaurantRepository restaurants;
     @Autowired private MapRegionRepository regions;
@@ -224,6 +233,57 @@ class RestaurantMapQueryIntegrationTest {
         flushAndReset();
         assertThat(service.findCandidates(criteria("%_!\\"), 10).candidates())
                 .extracting(RestaurantMapCandidate::restaurantId).containsExactly(literal.getId(), menuLiteral.getId());
+    }
+
+    @ParameterizedTest
+    @MethodSource("inheritedSearchKeywords")
+    void 일반_목록과_지도는_특수문자와_연속공백의_검색결과가_같다(
+            String keyword, String matchingName, String nonMatchingName) {
+        Restaurant nameMatch = ready(matchingName, ".5", ".5");
+        nameMatch.addMenu(menu(matchingName + " first"));
+        nameMatch.addMenu(menu(matchingName + " second"));
+        Restaurant menuMatch = ready("menu only", ".5", ".5");
+        menuMatch.addMenu(menu(matchingName));
+        ready(nonMatchingName, ".5", ".5");
+        Restaurant deleted = ready(matchingName + " deleted", ".5", ".5");
+        deleted.softDelete();
+        flushAndReset();
+
+        assertSearchMatches(keyword, List.of(nameMatch.getId(), menuMatch.getId()));
+    }
+
+    @ParameterizedTest
+    @NullAndEmptySource
+    @ValueSource(strings = {"   ", "\u00a0\u3000"})
+    void 일반_목록은_빈_검색어를_생략하고_지도는_미지정만_허용한다(String keyword) {
+        Restaurant first = ready("first", ".5", ".5");
+        Restaurant second = ready("second", ".5", ".5");
+        Restaurant deleted = ready("deleted", ".5", ".5");
+        deleted.softDelete();
+        flushAndReset();
+
+        assertThat(restaurantService.getRestaurants(keyword, null, null, null, null, 10).content())
+                .extracting(RestaurantSummaryResponse::restaurantId)
+                .containsExactlyInAnyOrder(first.getId(), second.getId());
+        if (keyword == null) {
+            assertSearchMatches(null, List.of(first.getId(), second.getId()));
+        } else {
+            assertThatThrownBy(() -> service.findCandidates(criteria(keyword), 10))
+                    .isInstanceOfSatisfying(BusinessException.class,
+                            exception -> assertThat(exception.getErrorCode())
+                                    .isEqualTo(CommonErrorCode.INVALID_INPUT));
+        }
+    }
+
+    private static Stream<Arguments> inheritedSearchKeywords() {
+        return Stream.of(
+                Arguments.of("%", "100% house", "100ANY house"),
+                Arguments.of("_", "under_score", "underXscore"),
+                Arguments.of("!", "wow! house", "wow house"),
+                Arguments.of("\\", "slash\\name", "slashname"),
+                Arguments.of("%_!\\", "100%_!\\ hit", "100ANY!\\ false"),
+                Arguments.of("  SUSHI \u00a0\u3000 HOUSE  ", "Sushi House", "SushiXHouse")
+        );
     }
 
     @Test
@@ -413,6 +473,15 @@ class RestaurantMapQueryIntegrationTest {
                 "2026-01-01 00:00:00.000000", BigDecimal.ZERO, BigDecimal.ONE, BigDecimal.ZERO, BigDecimal.ONE, 31);
         assertThat(plan).isNotEmpty();
         System.out.println("MAP candidate EXPLAIN; 20 synthetic rows, not production performance: " + plan);
+    }
+
+    private void assertSearchMatches(String keyword, List<Long> expectedIds) {
+        assertThat(restaurantService.getRestaurants(keyword, null, null, null, null, 10).content())
+                .extracting(RestaurantSummaryResponse::restaurantId)
+                .containsExactlyInAnyOrderElementsOf(expectedIds);
+        assertThat(service.findCandidates(criteria(keyword), 10).candidates())
+                .extracting(RestaurantMapCandidate::restaurantId)
+                .containsExactlyInAnyOrderElementsOf(expectedIds);
     }
 
     private Restaurant ready(String name, String latitude, String longitude) {
