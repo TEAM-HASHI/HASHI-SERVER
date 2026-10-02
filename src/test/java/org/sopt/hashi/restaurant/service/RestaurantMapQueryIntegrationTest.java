@@ -488,7 +488,7 @@ class RestaurantMapQueryIntegrationTest {
         Restaurant restaurant = restaurant(name, RestaurantGenre.SUSHI, RestaurantPlaceType.RESTAURANT);
         restaurant.requestLocationResolution();
         restaurant.completeLocation(1, restaurant.getLocation().getRequestId(), point(latitude, longitude),
-                RestaurantLocationSource.OPERATOR, UTC_NOW.minusHours(1), UTC_NOW.plusHours(1), CLOCK);
+                RestaurantLocationSource.ADMIN, UTC_NOW.minusHours(1), UTC_NOW.plusHours(1), CLOCK);
         return restaurants.save(restaurant);
     }
 
