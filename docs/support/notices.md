@@ -22,11 +22,19 @@ READY NOTICE 자산을 저장 시 claim하고 교체·삭제 시 retire한다. �
 공지 소속·순서는 support가 소유하고 media 엔티티 FK는 없다. 조회는 하나의 bulk MediaPort 호출을 사용한다.
 images에는 assetId와 image projection을 순서대로 반환한다. projection이 없거나 READY가 아니면 개별 placeholder를 표시한다.
 spec v3 NOTICE_DETAIL은 inside resize로 원본 비율을 유지하고 metadata를 제거한다. v1/v2는 수정하지 않는다.
-새 worker를 먼저 배포·검증한 후 media config의 현재 spec을 v3/digest로 전환하는 운영 gate가 필요하다.
+공지 migration 적용과 새 worker 배포·검증을 마친 후 media config의 현재 spec을 v3/digest로 전환하는 운영 gate가 필요하다.
 본 PR은 config 활성화·AWS 호출을 수행하지 않는다. 기존 pipeline 비활성화/v1/v2 환경에서는 NOTICE 발급이 거절된다.
 
 ## Migration 적용 순서
 develop 053fdb3의 최대 버전은 V30이고 지도 PR #225/#233/#235 및 컬렉션 지도 PR #244의 V31~V34는 미병합이다.
 V35는 그 migration들을 develop에 병합·검증한 뒤 적용한다. 먼저 V35를 배포하면 나중의 V31~V34가 누락된다.
-outOfOrder/baseline 우회나 기존 migration 수정은 금지다. 이후 약관 V36은 V35 다음에 적용한다.
-본 Draft는 선행 PR의 실제 병합 전까지 merge NO-GO다. 운영 DB를 조회하거나 migration을 적용하지 않았다.
+공지 migration은 V35 → V35.1(`V35_1__add_notice_media_contract.sql`) 순서로 적용한다.
+V35.1은 기존 purpose·role 허용값을 모두 보존하고 `image_asset`의 `NOTICE`, `image_rendition`의 `NOTICE_DETAIL` CHECK 허용값만 추가한다.
+[Flyway의 versioned migration 규칙](https://documentation.red-gate.com/flyway/flyway-concepts/migrations/versioned-migrations)은 점·밑줄 버전을 지원하며 수치 순서로 적용한다.
+따라서 이후 약관 V36은 V35.1 다음에 적용한다. 기존 V28·V35·V36 SQL은 수정하지 않는다.
+
+배포 전 대상 DB의 `flyway_schema_history`와 두 CHECK 정의를 확인해야 한다.
+이미 V36을 적용한 개인·검증 DB에서는 V35.1이 과거 버전이므로 정상 순서로 자동 적용된다고 가정할 수 없다.
+해당 이력은 아직 확인하지 않았으며, 이 경우 배포 절차를 별도로 정해야 한다.
+outOfOrder·repair·baseline 자동 우회나 기존 migration 수정은 금지다.
+본 PR은 선행 PR의 실제 병합 전까지 merge NO-GO다. 운영 DB를 조회하거나 migration을 적용하지 않았다.
