@@ -30,7 +30,8 @@ export class ImageTransformWorker {
       throw new ContractMismatchError("Request spec digest differs from packaged manifest");
     }
     requiredRoles(spec.manifest, request.purpose);
-    const maxSourceBytes = request.purpose === "MAGAZINE_CARD_NEWS" && request.specVersion >= 2
+    const maxSourceBytes = ((request.purpose === "MAGAZINE_CARD_NEWS" && request.specVersion >= 2)
+      || (request.purpose === "NOTICE" && request.specVersion >= 3))
       ? 10 * 1024 * 1024
       : 5 * 1024 * 1024;
     if (request.declaredByteSize > maxSourceBytes) {

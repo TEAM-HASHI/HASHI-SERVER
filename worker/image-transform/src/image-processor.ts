@@ -307,7 +307,8 @@ function roundHalfUp(value: number): number {
 }
 
 function sourceByteLimit(purpose: string, specVersion: number): number {
-  return purpose === "MAGAZINE_CARD_NEWS" && specVersion >= 2
+  return ((purpose === "MAGAZINE_CARD_NEWS" && specVersion >= 2)
+    || (purpose === "NOTICE" && specVersion >= 3))
     ? IMAGE_LIMITS.maxCardNewsBytes
     : IMAGE_LIMITS.maxBytes;
 }
