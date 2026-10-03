@@ -27,6 +27,7 @@ clause는 heading(1~100자), content(필수 일반 텍스트)이며 합계 최�
 게시 실패는 pointer와 publishedAt 전체를 rollback한다. 기존 현재를 유지한다.
 정책 근거와 제어 데이터 예외는 ADR 0004를 참조한다.
 
-V36은 지도 V31~V34 및 공지 V35를 먼저 develop에 병합·검증한 뒤 적용한다.
+V36은 지도 V31~V34 및 공지 V35·V35.1을 먼저 develop에 병합·검증한 뒤 적용한다.
+공지 이후 적용 순서는 `V35 → V35.1 → V36`이다.
 선행 migration 병합 전에는 merge NO-GO. outOfOrder/baseline 우회는 사용하지 않는다.
 법률 문구/승인, 회원 동의 이력, 재동의, 예약 게시, 프런트, 실제 운영 게시/배포는 별도 범위다.
