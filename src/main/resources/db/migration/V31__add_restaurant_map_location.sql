@@ -24,14 +24,15 @@ CREATE TABLE restaurant_location (
         OR (latitude IS NOT NULL AND longitude IS NOT NULL
             AND latitude BETWEEN -90 AND 90 AND longitude BETWEEN -180 AND 180)
     ),
-    CONSTRAINT chk_location_ready CHECK (
-        (status = 'READY' AND latitude IS NOT NULL AND longitude IS NOT NULL
+    CONSTRAINT chk_location_payload CHECK (
+        (latitude IS NOT NULL AND longitude IS NOT NULL
             AND source IS NOT NULL AND source IN ('GOOGLE_GEOCODING', 'ADMIN')
             AND CHAR_LENGTH(source) = CHAR_LENGTH(TRIM(source))
             AND obtained_at IS NOT NULL AND valid_until IS NOT NULL AND obtained_at < valid_until)
-        OR (status <> 'READY' AND latitude IS NULL AND longitude IS NULL
+        OR (latitude IS NULL AND longitude IS NULL
             AND source IS NULL AND obtained_at IS NULL AND valid_until IS NULL)
     ),
+    CONSTRAINT chk_location_ready CHECK (status <> 'READY' OR latitude IS NOT NULL),
     CONSTRAINT chk_location_retry CHECK (
         (status = 'RETRY_WAIT' AND next_attempt_at IS NOT NULL)
         OR (status <> 'RETRY_WAIT' AND next_attempt_at IS NULL)
