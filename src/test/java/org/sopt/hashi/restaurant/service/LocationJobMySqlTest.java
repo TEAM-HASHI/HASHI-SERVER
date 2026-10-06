@@ -138,6 +138,68 @@ class LocationJobMySqlTest {
     }
 
     @Test
+    void 같은_주소_갱신의_재시도와_실패도_기존_좌표와_만료를_보존한다() {
+        Long id = restaurants.createByAdmin(createCommand()).restaurantId();
+        transactions.complete(transactions.claim(target(id)).orElseThrow(), ready());
+        var before = readLocation(id);
+        tx.executeWithoutResult(ignored -> {
+            var restaurant = restaurantRepository.findByIdForUpdate(id).orElseThrow();
+            restaurant.refreshLocation();
+            locations.enqueue(restaurant);
+        });
+        Target refresh = target(id);
+        transactions.complete(transactions.claim(refresh).orElseThrow(), Outcome.failure(FailureKind.TRANSIENT_ERROR));
+        assertThat(locations.get(id).locationStatus()).isEqualTo("RETRY_WAIT");
+        assertRetainedLocation(id, before);
+        due(id, refresh.jobId());
+        transactions.complete(transactions.claim(refresh).orElseThrow(), Outcome.failure(FailureKind.ACCESS_DENIED));
+        assertThat(locations.get(id).locationStatus()).isEqualTo("FAILED");
+        assertRetainedLocation(id, before);
+        assertThat(readLocation(id).isUsable(
+                java.time.Clock.fixed(before.getValidUntil().toInstant(ZoneOffset.UTC), ZoneOffset.UTC))).isFalse();
+        restaurants.updateByAdmin(id, addressCommand("東京都試験区架空町1-2-4"));
+        var changed = readLocation(id);
+        assertThat(changed.getCoordinates()).isNull();
+        assertThat(changed.getValidUntil()).isNull();
+    }
+
+    private org.sopt.hashi.restaurant.domain.RestaurantLocation readLocation(Long id) {
+        return tx.execute(ignored -> {
+            var location = restaurantRepository.findById(id).orElseThrow().getLocation();
+            org.hibernate.Hibernate.initialize(location);
+            return location;
+        });
+    }
+
+    private void assertRetainedLocation(Long id, org.sopt.hashi.restaurant.domain.RestaurantLocation before) {
+        var actual = readLocation(id);
+        assertThat(actual.getCoordinates()).usingRecursiveComparison().isEqualTo(before.getCoordinates());
+        assertThat(actual.getSource()).isEqualTo(before.getSource());
+        assertThat(actual.getObtainedAt()).isEqualTo(before.getObtainedAt());
+        assertThat(actual.getValidUntil()).isEqualTo(before.getValidUntil());
+        assertThat(actual.isUsable(java.time.Clock.systemUTC())).isTrue();
+    }
+
+    @Test
+    void 전역_호출_중단과_예산_소진은_후보를_읽기_전에_거르고_다음날_다시_허용한다() {
+        Target target = target(restaurants.createByAdmin(createCommand()).restaurantId());
+        assertThat(transactions.candidates()).contains(target);
+        jdbc.update("UPDATE restaurant_geocoding_budget SET enabled=false WHERE id=1");
+        assertThat(transactions.candidates()).isEmpty();
+        jdbc.update("UPDATE restaurant_geocoding_budget SET enabled=true, blocked_until=UTC_TIMESTAMP(6)+INTERVAL 1 HOUR WHERE id=1");
+        assertThat(transactions.candidates()).isEmpty();
+        jdbc.update("UPDATE restaurant_geocoding_budget SET blocked_until=NULL, budget_day=UTC_DATE(), reserved_calls=100 WHERE id=1");
+        assertThat(transactions.candidates()).isEmpty();
+        jdbc.update("UPDATE restaurant_geocoding_budget SET budget_day=UTC_DATE()-INTERVAL 1 DAY WHERE id=1");
+        assertThat(transactions.candidates()).contains(target);
+        assertThat(used()).isEqualTo(100);
+        assertThat(transactions.claim(target)).isPresent();
+        assertThat(used()).isEqualTo(1);
+        jdbc.update("UPDATE restaurant_geocoding_budget SET max_concurrent=1 WHERE id=1");
+        assertThat(transactions.candidates()).isEmpty();
+    }
+
+    @Test
     void 애플리케이션_시계가_앞서도_새_PENDING_작업은_즉시_처리한다() {
         Long id = restaurants.createByAdmin(createCommand()).restaurantId();
         Target target = target(id);
@@ -317,28 +379,32 @@ class LocationJobMySqlTest {
         }
     }
 
-    @Test
-    void 자동_재시도에서_requestId는_변하지만_attempt는_누적되고_네번째에_중단한다() {
+    @ParameterizedTest
+    @EnumSource(value = FailureKind.class, names = {"TRANSIENT_ERROR", "CONNECTION_ERROR", "TIMEOUT", "CAPACITY_EXCEEDED", "CANCELLED"})
+    void 자동_재시도는_같은_작업에서_누적되고_여덟번째에_중단한다(FailureKind failure) {
         Long id = restaurants.createByAdmin(createCommand()).restaurantId();
         Target target = target(id);
         java.util.UUID previousRequest = null;
-        for (int attempt = 1; attempt <= 4; attempt++) {
+        for (int attempt = 1; attempt <= 8; attempt++) {
             Claim claim = transactions.claim(target).orElseThrow();
             assertThat(claim.requestId()).isNotEqualTo(previousRequest);
             previousRequest = claim.requestId();
-            transactions.complete(claim, Outcome.failure(FailureKind.TRANSIENT_ERROR));
+            transactions.complete(claim, Outcome.failure(failure));
             assertThat(locations.get(id).attempt()).isEqualTo(attempt);
-            if (attempt < 4) {
+            if (attempt < 8) {
                 assertThat(locations.get(id).locationStatus()).isEqualTo("RETRY_WAIT");
                 assertThat(rawTime("next_attempt_at", target.jobId()))
                         .isEqualTo(LocalDateTime.ofInstant(locations.get(id).nextAttemptAt(), ZoneOffset.UTC));
+                jdbc.update("UPDATE restaurant_location_job SET reserved_until=UTC_TIMESTAMP(6)-INTERVAL 1 SECOND WHERE id=?",
+                        target.jobId());
                 due(id, target.jobId());
             }
         }
         assertThat(locations.get(id).locationStatus()).isEqualTo("FAILED");
         assertThat(locations.get(id).failureCode()).isEqualTo("ATTEMPTS_EXHAUSTED");
         assertThat(transactions.claim(target)).isEmpty();
-        assertThat(used()).isEqualTo(4);
+        assertThat(used()).isEqualTo(8);
+        assertThat(jobs.findAll()).hasSize(1);
     }
 
     @Test
@@ -346,7 +412,7 @@ class LocationJobMySqlTest {
         Long firstId = restaurants.createByAdmin(createCommand()).restaurantId();
         Long secondId = restaurants.createByAdmin(createCommand()).restaurantId();
         Target first = target(firstId);
-        for (int attempt = 1; attempt < 4; attempt++) {
+        for (int attempt = 1; attempt < 8; attempt++) {
             transactions.complete(transactions.claim(first).orElseThrow(), Outcome.failure(FailureKind.TRANSIENT_ERROR));
             due(firstId, first.jobId());
         }
@@ -354,9 +420,11 @@ class LocationJobMySqlTest {
         assertThat(locations.get(firstId).locationStatus()).isEqualTo("FAILED");
         assertThat(locations.get(firstId).failureCode()).isEqualTo("ATTEMPTS_EXHAUSTED");
         assertThat(transactions.claim(target(secondId))).isEmpty();
+        assertThat(jdbc.queryForObject("SELECT TIMESTAMPDIFF(SECOND, UTC_TIMESTAMP(6), blocked_until) FROM restaurant_geocoding_budget WHERE id=1",
+                Long.class)).isBetween(86390L, 95040L);
         locations.retry(firstId, 1);
         assertThat(transactions.claim(target(firstId))).isEmpty();
-        assertThat(used()).isEqualTo(4);
+        assertThat(used()).isEqualTo(8);
     }
 
     @Test

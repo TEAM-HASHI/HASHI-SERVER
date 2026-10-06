@@ -48,7 +48,12 @@ public class LocationJobTransactions {
         if (!properties.enabled()) {
             return List.of();
         }
-        return jobs.findDue(now(), PageRequest.of(0, 50)).stream()
+        LocalDateTime now = now();
+        GeocodingBudget budget = budgets.findById(1L).orElse(null);
+        if (budget == null || !budget.canReserve(now, jobs.countReservations(now))) {
+            return List.of();
+        }
+        return jobs.findDue(now, PageRequest.of(0, 50)).stream()
                 .map(job -> new Target(job.getRestaurantId(), job.getId())).toList();
     }
 
@@ -142,8 +147,8 @@ public class LocationJobTransactions {
         if (kind == FailureKind.QUOTA_EXCEEDED) {
             budgets.findControlForUpdate().ifPresent(budget -> budget.blockUntil(next));
         }
-        // Cancellation is a resumable interruption. The next claim still enforces the durable attempt cap.
-        if (retryable && (!exhausted || kind == FailureKind.CANCELLED)) {
+        // Cancellation also consumes an attempt; finish immediately when the durable cap is reached.
+        if (retryable && !exhausted) {
             restaurant.deferLocation(job.getAddressRevision(), job.getRequestId(), next, at(now));
             job.defer(code, next, now);
         } else {
