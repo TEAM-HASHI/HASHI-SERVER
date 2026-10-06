@@ -83,7 +83,7 @@ class RestaurantMapMigrationTest {
     }
 
     @Test
-    void 좌표_쌍과_READY_출처_수명과_재시도_제약은_SQL_우회도_차단한다() {
+    void 좌표_쌍과_출처_수명과_재시도_제약은_SQL_우회도_차단한다() {
         flyway("31").migrate();
         jdbc.update("""
                 INSERT INTO restaurant_location (id, status, address_revision, request_id, lock_version)
@@ -102,13 +102,22 @@ class RestaurantMapMigrationTest {
                     source='GOOGLE_GEOCODING', obtained_at='2026-01-01 00:00:00',
                     valid_until='2026-01-02 00:00:00' WHERE id=1
                 """);
-        for (String change : List.of(
-                "latitude=NULL", "longitude=NULL", "latitude=90.000001", "longitude=-180.000001",
-                "source=NULL", "source='UNKNOWN'", "source='OPERATOR'", "source='admin'", "source='ADMIN '",
-                "obtained_at=NULL", "valid_until=NULL",
-                "valid_until=obtained_at", "status='FAILED'", "next_attempt_at=NOW(6)")) {
-            assertThatThrownBy(() -> jdbc.update("UPDATE restaurant_location SET " + change + " WHERE id=1"))
-                    .as(change).isInstanceOf(DataAccessException.class);
+        for (String status : List.of("READY", "PENDING", "RETRY_WAIT", "REVIEW_REQUIRED", "FAILED")) {
+            String nextAttempt = status.equals("RETRY_WAIT") ? "'2026-01-01 01:00:00'" : "NULL";
+            jdbc.update("UPDATE restaurant_location SET status=?, next_attempt_at=" + nextAttempt + " WHERE id=1",
+                    status);
+            for (String change : List.of(
+                    "latitude=NULL", "longitude=NULL", "latitude=90.000001", "longitude=-180.000001",
+                    "source=NULL", "source='UNKNOWN'", "source='OPERATOR'", "source='admin'", "source='ADMIN '",
+                    "obtained_at=NULL", "valid_until=NULL", "valid_until=obtained_at",
+                    status.equals("RETRY_WAIT") ? "next_attempt_at=NULL" : "next_attempt_at=NOW(6)")) {
+                assertThatThrownBy(() -> jdbc.update("UPDATE restaurant_location SET " + change + " WHERE id=1"))
+                        .as(status + ": " + change).isInstanceOf(DataAccessException.class);
+            }
+            assertThat(jdbc.queryForObject("SELECT source FROM restaurant_location", String.class))
+                    .isEqualTo("GOOGLE_GEOCODING");
+            assertThat(jdbc.queryForObject("SELECT valid_until FROM restaurant_location", String.class))
+                    .startsWith("2026-01-02 00:00:00");
         }
         assertThat(jdbc.queryForObject("SELECT latitude FROM restaurant_location", java.math.BigDecimal.class))
                 .isEqualByComparingTo("0");
