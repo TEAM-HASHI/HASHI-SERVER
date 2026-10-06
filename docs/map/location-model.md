@@ -1,7 +1,7 @@
 # 식당 위치·관광 지역 모델 (#220)
 
-이 변경은 지도 데이터의 저장·검증 기반이다. 지도 API, 관리자 위치 API, Google 호출,
-worker/lease, Redis 세션, 실제 지역 데이터와 backfill은 후속 작업이다.
+이 문서는 #225의 지도 데이터 저장·검증 기반을 설명한다. 관리자 API·Google 호출·worker 연결은
+아래 #233 통합 범위와 구분하며, 지도 조회·Redis 세션·실제 지역 데이터와 backfill은 후속 작업이다.
 이번 #225 수정은 같은 주소의 갱신 중에도 기존 유효 좌표를 사용할 수 있게 한다.
 전체 구현 방향과 후속 검증 기준은 [구현 계획](implementation-plan.md)에 함께 정리한다.
 
@@ -141,8 +141,9 @@ PR #225 자체에는 새 dependency와 전역 Clock 설정 변경이 없다. 기
 
 - [#229](https://github.com/TEAM-HASHI/HASHI-SERVER/pull/229)의 `RestaurantMapQueryRepository`:
   READY만 고르는 SQL을 바꾸고 일반 목록·선택 위치·지역 집계·컬렉션 Port의 판정을 맞춘다.
-- [#233](https://github.com/TEAM-HASHI/HASHI-SERVER/pull/233)의 worker와 관리자 상태 DTO:
-  현재 작업 상태와 기존 좌표 사용 가능 여부를 구분하고, 실패·재시도에서도 기존 수명을 보존한다.
+- [#233](https://github.com/TEAM-HASHI/HASHI-SERVER/pull/233)에는 이 모델을 반영했다.
+  worker 실패·재시도에서도 기존 수명을 보존하며, 관리자 locationStatus는 작업 상태를 나타낸다.
+  RETRY_WAIT/FAILED여도 validUntil이 남을 수 있으므로 상태만으로 지도 노출 여부를 판단하지 않는다.
 - [#235](https://github.com/TEAM-HASHI/HASHI-SERVER/pull/235)의 `LocationRetentionReader`,
   `RestaurantLocation.purgeGoogle`와 유지보수 reader/inspection/transactions:
   갱신 중·실패 상태의 Google 좌표도 만료 전에 제거한다. 제거하면서 진행 중 requestId·job·재시도를
