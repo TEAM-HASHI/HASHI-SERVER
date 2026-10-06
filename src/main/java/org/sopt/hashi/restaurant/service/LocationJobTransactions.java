@@ -49,12 +49,16 @@ public class LocationJobTransactions {
             return List.of();
         }
         LocalDateTime now = now();
+        var page = PageRequest.of(0, 50);
+        if (!properties.isConfigured()) {
+            return targets(jobs.findDue(now, page));
+        }
         GeocodingBudget budget = budgets.findById(1L).orElse(null);
         if (budget == null || !budget.canReserve(now, jobs.countReservations(now))) {
-            return List.of();
+            // These jobs finish without reserving budget or calling the provider.
+            return targets(jobs.findDueExhausted(now, properties.maxAttempts(), page));
         }
-        return jobs.findDue(now, PageRequest.of(0, 50)).stream()
-                .map(job -> new Target(job.getRestaurantId(), job.getId())).toList();
+        return targets(jobs.findDue(now, page));
     }
 
     // READ_COMMITTED makes the reservation count fresh after acquiring the singleton budget lock.
@@ -155,6 +159,10 @@ public class LocationJobTransactions {
             restaurant.rejectLocation(job.getAddressRevision(), job.getRequestId(), RestaurantLocationStatus.FAILED);
             job.finish(State.FAILED, retryable ? "ATTEMPTS_EXHAUSTED" : code, now);
         }
+    }
+
+    private static List<Target> targets(List<RestaurantLocationJob> jobs) {
+        return jobs.stream().map(job -> new Target(job.getRestaurantId(), job.getId())).toList();
     }
 
     private LocalDateTime now() {

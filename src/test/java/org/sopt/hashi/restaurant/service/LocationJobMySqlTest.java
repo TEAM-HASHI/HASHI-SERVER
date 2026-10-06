@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.Mockito.doAnswer;
+import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.mockingDetails;
 
 import ch.qos.logback.classic.Level;
@@ -95,6 +96,7 @@ class LocationJobMySqlTest {
     @MockitoSpyBean RestaurantLocationJobRepository jobs;
     @Autowired LocationJobTransactions transactions;
     @Autowired RestaurantLocationWorker worker;
+    @MockitoSpyBean LocationJobProperties properties;
     @Autowired JdbcTemplate jdbc;
     @Autowired TransactionTemplate tx;
     @Autowired FakeProvider provider;
@@ -197,6 +199,45 @@ class LocationJobMySqlTest {
         assertThat(used()).isEqualTo(1);
         jdbc.update("UPDATE restaurant_geocoding_budget SET max_concurrent=1 WHERE id=1");
         assertThat(transactions.candidates()).isEmpty();
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    void 예산이_닫혀도_만료된_마지막_시도는_대기중인_50개_뒤에서_종료한다(boolean disabled) {
+        doReturn(1).when(properties).maxAttempts();
+        for (int i = 0; i < 51; i++) {
+            restaurants.createByAdmin(createCommand());
+        }
+        jdbc.update("UPDATE restaurant_location_job SET next_attempt_at=UTC_TIMESTAMP(6)-INTERVAL 1 DAY");
+        Long id = restaurants.createByAdmin(createCommand()).restaurantId();
+        Target last = target(id);
+        jdbc.update("UPDATE restaurant_geocoding_budget SET daily_limit=1 WHERE id=1");
+        transactions.claim(last).orElseThrow();
+        expire(last.jobId());
+        if (disabled) {
+            jdbc.update("UPDATE restaurant_geocoding_budget SET enabled=false WHERE id=1");
+        }
+        provider.answer.set(address -> { throw new AssertionError("cleanup must not call provider"); });
+        assertThat(transactions.candidates()).containsExactly(last);
+        worker.runOnce();
+        assertThat(locations.get(id).locationStatus()).isEqualTo("FAILED");
+        assertThat(locations.get(id).failureCode()).isEqualTo("ATTEMPTS_EXHAUSTED");
+        assertThat(locations.get(id).canRetry()).isTrue();
+        assertThat(used()).isEqualTo(1);
+        assertThat(transactions.candidates()).isEmpty();
+    }
+
+    @Test
+    void 설정_오류는_예산이_닫혀도_호출없이_실패로_정리한다() {
+        Long id = restaurants.createByAdmin(createCommand()).restaurantId();
+        doReturn(false).when(properties).isConfigured();
+        jdbc.update("UPDATE restaurant_geocoding_budget SET enabled=false, daily_limit=0 WHERE id=1");
+        provider.answer.set(address -> { throw new AssertionError("invalid configuration must not call provider"); });
+        worker.runOnce();
+        assertThat(locations.get(id).locationStatus()).isEqualTo("FAILED");
+        assertThat(locations.get(id).failureCode()).isEqualTo("CONFIGURATION_ERROR");
+        assertThat(locations.get(id).canRetry()).isTrue();
+        assertThat(used()).isZero();
     }
 
     @Test
