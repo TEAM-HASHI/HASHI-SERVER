@@ -24,7 +24,7 @@ public class LocationAdoptionPolicy {
             "route", "street_number");
     private static final Set<String> ALLOWED_TYPES = Set.of("country", "postal_code", "political", "sublocality",
             "administrative_area_level_1", "locality", "sublocality_level_1", "sublocality_level_2",
-            "sublocality_level_3", "sublocality_level_4", "route", "street_number");
+            "sublocality_level_3", "sublocality_level_4", "route", "street_number", "premise");
     private static final Pattern FULL_NUMBER = Pattern.compile("^([^0-9]+)([1-9][0-9]*)-([1-9][0-9]*)-([1-9][0-9]*)$");
     private final LocationJobProperties properties;
 
@@ -64,14 +64,27 @@ public class LocationAdoptionPolicy {
             if (component.types().stream().anyMatch(type -> !ALLOWED_TYPES.contains(type))) {
                 return false;
             }
+            if (component.types().contains("premise")
+                    && component.types().stream().anyMatch(type -> !"premise".equals(type) && !"political".equals(type))) {
+                return false;
+            }
             for (String type : component.types()) {
-                if (ADDRESS_ORDER.contains(type) || "country".equals(type) || "postal_code".equals(type)) {
+                if (ADDRESS_ORDER.contains(type) || "country".equals(type)
+                        || "postal_code".equals(type) || "premise".equals(type)) {
                     String text = "country".equals(type) ? component.shortText() : component.longText();
                     if (text == null || text.isBlank() || values.putIfAbsent(type, text) != null) {
                         return false;
                     }
                 }
             }
+        }
+        String premise = values.get("premise");
+        if (premise != null) {
+            // Only a missing final street number may be supplied by an unambiguous numeric premise.
+            if (values.containsKey("street_number") || !premise.matches("[0-9０-９]+")) {
+                return false;
+            }
+            values.put("street_number", Normalizer.normalize(premise, Normalizer.Form.NFKC));
         }
         boolean hasHierarchy = "JP".equals(values.get("country"))
                 && "東京都".equals(values.get("administrative_area_level_1"))
