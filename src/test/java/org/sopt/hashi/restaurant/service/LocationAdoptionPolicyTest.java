@@ -37,6 +37,68 @@ class LocationAdoptionPolicyTest {
                 component("3号", "3", "sublocality_level_4")), List.of("street_address"));
     }
 
+    static GeocodingCandidate numericPremiseCandidate(String premise) {
+        var original = candidate();
+        return new GeocodingCandidate(original.latitude(), original.longitude(), Granularity.ROOFTOP,
+                "JP", "東京都", List.of(component(premise, premise, "premise"),
+                component("2", "2", "sublocality_level_4"), component("1丁目", "1丁目", "sublocality_level_3"),
+                component("架空町", "架空町", "sublocality_level_2"), component("試験区", "試験区", "locality"),
+                component("東京都", "東京都", "administrative_area_level_1"), component("日本", "JP", "country")),
+                List.of("premise"));
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"3", "３"})
+    void 숫자만_있는_premise는_street_number가_없을때_마지막_번지로_비교한다(String premise) {
+        assertThat(policy.evaluate(ADDRESS, new Candidates(List.of(numericPremiseCandidate(premise))))
+                .failureCode()).isNull();
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"", " ", "3号", "3A", "三", "③", "３別館", "3-4", "03", "4", "13"})
+    void 건물명과_불명확하거나_다른_premise는_채택하지_않는다(String premise) {
+        assertThat(policy.evaluate(ADDRESS, new Candidates(List.of(numericPremiseCandidate(premise))))
+                .failureCode()).isEqualTo("ADDRESS_MISMATCH");
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"street_number", "premise", "unknown_component"})
+    void premise의_상충_중복_알수없는_구성요소는_거절한다(String extraType) {
+        var original = numericPremiseCandidate("3");
+        var components = new ArrayList<>(original.addressComponents());
+        components.add(component("3", "3", extraType));
+        var value = new GeocodingCandidate(original.latitude(), original.longitude(), original.granularity(),
+                original.countryCode(), original.administrativeArea(), components, original.types());
+        assertThat(policy.evaluate(ADDRESS, new Candidates(List.of(value))).failureCode())
+                .isEqualTo("ADDRESS_MISMATCH");
+    }
+
+    @Test
+    void 같은_premise를_두개의_번지_구간으로_중복_사용하지_않는다() {
+        var original = numericPremiseCandidate("3");
+        var components = new ArrayList<>(original.addressComponents());
+        components.removeIf(component -> component.types().contains("premise")
+                || component.types().contains("sublocality_level_4"));
+        components.add(new AddressComponent("3", "3", List.of("premise", "sublocality_level_4")));
+        var value = new GeocodingCandidate(original.latitude(), original.longitude(), original.granularity(),
+                original.countryCode(), original.administrativeArea(), components, original.types());
+        assertThat(policy.evaluate("東京都試験区架空町1-3-3", new Candidates(List.of(value))).failureCode())
+                .isEqualTo("ADDRESS_MISMATCH");
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"locality", "administrative_area_level_1", "country", "sublocality_level_3",
+            "sublocality_level_4"})
+    void premise가_있어도_행정구역과_세구간_번지는_생략하지_않는다(String missingType) {
+        var original = numericPremiseCandidate("3");
+        var components = original.addressComponents().stream()
+                .filter(component -> !component.types().contains(missingType)).toList();
+        var value = new GeocodingCandidate(original.latitude(), original.longitude(), original.granularity(),
+                original.countryCode(), original.administrativeArea(), components, original.types());
+        assertThat(policy.evaluate(ADDRESS, new Candidates(List.of(value))).failureCode())
+                .isEqualTo("ADDRESS_MISMATCH");
+    }
+
     static AddressComponent component(String value, String shortValue, String type) {
         return new AddressComponent(value, shortValue, List.of(type));
     }
