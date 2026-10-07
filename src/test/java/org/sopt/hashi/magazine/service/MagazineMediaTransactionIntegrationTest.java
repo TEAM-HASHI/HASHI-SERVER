@@ -30,9 +30,11 @@ import org.sopt.hashi.auth.CurrentActor;
 import org.sopt.hashi.auth.CurrentActorProvider;
 import org.sopt.hashi.magazine.AdminMagazineCommand;
 import org.sopt.hashi.magazine.AdminMagazineCommand.ImageCommand;
+import org.sopt.hashi.magazine.MagazineCardNewsInfo;
 import org.sopt.hashi.magazine.MagazineInfo;
 import org.sopt.hashi.magazine.domain.Magazine;
 import org.sopt.hashi.magazine.domain.MagazineRepository;
+import org.sopt.hashi.magazine.dto.MagazineDetailResponse;
 import org.sopt.hashi.media.MediaImageRole;
 import org.sopt.hashi.media.MediaImageStatus;
 import org.sopt.hashi.media.code.MediaErrorCode;
@@ -43,6 +45,7 @@ import org.sopt.hashi.media.domain.ImageFormat;
 import org.sopt.hashi.media.domain.ImageRole;
 import org.sopt.hashi.media.domain.MediaOwnerType;
 import org.sopt.hashi.media.domain.MediaPurpose;
+import org.sopt.hashi.media.internal.spec.MediaSpecRegistry;
 import org.sopt.hashi.shared.error.BusinessException;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -99,6 +102,9 @@ class MagazineMediaTransactionIntegrationTest {
     @Autowired
     private EntityManagerFactory entityManagerFactory;
 
+    @Autowired
+    private MediaSpecRegistry mediaSpecRegistry;
+
     @MockitoBean
     private CurrentActorProvider currentActorProvider;
 
@@ -152,7 +158,7 @@ class MagazineMediaTransactionIntegrationTest {
         ImageAsset newThumbnail = asset(MediaPurpose.MAGAZINE_THUMBNAIL, 1L, true);
 
         assertThatThrownBy(() -> transactionTemplate.executeWithoutResult(status -> {
-            magazineService.update(magazineId, new AdminMagazineCommand(
+            magazineService.update(magazineId, command(
                     "변경 제목", use(newBanner), use(newThumbnail), null));
             magazineRepository.flush();
             assertBinding(oldBanner, ImageBindingStatus.RETIRED);
@@ -178,7 +184,7 @@ class MagazineMediaTransactionIntegrationTest {
         ImageAsset newBanner = asset(MediaPurpose.MAGAZINE_BANNER, 1L, true);
         ImageAsset processingThumbnail = asset(MediaPurpose.MAGAZINE_THUMBNAIL, 1L, false);
 
-        assertThatThrownBy(() -> magazineService.update(magazineId, new AdminMagazineCommand(
+        assertThatThrownBy(() -> magazineService.update(magazineId, command(
                 null, use(newBanner), use(processingThumbnail), null)))
                 .isInstanceOfSatisfying(BusinessException.class, exception ->
                         assertThat(exception.getErrorCode()).isEqualTo(MediaErrorCode.INVALID_STATE));
@@ -224,7 +230,7 @@ class MagazineMediaTransactionIntegrationTest {
         ImageAsset foreignThumbnail = asset(MediaPurpose.MAGAZINE_THUMBNAIL, 2L, true);
 
         for (UUID deniedId : List.of(foreignThumbnail.getPublicId(), UUID.randomUUID())) {
-            AdminMagazineCommand command = new AdminMagazineCommand(
+            AdminMagazineCommand command = command(
                     "저장되면 안 되는 제목", use(banner), new ImageCommand(null, deniedId),
                     "https://www.instagram.com/p/denied-media/");
 
@@ -254,7 +260,7 @@ class MagazineMediaTransactionIntegrationTest {
         ImageAsset thumbnail = asset(MediaPurpose.MAGAZINE_THUMBNAIL, 1L, true);
         Long magazineId = magazineService.create(createCommand(banner, thumbnail)).magazineId();
 
-        magazineService.update(magazineId, new AdminMagazineCommand(
+        magazineService.update(magazineId, command(
                 null, use(banner), use(thumbnail), null));
         assertImages(magazineId, banner, thumbnail);
         magazineService.delete(magazineId);
@@ -277,7 +283,7 @@ class MagazineMediaTransactionIntegrationTest {
         CountDownLatch allowFirstCommit = new CountDownLatch(1);
 
         Future<?> first = executor.submit(() -> transactionTemplate.executeWithoutResult(status -> {
-            magazineService.update(magazineId, new AdminMagazineCommand(
+            magazineService.update(magazineId, command(
                     null, use(firstBanner), null, null));
             magazineRepository.flush();
             firstFlushed.countDown();
@@ -285,7 +291,7 @@ class MagazineMediaTransactionIntegrationTest {
         }));
         assertThat(firstFlushed.await(10, TimeUnit.SECONDS)).isTrue();
         Future<?> second = executor.submit(() -> magazineService.update(
-                magazineId, new AdminMagazineCommand(null, use(secondBanner), null, null)));
+                magazineId, command(null, use(secondBanner), null, null)));
         try {
             awaitMagazineRowLockCompetition();
         } finally {
@@ -311,7 +317,7 @@ class MagazineMediaTransactionIntegrationTest {
         CountDownLatch allowCommit = new CountDownLatch(1);
 
         Future<?> update = executor.submit(() -> transactionTemplate.executeWithoutResult(status -> {
-            magazineService.update(magazineId, new AdminMagazineCommand(
+            magazineService.update(magazineId, command(
                     null, use(newBanner), null, null));
             magazineRepository.flush();
             updateFlushed.countDown();
@@ -355,6 +361,271 @@ class MagazineMediaTransactionIntegrationTest {
         assertThat(manyCount).isEqualTo(3L);
     }
 
+    @Test
+    void 카드뉴스_등록은_순서와_해시태그를_저장하고_원본_비율의_READY_응답을_만든다() {
+        ImageAsset first = cardNewsAsset(1L, true);
+        ImageAsset second = cardNewsAsset(1L, true);
+
+        MagazineInfo response = magazineService.create(detailCommand(
+                "본문",
+                List.of(
+                        use(first),
+                        new ImageCommand("magazines/card-legacy.jpg", null),
+                        use(second)),
+                List.of("이자카야", "퇴근길")));
+
+        assertThat(cardNewsRows(response.magazineId())).containsExactly(
+                first.getPublicId() + "|null|1",
+                "null|magazines/card-legacy.jpg|2",
+                second.getPublicId() + "|null|3");
+        assertThat(jdbcTemplate.queryForList(
+                "SELECT hashtag FROM magazine_hashtag WHERE magazine_id = ?",
+                String.class, response.magazineId()))
+                .containsExactlyInAnyOrder("이자카야", "퇴근길");
+        assertBinding(first, ImageBindingStatus.BOUND);
+        assertBinding(second, ImageBindingStatus.BOUND);
+        assertThat(response.content()).isEqualTo("본문");
+        assertThat(response.cardNews())
+                .extracting(MagazineCardNewsInfo::displayOrder)
+                .containsExactly(1, 2, 3);
+        assertThat(response.cardNews())
+                .allSatisfy(cardNews -> assertThat(cardNews.cardNewsId()).isNotNull());
+        MagazineCardNewsInfo assetCardNews = response.cardNews().get(0);
+        assertThat(assetCardNews.legacyUrl()).isNull();
+        assertThat(assetCardNews.image().status()).isEqualTo(MediaImageStatus.READY);
+        assertThat(assetCardNews.image().role()).isEqualTo(MediaImageRole.MAGAZINE_CARD_NEWS);
+        assertThat(assetCardNews.image().defaultSource().width()).isEqualTo(864);
+        assertThat(assetCardNews.image().defaultSource().height()).isEqualTo(1080);
+        MagazineCardNewsInfo legacyCardNews = response.cardNews().get(1);
+        assertThat(legacyCardNews.image()).isNull();
+        assertThat(legacyCardNews.legacyUrl()).endsWith("magazines/card-legacy.jpg");
+    }
+
+    @Test
+    void 카드뉴스_교체는_빠진_asset을_retire하고_같은_asset의_행을_재사용한다() {
+        ImageAsset removed = cardNewsAsset(1L, true);
+        ImageAsset retained = cardNewsAsset(1L, true);
+        ImageAsset added = cardNewsAsset(1L, true);
+        Long magazineId = magazineService.create(detailCommand(
+                null, List.of(use(removed), use(retained)), null)).magazineId();
+        Long retainedRowId = cardNewsRowId(retained);
+
+        MagazineInfo response = magazineService.update(magazineId, cardNewsUpdate(
+                List.of(use(retained), use(added))));
+
+        assertThat(cardNewsRows(magazineId)).containsExactly(
+                retained.getPublicId() + "|null|1",
+                added.getPublicId() + "|null|2");
+        assertThat(cardNewsRowId(retained)).isEqualTo(retainedRowId);
+        assertThat(response.cardNews())
+                .extracting(MagazineCardNewsInfo::cardNewsId)
+                .containsExactly(retainedRowId, cardNewsRowId(added));
+        assertBinding(removed, ImageBindingStatus.RETIRED);
+        assertBinding(retained, ImageBindingStatus.BOUND);
+        assertBinding(added, ImageBindingStatus.BOUND);
+    }
+
+    @Test
+    void 카드뉴스_한_장이_PROCESSING이면_매거진과_다른_asset의_binding도_만들지_않는다() {
+        ImageAsset banner = asset(MediaPurpose.MAGAZINE_BANNER, 1L, true);
+        ImageAsset thumbnail = asset(MediaPurpose.MAGAZINE_THUMBNAIL, 1L, true);
+        ImageAsset ready = cardNewsAsset(1L, true);
+        ImageAsset processing = cardNewsAsset(1L, false);
+
+        assertThatThrownBy(() -> magazineService.create(new AdminMagazineCommand(
+                "저장되면 안 되는 제목", use(banner), use(thumbnail),
+                "https://www.instagram.com/p/media-test/",
+                null, List.of(use(ready), use(processing)), null, null)))
+                .isInstanceOfSatisfying(BusinessException.class, exception ->
+                        assertThat(exception.getErrorCode()).isEqualTo(MediaErrorCode.INVALID_STATE));
+
+        assertThat(magazineRepository.count()).isZero();
+        assertThat(jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM magazine_card_news", Long.class)).isZero();
+        assertBinding(banner, ImageBindingStatus.UNBOUND);
+        assertBinding(thumbnail, ImageBindingStatus.UNBOUND);
+        assertBinding(ready, ImageBindingStatus.UNBOUND);
+        assertBinding(processing, ImageBindingStatus.UNBOUND);
+    }
+
+    @Test
+    void 다른_매거진이_쓰는_카드뉴스_asset과_용도가_다른_asset은_연결하지_않는다() {
+        ImageAsset shared = cardNewsAsset(1L, true);
+        ImageAsset bannerPurpose = asset(MediaPurpose.MAGAZINE_BANNER, 1L, true);
+        magazineService.create(detailCommand(null, List.of(use(shared)), null));
+
+        assertThatThrownBy(() -> magazineService.create(detailCommand(
+                null, List.of(use(shared)), null)))
+                .isInstanceOfSatisfying(BusinessException.class, exception ->
+                        assertThat(exception.getErrorCode()).isEqualTo(MediaErrorCode.ALREADY_BOUND));
+        assertThatThrownBy(() -> magazineService.create(detailCommand(
+                null, List.of(use(bannerPurpose)), null)))
+                .isInstanceOfSatisfying(BusinessException.class, exception ->
+                        assertThat(exception.getErrorCode()).isEqualTo(MediaErrorCode.INVALID_STATE));
+
+        assertThat(magazineRepository.count()).isEqualTo(1L);
+        assertBinding(shared, ImageBindingStatus.BOUND);
+        assertBinding(bannerPurpose, ImageBindingStatus.UNBOUND);
+    }
+
+    @Test
+    void 수정에서도_다른_매거진이_쓰는_카드뉴스_asset은_DB_제약보다_먼저_media가_거절한다() {
+        ImageAsset shared = cardNewsAsset(1L, true);
+        ImageAsset own = cardNewsAsset(1L, true);
+        magazineService.create(detailCommand(null, List.of(use(shared)), null));
+        Long magazineId = magazineService.create(detailCommand(
+                null, List.of(use(own)), null)).magazineId();
+
+        assertThatThrownBy(() -> magazineService.update(
+                magazineId, cardNewsUpdate(List.of(use(own), use(shared)))))
+                .isInstanceOfSatisfying(BusinessException.class, exception ->
+                        assertThat(exception.getErrorCode()).isEqualTo(MediaErrorCode.ALREADY_BOUND));
+
+        assertThat(cardNewsRows(magazineId)).containsExactly(own.getPublicId() + "|null|1");
+        assertBinding(shared, ImageBindingStatus.BOUND);
+        assertBinding(own, ImageBindingStatus.BOUND);
+    }
+
+    @Test
+    void 카드뉴스_교체가_flush된_후_transaction이_실패하면_기존_카드뉴스와_binding을_복원한다() {
+        ImageAsset original = cardNewsAsset(1L, true);
+        ImageAsset replacement = cardNewsAsset(1L, true);
+        Long magazineId = magazineService.create(detailCommand(
+                null, List.of(use(original)), List.of("이자카야"))).magazineId();
+
+        assertThatThrownBy(() -> transactionTemplate.executeWithoutResult(status -> {
+            magazineService.update(magazineId, new AdminMagazineCommand(
+                    null, null, null, null,
+                    "바뀌면 안 되는 본문", List.of(use(replacement)), List.of("변경"), null));
+            assertBinding(original, ImageBindingStatus.RETIRED);
+            assertBinding(replacement, ImageBindingStatus.BOUND);
+            throw new IllegalStateException("commit before response failed");
+        })).isInstanceOf(IllegalStateException.class)
+                .hasMessage("commit before response failed");
+
+        assertThat(cardNewsRows(magazineId)).containsExactly(original.getPublicId() + "|null|1");
+        assertThat(jdbcTemplate.queryForList(
+                "SELECT hashtag FROM magazine_hashtag WHERE magazine_id = ?", String.class, magazineId))
+                .containsExactly("이자카야");
+        assertThat(magazineRepository.findById(magazineId).orElseThrow().getContent()).isNull();
+        assertBinding(original, ImageBindingStatus.BOUND);
+        assertBinding(replacement, ImageBindingStatus.UNBOUND);
+    }
+
+    @Test
+    void 빈_카드뉴스_목록은_행을_지우고_asset을_retire하며_생략하면_그대로_둔다() {
+        ImageAsset cardNews = cardNewsAsset(1L, true);
+        Long magazineId = magazineService.create(detailCommand(
+                null, List.of(use(cardNews)), null)).magazineId();
+
+        magazineService.update(magazineId, command("제목만 변경", null, null, null));
+        assertThat(cardNewsRows(magazineId)).containsExactly(cardNews.getPublicId() + "|null|1");
+        assertBinding(cardNews, ImageBindingStatus.BOUND);
+
+        MagazineInfo response = magazineService.update(magazineId, cardNewsUpdate(List.of()));
+
+        assertThat(response.cardNews()).isEmpty();
+        assertThat(cardNewsRows(magazineId)).isEmpty();
+        assertBinding(cardNews, ImageBindingStatus.RETIRED);
+    }
+
+    @Test
+    void 상세_조회는_카드뉴스가_한장이나_다섯장이나_같은_SQL_횟수로_파생본을_일괄_조회한다() {
+        Long single = magazineService.create(detailCommand(
+                null, List.of(use(cardNewsAsset(1L, true))), null)).magazineId();
+        Long many = magazineService.create(detailCommand(
+                null,
+                List.of(
+                        use(cardNewsAsset(1L, true)), use(cardNewsAsset(1L, true)),
+                        use(cardNewsAsset(1L, true)), use(cardNewsAsset(1L, true)),
+                        use(cardNewsAsset(1L, true))),
+                null)).magazineId();
+        Statistics statistics = entityManagerFactory.unwrap(SessionFactory.class).getStatistics();
+
+        statistics.clear();
+        MagazineDetailResponse singleResponse = magazineService.getDetail(single);
+        long singleCount = statistics.getPrepareStatementCount();
+        statistics.clear();
+        MagazineDetailResponse manyResponse = magazineService.getDetail(many);
+        long manyCount = statistics.getPrepareStatementCount();
+
+        assertThat(singleResponse.cardNewsImages()).hasSize(1);
+        assertThat(manyResponse.cardNewsImages()).hasSize(5);
+        assertThat(manyResponse.cardNewsImageUrls()).hasSize(5);
+        assertThat(manyResponse.cardNewsImages())
+                .allSatisfy(image -> assertThat(image.image().status())
+                        .isEqualTo(MediaImageStatus.READY));
+        assertThat(manyCount).isEqualTo(singleCount);
+    }
+
+    private AdminMagazineCommand command(
+            String title, ImageCommand bannerImage, ImageCommand thumbnailImage,
+            String instagramRedirectUrl
+    ) {
+        return new AdminMagazineCommand(
+                title, bannerImage, thumbnailImage, instagramRedirectUrl,
+                null, null, null, null);
+    }
+
+    // 배너·썸네일은 legacy key로 두고 상세 화면 데이터만 바꿔 가며 등록한다
+    private AdminMagazineCommand detailCommand(
+            String content, List<ImageCommand> cardNews, List<String> hashtags
+    ) {
+        return new AdminMagazineCommand(
+                "카드뉴스 매거진",
+                new ImageCommand("magazines/banner.jpg", null),
+                new ImageCommand("magazines/thumbnail.jpg", null),
+                "https://www.instagram.com/p/media-test/",
+                content, cardNews, hashtags, null);
+    }
+
+    private AdminMagazineCommand cardNewsUpdate(List<ImageCommand> cardNews) {
+        return new AdminMagazineCommand(null, null, null, null, null, cardNews, null, null);
+    }
+
+    private List<String> cardNewsRows(Long magazineId) {
+        return jdbcTemplate.query("""
+                SELECT image_asset_id, file_key, display_order
+                FROM magazine_card_news
+                WHERE magazine_id = ?
+                ORDER BY display_order
+                """,
+                (rows, index) -> rows.getString("image_asset_id") + "|"
+                        + rows.getString("file_key") + "|" + rows.getInt("display_order"),
+                magazineId);
+    }
+
+    private Long cardNewsRowId(ImageAsset asset) {
+        return jdbcTemplate.queryForObject(
+                "SELECT id FROM magazine_card_news WHERE image_asset_id = ?",
+                Long.class, asset.getPublicId().toString());
+    }
+
+    // 1080x1350 원본을 3:4 영역에 맞춘 v2 카드뉴스 파생본(확대 없음) — 기본 이미지는 864x1080
+    private ImageAsset cardNewsAsset(Long ownerId, boolean ready) {
+        UUID assetId = UUID.randomUUID();
+        String digest = mediaSpecRegistry.findDefinition(2).orElseThrow().digest();
+        ImageAsset asset = ImageAsset.createDirectUpload(
+                assetId, MediaPurpose.MAGAZINE_CARD_NEWS, MediaOwnerType.ADMIN, ownerId,
+                "media/originals/%s/original".formatted(assetId),
+                "image/png", 204_800L, LocalDateTime.now().plusMinutes(5));
+        UUID jobId = UUID.randomUUID();
+        asset.beginInitialProcessing(
+                "version-1", "\"etag-1\"", 2, digest, jobId, LocalDateTime.now());
+        if (ready) {
+            for (int[] size : new int[][]{{432, 540}, {864, 1080}, {1080, 1350}}) {
+                asset.addRendition(
+                        jobId, 2, digest, ImageRole.MAGAZINE_CARD_NEWS, ImageFormat.WEBP,
+                        size[0], size[1], 100L,
+                        "media/renditions/%s/v2/magazine_card_news/%d.webp".formatted(
+                                assetId, size[0]));
+            }
+            asset.completeCurrentProcessing(
+                    jobId, 2, digest, "image/png", 204_800L, 1080, 1350, SOURCE_CHECKSUM);
+        }
+        return imageAssetRepository.saveAndFlush(asset);
+    }
+
     private ImageAsset asset(MediaPurpose purpose, Long ownerId, boolean ready) {
         UUID assetId = UUID.randomUUID();
         ImageAsset asset = ImageAsset.createDirectUpload(
@@ -383,7 +654,7 @@ class MagazineMediaTransactionIntegrationTest {
     }
 
     private AdminMagazineCommand createCommand(ImageAsset banner, ImageAsset thumbnail) {
-        return new AdminMagazineCommand(
+        return command(
                 "이미지 매거진", use(banner), use(thumbnail), "https://www.instagram.com/p/media-test/");
     }
 
