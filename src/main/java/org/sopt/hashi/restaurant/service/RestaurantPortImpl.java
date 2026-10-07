@@ -10,6 +10,8 @@ import java.util.function.Function;
 import java.util.stream.Collectors;
 import org.sopt.hashi.media.ImageReference;
 import org.sopt.hashi.restaurant.AdminRestaurantCommand;
+import org.sopt.hashi.restaurant.AdminMapRegionCommand;
+import org.sopt.hashi.restaurant.AdminMapRegionInfo;
 import org.sopt.hashi.restaurant.AdminRestaurantInfo;
 import org.sopt.hashi.restaurant.RestaurantCardInfo;
 import org.sopt.hashi.restaurant.RestaurantDetailInfo;
@@ -38,15 +40,17 @@ class RestaurantPortImpl implements RestaurantPort {
     private final FileStorage fileStorage;
     private final RestaurantLocationService locationService;
     private final RestaurantMapService restaurantMapService;
+    private final MapRegionAdminService mapRegionAdminService;
 
     RestaurantPortImpl(RestaurantRepository restaurantRepository, RestaurantService restaurantService,
                        FileStorage fileStorage, RestaurantLocationService locationService,
-                       RestaurantMapService restaurantMapService) {
+                       RestaurantMapService restaurantMapService, MapRegionAdminService mapRegionAdminService) {
         this.restaurantRepository = restaurantRepository;
         this.restaurantService = restaurantService;
         this.fileStorage = fileStorage;
         this.locationService = locationService;
         this.restaurantMapService = restaurantMapService;
+        this.mapRegionAdminService = mapRegionAdminService;
     }
 
     @Override
@@ -179,6 +183,23 @@ class RestaurantPortImpl implements RestaurantPort {
     @Transactional(isolation = Isolation.READ_COMMITTED)
     public RestaurantLocationInfo retryLocationByAdmin(Long restaurantId, long expectedAddressRevision) {
         return locationService.retry(restaurantId, expectedAddressRevision);
+    }
+
+    @Override
+    public AdminMapRegionInfo.Page getMapRegionsByAdmin(int page, int size) {
+        return mapRegionAdminService.getRegions(page, size);
+    }
+
+    @Override
+    @Transactional(isolation = Isolation.READ_COMMITTED)
+    public AdminMapRegionInfo upsertMapRegionByAdmin(String code, AdminMapRegionCommand command) {
+        return mapRegionAdminService.upsert(code, command);
+    }
+
+    @Override
+    @Transactional(isolation = Isolation.READ_COMMITTED)
+    public Long assignMapRegionByAdmin(Long restaurantId, Long mapRegionId) {
+        return mapRegionAdminService.assign(restaurantId, mapRegionId);
     }
 
     private RestaurantInfo toInfo(Restaurant restaurant) {

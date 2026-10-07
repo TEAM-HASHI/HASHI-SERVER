@@ -30,7 +30,8 @@ public enum RestaurantErrorCode implements ErrorCode {
     // RESTAURANT-011~019는 진행 중 기능 브랜치에 이미 배정돼 있어 #230은 020부터 쓴다 — 번호 재사용 금지
     DUPLICATE_NAME(HttpStatus.CONFLICT, "RESTAURANT-020", "이미 등록된 식당명입니다."),
     DUPLICATE_ADDRESS(HttpStatus.CONFLICT, "RESTAURANT-021", "이미 등록된 주소입니다."),
-    MAP_RATE_LIMITED(HttpStatus.TOO_MANY_REQUESTS, "RESTAURANT-022", "지도 조회 요청이 많습니다. 잠시 후 다시 시도해주세요.");
+    MAP_RATE_LIMITED(HttpStatus.TOO_MANY_REQUESTS, "RESTAURANT-022", "지도 조회 요청이 많습니다. 잠시 후 다시 시도해주세요."),
+    MAP_REGION_NOT_FOUND(HttpStatus.NOT_FOUND, "RESTAURANT-023", "관광 지역을 찾을 수 없습니다.");
 
     private final HttpStatus status;
     private final String code;
