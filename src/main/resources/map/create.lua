@@ -32,8 +32,13 @@ local reservation = bytes * 2 + 1024
 if total + reservation > tonumber(ARGV[7]) or count >= tonumber(ARGV[8]) then return -1 end
 if redis.call('EXISTS', KEYS[1]) == 1 then return -2 end
 local expiry = math.min(absolute, now + idle)
+local ledgerTtl = redis.call('PTTL', KEYS[2])
 redis.call('HSET', KEYS[2], ARGV[9], expiry .. ':' .. reservation)
-redis.call('PEXPIRE', KEYS[2], tonumber(ARGV[10]) + 1000)
+-- A shorter lifetime on a rolling instance must not expire another instance's reservations.
+-- Preserve an existing persistent ledger; a missing ledger receives the new lifetime.
+if ledgerTtl ~= -1 then
+    redis.call('PEXPIRE', KEYS[2], math.max(ledgerTtl, tonumber(ARGV[10]) + 1000))
+end
 -- Reserve first. If SET fails, the reservation expires conservatively instead of leaving unaccounted data.
 redis.call('SET', KEYS[1], ARGV[3], 'PXAT', expiry)
 return expiry
