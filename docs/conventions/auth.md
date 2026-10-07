@@ -113,6 +113,8 @@ auth/
   - **`GET /api/v1/auth/me`**: 클라 진입 라우팅용 인증 상태 조회다. 리소스 접근이 아니며,
     응답은 토큰 컨텍스트(`subjectId`·`role`)만 담는다. ONBOARDING의 `subjectId`는 내부 식별자를
     숨기기 위해 `null`로 내린다(USER·ADMIN은 각각 userId·adminId).
+  - **`POST /api/v1/users/availability`**: 온보딩 폼의 닉네임·연락처·이메일 중복 확인이다. 내 정보 수정
+    화면(회원)도 같은 경로를 쓰며, 전달된 필드의 사용 가능 여부만 돌려준다(리소스 접근이 아니다).
   - **`/api/v1/uploads/**`**: 프로필 사진을 위한 기존 presigned URL 발급 경로다.
   - **`/api/v1/media/**`**: 신규 이미지 업로드·완료·상태 조회 경로다. filter가 actor 유형을
     확인하고, media Service가 purpose별 권한과 소유권을 검사한다. ONBOARDING의 신규 업로드
