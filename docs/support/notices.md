@@ -18,6 +18,7 @@ href는 내부 / 경로 또는 host가 있는 http(s)만 허용한다. 내부는
 목록/제목 날짜는 lastModifiedAt을 YYYY.MM.DD로 표현한다. 상세 복귀 스크롤·재시도·뷰어는 클라이언트 책임이다.
 
 관리자 상세 응답의 `createdAt`·`updatedAt`은 JPA Auditing으로 기록한다.
+이미지만 추가하거나 순서를 바꾼 경우도 수정 시각을 기록하며, 같은 내용을 다시 저장하면 유지한다.
 `publishedAt`은 최초 게시 시각, `lastModifiedAt`은 공개 화면에 표시할 게시 후 수정 시각이다. 초안 수정도 감사 시각에는 남는다.
 공개 Response와 관리자 Response를 구분하며 모듈 간에는 NoticeInfo로 전달한다.
 
