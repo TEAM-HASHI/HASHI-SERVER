@@ -110,6 +110,31 @@ class OnboardingServiceTest {
     }
 
     @Test
+    void 닉네임_이메일_연락처가_각각_중복이면_해당_필드_코드로_거절하고_저장하지_않는다() {
+        CompleteOnboardingRequest request = request(null, null);
+
+        when(userRepository.existsByNickname("하시")).thenReturn(true);
+        assertThatThrownBy(() -> onboardingService.completeOnboarding(request))
+                .isInstanceOf(BusinessException.class)
+                .hasFieldOrPropertyWithValue("errorCode", UserErrorCode.DUPLICATE_NICKNAME);
+
+        when(userRepository.existsByNickname("하시")).thenReturn(false);
+        when(userRepository.existsByEmail("hashi@example.com")).thenReturn(true);
+        assertThatThrownBy(() -> onboardingService.completeOnboarding(request))
+                .isInstanceOf(BusinessException.class)
+                .hasFieldOrPropertyWithValue("errorCode", UserErrorCode.DUPLICATE_EMAIL);
+
+        when(userRepository.existsByEmail("hashi@example.com")).thenReturn(false);
+        when(userRepository.existsByPhone("01012345678")).thenReturn(true);
+        assertThatThrownBy(() -> onboardingService.completeOnboarding(request))
+                .isInstanceOf(BusinessException.class)
+                .hasFieldOrPropertyWithValue("errorCode", UserErrorCode.DUPLICATE_PHONE);
+
+        verify(userRepository, never()).save(any(User.class));
+        verifyNoInteractions(authAccountPort, mediaPort);
+    }
+
+    @Test
     void 탈퇴_자리값_이메일_도메인은_중복으로_가입을_거절한다() {
         CompleteOnboardingRequest request = new CompleteOnboardingRequest(
                 "하시", "HASHI", LocalDate.of(1998, 1, 1), "01012345678", "withdrawn+7@hashi.invalid", null, null);
