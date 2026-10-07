@@ -21,6 +21,7 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Component;
+import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
 /**
@@ -49,8 +50,9 @@ class UserPortImpl implements UserPort {
     }
 
     @Override
-    public boolean existsById(Long userId) {
-        return userRepository.existsByIdAndDeletedFalse(userId);
+    @Transactional(propagation = Propagation.MANDATORY)
+    public boolean lockActiveUser(Long userId) {
+        return userRepository.findByIdForUpdate(userId).isPresent();
     }
 
     @Override

@@ -41,8 +41,6 @@ class UserRepositoryTest {
         assertThat(userRepository.findByIdAndDeletedFalse(withdrawn.getId())).isEmpty();
         assertThat(userRepository.findByIdForUpdate(active.getId())).isPresent();
         assertThat(userRepository.findByIdForUpdate(withdrawn.getId())).isEmpty();
-        assertThat(userRepository.existsByIdAndDeletedFalse(active.getId())).isTrue();
-        assertThat(userRepository.existsByIdAndDeletedFalse(withdrawn.getId())).isFalse();
         assertThat(userRepository.findByDeletedFalse(PageRequest.of(0, 10)).getContent())
                 .extracting(User::getId)
                 .containsExactly(active.getId());

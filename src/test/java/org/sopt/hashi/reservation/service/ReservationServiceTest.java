@@ -181,7 +181,7 @@ class ReservationServiceTest {
     void 탈퇴한_회원은_예약을_생성할_수_없고_식당_조회나_저장에_닿지_않는다() {
         ReservationService service = createService();
         given(currentUserProvider.currentUserId()).willReturn(7L);
-        given(userPort.existsById(7L)).willReturn(false);
+        given(userPort.lockActiveUser(7L)).willReturn(false);
 
         assertThatThrownBy(() -> service.create(new CreateReservationRequest(
                 "예약자", 10L, LocalDateTime.of(2030, 8, 1, 19, 0), 2, 0, 0, null, 0L, 4_000L)))

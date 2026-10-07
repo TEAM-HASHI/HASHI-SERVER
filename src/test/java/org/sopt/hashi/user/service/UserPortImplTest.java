@@ -95,6 +95,16 @@ class UserPortImplTest {
         verifyNoInteractions(fileStorage);
     }
 
+    @Test
+    void 활성_회원_잠금은_잠금_조회_결과로_존재_여부를_돌려준다() {
+        User active = createUser(1L, "하루", null);
+        given(userRepository.findByIdForUpdate(1L)).willReturn(Optional.of(active));
+        given(userRepository.findByIdForUpdate(2L)).willReturn(Optional.empty());
+
+        assertThat(userPort.lockActiveUser(1L)).isTrue();
+        assertThat(userPort.lockActiveUser(2L)).isFalse();
+    }
+
     private User createUser(Long id, String nickname, String profileImageKey) {
         User user = User.onboard(
                 nickname,

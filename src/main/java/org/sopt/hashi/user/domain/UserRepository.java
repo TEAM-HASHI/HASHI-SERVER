@@ -18,12 +18,13 @@ public interface UserRepository extends JpaRepository<User, Long> {
     /** 활성 회원 단건 — 탈퇴 회원은 제외한다. */
     Optional<User> findByIdAndDeletedFalse(Long id);
 
-    /** 탈퇴 전 회원 행을 잠근다 — 조건 검사와 삭제 사이에 다른 탈퇴·변경이 끼어들지 못하게 한다. 탈퇴 회원은 제외한다. */
+    /**
+     * 활성 회원 행을 잠근다 — 탈퇴는 조건 검사 전에, 회원 소유 데이터를 새로 만드는 쓰기는 저장 전에 잡아 둘의 순서를 강제한다.
+     * 탈퇴 회원은 제외한다.
+     */
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("select u from User u where u.id = :userId and u.deleted = false")
     Optional<User> findByIdForUpdate(@Param("userId") Long userId);
-
-    boolean existsByIdAndDeletedFalse(Long id);
 
     /** [어드민] 활성 회원 목록. */
     Page<User> findByDeletedFalse(Pageable pageable);
