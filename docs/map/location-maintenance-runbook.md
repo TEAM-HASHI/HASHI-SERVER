@@ -92,14 +92,15 @@ Google worker의 기존 2분 lease·복구·최대 attempt는 그대로 사용�
 
 `등록 가능 수 = min(max-registrations, floor(max-calls / 8))`이다.
 #224는 앱 설정의 max-attempts를 하드 최대 8로 제한한다. 자동 재시도는 같은 job 행의 attempt를
-이어가므로 run에 연결한 job N개의 예약 시도 합은 최대 8N이다. 기본 설정 4회를 쓰더라도
-재시작 때 8회로 바뀔 수 있어 8회를 기준으로 보수적으로 등록한다. 0~7회 예산은 0건 등록이다.
+이어가므로 run에 연결한 job N개의 예약 시도 합은 최대 8N이다. 기본 설정도 최초 요청을 포함해 8회다. 낮춰서 실행하더라도 재시작 후 8회가 될 수 있어
+항상 8회를 기준으로 보수적으로 등록한다. 0~7회 예산은 0건 등록이다.
 예: 80회/10건이면 최대 10건, 15회/10건이면 최대 1건이며 남은 7회는 쓰지 않는다.
 
 전역 DB daily_limit·max_concurrent·blocked_until도 모든 claim에 별도로 적용된다.
 예약 후 실제 전송이 없거나 HTTP 완료 전에 서버가 죽어도 예산을 환급하지 않는다.
 `reservedAttempts`는 예약된 시도 수이며 실제 과금 호출 수라고 단정하지 않는다.
-관리자가 따로 재처리한 새 job은 기존 run에 연결하지 않는다. 그 호출은 해당 run 상한 외이며
+관리자가 따로 재처리하거나 정기 갱신으로 만든 새 job은 기존 run에 연결하지 않는다.
+그 호출은 해당 run 상한 외이며
 전역 예산에 포함된다. 운영자는 동시에 실행하는 다른 run·관리자 변경의 총량도 확인해야 한다.
 
 BACKFILL은 위치 행이 없는 활성 식당만 등록한다. REFRESH는 갱신 범위의 GOOGLE_GEOCODING/READY만
@@ -124,7 +125,7 @@ Invoke-LocationMaintenance --hashi.map.maintenance.command=RESUME --hashi.map.ma
 | LIMIT_REACHED | 등록/호출 한도 때문에 범위를 다 검사하지 못함. 재개로 한도를 늘리지 않음 |
 | enqueued | 이 run이 commit한 job 수 |
 | jobStates | 연결한 job별 PENDING/LEASED/RETRY_WAIT/SUCCEEDED/FAILED/REVIEW_REQUIRED/SUPERSEDED 수 |
-| currentlyUsableLocations | 현재 같은 revision/request이고 삭제되지 않았으며 아직 유효한 READY 수 |
+| currentlyUsableLocations | 현재 같은 revision/request이고 삭제되지 않았으며 아직 유효한 좌표 수 |
 
 SUCCEEDED는 이력상 성공이다. 이후 주소가 바뀌거나 만료되면 currentlyUsableLocations에서는 제외한다.
 연결한 job이 수동 DB 변경으로 없어졌으면 MISSING_JOB으로 드러나며 성공으로 세지 않는다.
@@ -136,74 +137,88 @@ STOP은 run 잠금을 먼저 잡는다. 앞서 시작한 한 건의 commit을 �
 
 ## 6. 갱신과 실제 DB 정리
 
-만료 전 갱신은 START의 mode를 REFRESH로 지정한다. 기본 refresh-ahead=1d는 합성 기본값이며
-운영에서 허용한 retention보다 짧고 purge-ahead보다 길게 정한다. run 기준 시각 + refresh-ahead까지
-만료하는 READY를 선택한다. 저장된 실제 수명보다 refresh-ahead가 짧지 않으면 갱신 등록을 생략한다.
-refresh-ahead는 DB의 DATETIME(6)에 맞춰 마이크로초까지만 허용한다. 그보다 작은 단위는 설정 검증에서 거부한다.
-run 시작 후 얻은 새 결과도 제외하여 겹치는 run이 방금 성공한 결과를 다시 등록하지 않는다.
-`Restaurant.refreshLocation()`이 먼저 PENDING으로 전환하면서
-이전 좌표·source·obtainedAt·validUntil을 비우고, 기존 enqueue 흐름으로 연결한다.
-갱신 실패로 이전 validUntil을 늘리거나 이전 좌표를 되살리지 않는다.
+### 이전과 달라진 점
 
-### 출시 전 REFRESH 운영 계약
+| 이전 | 현재 |
+|---|---|
+| 갱신 등록 즉시 좌표 제거 | 같은 주소의 좌표는 원래 validUntil까지 사용 |
+| 갱신은 외부 CLI 주기 실행 필요 | 기존 retention 스케줄러가 갱신 등록과 만료 정리를 함께 수행 |
+| 1일 전 갱신 대상으로 검사 | 기본 3일 전부터 검사 |
+| READY만 정리 | 갱신·재시도·실패 중 남은 Google 좌표도 정리 |
+| 정리하면서 requestId 변경 | 진행 중 작업의 requestId·attempt·다음 재시도 시각 보존 |
+| 기본 1시간 전 좌표 제거 | 기본 만료 시각 이후 정리; 조회는 정확히 만료 시각부터 제외 |
 
-책임 역할은 **HASHI 백엔드 운영 담당**이다. 실제 담당자와 부재 시 대체 담당자는 아직 지정하지 않았다.
-기본 `refresh-ahead=1d`, `purge-ahead=1h`에서는 **6시간마다** 승인된 외부 실행기가 다음 절차를
-수행하도록 출시 전에 구성한다. 이 문서는 운영 계약이며 자동 실행 설정이나 배포 완료의 증거가 아니다.
-서버에는 REFRESH 자동 스케줄러가 없고, 아래 retention 스케줄러는 정리만 수행한다.
+정기 실행은 `hashi.map.maintenance.retention-enabled=true`로 켠다. 기본 false다.
+전용 `location-retention` executor 하나가 작은 묶음으로 갱신 작업을 등록한 뒤 정리한다.
+Google 호출은 이 스케줄러가 하지 않고 기존 worker가 같은 job을 최대 8회 처리한다.
+갱신 등록 단계가 실패해도 정리는 별도로 시도한다. 이 변경에서 실제 서버 설정은 켜지 않았다.
 
-1. 새 주기마다 REFRESH `DRY_RUN`으로 대상·최신 upper-id·예상 호출량을 확인한다.
-   담당자가 승인한 한도 안인지 run별 예산과 전역 일일 예산, 다른 run·관리자 작업의 사용량을 함께 검토한다.
-2. 검토한 범위로 새 run-id의 `START`를 실행하고, ACTIVE이면 같은 run-id의 `RESUME`으로 이어간다.
-   이미 SCANNED인 run을 재사용해도 새 주기의 범위를 다시 검사하지 않는다.
-3. STATUS에서 SCANNED/LIMIT_REACHED 등 등록 결과와 실제 job 완료를 구분해 확인한다.
-   PENDING/LEASED/RETRY_WAIT 큐 잔량·대기 시간, FAILED/REVIEW_REQUIRED, 호출 예산 소진과
-   현재 유효한 위치 수를 감시한다. 프로세스 실패·실행 누락·등록 한도 도달·잔량 적체는 담당자와
-   대체 담당자에게 알리고 purge 여유시간 전에 복구 또는 승인된 후속 처리를 결정한다.
+기본값은 `refresh-ahead=3d`, `purge-ahead=0s`, `poll-delay=1m`, `batch-size=50`, `max-batches=1`이다.
+갱신 대상은 미삭제 식당의 Google/READY 좌표 중 유효기한이 3일 안에 오는 항목이다.
+짧은 잠금 안에서 현재 주소·요청·유효기한과 활성 작업 유무를 다시 확인한다.
+PENDING/RETRY_WAIT/FAILED/REVIEW_REQUIRED는 새 작업을 자동 등록하지 않는다.
+스케줄러가 반복 실행되거나 재시작해도 재시도 횟수를 초기화하지 않는다.
+장애 후 이미 만료한 READY를 발견해도 최초 갱신 작업을 등록하고, 곧바로 이전 좌표를 정리한다.
+새 결과가 오기 전에는 만료한 좌표를 다시 노출하지 않는다.
 
-6시간 주기만으로 갱신을 보장하지 않는다. **주기 + 실행 지연 + 범위 검사 시간 + 큐 대기 +
-provider 재시도/복구 여유**가 `refresh-ahead - purge-ahead`(기본 23시간) 안에 들어오도록
-등록 처리량과 호출 예산을 검증해야 한다. 이미 만료했어도 READY로 남은 행은 다른 조건이 맞으면
-REFRESH가 선택할 수 있지만, retention이 먼저 REVIEW_REQUIRED로 정리하면 REFRESH 대상에서 빠진다.
-이 경우 상태와 실패 원인을 검토한 별도 재처리가 필요하다.
+`refresh-ahead`는 저장된 좌표의 전체 수명보다 짧아야 한다. 같거나 더 크면 해당 좌표의 자동 갱신을
+건너뛰어 성공 직후 반복 호출하는 것을 막는다. worker의 설정 수명도 3일 이하면
+`refresh_window_invalid` 알림을 보낸다. 짧은 수명의 개발 테스트에서는 예를 들어
+`retention=10m`, `refresh-ahead=3m`, `poll-delay=10s`처럼 함께 줄인다.
+실제 운영은 계약상 허용 상한보다 짧은 retention과 충분한 정리·복구 여유를 설정해야 한다.
+설정 검증은 `0 <= purge-ahead < refresh-ahead <= 30d`를 확인한다.
 
-**담당자·대체 담당자, 실행 주기와 자동 실행 구성, 완료/실패 알림·큐 잔량 기준, 예산과 복구 절차를
-승인하고 검증하기 전에는 출시 NO-GO다.** 수동 6시간 실행은 제한된 개발 검증에만 사용할 수 있으며
-운영 자동 실행 준비를 대신하지 않는다. 실제 외부 실행기 설정·Google 호출은 이번 변경에 포함하지 않는다.
+성공하면 새 좌표와 취득·만료 시각을 함께 교체한다. 실패는 이전 validUntil을 연장하지 않는다.
+주소가 바뀌면 선행 #233의 주소 revision 처리로 이전 좌표를 즉시 지운다.
+유효기한이 되면 공개 조회는 즉시 제외하고, DB 값은 다음 정리 주기에 제거한다.
+기본 정상 상태에서도 **DB 물리 제거는 최대 한 polling 주기와 처리 시간만큼 늦을 수 있다.**
+조회 제외와 DB 삭제 완료는 다르다. 서버/DB 장애나 backlog가 있으면 더 늦어질 수 있다.
+따라서 provider의 최종 허용 보관 상한을 validUntil과 똑같이 잡고 이 지연을 무시하면 안 된다.
+계약상 상한 전에 복구·정리할 안전 여유를 retention에 반영하고, 알림과 정리 처리량을 검증한 뒤 켠다.
+
+PURGE는 작업 상태와 관계없이 Google 좌표·source·obtainedAt·validUntil을 NULL로 만든다.
+READY였으면 REVIEW_REQUIRED로 전환하고, 진행 중이거나 실패한 작업은 상태와 requestId를 유지한다.
+예를 들어 3번째 재시도 대기 중 만료되더라도 다음 호출은 같은 작업의 4번째 시도다.
+삭제된 식당도 정리하지만 식당 원본과 자식 데이터는 보존한다. ADMIN 좌표에는 적용하지 않는다.
+revision/request/obtainedAt/validUntil을 다시 비교하므로 오래된 정리 결과가 새 좌표를 지우지 않는다.
+
+수동 한정 실행은 기존 CLI를 그대로 사용한다. REFRESH `START`도 좌표를 유지하고,
+`PURGE`는 아래처럼 실행한다. 실제 실행 전에 DRY_RUN의 범위와 호출 예산을 확인한다.
 
 ```powershell
-Invoke-LocationMaintenance --hashi.map.maintenance.command=START --hashi.map.maintenance.execute=true `
-    --hashi.map.maintenance.mode=REFRESH "--hashi.map.maintenance.run-id=$([guid]::NewGuid())" `
-    --hashi.map.maintenance.upper-id=200 --hashi.map.maintenance.refresh-ahead=1d `
-    --hashi.map.maintenance.max-registrations=10 --hashi.map.maintenance.max-calls=80
-
 Invoke-LocationMaintenance --hashi.map.maintenance.command=PURGE --hashi.map.maintenance.execute=true `
-    --hashi.map.maintenance.purge-ahead=1h --hashi.map.maintenance.batch-size=50 `
+    --hashi.map.maintenance.purge-ahead=0s --hashi.map.maintenance.batch-size=50 `
     --hashi.map.maintenance.max-batches=2
 ```
 
-PURGE는 ID 범위 대신 Google/READY의 만료 시각 오름차순으로 최대 batch-size × max-batches 건을 다룬다.
-Google 호출·worker·전역 호출 예산을 켤 필요가 없다. 실제 DB의 좌표·source·obtainedAt·validUntil을
-모두 NULL로 만들고 REVIEW_REQUIRED로 둔다. 식당 원본과 자식 데이터는 보존한다.
-삭제된 식당도 포함한다. ADMIN 좌표는 Google 보존 정책으로 지우지 않는다.
-조회 때 수집한 revision/request/obtainedAt/validUntil을 부모 잠금 아래 다시 비교하므로
-오래된 정리 작업이 동시 주소 변경이나 새로운 위치 결과를 지우지 않는다.
+### Grafana 알림
 
-일반 서버의 정기 정리는 `hashi.map.maintenance.retention-enabled=true`로 별도 승인 후 활성화한다.
-상시 정리 Scheduler/Service/Transactions와 전용 Reader·설정은 `restaurant.internal.map`에 둔다.
-임시 backfill CLI의 `restaurant.migration`을 제거해도 정리 기능이 해당 패키지에 의존하지 않는다.
-기본 false이며 Google 설정과 독립적이다. 전용 `location-retention` executor에서 실행하므로
-media 스케줄러나 Google HTTP 대기에 막히지 않는다. 다른 전역 scheduler 설정은 변경하지 않는다.
-기본 poll-delay=1m, purge-ahead=1h, refresh-ahead=1d, batch-size=50, max-batches=1이다.
-설정은 `2 × poll-delay <= purge-ahead < refresh-ahead <= 30d`를 검사한다.
-이 값은 새 Google 계약을 뜻하지 않는다. 실제 계약보다 짧게 정한 validUntil을 연장하지 않는다.
+기존 Micrometer/Prometheus를 사용한다. 추가 저장소나 dependency는 없다.
+스케줄러가 DB에서 집계한 `hashi_map_maintenance_issues{reason="..."}`와 마지막 집계 시각을 노출한다.
+식당 ID·job ID·주소·키는 metric label과 알림에 넣지 않는다.
+작업 집계는 현재 주소 revision/requestId만 보므로 재처리 후에도 과거 실패가 계속 알림으로 남지 않는다.
 
-기한이 지난 뒤 언젠가 삭제하는 정책이 아니다. 갱신을 먼저 준비하고, 갱신이 실행되지 않거나 실패해도
-기한 전 purge 여유시간에서 원본 DB 값을 제거한다. 정리 결과의 dueRemaining/overdueRemaining이 남으면
-경고를 남긴다. 서버/DB/스케줄러가 여유시간보다 오래 멈추거나 backlog가 처리량을 넘으면
-이 앱만으로 보존 기한을 보장할 수 없다. **그 상태는 보존 gate 실패**이며 기한 연장이 아니다.
-운영에서 스케줄러 heartbeat·실패·backlog를 감시하고 여유시간 안에 별도 PURGE를 실행할 담당자와
-복구 시간을 검증해야 한다. 각 쓰기 transaction은 10초 제한이 있지만 전체 장애 시간을 제한하지는 않는다.
+| reason | 조건 / 알림 |
+|---|---|
+| access_denied, configuration_error | 해당 실패가 처음 집계되는 평가부터 우선 대응 |
+| refresh_window_invalid | worker 수명보다 갱신 여유가 같거나 긴 설정이면 우선 대응 |
+| retrying | 3회 이상 실패한 미해결 작업이 있는 상태가 15분 지속되면 경고 |
+| attempts_exhausted | 현재 작업의 자동 시도 소진이면 우선 대응 |
+| expiry_soon | Google 좌표가 24시간 이내 만료하거나 이미 만료했으면 우선 대응 |
+| stalled | 호출 가능한 상태인데 이미 실행 시각이 지난 작업이 15분 이상 진행되지 않으면 경고 |
+| observation_stale | 집계 시각이 3분 넘게 갱신되지 않으면 스케줄러·DB 점검 |
+
+retrying의 15분은 Grafana `for: 15m`으로 판정한다. 전체 장애 상태를 묶는 알림이며 개별 식당의
+실패 시작 시각을 별도 저장하지 않는다. 정상적인 미래 재시도 시각·전역 quota cooldown·꺼진 worker/
+예산은 stalled에서 제외한다. 쿼리 실패 시 이전 값을 0으로 덮지 않으므로 관측 중단을 정상으로 숨기지 않는다.
+
+[Grafana rule 예제](monitoring/grafana-alerts.example.json)는 자동 마운트하지 않으며 **전부 일시정지 상태**다.
+운영자가 환경 label과 Prometheus UID를 확인하고 기존 Grafana에 불러온 뒤 테스트하고 활성화한다.
+기존 Discord contact point와 notification policy를 덮어쓰는 파일은 제공하지 않는다.
+현재 정책 아래 `service=hashi-map` 하위 경로를 추가하고 기존 Discord 수신처를 선택한다.
+`environment, reason`으로 묶고 초기 `group_wait=30s`, `group_interval=5m`, `repeat_interval=4h`를 사용한다.
+100개 식당이 같은 원인으로 실패해도 원인별 집계 메시지를 보낸다. 실제 전송 확인은 별도 개발 환경 적용 단계다.
+파일 형식은 [Grafana 공식 provisioning 문서](https://grafana.com/docs/grafana/latest/alerting/set-up/provision-alerting-resources/file-provisioning/)를 따른다.
 
 ## 7. 잠금·시각·운영 gate
 

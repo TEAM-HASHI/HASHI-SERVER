@@ -25,8 +25,8 @@ class LocationRetentionConfigurationTest {
                     assertThat(context).hasNotFailed();
                     assertThat(context).doesNotHaveBean(LocationRetentionScheduler.class);
                     assertThat(context.getBean(LocationRetentionProperties.class))
-                            .isEqualTo(new LocationRetentionProperties(50, 1, Duration.ofDays(1),
-                                    Duration.ofHours(1), false, Duration.ofMinutes(1)));
+                            .isEqualTo(new LocationRetentionProperties(50, 1, Duration.ofDays(3),
+                                    Duration.ZERO, false, Duration.ofMinutes(1)));
                 });
     }
 
@@ -46,7 +46,7 @@ class LocationRetentionConfigurationTest {
 
     @ParameterizedTest
     @ValueSource(strings = {"batch-size=0", "batch-size=101", "max-batches=0", "max-batches=101",
-            "poll-delay=999ms", "poll-delay=61m", "purge-ahead=119s", "refresh-ahead=1h",
+            "poll-delay=999ms", "poll-delay=61m", "purge-ahead=-1s", "refresh-ahead=0s",
             "refresh-ahead=31d", "refresh-ahead=PT3600.000000001S"})
     void 영구정리설정도_기존한도와_기한전여유시간을_검증한다(String property) {
         new ApplicationContextRunner().withUserConfiguration(LocationRetentionConfiguration.class)
