@@ -35,7 +35,7 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 @Testcontainers
 @DataJpaTest
 @AutoConfigureTestDatabase(replace = AutoConfigureTestDatabase.Replace.NONE)
-@Import({NoticeService.class, NoticeContentCodec.class, ObjectMapper.class, TimeConfig.class, org.sopt.hashi.config.JpaAuditingConfig.class})
+@Import({NoticeService.class, NoticeContentCodec.class, ObjectMapper.class, TimeConfig.class, org.sopt.hashi.config.JpaAuditingConfig.class, NoticeMySqlTest.QueryCapture.class})
 @TestPropertySource(properties = "spring.jpa.hibernate.ddl-auto=validate")
 @Transactional(propagation = Propagation.NOT_SUPPORTED)
 @DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_CLASS)
@@ -48,6 +48,19 @@ class NoticeMySqlTest {
     @Autowired NoticeRepository repository;
     @Autowired org.springframework.jdbc.core.JdbcTemplate jdbc;
     @MockitoBean MediaPort mediaPort;
+    private static final java.util.List<String> SQL = new java.util.concurrent.CopyOnWriteArrayList<>();
+
+    @org.springframework.boot.test.context.TestConfiguration(proxyBeanMethods = false)
+    static class QueryCapture {
+        @org.springframework.context.annotation.Bean
+        org.springframework.boot.autoconfigure.orm.jpa.HibernatePropertiesCustomizer noticeStatementInspector() {
+            return properties -> properties.put("hibernate.session_factory.statement_inspector",
+                    (org.hibernate.resource.jdbc.spi.StatementInspector) statement -> {
+                        SQL.add(statement);
+                        return statement;
+                    });
+        }
+    }
 
     @BeforeEach
     void 정리() {
@@ -61,6 +74,39 @@ class NoticeMySqlTest {
     }
 
     @Test
+    void 큰_본문도_목록에서는_읽지_않고_상세에서만_반환한다() {
+        String href = "/" + "a".repeat(1999);
+        var span = new NoticeBlock.Span("가", false, href);
+        var block = new NoticeBlock(NoticeBlock.Type.PARAGRAPH,
+                List.of(java.util.Collections.nCopies(1000, span)));
+        Long id = service.create(new NoticeCommand("긴 본문", java.util.Collections.nCopies(8, block), List.of()))
+                .noticeId();
+        service.publish(id);
+        Long bodyBytes = jdbc.queryForObject("SELECT OCTET_LENGTH(body_json) FROM support_notice WHERE id = ?",
+                Long.class, id);
+        assertThat(bodyBytes).isGreaterThan(15_000_000L).isLessThanOrEqualTo(16_777_215L);
+        SQL.clear();
+        reset(mediaPort);
+
+        assertThat(service.list(null).notices()).extracting(n -> n.noticeId()).containsExactly(id);
+        var admin = service.adminList(0, 100);
+        assertThat(admin.getContent()).extracting(org.sopt.hashi.support.NoticeSummaryInfo::noticeId)
+                .containsExactly(id);
+        assertThat(admin.getTotalElements()).isEqualTo(1);
+        assertThat(SQL).isNotEmpty().allSatisfy(statement ->
+                assertThat(statement.toLowerCase(java.util.Locale.ROOT))
+                        .doesNotContain("body_json", "support_notice_image"));
+        verifyNoInteractions(mediaPort);
+
+        NoticeInfo detail = service.detail(id);
+        assertThat(detail.body().size()).isEqualTo(8);
+        assertThat(detail.body().stream().flatMap(b -> b.items().stream()).mapToLong(List::size).sum())
+                .isEqualTo(8000);
+        assertThat(detail.body().stream().flatMap(b -> b.items().stream()).flatMap(List::stream)
+                .allMatch(s -> s.text().equals("가") && s.href().equals(href))).isTrue();
+    }
+
+    @Test
     void 관리자_목록은_삭제를_제외하고_페이지와_전체_건수를_반환한다() {
         List<Long> ids = java.util.stream.IntStream.range(0, 23)
                 .mapToObj(i -> service.create(command("공지 " + i, List.of())).noticeId()).toList();
@@ -71,7 +117,7 @@ class NoticeMySqlTest {
         assertThat(first.getTotalPages()).isEqualTo(2);
         assertThat(first.getContent()).hasSize(20);
         assertThat(first.getContent().getFirst().noticeId()).isEqualTo(ids.getLast());
-        assertThat(last.getContent()).extracting(NoticeInfo::noticeId).containsExactly(ids.get(2), ids.get(1));
+        assertThat(last.getContent()).extracting(org.sopt.hashi.support.NoticeSummaryInfo::noticeId).containsExactly(ids.get(2), ids.get(1));
         assertThat(service.adminList(2, 20).getContent()).isEmpty();
         assertThat(service.adminList(-1, 0).getSize()).isEqualTo(20);
         assertThat(service.adminList(0, 1000).getSize()).isEqualTo(100);

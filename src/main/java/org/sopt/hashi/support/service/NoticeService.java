@@ -15,6 +15,7 @@ import org.sopt.hashi.media.MediaPort;
 import org.sopt.hashi.shared.error.BusinessException;
 import org.sopt.hashi.support.NoticeCommand;
 import org.sopt.hashi.support.NoticeInfo;
+import org.sopt.hashi.support.NoticeSummaryInfo;
 import org.sopt.hashi.support.code.SupportErrorCode;
 import org.sopt.hashi.support.domain.Notice;
 import org.sopt.hashi.support.domain.NoticeCursor;
@@ -22,7 +23,6 @@ import org.sopt.hashi.support.domain.NoticeRepository;
 import org.sopt.hashi.support.dto.NoticeListResponse;
 import org.springframework.data.domain.Limit;
 import org.springframework.data.domain.Page;
-import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -44,12 +44,12 @@ public class NoticeService {
 
     public NoticeListResponse list(String cursorValue) {
         NoticeCursor cursor = NoticeCursor.parse(cursorValue);
-        List<Notice> found = repository.findPublished(cursor.publishedAt(), cursor.id(), Limit.of(11));
+        List<NoticeSummaryInfo> found = repository.findPublished(cursor.publishedAt(), cursor.id(), Limit.of(11));
         boolean hasNext = found.size() > 10;
-        List<Notice> page = found.subList(0, Math.min(10, found.size()));
-        String next = hasNext ? new NoticeCursor(page.getLast().getPublishedAt(), page.getLast().getId()).encode() : null;
+        List<NoticeSummaryInfo> page = found.subList(0, Math.min(10, found.size()));
+        String next = hasNext ? new NoticeCursor(page.getLast().publishedAt(), page.getLast().noticeId()).encode() : null;
         return new NoticeListResponse(page.stream()
-                .map(n -> new NoticeListResponse.Item(n.getId(), n.getTitle(), n.lastModifiedAt())).toList(),
+                .map(n -> new NoticeListResponse.Item(n.noticeId(), n.title(), n.lastModifiedAt())).toList(),
                 next, hasNext);
     }
 
@@ -63,10 +63,9 @@ public class NoticeService {
         return info(repository.findByIdAndDeletedFalse(id).orElseThrow(this::notFound));
     }
 
-    public Page<NoticeInfo> adminList(int page, int size) {
+    public Page<NoticeSummaryInfo> adminList(int page, int size) {
         PageRequest pageable = PageRequest.of(Math.max(page, 0), size < 1 ? 20 : Math.min(size, 100));
-        Page<Notice> notices = repository.findAdminPage(pageable);
-        return new PageImpl<>(infos(notices.getContent()), pageable, notices.getTotalElements());
+        return repository.findAdminPage(pageable);
     }
 
     @Transactional
