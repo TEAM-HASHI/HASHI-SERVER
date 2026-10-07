@@ -37,7 +37,7 @@ class MagazineMediaBackfillAttachmentServiceTest {
     @ParameterizedTest
     @EnumSource(MagazineMediaBackfillTarget.class)
     void READY_자산은_슬롯별로_연결하고_claim과_cursor를_함께_기록한다(MagazineMediaBackfillTarget target) {
-        Magazine magazine = Magazine.create("매거진", "legacy.jpg", "legacy.jpg", "https://example.test/");
+        Magazine magazine = Magazine.create("매거진", "legacy.jpg", null, "legacy.jpg", null, "https://example.test/", null);
         when(repository.findByIdForUpdate(1L)).thenReturn(Optional.of(magazine));
         MagazineMediaBackfillCandidate candidate = candidate(target);
         MediaBackfillAssetInfo asset = asset(target.mediaTarget().purpose(), State.READY);
@@ -60,11 +60,11 @@ class MagazineMediaBackfillAttachmentServiceTest {
     void 삭제되거나_key가_바뀐_슬롯은_claim하지_않고_건너뛴다(MagazineMediaBackfillTarget target) {
         Lease lease = lease(target);
         MediaBackfillAssetInfo asset = asset(target.mediaTarget().purpose(), State.READY);
-        Magazine changed = Magazine.create("매거진", "new.jpg", "new.jpg", "https://example.test/");
+        Magazine changed = Magazine.create("매거진", "new.jpg", null, "new.jpg", null, "https://example.test/", null);
         when(repository.findByIdForUpdate(1L)).thenReturn(Optional.of(changed));
         assertThat(service.attachAndRecord(candidate(target), asset, lease, LEASE_DURATION))
                 .isEqualTo(MagazineMediaBackfillOutcome.SKIPPED);
-        Magazine deleted = Magazine.create("매거진", "legacy.jpg", "legacy.jpg", "https://example.test/");
+        Magazine deleted = Magazine.create("매거진", "legacy.jpg", null, "legacy.jpg", null, "https://example.test/", null);
         ReflectionTestUtils.setField(deleted, "deleted", true);
         when(repository.findByIdForUpdate(1L)).thenReturn(Optional.of(deleted));
         assertThat(service.attachAndRecord(candidate(target), asset, lease, LEASE_DURATION))

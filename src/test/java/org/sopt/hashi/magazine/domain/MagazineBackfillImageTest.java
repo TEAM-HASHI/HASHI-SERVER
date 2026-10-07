@@ -54,11 +54,11 @@ class MagazineBackfillImageTest {
         ReflectionTestUtils.setField(deleted, "deleted", true);
         assertThat(deleted.attachBackfilledBanner("banner.jpg", UUID.randomUUID())).isFalse();
         assertThat(deleted.attachBackfilledThumbnail("thumbnail.jpg", UUID.randomUUID())).isFalse();
-        Magazine blank = Magazine.create("빈 key", " ", " ", "https://example.test/");
+        Magazine blank = Magazine.create("빈 key", " ", null, " ", null, "https://example.test/", null);
         assertThat(blank.attachBackfilledBanner(" ", UUID.randomUUID())).isFalse();
         assertThat(blank.attachBackfilledThumbnail(" ", UUID.randomUUID())).isFalse();
         Magazine noLegacy = Magazine.create(
-                "asset", null, UUID.randomUUID(), null, UUID.randomUUID(), "https://example.test/");
+                "asset", null, UUID.randomUUID(), null, UUID.randomUUID(), "https://example.test/", null);
         assertThat(noLegacy.attachBackfilledBanner(null, UUID.randomUUID())).isFalse();
         assertThat(noLegacy.attachBackfilledThumbnail(null, UUID.randomUUID())).isFalse();
     }
@@ -80,6 +80,6 @@ class MagazineBackfillImageTest {
     }
 
     private Magazine magazine() {
-        return Magazine.create("매거진", "banner.jpg", "thumbnail.jpg", "https://www.instagram.com/p/test/");
+        return Magazine.create("매거진", "banner.jpg", null, "thumbnail.jpg", null, "https://www.instagram.com/p/test/", null);
     }
 }
