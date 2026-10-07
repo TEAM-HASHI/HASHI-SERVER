@@ -1,13 +1,11 @@
 package org.sopt.hashi.restaurant.internal.map;
 
-import java.time.Clock;
 import java.time.Instant;
 import java.util.List;
 import org.sopt.hashi.restaurant.code.RestaurantErrorCode;
 import org.sopt.hashi.shared.error.BusinessException;
 import org.springframework.beans.BeansException;
 import org.springframework.beans.factory.ObjectProvider;
-import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.core.io.ClassPathResource;
 import org.springframework.dao.DataAccessException;
 import org.springframework.data.redis.core.StringRedisTemplate;
@@ -24,19 +22,17 @@ public class RedisMapSessionStore {
     private static final DefaultRedisScript<Long> ADMIT = script("admit");
     private final ObjectProvider<StringRedisTemplate> templates;
     private final MapSessionSerializer serializer;
-    private final Clock clock;
     private final MapSessionLimits limits;
 
     public RedisMapSessionStore(ObjectProvider<StringRedisTemplate> templates, MapSessionSerializer serializer,
-                               @Qualifier("japanClock") Clock clock, MapSessionLimits limits) {
+                               MapSessionLimits limits) {
         this.templates = templates;
         this.serializer = serializer;
-        this.clock = clock;
         this.limits = limits;
     }
 
     /** DB 조회와 JSON 생성 전에 호출한다. 원문 IP 대신 서명키로 HMAC한 caller만 Redis에 남긴다. */
-    public void admit(String caller, boolean newQuery) {
+    public Instant admit(String caller, boolean newQuery) {
         limits.validate();
         long result = execute(ADMIT, List.of(PREFIX + "requests"),
                 Long.toString(limits.getRedisMemoryCeiling()), Long.toString(limits.getRedisHeadroom()), caller,
@@ -47,6 +43,7 @@ public class RedisMapSessionStore {
             throw new BusinessException(RestaurantErrorCode.MAP_RATE_LIMITED);
         }
         checkCapacity(result);
+        return Instant.ofEpochMilli(result);
     }
 
     public MapSessionId save(MapQuerySession session) {
@@ -70,7 +67,7 @@ public class RedisMapSessionStore {
             throw unavailable();
         }
         MapQuerySession session = serializer.deserialize(payload);
-        if (!session.id().equals(id.id()) || !clock.instant().isBefore(session.expiresAt())) {
+        if (!session.id().equals(id.id())) {
             throw expired();
         }
         return session;

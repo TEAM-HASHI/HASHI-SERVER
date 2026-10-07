@@ -26,4 +26,4 @@ local isNew = tonumber(ARGV[8])
 if total >= tonumber(ARGV[5]) then return -1 end
 if calls >= tonumber(ARGV[6]) or (isNew == 1 and queries >= tonumber(ARGV[7])) then return -3 end
 redis.call('HSET', KEYS[1], 'total', total + 1, ARGV[3], (calls + 1) .. ':' .. (queries + isNew))
-return 1
+return now * 1000 + math.floor(tonumber(time[2]) / 1000)

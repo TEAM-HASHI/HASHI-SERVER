@@ -1,7 +1,5 @@
 package org.sopt.hashi.restaurant.service;
 
-import java.time.Clock;
-import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.UUID;
@@ -18,7 +16,6 @@ import org.sopt.hashi.restaurant.internal.map.MapSessionLimits;
 import org.sopt.hashi.restaurant.internal.map.RedisMapSessionStore;
 import org.sopt.hashi.shared.error.BusinessException;
 import org.sopt.hashi.shared.error.CommonErrorCode;
-import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
@@ -31,18 +28,16 @@ public class RestaurantMapPageService {
     private final RestaurantMapPageReader reader;
     private final RedisMapSessionStore store;
     private final MapCursorCodec cursors;
-    private final Clock clock;
     private final MapSessionLimits limits;
     private final Semaphore activeRequests;
 
     public RestaurantMapPageService(RestaurantMapService mapService, RestaurantMapPageReader reader,
                                     RedisMapSessionStore store, MapCursorCodec cursors,
-                                    @Qualifier("japanClock") Clock clock, MapSessionLimits limits) {
+                                    MapSessionLimits limits) {
         this.mapService = mapService;
         this.reader = reader;
         this.store = store;
         this.cursors = cursors;
-        this.clock = clock;
         this.limits = limits;
         this.activeRequests = new Semaphore(Math.max(1, Math.min(16, limits.getConcurrentRequests())));
     }
@@ -81,22 +76,18 @@ public class RestaurantMapPageService {
             store.admit(cursors.callerKey(remoteAddress), false);
             session = store.find(id);
         } else {
-            store.admit(cursors.callerKey(remoteAddress), true);
+            var startedAt = store.admit(cursors.callerKey(remoteAddress), true);
             var snapshot = mapService.findCandidates(request.criteria(), limits.candidateCapacity());
             var recommendation = new ArrayList<>(snapshot.candidates());
             Collections.shuffle(recommendation);
             session = new MapQuerySession(MapQuerySession.SCHEMA_VERSION, UUID.randomUUID(), request.criteria(),
-                    recommendation, snapshot.rankingAsOf(), clock.instant().truncatedTo(ChronoUnit.MILLIS)
-                    .plus(limits.getMaxLifetime()));
+                    recommendation, snapshot.rankingAsOf(), startedAt.plus(limits.getMaxLifetime()));
             id = store.save(session);
         }
         if (start > session.candidates().size()) {
             throw new BusinessException(CommonErrorCode.INVALID_INPUT);
         }
         var page = reader.read(session, sort, start);
-        if (!clock.instant().isBefore(session.expiresAt())) {
-            throw new BusinessException(RestaurantErrorCode.MAP_SESSION_EXPIRED);
-        }
         var expiresAt = store.touch(id, session);
         return new RestaurantMapPageResponse(page.content(),
                 page.hasNext() ? cursors.encode(id, sort, page.nextPosition()) : null, page.hasNext(),
