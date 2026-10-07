@@ -1,6 +1,7 @@
 # Map Contract v1
 
 - 작성: 2026-09-26, 최신 기획 대조: 2026-10-01, [#219](https://github.com/TEAM-HASHI/HASHI-SERVER/issues/219)
+- 기술 정책 갱신: 2026-10-06, #225의 좌표 보존 모델과 후속 슬라이딩 만료 계획
 - 상태: 지도 서버 구현 PR과 컬렉션 지도 연동의 기준 계약. 이 문서의 API를 모두 병합·배포했다고 뜻하지 않는다.
 - 구조 결정: [ADR 0002](../adr/0002-restaurant-map-query-and-location.md)
 - 구현 순서·테스트 인수 기준: [Implementation Plan](./implementation-plan.md)
@@ -52,7 +53,7 @@ SERVER 기준은 `origin/develop`의 `053fdb3a050d48956241357934a43e191ef99ece`�
 | 정렬 변경 | 기존 querySessionId에 새 sort만 전달, 같은 후보·추천 순서를 재정렬한 첫 10개로 **교체**. queryBounds·필터 유지, viewport로 새 검색하지 않음 |
 | 목록 추가 | 같은 cursor의 다음 10개와 그 핀만 추가. 중복 응답은 같은 페이지로 취급하고 ID 중복 추가 금지 |
 | 상세 열기·닫기/로그인·예약 후 복귀 | 카메라·검색·필터·정렬·목록 상태 복원. 세션이 만료됐으면 아래 만료 규칙 적용 |
-| 세션 만료·유실 후 새로 조회 | 현재 viewport·keyword·genre·placeType·sort로 새 세션, mapRegionId 해제. 성공한 첫 페이지로 교체. 기존 cursor에 연결 금지 |
+| 세션 만료·유실 후 새로 조회 | 마지막 조회의 queryBounds·필터·현재 sort로 새 세션. 성공한 첫 페이지로 교체하고 추천 순서는 다시 생성. 기존 cursor에 연결 금지. 현재 화면으로 검색하려는 별도 동작은 새 조회 규칙 적용 |
 
 최초 지역 설정 조회 실패는 초기 지도 재시도로, 설정 조회 성공 후 첫 목록 실패는 클러스터를 유지한
 목록 재시도로 처리한다. 목록 성공 전 가짜 식당을 표시하지 않는다. 최초 클러스터 count는 목록 10개의
@@ -61,8 +62,9 @@ SERVER 기준은 `origin/develop`의 `053fdb3a050d48956241357934a43e191ef99ece`�
 ## 3. 위치와 관광 지역의 유효성
 
 - WGS84 `latitude/longitude`를 한 쌍으로 취급한다. 지도 표시 가능은 현재 공개 조건,
-  삭제 아님, `READY`, 현재 주소 revision과 일치, 유한한 좌표 쌍, `now < validUntil`을 모두 만족함이다.
-  향후 공개 상태가 추가되면 이 공통 판정에 포함한다. `READY`만 검사하면 안 된다.
+  삭제 아님, 현재 주소의 검증 좌표·출처·수명 존재, 유한한 좌표 쌍, `now < validUntil`을 모두 만족함이다.
+  같은 주소의 갱신 중·실패 상태에서도 기존 유효 좌표를 사용한다. 작업 상태가 READY인지로 제한하지 않는다.
+  향후 공개 상태가 추가되면 이 공통 판정에 포함한다. #225의 도메인과 후속 조회 SQL 판정을 함께 맞춰야 한다.
 - 식당당 대표 `mapRegionId`는 0~1개. 기존 `area` 표시 문자열·행정구와 동일시하지 않는다.
   모호한 기존 area는 미분류로 남기고 운영자가 확인한다. 미분류도 BBOX 일반 조회에는 포함할 수 있다.
 - 지역의 `name`, `clusterPosition`, `cameraBounds`, `displayOrder`, 활성 여부는 restaurant 소유 설정/데이터다.
@@ -143,7 +145,7 @@ rating·reviewCount는 rankingAsOf 기준, 다른 표시 값과 좌표는 현재
     "content": [],
     "hasNext": false,
     "querySessionId": "opaque-session-id",
-    "expiresAt": "2026-09-26T01:15:00Z",
+    "expiresAt": "2026-09-26T01:05:00Z",
     "rankingAsOf": "2026-09-26T01:00:00Z",
     "query": {"south": 35.0, "north": 35.1, "west": 139.0, "east": 139.1, "sort": "recommend"}
   }
@@ -153,10 +155,15 @@ rating·reviewCount는 rankingAsOf 기준, 다른 표시 값과 좌표는 현재
 ### 4.3 세션·경합·부분 실패
 
 1. 새 조회에서 MySQL의 모든 해당 후보 ID·별점·리뷰 수를 일관된 읽기로 확보하고 추천 순열을 만든다.
-   Redis에 조건·순열·순위 기준값·rankingAsOf·절대 expiresAt을 전부 저장한 뒤 첫 페이지를 반환한다.
-   일부만 저장하거나 저장 실패를 성공으로 처리하지 않는다. 15분은 초기 설정값이며 용량 검증 결과가 아니다.
+   Redis에 조건·순열·순위 기준값·rankingAsOf·수명을 전부 저장한 뒤 첫 페이지를 반환한다.
+   일부만 저장하거나 저장 실패를 성공으로 처리하지 않는다. 초기 유휴 시간은 5분, 최대 수명은 30분이다.
+   정상적인 다음 페이지 조회·재정렬은 `min(현재 시각 + 유휴 시간, 최초 생성 + 최대 수명)`까지 연장한다.
+   기존 만료 시각에 시간을 더하지 않는다. 실패 요청·잘못된 cursor·자동 keepalive로 연장하지 않고,
+   만료·유실된 세션을 되살리지 않는다. 동시 갱신은 원자적으로 처리하며 응답 expiresAt은 적용된 만료 시각이다.
+   Redis TTL과 애플리케이션의 수명 검사도 일치시킨다. 수치는 설정으로 두고 측정 후 조정한다.
 2. 다음 페이지/재정렬마다 현재 MySQL에서 공개 여부·좌표 수명·BBOX·지역·검색·분류를 bulk 재검사한다.
-   탈락 후보는 건너뛰고 이후 후보로 10개를 채운다. cursor는 마지막 소비한 후보 위치를 가리킨다.
+   작은 묶음씩 확인하고 탈락 후보는 건너뛰어 10개를 채운다. cursor는 마지막 소비한 후보 위치를 가리킨다.
+   다음 페이지 존재를 확인한 11번째 식당은 소비하지 않고 다음 페이지에 남긴다.
    다음 유효 후보의 존재를 확인해 hasNext를 정하되, 이후 삭제로 다음 페이지가 빈 결과가 될 수 있다.
 3. 새 식당이나 이전에 탈락한 후보를 이전 cursor 앞에 끼워 넣지 않는다. 순위 수치는 같은 세션에서
    고정한다. 상세의 최신 별점·리뷰 수와 목록이 다를 수 있음을 rankingAsOf로 구분한다.
@@ -165,8 +172,12 @@ rating·reviewCount는 rankingAsOf 기준, 다른 표시 값과 좌표는 현재
 5. 410은 만료·eviction 등 세션 유실이다. 기존 목록·아직 유효한 핀을 유지하고 새로 조회를 제공한다.
    503은 저장소 장애/수용량 부족이다. 같은 요청 재시도를 허용하고, 재시도 때 410이면 새 조회로 전환한다.
    첫 페이지 생성 실패도 기존 결과를 교체하지 않는다. 서버가 임의로 새 세션을 이어 주지 않는다.
-6. 세션별 후보 수·bytes·전체 동시 세션 admission 한도는 M4b에서 측정 후 명시한다.
-   초과 시 RESTAURANT-016으로 전체 요청 실패; 성공처럼 결과를 잘라내지 않는다.
+6. 세션별 bytes·전체 메모리 예산·호출자별 새 조회 제한은 M4b/#252에서 측정 후 명시한다.
+   정상 조회는 500개를 넘어도 전체 후보를 끝까지 제공한다. 실제 수용량 부족은 RESTAURANT-016으로
+   전체 요청 실패; 성공처럼 결과를 잘라내지 않는다. 호출자별 제한은 429로 구분하고 오류 코드는 구현 시 확정한다.
+
+이 절의 슬라이딩 만료·용량 개선은 후속 구현 기준이다. 현재 #234에는 15분 고정·128개 슬롯·500개 후보
+제한이 남아 있다. 이를 개선하고 [구현 계획](implementation-plan.md)의 부하·복구 검증 후 활성화한다.
 
 ### 4.4 선택 식당
 
@@ -187,11 +198,11 @@ rating·reviewCount는 rankingAsOf 기준, 다른 표시 값과 좌표는 현재
 | 내부/관리자 wire 상태 | 의미·지도 노출 |
 |---|---|
 | UNRESOLVED | 기존 데이터 등 아직 작업이 없음. 지도 제외 |
-| PENDING | 주소와 durable 작업 저장 완료, 처리 대기/lease 수행 중. 제외 |
+| PENDING | 처리 대기/lease 수행 중. 같은 주소의 기존 유효 좌표가 있으면 노출 가능 |
 | READY | 유효 좌표 준비. §3 조건까지 만족하면 노출 |
-| RETRY_WAIT | 일시 장애로 제한 재시도 대기. 제외 |
-| REVIEW_REQUIRED | 결과 없음·모호함·허용 정확도 미달로 주소 확인 필요. 제외 |
-| FAILED | 설정·권한 문제 또는 재시도 소진으로 자동 처리 중단. 제외 |
+| RETRY_WAIT | 일시 장애로 제한 재시도 대기. 같은 주소의 기존 유효 좌표가 있으면 노출 가능 |
+| REVIEW_REQUIRED | 결과 없음·모호함·허용 정확도 미달로 주소 확인 필요. 기존 유효 좌표가 있으면 노출 가능 |
+| FAILED | 설정·권한 문제 또는 재시도 소진으로 자동 처리 중단. 기존 유효 좌표가 있으면 노출 가능 |
 
 - 신규 저장/주소 변경은 `addressRevision` 증가, 이전 좌표 무효화·제거, PENDING 작업 생성까지
   한 transaction이다. 동일 주소의 다른 정보 수정은 revision·작업을 불필요하게 갱신하지 않는다.
@@ -201,9 +212,10 @@ rating·reviewCount는 rankingAsOf 기준, 다른 표시 값과 좌표는 현재
   이전 결과를 막는다. lease 만료 후 늦은 worker, 중복 완료는 no-op이다.
 - worker가 죽으면 lease 만료 후 재claim한다. DB 완료 실패는 재처리 가능하며 외부 호출은
   정확히 한 번을 보장하지 않는다. 중복 과금 가능성을 quota·attempt 제한에 포함한다.
-- Google timeout·일시 5xx·단기 quota 오류는 지수 backoff와 jitter로 제한 재시도한다.
+- Google timeout·일시 5xx·단기 quota 오류는 backoff와 jitter로 제한 재시도한다.
   결제/권한/설정 오류는 FAILED로 중단하고, 애매한 여러 결과의 첫 항목을 임의 채택하지 않는다.
-  timeout·lease 길이·최대 attempt·일일 예산 수치는 M3 설정/테스트에서 정하고 활성화 전에 검증한다.
+  갱신 재시도의 간격·최대 횟수는 [구현 계획](implementation-plan.md)의 정책을 따른다.
+  timeout·lease 길이·일일 예산은 M3 설정/테스트에서 정하고 활성화 전에 검증한다.
 - `GET /admin/restaurants/{id}/location`(ADMIN)은 상태·revision·validUntil·attempt·nextAttemptAt·
   failureCode·canRetry를 반환한다. Google 원문·키·요청 URL·lease token을 노출하지 않는다.
 - `POST /admin/restaurants/{id}/location/retry`, body `{"expectedAddressRevision":3}`(ADMIN)는
@@ -267,7 +279,10 @@ saved는 현재 사용자의 소유 컬렉션에 하나 이상 저장됐는지�
 ## 7. 오류와 응답 수명
 
 [ErrorResponse](../../src/main/java/org/sopt/hashi/shared/response/ErrorResponse.java)를 유지한다.
-실패는 `success:false,code,message,data:null,timestamp,path`; 검증 오류에만 `errors` 배열을 넣는다.
+실패는 `success:false,code,message,data:null,timestamp,path`다. 본문 DTO 검증 실패에는 `errors`를 넣는다.
+경로·쿼리 파라미터의 제약 위반과 타입 오류는 기존 `GlobalExceptionHandler`의 400 응답을 따른다.
+이 레거시 경로에는 `errors`가 없으며, 지도만 별도 형식으로 확장하지 않는다. 모든 검증 오류에
+필드 정보를 제공하는 목표와 현재 응답의 차이는 전역 API 계약을 함께 정비할 때 해소한다.
 timestamp는 기존 LocalDateTime 형식이며, 새 data의 UTC 시각과 혼동해 전역 직렬화를 변경하지 않는다.
 
 | HTTP / code | enum 의미 (신규는 채택안) | FE 처리 |
@@ -279,7 +294,7 @@ timestamp는 기존 LocalDateTime 형식이며, 새 data의 UTC 시각과 혼동
 | 410 RESTAURANT-013 | MAP_SESSION_EXPIRED; 만료·유실·읽을 수 없는 구버전 세션 | 기존 결과 유지, 새로 조회 |
 | 503 RESTAURANT-014 | MAP_SESSION_UNAVAILABLE; Redis 연결/읽기/쓰기 장애 | 같은 요청 재시도 |
 | 503 RESTAURANT-015 | MAP_QUERY_UNAVAILABLE; DB 조회 실패 | 같은 요청 재시도 |
-| 503 RESTAURANT-016 | MAP_CAPACITY_EXCEEDED; 온전한 세션 수용 불가 | 범위 축소/나중에 재시도 |
+| 503 RESTAURANT-016 | MAP_CAPACITY_EXCEEDED; 온전한 세션 수용 불가 | 기존 결과 유지, 나중에 같은 요청 재시도 |
 | 503 RESTAURANT-017 | MAP_CONFIGURATION_UNAVAILABLE | 지역·초기 화면 설정 오류 안내 |
 | 404 RESTAURANT-004 | 기존 NOT_FOUND; 삭제·비노출 식당 | 해당 핀·지도 목록 제거 |
 | 409 RESTAURANT-018 | MAP_LOCATION_UNAVAILABLE | 좌표·선택 해제; 컬렉션 목록 유지 |
@@ -309,7 +324,7 @@ timestamp는 기존 LocalDateTime 형식이며, 새 data의 UTC 시각과 혼동
 ```
 
 좌표를 반환하는 API와 개인/컬렉션 응답은 `Cache-Control: no-store`를 사용한다.
-FE는 좌표를 영구 저장소에 남기지 않고 각 validUntil에 폐기한다. 세션 15분 TTL이 좌표의
+FE는 좌표를 영구 저장소에 남기지 않고 각 validUntil에 폐기한다. 조회 세션 TTL이 좌표의
 보관 허가/수명을 연장하지 않는다. 정상/실패와 무관하게 로그에 좌표·검색어·Google 원문을 남기지 않는다.
 
 ## 8. Google 출처·보존과 운영 전환
@@ -318,7 +333,23 @@ FE는 좌표를 영구 저장소에 남기지 않고 각 validUntil에 폐기한
 [공식 권장 용도](https://developers.google.com/maps/documentation/geocoding/best-practices)를
 확인했지만 실제 Google 프로젝트·계약·청구 지역·키·quota는 확인하지 않았다.
 
-2026-09-26 조회한 [서비스 조항 §6.3](https://cloud.google.com/maps-platform/terms/maps-service-terms)은
+Hashi의 FE 지도 제공자는 **Google Maps**로 계획한다. 실제 Google 청구 계정의 주소와 적용 계약은
+아직 확인하지 않았다. 사용자가 지도를 보는 국가나 식당 소재지로 청구 지역을 추정하지 않는다.
+2026-10-03 확인한 조항에서 지도와 함께 사용할 수 있는 데이터의 범위는 다음과 같다.
+
+| 적용 계약 | Google Maps에 Geocoding 결과 표시 | 다른 제공자 지도에 표시 |
+|---|---|---|
+| [비-EEA 청구 계정 조항 §6.2](https://cloud.google.com/maps-platform/terms/maps-service-terms) | 다른 계약·귀속·보존 조건을 충족하는 경우 가능 | Geocoding 콘텐츠 병용 금지 |
+| [EEA 청구 계정 조항 §6.1](https://cloud.google.com/terms/maps-platform/eea/maps-service-terms) | 위도·경도·place_id는 지도 병용 제한의 예외. 다른 Geocoding 콘텐츠는 지도와 병용 불가 | 같은 필드 예외만 적용. 다른 콘텐츠까지 허용된다고 해석하지 않음 |
+| 청구 지역·적용 계약 미확인 | 실제 연동 활성화 보류 | 실제 연동 활성화 보류 |
+
+이 표는 지도 표시 조건만 정리한 것이며 API 사용이나 장기 저장을 승인하는 근거가 아니다.
+서버가 반환하는 식당 주소는 Hashi 원본이고 Google formatted address로 대체하지 않는다.
+M3 유료 호출과 M7 화면 인수 전에 계정 담당자가 적용 계약을 확인하고, FE에서 사용할 지도
+제공자·반환 필드·귀속 표기와의 조합을 인수 기록에 남긴다. 계정 ID·결제 정보·키는 기록하지 않는다.
+
+같은 날 조회한 [비-EEA 서비스 조항 §6.3](https://cloud.google.com/maps-platform/terms/maps-service-terms)과
+[EEA 서비스 조항 §6.2](https://cloud.google.com/terms/maps-platform/eea/maps-service-terms)는
 위경도 임시 보관을 기본 최대 30일로 제한하고, 장기 보관 예외에는 특정 최종 사용자별 격리 조건을 둔다.
 Hashi 공용 식당 DB가 그 예외를 충족한다고 가정하지 않는다. 실제 계약 확인 전에는 유료 호출·운영
 backfill을 활성화하지 않고 fake adapter로 개발한다. MySQL에 넣어도 Google 결과의 보존 제한은 적용된다.
@@ -329,18 +360,21 @@ backfill을 활성화하지 않고 fake adapter로 개발한다. MySQL에 넣어
 | Google 위치 | source·obtainedAt·validUntil·addressRevision 기록. 계약상 허용 기간 이하로 만료, 원본 응답 저장 금지 |
 | 만료 위치 | 조회에서 즉시 제외하고 보존 기한 전에 DB·캐시·클라이언트에서 제거. 갱신 실패로 옛 validUntil 연장 금지 |
 | 변환 작업 | 완료 후 원본 응답/주소 복제 없이 ID·revision·안전한 결과 코드·attempt 등 최소 이력만 유지 |
-| Redis 조회 세션 | 최초 생성 후 15분, 접근 시 연장 없음. Google 좌표/원문·개인 상태 저장 없음 |
+| Redis 조회 세션 | 초기 유휴 5분·최대 수명 30분, 정상 조회 시 유휴 수명 갱신. Google 좌표/원문·개인 상태 저장 없음 |
 | 로그·백업·복구본 | Google 결과가 남는 모든 경로를 보존 정책에 포함. 만료 데이터 복원 후 공개 금지; 제거·백업 분리/보존 증거가 없으면 운영 gate 미충족 |
 
-만료 전에 갱신할 작업을 예약한다. 갱신을 시작하면 PENDING으로 전환해 기존 좌표를 비노출·제거하며,
-실패 중에도 식당 목록의 원본 데이터를 삭제하지 않는다. 만료 스케줄러가 늦어도 조회의 시간 검사로
+만료 3일 전부터 갱신할 작업을 예약한다. 같은 주소의 갱신은 PENDING으로 전환하되 기존 유효 좌표를
+유지한다. 주소 변경 시에는 바로 제거하고 새 결과가 검증을 통과할 때 교체한다. 갱신 실패도 기존
+validUntil을 연장하지 않는다. 작업 상태와 관계없이 보관 기한 내 제거하고, 진행 중 갱신은 이어간다.
+식당 목록의 원본 데이터는 삭제하지 않는다. 만료 스케줄러가 늦어도 조회의 시간 검사로
 노출은 막지만 그것만으로 저장 데이터 제거를 완료했다고 보지 않는다.
 
 [Geocoding 정책](https://developers.google.com/maps/documentation/geocoding/policies)에 따라
 지도 표시·귀속 표기·공개 이용약관/개인정보처리방침을 통합 QA한다. Place ID의 별도 보관 허용을
 좌표 무기한 저장 허용으로 해석하지 않는다. 서버 키·브라우저 키·Map ID와 운영 값을 문서/로그에 적지 않는다.
 
-실제 연동 전에는 대표 위치·지역 매핑, Google 계약/청구/허용 보존 기간, 키 제한, timeout·quota·
+실제 연동 전에는 대표 위치·지역 매핑, 위 표의 청구 지역·지도 제공자 조합과 적용 계약,
+허용 보존 기간, 키 제한, timeout·quota·
 재시도 한도, Redis 인증 데이터와의 용량 경쟁을 확인한다. backfill은 대상 수·주소 품질·예상 호출량을
 **조회 전용 dry-run**으로 확인한 뒤 checkpoint·중단·복구 기준과 별도 운영 승인을 갖춘다.
-이 PR은 Java·dependency·migration·유료 호출·운영 데이터 변경·배포를 포함하지 않는다.
+이 계약 문서는 기능 구현·유료 호출·운영 데이터 변경·배포 완료의 증거가 아니다.

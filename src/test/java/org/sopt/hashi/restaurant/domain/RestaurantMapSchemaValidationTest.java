@@ -133,6 +133,52 @@ class RestaurantMapSchemaValidationTest {
         assertThat(reloaded.getRating()).isEqualByComparingTo("4.5");
     }
 
+    @ParameterizedTest
+    @EnumSource(value = RestaurantLocationStatus.class,
+            names = {"PENDING", "RETRY_WAIT", "REVIEW_REQUIRED", "FAILED"})
+    void 갱신의_대기와_실패를_저장해도_기존_좌표는_실제_만료까지만_사용한다(RestaurantLocationStatus status) {
+        Restaurant restaurant = restaurants.saveAndFlush(ready());
+        Long id = restaurant.getId();
+        UUID acceptedRequest = restaurant.getLocation().getRequestId();
+        restaurant.refreshLocation();
+        UUID refreshRequest = restaurant.getLocation().getRequestId();
+        if (status == RestaurantLocationStatus.RETRY_WAIT) {
+            restaurant.deferLocation(1, refreshRequest, NOW.plusMinutes(5), CLOCK);
+        } else if (status != RestaurantLocationStatus.PENDING) {
+            restaurant.rejectLocation(1, refreshRequest, status);
+        }
+        restaurants.flush();
+        entityManager.clear();
+
+        Restaurant reloaded = restaurants.findById(id).orElseThrow();
+        RestaurantLocation location = reloaded.getLocation();
+        assertThat(location.getStatus()).isEqualTo(status);
+        assertThat(location.getCoordinates()).isEqualTo(point());
+        assertThat(location.getSource()).isEqualTo(RestaurantLocationSource.GOOGLE_GEOCODING);
+        assertThat(location.getObtainedAt()).isEqualTo(NOW);
+        assertThat(location.getValidUntil()).isEqualTo(NOW.plusDays(1));
+        assertThat(location.getRequestId()).isEqualTo(refreshRequest).isNotEqualTo(acceptedRequest);
+        assertThat(location.getNextAttemptAt()).isEqualTo(
+                status == RestaurantLocationStatus.RETRY_WAIT ? NOW.plusMinutes(5) : null);
+        assertThat(reloaded.hasUsableMapLocation(CLOCK)).isTrue();
+        assertThat(reloaded.hasUsableMapLocation(Clock.offset(CLOCK, java.time.Duration.ofDays(1)))).isFalse();
+        assertThat(reloaded.completeLocation(1, acceptedRequest, point(), RestaurantLocationSource.GOOGLE_GEOCODING,
+                NOW, NOW.plusDays(2), CLOCK)).isFalse();
+
+        service.updateByAdmin(id, addressCommand("갱신 중 변경한 합성 주소"));
+        entityManager.flush();
+        entityManager.clear();
+        Restaurant changed = restaurants.findById(id).orElseThrow();
+        assertThat(changed.getLocation().getCoordinates()).isNull();
+        assertThat(changed.getLocation().getSource()).isNull();
+        assertThat(changed.getLocation().getObtainedAt()).isNull();
+        assertThat(changed.getLocation().getValidUntil()).isNull();
+        assertThat(changed.getLocation().getNextAttemptAt()).isNull();
+        assertThat(changed.getLocation().getAddressRevision()).isEqualTo(2);
+        assertThat(changed.completeLocation(1, refreshRequest, point(), RestaurantLocationSource.GOOGLE_GEOCODING,
+                NOW, NOW.plusDays(2), CLOCK)).isFalse();
+    }
+
     @Test
     void 일반_조회는_위치_수에_따른_추가_SELECT를_발생시키지_않는다() {
         List<Restaurant> fixtures = restaurants.saveAllAndFlush(List.of(ready(), ready(), ready(), restaurant()));
@@ -203,6 +249,38 @@ class RestaurantMapSchemaValidationTest {
         assertThat(jdbc.queryForObject("""
                 SELECT l.status FROM restaurant r JOIN restaurant_location l ON r.location_id=l.id WHERE r.id=?
                 """, String.class, id)).isEqualTo("REVIEW_REQUIRED");
+    }
+
+    @Test
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
+    void 늦은_갱신_완료는_다른_transaction의_주소_변경과_좌표_제거를_덮어쓰지_못한다() {
+        Restaurant saved = ready();
+        saved.refreshLocation();
+        Long id = restaurants.saveAndFlush(saved).getId();
+        try (EntityManager first = entityManagerFactory.createEntityManager();
+             EntityManager second = entityManagerFactory.createEntityManager()) {
+            first.getTransaction().begin();
+            second.getTransaction().begin();
+            Restaurant winner = first.find(Restaurant.class, id);
+            Restaurant stale = second.find(Restaurant.class, id);
+            UUID request = stale.getLocation().getRequestId();
+            winner.updateBasicInfo(null, null, null, null, "동시 변경한 합성 주소", null,
+                    null, null, null, null, null, null);
+            first.getTransaction().commit();
+
+            assertThat(stale.completeLocation(1, request, point(), RestaurantLocationSource.GOOGLE_GEOCODING,
+                    NOW, NOW.plusDays(2), CLOCK)).isTrue();
+            assertThatThrownBy(() -> second.getTransaction().commit())
+                    .hasCauseInstanceOf(OptimisticLockException.class);
+        }
+        transactions.executeWithoutResult(transaction -> {
+            Restaurant reloaded = restaurants.findById(id).orElseThrow();
+            assertThat(reloaded.getAddress()).isEqualTo("동시 변경한 합성 주소");
+            assertThat(reloaded.getLocation().getAddressRevision()).isEqualTo(2);
+            assertThat(reloaded.getLocation().getStatus()).isEqualTo(RestaurantLocationStatus.PENDING);
+            assertThat(reloaded.getLocation().getCoordinates()).isNull();
+            assertThat(reloaded.getLocation().getValidUntil()).isNull();
+        });
     }
 
     @Test

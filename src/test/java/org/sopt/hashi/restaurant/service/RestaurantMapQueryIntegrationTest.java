@@ -25,6 +25,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.Arguments;
+import org.junit.jupiter.params.provider.EnumSource;
 import org.junit.jupiter.params.provider.MethodSource;
 import org.junit.jupiter.params.provider.NullAndEmptySource;
 import org.junit.jupiter.params.provider.ValueSource;
@@ -209,6 +210,67 @@ class RestaurantMapQueryIntegrationTest {
                 .extracting(RestaurantMapCandidate::restaurantId).containsExactly(fresh);
     }
 
+    @ParameterizedTest
+    @EnumSource(value = RestaurantLocationStatus.class, names = {"PENDING", "RETRY_WAIT", "FAILED", "REVIEW_REQUIRED"})
+    void 같은_주소의_갱신_상태와_무관하게_유효_좌표를_모든_지도_조회에서_유지한다(RestaurantLocationStatus status) {
+        MapRegion region = activeRegion("REFRESH", 0);
+        Restaurant restaurant = ready("refresh", ".5", ".5");
+        restaurant.assignMapRegion(region.getId());
+        restaurant.refreshLocation();
+        var location = restaurant.getLocation();
+        if (status == RestaurantLocationStatus.RETRY_WAIT) {
+            restaurant.deferLocation(location.getAddressRevision(), location.getRequestId(), UTC_NOW.plusMinutes(5), CLOCK);
+        } else if (status != RestaurantLocationStatus.PENDING) {
+            restaurant.rejectLocation(location.getAddressRevision(), location.getRequestId(), status);
+        }
+        flushAndReset();
+
+        Long id = restaurant.getId();
+        var filter = MapSearchCriteria.of(BOUNDS, region.getId(), null, null, null);
+        assertThat(service.findCandidates(criteria(null), 10).candidates())
+                .extracting(RestaurantMapCandidate::restaurantId).containsExactly(id);
+        assertThat(service.findCandidates(filter, 10).candidates())
+                .extracting(RestaurantMapCandidate::restaurantId).containsExactly(id);
+        assertThat(service.findMatchingCandidates(filter, List.of(id)))
+                .extracting(RestaurantMapCandidate::restaurantId).containsExactly(id);
+        assertThat(service.getRegions().regions().getFirst().restaurantCount()).isEqualTo(1);
+        assertThat(service.getLocation(id).location().latitude()).isEqualByComparingTo(".5");
+        assertThat(port.findActiveMapInfos(List.of(id)).getFirst().location().validUntil())
+                .isEqualTo(NOW.plusSeconds(3600));
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {true, false})
+    void 갱신중_주소변경과_만료는_모든_지도에서_제외하되_일반목록과_Port의_식당은_유지한다(boolean addressChanged) {
+        MapRegion region = activeRegion("INVALID", 0);
+        Restaurant restaurant = ready("retained restaurant", ".5", ".5");
+        restaurant.assignMapRegion(region.getId());
+        restaurant.refreshLocation();
+        if (addressChanged) {
+            restaurant.updateBasicInfo(null, null, null, null, "changed address", null,
+                    null, null, null, null, null, null);
+        }
+        entityManager.flush();
+        if (!addressChanged) {
+            jdbc.update("update restaurant_location set valid_until=? where id=?", UTC_NOW, restaurant.getLocation().getId());
+        }
+        flushAndReset();
+
+        Long id = restaurant.getId();
+        var filter = MapSearchCriteria.of(BOUNDS, region.getId(), null, null, null);
+        assertThat(service.findCandidates(criteria(null), 10).candidates()).isEmpty();
+        assertThat(service.findCandidates(filter, 10).candidates()).isEmpty();
+        assertThat(service.findMatchingCandidates(filter, List.of(id))).isEmpty();
+        assertThat(service.getRegions().regions().getFirst().restaurantCount()).isZero();
+        assertCode(() -> service.getLocation(id), RestaurantErrorCode.MAP_LOCATION_UNAVAILABLE);
+        assertThat(port.findActiveMapInfos(List.of(id))).singleElement().satisfies(info -> {
+            assertThat(info.restaurantId()).isEqualTo(id);
+            assertThat(info.location()).isNull();
+        });
+        assertThat(restaurantService.getRestaurants(null, null, null, null, null, 10).content())
+                .extracting(RestaurantSummaryResponse::restaurantId).containsExactly(id);
+    }
+
     @Test
     void 식당명과_여러_메뉴가_함께_맞아도_한번만_반환하고_대소문자를_구분하지_않는다() {
         Restaurant match = ready("SuShI house", ".5", ".5");
@@ -330,6 +392,21 @@ class RestaurantMapQueryIntegrationTest {
         assertCode(() -> service.findCandidates(criteria(null), 2), RestaurantErrorCode.MAP_CAPACITY_EXCEEDED);
         assertThat(service.findCandidates(criteria(null), 3).candidates()).hasSize(3);
         assertThat(SQL).anySatisfy(sql -> assertThat(sql).containsIgnoringCase("limit"));
+    }
+
+    @ParameterizedTest
+    @ValueSource(ints = {500, 501, 620})
+    void 호출자가_충분한_용량을_전달하면_500개를_넘는_후보도_누락없이_반환한다(int count) {
+        List<Long> ids = new ArrayList<>();
+        for (int index = 0; index < count; index++) {
+            ids.add(ready("candidate " + index, ".5", ".5").getId());
+        }
+        flushAndReset();
+
+        assertThat(service.findCandidates(criteria(null), count).candidates())
+                .extracting(RestaurantMapCandidate::restaurantId).containsExactlyElementsOf(ids);
+        assertThat(statistics().getPrepareStatementCount()).isEqualTo(1);
+        assertThat(statistics().getEntityLoadCount()).isZero();
     }
 
     @Test

@@ -19,8 +19,10 @@ public class RestaurantMapQueryRepository {
 
     private static final DateTimeFormatter UTC_DATETIME = DateTimeFormatter.ofPattern("uuuu-MM-dd HH:mm:ss.SSSSSS");
     private static final String USABLE_LOCATION = """
-            l.status = 'READY' and l.latitude is not null and l.longitude is not null
+            l.latitude is not null and l.longitude is not null
             and l.latitude between -90 and 90 and l.longitude between -180 and 180
+            and l.source is not null and l.obtained_at is not null
+            and l.obtained_at < l.valid_until
             and l.valid_until > cast(:now as datetime(6))
             """;
     private static final String REGION_CONTAINS_LOCATION = """
