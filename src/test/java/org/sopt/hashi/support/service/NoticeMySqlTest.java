@@ -43,6 +43,7 @@ class NoticeMySqlTest {
     @Container
     @ServiceConnection
     static final MySQLContainer<?> MYSQL = new MySQLContainer<>("mysql:8.4")
+            .withCommand("--max-allowed-packet=64M")
             .withDatabaseName("hashi").withUsername("hashi").withPassword("hashi");
     @Autowired NoticeService service;
     @Autowired NoticeRepository repository;
