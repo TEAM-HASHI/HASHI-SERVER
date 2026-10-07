@@ -1,6 +1,7 @@
 package org.sopt.hashi.auth.internal.account;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.BDDMockito.given;
 import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -34,6 +35,7 @@ class AuthAccountPortImplTest {
     void setUp() {
         // 프록시 없는 단위 테스트라 탈퇴 트랜잭션의 동기화 컨텍스트를 직접 연다
         TransactionSynchronizationManager.initSynchronization();
+        given(tokenBlacklist.blockUser(7L)).willReturn("withdrawn:mine");
     }
 
     @AfterEach
@@ -53,7 +55,7 @@ class AuthAccountPortImplTest {
     }
 
     @Test
-    @DisplayName("탈퇴 트랜잭션이 롤백되면 블랙리스트를 되돌리고, 커밋되면 그대로 둔다")
+    @DisplayName("탈퇴 트랜잭션이 롤백되면 이 요청의 표식만 되돌리고, 커밋되면 그대로 둔다")
     void 롤백_시_블랙리스트_복구() {
         port.unlinkWithdrawnAccount(7L);
         List<TransactionSynchronization> synchronizations =
@@ -61,9 +63,9 @@ class AuthAccountPortImplTest {
         assertThat(synchronizations).hasSize(1);
 
         synchronizations.getFirst().afterCompletion(TransactionSynchronization.STATUS_COMMITTED);
-        verify(tokenBlacklist, never()).unblockUser(7L);
+        verify(tokenBlacklist, never()).unblockUser(7L, "withdrawn:mine");
 
         synchronizations.getFirst().afterCompletion(TransactionSynchronization.STATUS_ROLLED_BACK);
-        verify(tokenBlacklist).unblockUser(7L);
+        verify(tokenBlacklist).unblockUser(7L, "withdrawn:mine");
     }
 }

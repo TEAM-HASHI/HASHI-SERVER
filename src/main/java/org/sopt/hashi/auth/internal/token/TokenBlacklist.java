@@ -2,7 +2,10 @@ package org.sopt.hashi.auth.internal.token;
 import org.sopt.hashi.auth.internal.jwt.JwtProperties;
 
 import java.time.Duration;
+import java.util.List;
+import java.util.UUID;
 import org.springframework.data.redis.core.RedisTemplate;
+import org.springframework.data.redis.core.script.RedisScript;
 import org.springframework.stereotype.Component;
 
 /**
@@ -16,7 +19,18 @@ import org.springframework.stereotype.Component;
 public class TokenBlacklist {
 
     private static final String KEY_PREFIX = "auth:blacklist:user:";
-    private static final String WITHDRAWN = "withdrawn";
+    /** 표식 값 = 사유 + 요청별 고유값. 사유는 Redis에서 바로 읽히고, 고유값은 다른 요청의 표식을 지우지 않기 위한 구분값이다. */
+    private static final String WITHDRAWN_MARKER_PREFIX = "withdrawn:";
+    /**
+     * 저장값이 이 요청의 표식일 때만 지운다(원자 비교·삭제). 같은 회원의 탈퇴 요청 두 개가 겹쳐 앞 요청의 늦은 롤백 정리가
+     * 뒤 요청이 성공 후 쓴 표식을 지우는 일을 막는다. ARGV는 저장 시와 같은 값 직렬화기로 넘어가 비교가 일치한다.
+     */
+    private static final RedisScript<Long> UNBLOCK_IF_MARKER_SCRIPT = RedisScript.of("""
+            if redis.call('GET', KEYS[1]) == ARGV[1] then
+                return redis.call('DEL', KEYS[1])
+            end
+            return 0
+            """, Long.class);
     /**
      * 표식 기록과 탈퇴 커밋 사이에 끼어든 로그인은 표식보다 몇 ms 늦게 만료되는 리프레시 토큰을 받을 수 있다.
      * 그 토큰이 표식 만료 뒤 잠깐 되살아나지 않도록 TTL에 그 지연을 충분히 덮는 여유를 더한다.
@@ -31,14 +45,16 @@ public class TokenBlacklist {
         this.properties = properties;
     }
 
-    /** 회원의 모든 토큰을 차단한다(TTL = 리프레시 만료시간 + 여유). 현재 사유는 탈퇴뿐이라 표식 값으로 남긴다. */
-    public void blockUser(Long userId) {
-        redisTemplate.opsForValue().set(key(userId), WITHDRAWN, properties.refreshTokenTtl().plus(TTL_MARGIN));
+    /** 회원의 모든 토큰을 차단하고 이 요청의 표식 값을 돌려준다(TTL = 리프레시 만료시간 + 여유). */
+    public String blockUser(Long userId) {
+        String marker = WITHDRAWN_MARKER_PREFIX + UUID.randomUUID();
+        redisTemplate.opsForValue().set(key(userId), marker, properties.refreshTokenTtl().plus(TTL_MARGIN));
+        return marker;
     }
 
-    /** 차단을 되돌린다 — 탈퇴 트랜잭션이 롤백돼 회원이 유지될 때 쓴다. */
-    public void unblockUser(Long userId) {
-        redisTemplate.delete(key(userId));
+    /** 이 요청이 등록한 표식일 때만 차단을 되돌린다 — 탈퇴 트랜잭션이 롤백돼 회원이 유지될 때 쓴다. */
+    public void unblockUser(Long userId, String marker) {
+        redisTemplate.execute(UNBLOCK_IF_MARKER_SCRIPT, List.of(key(userId)), marker);
     }
 
     public boolean isUserBlocked(Long userId) {

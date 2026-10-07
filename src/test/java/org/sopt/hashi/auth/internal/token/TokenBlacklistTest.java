@@ -1,16 +1,20 @@
 package org.sopt.hashi.auth.internal.token;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.Mockito.verify;
 
 import java.time.Duration;
+import java.util.List;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
 import org.sopt.hashi.auth.internal.jwt.JwtProperties;
 import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.data.redis.core.ValueOperations;
+import org.springframework.data.redis.core.script.RedisScript;
 
 /**
  * 보안 크리티컬: 탈퇴 회원은 회원 단위 표식으로 차단되고, 표식은 리프레시 만료시간보다 오래 살아야 한다
@@ -27,13 +31,15 @@ class TokenBlacklistTest {
     private final TokenBlacklist blacklist = new TokenBlacklist(redisTemplate, properties);
 
     @Test
-    @DisplayName("차단은 회원 단위 키에 리프레시 만료시간보다 긴 TTL로 표식을 남긴다")
+    @DisplayName("차단은 회원 단위 키에 요청별 표식을 리프레시 만료시간보다 긴 TTL로 남긴다")
     void 차단_TTL() {
         given(redisTemplate.opsForValue()).willReturn(valueOperations);
 
-        blacklist.blockUser(7L);
+        String marker = blacklist.blockUser(7L);
 
-        verify(valueOperations).set("auth:blacklist:user:7", "withdrawn",
+        assertThat(marker).startsWith("withdrawn:");
+        assertThat(blacklist.blockUser(7L)).isNotEqualTo(marker);
+        verify(valueOperations).set("auth:blacklist:user:7", marker,
                 Duration.ofDays(14).plus(TokenBlacklist.TTL_MARGIN));
     }
 
@@ -48,10 +54,11 @@ class TokenBlacklistTest {
     }
 
     @Test
-    @DisplayName("차단 해제는 회원 단위 키를 삭제한다 — 탈퇴 롤백 시 회원이 묶이지 않는다")
+    @DisplayName("차단 해제는 내 표식일 때만 지우는 스크립트를 실행한다 — 다른 탈퇴 요청의 표식은 건드리지 않는다")
     void 차단_해제() {
-        blacklist.unblockUser(7L);
+        blacklist.unblockUser(7L, "withdrawn:mine");
 
-        verify(redisTemplate).delete("auth:blacklist:user:7");
+        verify(redisTemplate).execute(any(RedisScript.class), eq(List.of("auth:blacklist:user:7")),
+                eq("withdrawn:mine"));
     }
 }

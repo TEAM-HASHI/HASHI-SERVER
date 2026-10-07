@@ -49,12 +49,12 @@ class AuthAccountPortImpl implements AuthAccountPort {
     public void unlinkWithdrawnAccount(Long userId) {
         authAccountService.unlink(userId);
         refreshTokenStore.revoke(AuthRoles.USER, userId);
-        tokenBlacklist.blockUser(userId);
+        String marker = tokenBlacklist.blockUser(userId);
         TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
             @Override
             public void afterCompletion(int status) {
                 if (status == STATUS_ROLLED_BACK) {
-                    tokenBlacklist.unblockUser(userId);
+                    tokenBlacklist.unblockUser(userId, marker);
                 }
             }
         });
