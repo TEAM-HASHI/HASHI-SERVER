@@ -499,9 +499,10 @@ class RestaurantMapPageIntegrationTest {
     }
 
     private MapSessionId orderedSession(Duration ttl) {
+        Instant startedAt = store.admit("synthetic-fixture", true);
         var snapshot = mapService.findCandidates(CRITERIA, 500);
         return store.save(new MapQuerySession(1, UUID.randomUUID(), CRITERIA, snapshot.candidates(),
-                snapshot.rankingAsOf(), Instant.now().plus(ttl)));
+                snapshot.rankingAsOf(), startedAt.plus(ttl)));
     }
 
     /** DB와 JVM 벽시계 차이에도 테스트의 조회 Clock보다 확실히 과거인 만료값을 저장한다. */

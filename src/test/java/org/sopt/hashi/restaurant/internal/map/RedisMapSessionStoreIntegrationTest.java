@@ -3,15 +3,19 @@ package org.sopt.hashi.restaurant.internal.map;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.awaitility.Awaitility.await;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyInt;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 
 import io.lettuce.core.ClientOptions;
 import io.lettuce.core.SocketOptions;
 import java.math.BigDecimal;
 import java.nio.charset.StandardCharsets;
-import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
+import java.util.Base64;
 import java.util.UUID;
 import java.util.concurrent.Callable;
 import java.util.concurrent.Executors;
@@ -24,12 +28,18 @@ import org.sopt.hashi.restaurant.code.RestaurantErrorCode;
 import org.sopt.hashi.restaurant.domain.MapQueryBounds;
 import org.sopt.hashi.restaurant.domain.MapSearchCriteria;
 import org.sopt.hashi.restaurant.domain.RestaurantMapCandidate;
+import org.sopt.hashi.restaurant.domain.RestaurantMapSort;
+import org.sopt.hashi.restaurant.dto.RestaurantMapPageRequest;
+import org.sopt.hashi.restaurant.service.RestaurantMapPageReader;
+import org.sopt.hashi.restaurant.service.RestaurantMapPageService;
+import org.sopt.hashi.restaurant.service.RestaurantMapService;
 import org.sopt.hashi.shared.error.BusinessException;
 import org.springframework.beans.factory.support.StaticListableBeanFactory;
 import org.springframework.data.redis.connection.RedisStandaloneConfiguration;
 import org.springframework.data.redis.connection.lettuce.LettuceClientConfiguration;
 import org.springframework.data.redis.connection.lettuce.LettuceConnectionFactory;
 import org.springframework.data.redis.core.StringRedisTemplate;
+import org.springframework.data.redis.core.script.DefaultRedisScript;
 import org.testcontainers.containers.GenericContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
@@ -60,7 +70,7 @@ class RedisMapSessionStoreIntegrationTest {
         var factory = new StaticListableBeanFactory();
         factory.addBean("redis", redis);
         limits = new MapSessionLimits();
-        store = new RedisMapSessionStore(factory.getBeanProvider(StringRedisTemplate.class), SERIALIZER, Clock.systemUTC(), limits);
+        store = new RedisMapSessionStore(factory.getBeanProvider(StringRedisTemplate.class), SERIALIZER, limits);
     }
 
     @AfterAll
@@ -74,11 +84,43 @@ class RedisMapSessionStoreIntegrationTest {
     void clearOnlyTestRedis() {
         redis.getConnectionFactory().getConnection().serverCommands().flushDb();
         limits.setIdleTimeout(Duration.ofMinutes(5));
+        limits.setMaxLifetime(Duration.ofMinutes(30));
         limits.setSessions(1024);
         limits.setSnapshotBytes(1_048_576);
         limits.setTotalBytes(16_777_216);
         limits.setNewQueriesPerCaller(12);
         limits.setCallersPerMinute(2048);
+    }
+
+    @Test
+    void 앱시각의_조회메타데이터가_앞서도_Redis시각으로_세션을_생성한다() {
+        var configuration = new MapSessionLimits();
+        configuration.setIdleTimeout(Duration.ofSeconds(2));
+        configuration.setMaxLifetime(Duration.ofSeconds(10));
+        var repository = mock(RestaurantMapService.class);
+        var reader = mock(RestaurantMapPageReader.class);
+        var properties = new MapSessionProperties();
+        properties.setEnabled(true);
+        properties.setSigningKey(Base64.getEncoder().encodeToString(new byte[32]));
+        var sessionStore = storeWith(configuration);
+        var service = new RestaurantMapPageService(repository, reader,
+                sessionStore, new MapCursorCodec(properties), configuration);
+        Instant before = redisNow();
+        Instant appRankingTime = before.plusSeconds(20);
+        var criteria = session(Duration.ofSeconds(10)).criteria();
+        when(repository.findCandidates(any(),
+                anyInt())).thenReturn(
+                new RestaurantMapService.CandidateSnapshot(List.of(), appRankingTime));
+        when(reader.read(any(), any(),
+                anyInt())).thenReturn(
+                new RestaurantMapPageReader.Page(List.of(), false, 0));
+        var response = service.getPage(new RestaurantMapPageRequest(criteria,
+                RestaurantMapSort.RECOMMEND, null, null), "synthetic-caller");
+        Instant after = redisNow();
+        var saved = sessionStore.find(MapSessionId.parse(response.querySessionId()));
+        assertThat(saved.rankingAsOf()).isEqualTo(appRankingTime);
+        assertThat(saved.expiresAt()).isBetween(before.plusSeconds(10), after.plusSeconds(10));
+        assertThat(response.expiresAt()).isBetween(before.plusSeconds(2), after.plusSeconds(2));
     }
 
     @Test
@@ -156,6 +198,47 @@ class RedisMapSessionStoreIntegrationTest {
         await().atMost(Duration.ofSeconds(5)).untilAsserted(() -> assertThat(redis.hasKey(PREFIX + id.value())).isFalse());
         assertCode(() -> store.touch(id, session), RestaurantErrorCode.MAP_SESSION_EXPIRED);
         assertThat(redis.hasKey(PREFIX + id.value())).isFalse();
+    }
+
+    @Test
+    void 짧은설정의_새인스턴스가_기존ledger수명과_갱신한예약을_줄이지_않는다() throws Exception {
+        String ledger = "hashi:restaurant:map:{sessions-v2}:admission";
+        var longLimits = new MapSessionLimits();
+        longLimits.setIdleTimeout(Duration.ofSeconds(4));
+        longLimits.setMaxLifetime(Duration.ofSeconds(10));
+        var longStore = storeWith(longLimits);
+        var existing = session(Duration.ofSeconds(10));
+        var existingId = longStore.save(existing);
+        long before = redis.getExpire(ledger, java.util.concurrent.TimeUnit.MILLISECONDS);
+
+        var shortLimits = new MapSessionLimits();
+        shortLimits.setIdleTimeout(Duration.ofSeconds(1));
+        shortLimits.setMaxLifetime(Duration.ofSeconds(2));
+        var shortStore = storeWith(shortLimits);
+        var shorter = shortStore.save(session(Duration.ofSeconds(2)));
+        long after = redis.getExpire(ledger, java.util.concurrent.TimeUnit.MILLISECONDS);
+        // Normal command elapsed time is allowed, but replacing the 11s lifetime with 3s is not.
+        assertThat(after).isGreaterThan(before - 1000);
+
+        Thread.sleep(2200);
+        assertThat(redis.hasKey(PREFIX + shorter.value())).isFalse();
+        longStore.touch(existingId, existing);
+        Thread.sleep(1200); // Past the short instance's maxLifetime + 1s ledger deadline.
+        assertThat(redis.opsForHash().hasKey(ledger, existingId.value())).isTrue();
+        assertThat(longStore.find(existingId)).isEqualTo(existing);
+        assertThat(longStore.touch(existingId, existing)).isAfter(Instant.now());
+    }
+
+    @Test
+    void 기존ledger에_TTL이_없으면_살아있는예약을_보존한다() {
+        String ledger = "hashi:restaurant:map:{sessions-v2}:admission";
+        var existing = session(Duration.ofMinutes(30));
+        var existingId = store.save(existing);
+        redis.persist(ledger);
+        store.save(session(Duration.ofMinutes(30)));
+        assertThat(redis.getExpire(ledger)).isEqualTo(-1);
+        assertThat(redis.opsForHash().hasKey(ledger, existingId.value())).isTrue();
+        assertThat(store.touch(existingId, existing)).isAfter(Instant.now());
     }
 
     @Test
@@ -246,10 +329,22 @@ class RedisMapSessionStoreIntegrationTest {
         }
     }
 
+    private RedisMapSessionStore storeWith(MapSessionLimits configuration) {
+        var factory = new StaticListableBeanFactory();
+        factory.addBean("redis", redis);
+        return new RedisMapSessionStore(factory.getBeanProvider(StringRedisTemplate.class), SERIALIZER, configuration);
+    }
+
     private MapQuerySession session(Duration ttl) {
+        Instant now = redisNow();
         return new MapQuerySession(1, UUID.randomUUID(), MapSearchCriteria.of(
-                MapQueryBounds.parse("0", "1", "0", "1"), null, null, null, null), List.of(),
-                Instant.now(), Instant.now().plus(ttl));
+                MapQueryBounds.parse("0", "1", "0", "1"), null, null, null, null), List.of(), now, now.plus(ttl));
+    }
+
+    private Instant redisNow() {
+        var timeScript = new DefaultRedisScript<Long>(
+                "local t=redis.call('TIME'); return tonumber(t[1])*1000+math.floor(tonumber(t[2])/1000)", Long.class);
+        return Instant.ofEpochMilli(redis.execute(timeScript, List.of()));
     }
 
     private void assertCode(Runnable action, RestaurantErrorCode code) {
