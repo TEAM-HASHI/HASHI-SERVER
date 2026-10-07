@@ -228,7 +228,7 @@ public class MagazineService {
     @Transactional
     public void delete(Long magazineId) {
         Magazine magazine = findMagazineForUpdate(magazineId);
-        magazineRepository.delete(magazine);
+        magazine.softDelete();
         // soft delete 동안 asset binding은 유지한다. 물리 정리는 별도 보존 정책 소관이다.
         log.info("어드민 매거진 삭제. magazineId={}", magazineId);
     }

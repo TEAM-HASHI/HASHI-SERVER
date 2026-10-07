@@ -219,7 +219,7 @@ class MagazineServiceTest {
         magazineService.delete(1L);
 
         verify(magazineRepository).findByIdForUpdate(1L);
-        verify(magazineRepository).delete(magazine);
+        assertThat(magazine.isDeleted()).isTrue();
         verify(mediaPort, never()).reconcileBindings(anyCollection(), anyCollection());
     }
 

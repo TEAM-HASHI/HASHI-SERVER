@@ -161,6 +161,11 @@ public class Magazine extends BaseTimeEntity {
         return (value == null || value.isBlank()) ? null : value;
     }
 
+    /** 어드민 삭제(soft delete) — 플래그만 올려 카드뉴스·해시태그·연결 식당 행과 asset 연결 정보를 그대로 둔다. */
+    public void softDelete() {
+        this.deleted = true;
+    }
+
     /** 연결 식당 ID를 노출 순서대로 돌려준다 — RestaurantPort enrich 입력용. */
     public List<Long> getRestaurantIds() {
         return restaurants.stream()
