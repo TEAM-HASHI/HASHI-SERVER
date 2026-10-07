@@ -1,4 +1,4 @@
--- V32~V36.1을 먼저 병합·적용한다. 아래 유형은 환경 독립적인 제어 데이터이며 약관 본문은 적재하지 않는다.
+-- 공지 V36·V36.1 이후 적용한다. 아래 유형은 환경 독립적인 제어 데이터이며 약관 본문은 적재하지 않는다.
 CREATE TABLE support_terms_version (
     id BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY,
     type VARCHAR(40) NOT NULL,

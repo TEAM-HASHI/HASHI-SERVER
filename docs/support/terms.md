@@ -27,9 +27,9 @@ clause는 heading(1~100자), content(필수 일반 텍스트)이며 합계 최�
 게시 실패는 pointer와 publishedAt 전체를 rollback한다. 기존 현재를 유지한다.
 정책 근거와 제어 데이터 예외는 ADR 0004를 참조한다.
 
-V37은 지도 V32~V35 및 공지 V36·V36.1을 먼저 develop에 병합·검증한 뒤 적용한다.
+V37은 공지 V36·V36.1을 먼저 develop에 병합·검증한 뒤 적용한다.
 공지 이후 적용 순서는 `V36 → V36.1 → V37`이다.
-선행 migration 병합 전에는 merge NO-GO. outOfOrder/baseline 우회는 사용하지 않는다.
+미병합 지도 migration은 V38 이상으로 재번호해 별도로 적용하며, outOfOrder/baseline 우회는 사용하지 않는다.
 법률 문구/승인, 회원 동의 이력, 재동의, 예약 게시, 프런트, 실제 운영 게시/배포는 별도 범위다.
 
 공개 상세는 요청한 ID와 현재 버전 포인터를 한 join 쿼리에서 확인한다. 초안·이전 버전은 공개하지 않는다.
