@@ -20,8 +20,7 @@ public record MapQuerySession(int schemaVersion, UUID id, MapSearchCriteria crit
 
     public MapQuerySession {
         if (schemaVersion != SCHEMA_VERSION || id == null || criteria == null || candidates == null
-                || candidates.size() > MAX_CANDIDATES || rankingAsOf == null || expiresAt == null
-                || !rankingAsOf.isBefore(expiresAt)) {
+                || candidates.size() > MAX_CANDIDATES || rankingAsOf == null || expiresAt == null) {
             throw new IllegalArgumentException("Invalid map session");
         }
         var ids = new HashSet<Long>();

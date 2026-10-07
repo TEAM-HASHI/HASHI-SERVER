@@ -6,7 +6,6 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
-import java.time.Clock;
 import java.time.Instant;
 import java.util.Base64;
 import java.util.List;
@@ -38,7 +37,7 @@ class RestaurantMapPageServiceTest {
         var limits = new MapSessionLimits();
         limits.setConcurrentRequests(1);
         var service = new RestaurantMapPageService(mock(RestaurantMapService.class), reader, store,
-                new MapCursorCodec(properties), Clock.systemUTC(), limits);
+                new MapCursorCodec(properties), limits);
         var session = new MapQuerySession(1, UUID.randomUUID(), MapSearchCriteria.of(
                 MapQueryBounds.parse("0", "1", "0", "1"), null, null, null, null), List.of(),
                 Instant.now(), Instant.now().plusSeconds(1800));
