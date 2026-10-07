@@ -35,9 +35,11 @@ spec v3 NOTICE_DETAIL은 inside resize로 원본 비율을 유지하고 metadata
 본 PR은 config 활성화·AWS 호출을 수행하지 않는다. 기존 pipeline 비활성화/v1/v2 환경에서는 NOTICE 발급이 거절된다.
 
 ## Migration 적용 순서
-develop의 V31(매거진) 이후 지도 V32~V35를 먼저 반영하고 공지 V36 → V36.1, 약관 V37 순서로 적용한다.
+현재 develop의 V32(회원 탈퇴) 이후 공지 V36 → V36.1, 약관 V37 순서로 적용한다.
+미병합 지도 migration은 V38 이상으로 재번호한 뒤 별도로 적용한다.
 V36은 공지와 작성·수정 시각 컬럼을 생성한다. V36.1은 기존 이미지 purpose·role을 보존하면서 NOTICE·NOTICE_DETAIL을 허용한다.
-번호 변경 대상은 아직 병합·적용되지 않은 feature migration이다. 이미 적용한 migration의 SQL이나 checksum은 바꾸지 않는다.
+번호 변경 대상은 아직 병합·적용되지 않은 지도 feature migration이다. 공지·약관 번호는 유지하며,
+이미 적용한 migration의 SQL이나 checksum은 바꾸지 않는다.
 
 배포 전 대상 DB의 flyway 이력을 확인한다. 이전 feature 번호를 적용한 개인 테스트 DB는 별도 이력 확인이 필요하며,
-outOfOrder·repair·baseline으로 자동 우회하지 않는다. 선행 지도 migration이 반영되기 전에는 공지 migration을 배포하지 않는다.
+outOfOrder·repair·baseline으로 자동 우회하지 않는다. 지도 migration은 공지·약관의 선행 조건이 아니다.

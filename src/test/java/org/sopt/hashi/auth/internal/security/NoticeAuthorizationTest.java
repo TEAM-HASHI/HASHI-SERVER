@@ -13,6 +13,7 @@ import org.junit.jupiter.api.Test;
 import org.sopt.hashi.auth.internal.jwt.JwtProvider;
 import org.sopt.hashi.auth.internal.onboarding.OnboardingJwtIssuer;
 import org.sopt.hashi.auth.internal.token.OnboardingTokenStore;
+import org.sopt.hashi.auth.internal.token.TokenBlacklist;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
 import org.springframework.context.annotation.ComponentScan.Filter;
@@ -54,6 +55,8 @@ class NoticeAuthorizationTest {
     @MockitoBean org.sopt.hashi.admin.service.AdminNoticeService adminNoticeService;
     @MockitoBean
     OnboardingTokenStore onboardingTokenStore;
+    @MockitoBean
+    TokenBlacklist tokenBlacklist;
 
     @Test
     @DisplayName("비회원은 공지 상세를 조회한다")

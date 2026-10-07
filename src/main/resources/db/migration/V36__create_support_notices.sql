@@ -1,4 +1,4 @@
--- V32~V35 지도 migration을 먼저 병합·적용한 후 실행한다.
+-- 현재 develop V32 이후 적용한다. 미병합 지도 migration은 V38 이상으로 재번호한다.
 CREATE TABLE support_notice (
     id BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY,
     title VARCHAR(100) NOT NULL,

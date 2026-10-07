@@ -320,7 +320,7 @@ class UserProfileBackfillPersistenceIntegrationTest {
         assertThat(upper).isEqualTo(last.getId());
         assertThat(firstPage).extracting(UserProfileBackfillCandidate::userId).containsExactly(first.getId());
         assertThat(secondPage).extracting(UserProfileBackfillCandidate::userId).containsExactly(last.getId());
-        assertThat(userRepository.findById(deleted.getId())).isEmpty();
+        assertThat(userRepository.findByIdAndDeletedFalse(deleted.getId())).isEmpty();
     }
 
     @Test
@@ -374,7 +374,7 @@ class UserProfileBackfillPersistenceIntegrationTest {
         });
 
         assertThat(outcome).isEqualTo(UserProfileBackfillOutcome.SKIPPED);
-        assertThat(userRepository.findById(user.getId())).isEmpty();
+        assertThat(userRepository.findByIdAndDeletedFalse(user.getId())).isEmpty();
         assertThat(jdbcTemplate.queryForObject(
                 "SELECT deleted FROM users WHERE id = ?", Boolean.class, user.getId())).isTrue();
         assertThat(jdbcTemplate.queryForObject(
