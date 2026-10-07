@@ -188,8 +188,9 @@ public class MagazineService {
         if (command == null) {
             throw new BusinessException(CommonErrorCode.INVALID_INPUT);
         }
-        validateDetailFields(command);
+        // 락을 먼저 잡는다 — 검증 조회가 먼저 나가면 그 시점 스냅샷으로 고정돼 락 대기 중 커밋된 다른 수정을 못 본다
         Magazine magazine = findMagazineForUpdate(magazineId);
+        validateDetailFields(command);
         List<MediaAssetUse> claims = new ArrayList<>();
         List<MediaAssetUse> retires = new ArrayList<>();
         ResolvedImage banner = resolveImage(
