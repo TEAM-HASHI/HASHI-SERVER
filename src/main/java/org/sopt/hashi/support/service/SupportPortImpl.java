@@ -1,6 +1,6 @@
 package org.sopt.hashi.support.service;
 
-import java.util.List;
+import org.springframework.data.domain.Page;
 import org.sopt.hashi.support.NoticeCommand;
 import org.sopt.hashi.support.NoticeInfo;
 import org.sopt.hashi.support.SupportPort;
@@ -25,5 +25,5 @@ class SupportPortImpl implements SupportPort {
     @Override
     public NoticeInfo findNoticeByAdmin(Long id) { return notices.adminDetail(id); }
     @Override
-    public List<NoticeInfo> findNoticesByAdmin(Long beforeId) { return notices.adminList(beforeId); }
+    public Page<NoticeInfo> findNoticesByAdmin(int page, int size) { return notices.adminList(page, size); }
 }

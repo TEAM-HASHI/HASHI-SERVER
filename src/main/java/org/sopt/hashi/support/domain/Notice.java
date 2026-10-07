@@ -24,7 +24,7 @@ import org.hibernate.type.SqlTypes;
 @Entity
 @Table(name = "support_notice")
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
-public class Notice {
+public class Notice extends org.sopt.hashi.BaseTimeEntity {
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;

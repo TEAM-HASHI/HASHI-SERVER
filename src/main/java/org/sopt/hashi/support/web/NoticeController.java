@@ -3,7 +3,7 @@ package org.sopt.hashi.support.web;
 import org.sopt.hashi.shared.response.SuccessResponse;
 import org.sopt.hashi.shared.swagger.ApiException;
 import org.sopt.hashi.shared.swagger.ApiSuccess;
-import org.sopt.hashi.support.NoticeInfo;
+import org.sopt.hashi.support.dto.NoticeResponse;
 import org.sopt.hashi.support.code.SupportErrorCode;
 import org.sopt.hashi.support.code.SupportSuccessCode;
 import org.sopt.hashi.support.dto.NoticeListResponse;
@@ -32,7 +32,7 @@ public class NoticeController {
     @GetMapping("/{noticeId}")
     @ApiSuccess(value = SupportSuccessCode.class, codes = "NOTICE_READ")
     @ApiException(value = SupportErrorCode.class, codes = "NOTICE_NOT_FOUND")
-    public SuccessResponse<NoticeInfo> detail(@PathVariable Long noticeId) {
-        return SuccessResponse.of(SupportSuccessCode.NOTICE_READ, service.detail(noticeId));
+    public SuccessResponse<NoticeResponse> detail(@PathVariable Long noticeId) {
+        return SuccessResponse.of(SupportSuccessCode.NOTICE_READ, NoticeResponse.from(service.detail(noticeId)));
     }
 }

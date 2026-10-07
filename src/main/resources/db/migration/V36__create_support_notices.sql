@@ -1,8 +1,10 @@
--- V31~V34 지도 migration을 먼저 병합·적용한 후 실행한다.
+-- V32~V35 지도 migration을 먼저 병합·적용한 후 실행한다.
 CREATE TABLE support_notice (
     id BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY,
     title VARCHAR(100) NOT NULL,
     body_json MEDIUMTEXT NOT NULL,
+    created_at DATETIME(6) NULL,
+    updated_at DATETIME(6) NULL,
     deleted BOOLEAN NOT NULL DEFAULT FALSE,
     published_at DATETIME(6) NULL,
     modified_after_publication_at DATETIME(6) NULL,

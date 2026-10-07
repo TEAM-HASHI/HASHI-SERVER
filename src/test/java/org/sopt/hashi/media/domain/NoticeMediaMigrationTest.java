@@ -57,8 +57,8 @@ class NoticeMediaMigrationTest {
     }
 
     @Test
-    void V35에서_업그레이드하면_기존_데이터를_보존하고_공지_CHECK를_확장한다() throws SQLException {
-        Flyway throughV35 = migrateFromEmpty(MigrationVersion.fromVersion("35"));
+    void V36에서_업그레이드하면_기존_데이터를_보존하고_공지_CHECK를_확장한다() throws SQLException {
+        Flyway throughV36 = migrateFromEmpty(MigrationVersion.fromVersion("36"));
         for (MediaPurpose purpose : MediaPurpose.values()) {
             if (purpose != MediaPurpose.NOTICE) {
                 insertAsset(purpose.name());
@@ -76,30 +76,30 @@ class NoticeMediaMigrationTest {
                 SELECT version, checksum FROM flyway_schema_history
                 WHERE success = TRUE ORDER BY installed_rank
                 """);
-        assertThat(throughV35.info().current().getVersion()).isEqualTo(MigrationVersion.fromVersion("35"));
+        assertThat(throughV36.info().current().getVersion()).isEqualTo(MigrationVersion.fromVersion("36"));
         assertPurposeRejected(MediaPurpose.NOTICE.name());
         assertRoleRejected(legacyAssetId, ImageRole.NOTICE_DETAIL.name());
 
-        Flyway upgrade = flyway(MigrationVersion.fromVersion("35.1"));
+        Flyway upgrade = flyway(MigrationVersion.fromVersion("36.1"));
         upgrade.migrate();
 
         assertThat(rows("SELECT * FROM image_asset ORDER BY id")).isEqualTo(existingAssets);
         assertThat(rows("SELECT * FROM image_rendition ORDER BY id")).isEqualTo(existingRenditions);
         assertThat(rows("""
                 SELECT version, checksum FROM flyway_schema_history
-                WHERE success = TRUE AND version <> '35.1' ORDER BY installed_rank
+                WHERE success = TRUE AND version <> '36.1' ORDER BY installed_rank
                 """)).isEqualTo(existingHistory);
         long noticeAssetId = insertAsset(MediaPurpose.NOTICE.name());
         insertRendition(noticeAssetId, ImageRole.NOTICE_DETAIL.name());
         assertPurposeRejected("UNKNOWN_PURPOSE");
         assertRoleRejected(noticeAssetId, "UNKNOWN_ROLE");
-        assertThat(upgrade.info().current().getVersion()).isEqualTo(MigrationVersion.fromVersion("35.1"));
+        assertThat(upgrade.info().current().getVersion()).isEqualTo(MigrationVersion.fromVersion("36.1"));
         assertThat(upgrade.validateWithResult().validationSuccessful).isTrue();
         assertThat(upgrade.migrate().migrationsExecuted).isZero();
-        assertThat(MigrationVersion.fromVersion("35_1"))
-                .isEqualTo(MigrationVersion.fromVersion("35.1"))
-                .isGreaterThan(MigrationVersion.fromVersion("35"))
-                .isLessThan(MigrationVersion.fromVersion("36"));
+        assertThat(MigrationVersion.fromVersion("36_1"))
+                .isEqualTo(MigrationVersion.fromVersion("36.1"))
+                .isGreaterThan(MigrationVersion.fromVersion("36"))
+                .isLessThan(MigrationVersion.fromVersion("37"));
     }
 
     private Flyway migrateFromEmpty(MigrationVersion target) {
