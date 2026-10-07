@@ -48,6 +48,7 @@ import org.sopt.hashi.restaurant.RestaurantPort;
 import org.sopt.hashi.shared.error.BusinessException;
 import org.sopt.hashi.shared.error.CommonErrorCode;
 import org.sopt.hashi.shared.storage.FileStorage;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
@@ -174,6 +175,7 @@ public class MagazineService {
         applyDetailFields(created, command, cardNewsReplacement);
         Magazine magazine = magazineRepository.save(created);
         magazineMetaRepository.save(MagazineMeta.create(magazine.getId()));
+        flushOrRejectDuplicateHashtag();
         // 생성된 id는 응답 body에만 있어 로그로 남겨야 추적 가능하다 (adminId는 MDC)
         log.info("어드민 매거진 등록. magazineId={}", magazine.getId());
         return toInfo(magazine);
@@ -218,7 +220,7 @@ public class MagazineService {
                 command.content());
         applyDetailFields(magazine, command, cardNewsReplacement);
         // 새로 추가된 카드뉴스의 id를 응답에 담으려면 INSERT가 먼저 나가야 한다
-        magazineRepository.flush();
+        flushOrRejectDuplicateHashtag();
         return toInfo(magazine);
     }
 
@@ -229,6 +231,22 @@ public class MagazineService {
         magazineRepository.delete(magazine);
         // soft delete 동안 asset binding은 유지한다. 물리 정리는 별도 보존 정책 소관이다.
         log.info("어드민 매거진 삭제. magazineId={}", magazineId);
+    }
+
+    /**
+     * 해시태그 INSERT는 flush 때 나가므로 트랜잭션 안에서 flush해 유니크 제약 위반을 잡는다 — 컬럼 collation이
+     * 대소문자 등을 같은 값으로 봐 완전히 같지 않은 해시태그도 DB에서는 중복이다. 500 대신 MAGAZINE-004로 낸다.
+     */
+    private void flushOrRejectDuplicateHashtag() {
+        try {
+            magazineRepository.flush();
+        } catch (DataIntegrityViolationException exception) {
+            String causeMessage = exception.getMostSpecificCause().getMessage();
+            if (causeMessage != null && causeMessage.contains("magazine_hashtag.PRIMARY")) {
+                throw new BusinessException(MagazineErrorCode.HASHTAG_DUPLICATED, exception);
+            }
+            throw exception;
+        }
     }
 
     private Magazine findMagazine(Long magazineId) {
