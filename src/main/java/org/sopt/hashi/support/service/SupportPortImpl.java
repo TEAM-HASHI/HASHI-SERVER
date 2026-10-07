@@ -33,7 +33,7 @@ class SupportPortImpl implements SupportPort {
     @Override
     public TermsInfo findTermsByAdmin(Long id) { return terms.adminDetail(id); }
     @Override
-    public List<TermsInfo> findTermsHistory(TermsType type, Long beforeId) { return terms.adminHistory(type, beforeId); }
+    public Page<TermsInfo> findTermsHistory(TermsType type, int page, int size) { return terms.adminHistory(type, page, size); }
     @Override
     public List<TermsTypeInfo> findTermsTypesByAdmin() { return terms.adminTypes(); }
     @Override

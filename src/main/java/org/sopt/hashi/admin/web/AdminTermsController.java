@@ -10,9 +10,10 @@ import org.sopt.hashi.shared.swagger.ApiException;
 import org.sopt.hashi.shared.swagger.ApiSuccess;
 import jakarta.validation.Valid;
 import org.sopt.hashi.admin.dto.SaveTermsRequest;
-import org.sopt.hashi.support.TermsInfo;
+import org.sopt.hashi.admin.dto.AdminTermsResponse;
+import org.sopt.hashi.admin.dto.AdminTermsListResponse;
 import org.sopt.hashi.support.TermsType;
-import org.sopt.hashi.support.TermsTypeInfo;
+import org.sopt.hashi.admin.dto.AdminTermsTypeResponse;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -35,21 +36,21 @@ public class AdminTermsController {
     @ResponseStatus(HttpStatus.CREATED)
     @ApiException(value = CommonErrorCode.class, codes = {"UNAUTHORIZED", "FORBIDDEN", "INVALID_INPUT"})
     @ApiSuccess(value = AdminSuccessCode.class, codes = "TERMS_CREATED")
-    public SuccessResponse<TermsInfo> create(@Valid @RequestBody SaveTermsRequest request) {
+    public SuccessResponse<AdminTermsResponse> create(@Valid @RequestBody SaveTermsRequest request) {
         return SuccessResponse.of(AdminSuccessCode.TERMS_CREATED, service.create(request.toCommand()));
     }
 
     @PutMapping("/{termsId}")
     @ApiException(value = CommonErrorCode.class, codes = {"UNAUTHORIZED", "FORBIDDEN", "INVALID_INPUT"})
     @ApiSuccess(value = AdminSuccessCode.class, codes = "TERMS_UPDATED")
-    public SuccessResponse<TermsInfo> update(@PathVariable Long termsId, @Valid @RequestBody SaveTermsRequest request) {
+    public SuccessResponse<AdminTermsResponse> update(@PathVariable Long termsId, @Valid @RequestBody SaveTermsRequest request) {
         return SuccessResponse.of(AdminSuccessCode.TERMS_UPDATED, service.update(termsId, request.toCommand()));
     }
 
     @PostMapping("/{termsId}/publication")
     @ApiException(value = CommonErrorCode.class, codes = {"UNAUTHORIZED", "FORBIDDEN"})
     @ApiSuccess(value = AdminSuccessCode.class, codes = "TERMS_PUBLISHED")
-    public SuccessResponse<TermsInfo> publish(@PathVariable Long termsId) {
+    public SuccessResponse<AdminTermsResponse> publish(@PathVariable Long termsId) {
         return SuccessResponse.of(AdminSuccessCode.TERMS_PUBLISHED, service.publish(termsId));
     }
 
@@ -64,22 +65,22 @@ public class AdminTermsController {
     @GetMapping("/{termsId}")
     @ApiException(value = CommonErrorCode.class, codes = {"UNAUTHORIZED", "FORBIDDEN"})
     @ApiSuccess(value = CommonSuccessCode.class, codes = "OK")
-    public SuccessResponse<TermsInfo> detail(@PathVariable Long termsId) {
+    public SuccessResponse<AdminTermsResponse> detail(@PathVariable Long termsId) {
         return SuccessResponse.of(CommonSuccessCode.OK, service.detail(termsId));
     }
 
     @GetMapping
     @ApiException(value = CommonErrorCode.class, codes = {"UNAUTHORIZED", "FORBIDDEN", "INVALID_INPUT"})
     @ApiSuccess(value = CommonSuccessCode.class, codes = "OK")
-    public SuccessResponse<List<TermsInfo>> history(@RequestParam TermsType type,
-            @RequestParam(required = false) Long beforeId) {
-        return SuccessResponse.of(CommonSuccessCode.OK, service.history(type, beforeId));
+    public SuccessResponse<AdminTermsListResponse> history(@RequestParam TermsType type,
+            @RequestParam(defaultValue = "0") int page, @RequestParam(defaultValue = "20") int size) {
+        return SuccessResponse.of(CommonSuccessCode.OK, service.history(type, page, size));
     }
 
     @GetMapping("/types")
     @ApiException(value = CommonErrorCode.class, codes = {"UNAUTHORIZED", "FORBIDDEN"})
     @ApiSuccess(value = CommonSuccessCode.class, codes = "OK")
-    public SuccessResponse<List<TermsTypeInfo>> types() {
+    public SuccessResponse<List<AdminTermsTypeResponse>> types() {
         return SuccessResponse.of(CommonSuccessCode.OK, service.types());
     }
 }

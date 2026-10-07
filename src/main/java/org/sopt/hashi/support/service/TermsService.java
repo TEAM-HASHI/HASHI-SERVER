@@ -18,7 +18,8 @@ import org.sopt.hashi.support.domain.TermsTypeState;
 import org.sopt.hashi.support.domain.TermsTypeStateRepository;
 import org.sopt.hashi.support.domain.TermsVersion;
 import org.sopt.hashi.support.domain.TermsVersionRepository;
-import org.springframework.data.domain.Limit;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -46,7 +47,7 @@ public class TermsService {
 
     public TermsInfo currentDetail(Long id) {
         // 단일 join 조회로 current pointer와 본문을 같은 statement snapshot에서 확인한다.
-        return versions.findCurrent().stream().filter(v -> v.getId().equals(id)).findFirst()
+        return versions.findCurrentById(id)
                 .map(v -> info(v, id)).orElseThrow(this::notFound);
     }
 
@@ -62,10 +63,11 @@ public class TermsService {
         return info(version, state(version.getType()).getCurrentVersionId());
     }
 
-    public List<TermsInfo> adminHistory(TermsType type, Long beforeId) {
-        if (type == null || (beforeId != null && beforeId < 1)) { throw invalid(); }
+    public Page<TermsInfo> adminHistory(TermsType type, int page, int size) {
+        if (type == null) { throw invalid(); }
         Long current = state(type).getCurrentVersionId();
-        return versions.findHistory(type, beforeId, Limit.of(20)).stream().map(v -> info(v, current)).toList();
+        PageRequest pageable = PageRequest.of(Math.max(page, 0), size < 1 ? 20 : Math.min(size, 100));
+        return versions.findHistory(type, pageable).map(v -> info(v, current));
     }
 
     @Transactional

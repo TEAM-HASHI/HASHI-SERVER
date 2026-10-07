@@ -58,8 +58,13 @@ class TermsAuthorizationTest {
     @Test
     @DisplayName("비회원은 약관 상세를 조회한다")
     void 비회원_공개조회() throws Exception {
+        org.mockito.Mockito.when(termsService.currentDetail(1L)).thenReturn(new org.sopt.hashi.support.TermsInfo(
+                1L, org.sopt.hashi.support.TermsType.SERVICE_TERMS, "이용약관", "1",
+                java.time.LocalDate.of(2026, 10, 1), java.util.List.of(), "CURRENT", null));
         mvc.perform(get(TERMS_PATH))
-                .andExpect(status().isOk());
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.termsId").value(1))
+                .andExpect(jsonPath("$.data.status").value("CURRENT"));
     }
 
     @Test
@@ -76,6 +81,20 @@ class TermsAuthorizationTest {
                 .andExpect(status().isForbidden());
         mvc.perform(get(ADMIN_PATH).header("Authorization", "Bearer " + jwtProvider.createAccessToken(1L, "ROLE_ADMIN")))
                 .andExpect(status().isOk());
+    }
+
+    @Test
+    void 관리자_이력은_page_size와_전체건수를_반환한다() throws Exception {
+        org.mockito.Mockito.when(adminTermsService.history(org.sopt.hashi.support.TermsType.SERVICE_TERMS, 1, 20))
+                .thenReturn(new org.sopt.hashi.admin.dto.AdminTermsListResponse(java.util.List.of(), 1, 20, 22, 2));
+        mvc.perform(get("/api/v1/admin/terms").param("type", "SERVICE_TERMS").param("page", "1").param("size", "20")
+                .header("Authorization", "Bearer " + jwtProvider.createAccessToken(1L, "ROLE_ADMIN")))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.page").value(1))
+                .andExpect(jsonPath("$.data.size").value(20))
+                .andExpect(jsonPath("$.data.totalCount").value(22))
+                .andExpect(jsonPath("$.data.totalPages").value(2));
+        org.mockito.Mockito.verify(adminTermsService).history(org.sopt.hashi.support.TermsType.SERVICE_TERMS, 1, 20);
     }
 
     @Test
@@ -144,6 +163,6 @@ class TermsAuthorizationTest {
                 new org.sopt.hashi.shared.error.BusinessException(
                         org.sopt.hashi.support.code.SupportErrorCode.TERMS_NOT_FOUND));
         mvc.perform(get(TERMS_PATH)).andExpect(status().isNotFound())
-                .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath("$.code").value("SUPPORT-403"));
+                .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath("$.code").value("SUPPORT-004"));
     }
 }

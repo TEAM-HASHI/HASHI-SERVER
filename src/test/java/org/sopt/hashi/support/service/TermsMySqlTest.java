@@ -72,6 +72,44 @@ class TermsMySqlTest {
     }
 
     @Test
+    void 관리자_이력은_선택한_유형의_페이지와_전체건수를_반환한다() {
+        List<Long> ids = java.util.stream.IntStream.range(0, 23).mapToObj(i ->
+                service.create(command(TermsType.SERVICE_TERMS, "v" + i)).termsId()).toList();
+        service.create(command(TermsType.PRIVACY_POLICY, "v0"));
+        service.publish(ids.get(1));
+        service.publish(ids.get(2));
+        service.delete(ids.getFirst());
+        var first = service.adminHistory(TermsType.SERVICE_TERMS, 0, 20);
+        var last = service.adminHistory(TermsType.SERVICE_TERMS, 1, 20);
+        assertThat(first.getTotalElements()).isEqualTo(22);
+        assertThat(first.getTotalPages()).isEqualTo(2);
+        assertThat(first.getContent()).hasSize(20);
+        assertThat(last.getContent()).extracting(org.sopt.hashi.support.TermsInfo::termsId)
+                .containsExactly(ids.get(2), ids.get(1));
+        assertThat(last.getContent()).extracting(org.sopt.hashi.support.TermsInfo::status)
+                .containsExactly("CURRENT", "ARCHIVED");
+        assertThat(service.adminHistory(TermsType.SERVICE_TERMS, 2, 20).getContent()).isEmpty();
+        assertThat(service.adminHistory(TermsType.SERVICE_TERMS, -1, 0).getSize()).isEqualTo(20);
+        assertThat(service.adminHistory(TermsType.SERVICE_TERMS, 0, 1000).getSize()).isEqualTo(100);
+    }
+
+    @Test
+    void 현재_상세는_요청한_ID만_반환하고_초안과_보관버전은_숨긴다() {
+        var old = service.create(command(TermsType.SERVICE_TERMS, "1"));
+        service.publish(old.termsId());
+        var current = service.create(command(TermsType.SERVICE_TERMS, "2"));
+        service.publish(current.termsId());
+        var other = service.create(command(TermsType.PRIVACY_POLICY, "1"));
+        service.publish(other.termsId());
+        var draft = service.create(command(TermsType.SERVICE_TERMS, "3"));
+        assertThat(service.currentDetail(current.termsId()).termsId()).isEqualTo(current.termsId());
+        assertThat(service.currentDetail(other.termsId()).type()).isEqualTo(TermsType.PRIVACY_POLICY);
+        for (Long hidden : List.of(old.termsId(), draft.termsId(), Long.MAX_VALUE)) {
+            assertThatThrownBy(() -> service.currentDetail(hidden)).isInstanceOf(BusinessException.class);
+        }
+    }
+
+    @Test
     void 초안은_수정삭제하고_게시와_보관버전은_불변이며_중복을_거절한다() {
         var first = service.create(command(TermsType.SERVICE_TERMS, "1"));
         assertThatThrownBy(() -> service.create(command(TermsType.SERVICE_TERMS, "1")))
@@ -128,7 +166,7 @@ class TermsMySqlTest {
             assertThat(fb.get(15, TimeUnit.SECONDS).publishedAt()).isNotNull();
         }
         assertThat(service.currentList()).hasSize(1);
-        assertThat(service.adminHistory(TermsType.SERVICE_TERMS, null))
+        assertThat(service.adminHistory(TermsType.SERVICE_TERMS, 0, 20).getContent())
                 .extracting(v -> v.status()).containsExactlyInAnyOrder("CURRENT", "ARCHIVED");
     }
 
@@ -147,7 +185,7 @@ class TermsMySqlTest {
             assertThat(List.of(a.get(15, TimeUnit.SECONDS), b.get(15, TimeUnit.SECONDS)))
                     .containsExactlyInAnyOrder(true, false);
         }
-        assertThat(service.adminHistory(TermsType.REVIEW_POLICY, null)).hasSize(1);
+        assertThat(service.adminHistory(TermsType.REVIEW_POLICY, 0, 20).getContent()).hasSize(1);
     }
 
     @Test

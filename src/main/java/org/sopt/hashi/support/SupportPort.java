@@ -10,7 +10,7 @@ public interface SupportPort {
     TermsInfo publishTerms(Long id);
     void deleteTerms(Long id);
     TermsInfo findTermsByAdmin(Long id);
-    List<TermsInfo> findTermsHistory(TermsType type, Long beforeId);
+    Page<TermsInfo> findTermsHistory(TermsType type, int page, int size);
     List<TermsTypeInfo> findTermsTypesByAdmin();
 
     NoticeInfo createNotice(NoticeCommand command);

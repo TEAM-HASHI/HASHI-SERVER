@@ -5,7 +5,8 @@ import jakarta.persistence.LockModeType;
 import org.springframework.data.jpa.repository.Lock;
 import java.util.Optional;
 import org.sopt.hashi.support.TermsType;
-import org.springframework.data.domain.Limit;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
@@ -28,8 +29,15 @@ public interface TermsVersionRepository extends JpaRepository<TermsVersion, Long
     List<TermsVersion> findCurrent();
 
     @Query("""
-            select v from TermsVersion v where v.type = :type
-            and (:id is null or v.id < :id) order by v.id desc
+            select v from TermsVersion v join TermsTypeState s
+            on s.currentVersionId = v.id and s.type = v.type
+            where v.publishedAt is not null and v.id = :id
             """)
-    List<TermsVersion> findHistory(@Param("type") TermsType type, @Param("id") Long id, Limit limit);
+    Optional<TermsVersion> findCurrentById(@Param("id") Long id);
+
+    @Query("""
+            select v from TermsVersion v where v.type = :type
+            order by v.id desc
+            """)
+    Page<TermsVersion> findHistory(@Param("type") TermsType type, Pageable pageable);
 }

@@ -4,8 +4,8 @@ import java.util.List;
 import org.sopt.hashi.shared.response.SuccessResponse;
 import org.sopt.hashi.shared.swagger.ApiException;
 import org.sopt.hashi.shared.swagger.ApiSuccess;
-import org.sopt.hashi.support.TermsInfo;
-import org.sopt.hashi.support.TermsSummaryInfo;
+import org.sopt.hashi.support.dto.TermsResponse;
+import org.sopt.hashi.support.dto.TermsSummaryResponse;
 import org.sopt.hashi.support.code.SupportErrorCode;
 import org.sopt.hashi.support.code.SupportSuccessCode;
 import org.sopt.hashi.support.service.TermsService;
@@ -22,14 +22,14 @@ public class TermsController {
 
     @GetMapping
     @ApiSuccess(value = SupportSuccessCode.class, codes = "TERMS_READ")
-    public SuccessResponse<List<TermsSummaryInfo>> list() {
-        return SuccessResponse.of(SupportSuccessCode.TERMS_READ, service.currentList());
+    public SuccessResponse<List<TermsSummaryResponse>> list() {
+        return SuccessResponse.of(SupportSuccessCode.TERMS_READ, service.currentList().stream().map(TermsSummaryResponse::from).toList());
     }
 
     @GetMapping("/{termsId}")
     @ApiSuccess(value = SupportSuccessCode.class, codes = "TERMS_READ")
     @ApiException(value = SupportErrorCode.class, codes = "TERMS_NOT_FOUND")
-    public SuccessResponse<TermsInfo> detail(@PathVariable Long termsId) {
-        return SuccessResponse.of(SupportSuccessCode.TERMS_READ, service.currentDetail(termsId));
+    public SuccessResponse<TermsResponse> detail(@PathVariable Long termsId) {
+        return SuccessResponse.of(SupportSuccessCode.TERMS_READ, TermsResponse.from(service.currentDetail(termsId)));
     }
 }
