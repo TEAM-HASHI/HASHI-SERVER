@@ -2,7 +2,7 @@
 
 ## 범위와 결합 기준
 
-이 문서는 한 서버 조립의 관리자 HTTP → 저장/위치 작업 → Google 대체 응답 → MySQL 위치 → 공개 지도 조회와 Redis 세션을 확인하는 방법이다. 실제 화면, 운영 Google 계정, 운영 DB, 유료 호출, 배포의 완료 증거가 아니다. 지도 전체 인수 조건은 [#219 계약](https://github.com/TEAM-HASHI/HASHI-SERVER/issues/219)과 PR #221의 문서에 있다.
+기본 통합 테스트는 관리자 HTTP → 저장/위치 작업 → Google 대체 응답 → MySQL 위치 → 공개 지도 조회와 Redis 세션을 확인한다. 아래의 별도 opt-in 테스트만 실제 Google을 호출한다. 테스트 코드를 추가한 것과 실호출에 성공한 것은 구분하며, 실제 화면·운영 DB·배포의 완료를 의미하지 않는다. 지도 전체 인수 조건은 [#219 계약](https://github.com/TEAM-HASHI/HASHI-SERVER/issues/219)과 PR #221의 문서에 있다.
 
 | 변경 | 결합한 Draft PR 기준 | 이 브랜치의 확인 범위 |
 | --- | --- | --- |
@@ -96,3 +96,62 @@ Redis TTL·유실·장애, cursor 변조와 중복 재시도는 [#227 자체 테
 DB 활성 연결은 최대 2개, 연결 대기는 0개였다. 부하 종료 후 조회 키가 모두 만료됐고,
 세션 한도 2개에서 세 번째 조회의 거부와 만료 후 복구, 다른 용도의 합성 Redis 키 보존도 통과했다.
 표본 간의 순간 최대값이나 운영 처리량을 측정한 결과는 아니다. 운영 요청량에 맞춘 용량 산정은 별도다.
+
+## 명시적으로 실행하는 실제 Google 검증
+
+일반 `test`/CI는 `map-live`를 제외한다. `mapLiveTest`는 `-PmapLive=true`와 환경 변수
+`HASHI_MAP_GOOGLEGEOCODING_APIKEY`가 없으면 실패한다. 키를 gradle 인자나 파일에 적지 않는다.
+
+승인된 개발 EC2를 통한 TCP 터널 `127.0.0.1:443 → geocode.googleapis.com:443`을 준비한 뒤 실행한다.
+테스트 전용 DNS만 loopback을 가리키며 HTTPS URI·SNI·인증서 검증은 그대로다. 제품 endpoint는 바꾸지 않는다.
+
+```powershell
+./gradlew mapLiveTest -PmapLive=true --no-daemon
+```
+
+주소는 도쿄도청의 공개 주소 한 건이다. Security 필터를 거친 관리자 저장 → durable job → 실제
+Google adapter → 기존 주소 채택 정책 → MySQL READY → BBOX → 컬렉션 핀을 확인한다.
+외부 provider 응답은 모킹하지 않는다. scheduler는 대체하고 worker는 한 번만 수동 실행한다.
+테스트 provider의 호출 상한, DB 일일 예산, max-attempts를 각각 1로 제한한다.
+실제 응답이 기존 정책을 통과하지 않으면 실패로 보고하며, 통과하려고 후보나 기대값을 바꾸지 않는다.
+DB/Redis는 일회성 Testcontainers이며 실제 dev/prod 데이터는 사용하지 않는다.
+MockMvc 출력은 끄고 API 키·Google 응답·좌표 원문은 증거에 남기지 않는다.
+
+## 격리 부하 프로필
+
+```powershell
+# 기존 2 VU / 90초 / 620개 / 유휴 10초 smoke는 그대로 유지
+./gradlew mapLoadTest -Pk6Executable=<k6.exe 절대경로> --no-daemon
+# 5 → 10 → 20 VU, 부하 구간 300초, 합성 식당 최대 5000개
+./gradlew mapLoadTest -PmapLoadProfile=staged -PmapLoadRestaurants=3000 -Pk6Executable=<경로> --no-daemon
+# 같은 부하 + 실제 정책의 유휴 5분 / 최대 30분, 만료 정리까지 추가 관찰
+./gradlew mapLoadTest -PmapLoadProfile=ttl -PmapLoadRestaurants=620 -Pk6Executable=<경로> --no-daemon
+```
+
+프로필은 smoke/staged/ttl만 받으며 식당 수는 620~5000으로 제한한다. 서버는 loopback의 임의 포트에만
+열고 k6도 그 주소만 받는다. 서버 요청·동시 실행·snapshot·메모리 예산은 그대로이며 한 loopback 호출자에
+여러 VU가 모이므로 호출 제한이 먼저 나타날 수 있다. 운영 동시 사용자 수와 동일하게 해석하지 않는다.
+
+신규/다음 페이지/정렬/필터 지연을 따로 기록하고 429·503 건수와 작업별 상태 코드를 남긴다.
+기존 p95<3초·실패율<1% 기준을 유지한다. 거절을 정상 응답으로 바꿔 통과시키지 않는다.
+k6 실패 시에도 TTL 정리와 메모리/DB pool 관찰을 진행한 뒤 최종 실패한다.
+확장 프로필은 호출 제한 창의 자연 만료도 기다린다. 별도 용량 거절·복구 검사는 유휴 10초로 줄여 실행하고
+그 사실을 구분한다. auth sentinel을 유지하며 Redis 전체 flush는 하지 않는다.
+
+결과는 `build/reports/map-load/{k6-summary.json,k6.log,resource-samples.json,recovery.json}`이다.
+TTL 프로필은 부하 5분 외에 마지막 요청 후 정리 약 5분과 복구 검증 시간이 추가된다.
+실제 Google 검증과 부하 검증은 동시에 실행하지 않는다. 이 결과는 운영 용량 보장이 아니다.
+
+프런트 전달 내용은 [프런트 연동 인계](frontend-integration-handoff.md)를 따른다.
+
+2026-10-08 개발 Redis 읽기 전용 점검에서는 maxmemory 384MiB, 정책 `volatile-lru`, 사용량 약6.55MiB였다.
+현재 지도 저장소의 `noeviction` 보호 조건과 맞지 않으므로 그대로 활성화하면 지도 조회가 503으로 거절된다.
+인증 데이터와 공유하므로 부하 테스트 통과를 이유로 운영 `CONFIG SET`을 실행하지 않는다.
+개발 환경 정책 변경 또는 지도용 Redis 분리는 운영 담당자가 영향 범위를 확인한 뒤 진행해야 한다.
+아래 격리 테스트의 128MiB/noeviction 설정은 실제 개발 Redis 설정을 변경하지 않는다.
+
+추가 계측은 Redis admission ledger의 기록된 예약 bytes/항목 수, 동시 요청 한도, 세션 한도,
+ledger 예산과 k6의 `map_error_RESTAURANT_*` 카운터를 남긴다. ledger 표본은 아직 정리되지 않은 만료 항목도
+포함할 수 있으므로 실제 활성 예약의 상한으로 해석한다. 오류 코드016만으로 메모리 예산과 in-flight guard를
+단정해서는 안 된다. 2026-10-08 staged620 측정은 이 추가 계측 직전 버전으로 실행했으며 원인 코드 수는 서버
+테스트 로그와 대조했다. 실제 유휴5분 TTL 및 3000/5000개 프로필은 아직 실행하지 않았다.

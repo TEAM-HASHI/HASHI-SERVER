@@ -1,12 +1,20 @@
 import http from 'k6/http';
 import { check, sleep } from 'k6';
-import { Rate, Trend } from 'k6/metrics';
+import { Rate, Trend, Counter } from 'k6/metrics';
 
 // This script is launched by MapQueryLoadTest against its disposable loopback server only.
 const base = __ENV.BASE_URL;
 if (!/^http:\/\/127\.0\.0\.1:\d+$/.test(base || '')) {
     throw new Error('BASE_URL must identify the local test server');
 }
+const profile = __ENV.MAP_LOAD_PROFILE || 'smoke';
+if (!['smoke', 'staged', 'ttl'].includes(profile)) throw new Error('Invalid load profile');
+const rejected429 = new Counter('map_rejected_429');
+const rejected503 = new Counter('map_rejected_503');
+const responseCodes = new Counter('map_response_codes');
+const errorCodes = Object.fromEntries(['013', '014', '015', '016', '017', '022']
+    .map(code => [`RESTAURANT-${code}`, new Counter(`map_error_RESTAURANT_${code}`)]));
+const unknownErrors = new Counter('map_error_unknown');
 const newQueryMs = new Trend('map_new_query_ms', true);
 const nextPageMs = new Trend('map_next_page_ms', true);
 const sortMs = new Trend('map_sort_ms', true);
@@ -17,8 +25,11 @@ export const options = {
     scenarios: {
         browsing: {
             executor: 'ramping-vus', startVUs: 0,
-            stages: [{ duration: '15s', target: 2 }, { duration: '60s', target: 2 },
-                { duration: '15s', target: 0 }], gracefulRampDown: '5s',
+            stages: profile === 'smoke'
+                ? [{ duration: '15s', target: 2 }, { duration: '60s', target: 2 }, { duration: '15s', target: 0 }]
+                : [{ duration: '30s', target: 5 }, { duration: '60s', target: 5 },
+                    { duration: '30s', target: 10 }, { duration: '60s', target: 10 },
+                    { duration: '30s', target: 20 }, { duration: '60s', target: 20 }, { duration: '30s', target: 0 }], gracefulRampDown: '5s',
         },
     },
     thresholds: {
@@ -34,7 +45,13 @@ function page(query, operation, metric) {
         tags: { name: `map_${operation}`, operation }, timeout: '10s',
     });
     metric.add(response.timings.duration);
+    responseCodes.add(1, {status: String(response.status), operation});
+    if (response.status === 429) rejected429.add(1);
+    if (response.status === 503) rejected503.add(1);
     if (!check(response, { 'map response succeeds': r => r.status === 200 })) {
+        let code;
+        try { code = response.json('code'); } catch (_) { /* malformed failure body */ }
+        (errorCodes[code] || unknownErrors).add(1);
         semanticFailures.add(true);
         return null;
     }
