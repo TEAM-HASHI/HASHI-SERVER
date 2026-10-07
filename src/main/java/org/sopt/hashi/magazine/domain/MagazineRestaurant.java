@@ -40,11 +40,18 @@ public class MagazineRestaurant extends BaseTimeEntity {
 
     private MagazineRestaurant(Long restaurantId, int displayOrder) {
         this.restaurantId = restaurantId;
-        this.displayOrder = displayOrder;
+        changeDisplayOrder(displayOrder);
     }
 
     public static MagazineRestaurant create(Long restaurantId, int displayOrder) {
         return new MagazineRestaurant(restaurantId, displayOrder);
+    }
+
+    public void changeDisplayOrder(int displayOrder) {
+        if (displayOrder < 1) {
+            throw new IllegalArgumentException("displayOrder must be positive");
+        }
+        this.displayOrder = displayOrder;
     }
 
     void assignMagazine(Magazine magazine) {
