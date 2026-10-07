@@ -57,7 +57,7 @@ class NoticeMediaMigrationTest {
     }
 
     @Test
-    void V36에서_업그레이드하면_기존_데이터를_보존하고_공지_CHECK를_확장한다() throws SQLException {
+    void V36에서_V36_1과_V37을_순서대로_적용해도_이미지_데이터와_공지_CHECK를_보존한다() throws SQLException {
         Flyway throughV36 = migrateFromEmpty(MigrationVersion.fromVersion("36"));
         for (MediaPurpose purpose : MediaPurpose.values()) {
             if (purpose != MediaPurpose.NOTICE) {
@@ -100,6 +100,41 @@ class NoticeMediaMigrationTest {
                 .isEqualTo(MigrationVersion.fromVersion("36.1"))
                 .isGreaterThan(MigrationVersion.fromVersion("36"))
                 .isLessThan(MigrationVersion.fromVersion("37"));
+
+        List<List<String>> assetsBeforeTerms = rows("SELECT * FROM image_asset ORDER BY id");
+        List<List<String>> renditionsBeforeTerms = rows("SELECT * FROM image_rendition ORDER BY id");
+        List<List<String>> historyBeforeTerms = rows("""
+                SELECT version, checksum FROM flyway_schema_history
+                WHERE success = TRUE ORDER BY installed_rank
+                """);
+        Flyway throughV37 = flyway(MigrationVersion.fromVersion("37"));
+
+        assertThat(throughV37.migrate().migrationsExecuted).isEqualTo(1);
+
+        assertThat(rows("SELECT * FROM image_asset ORDER BY id")).isEqualTo(assetsBeforeTerms);
+        assertThat(rows("SELECT * FROM image_rendition ORDER BY id")).isEqualTo(renditionsBeforeTerms);
+        assertThat(rows("""
+                SELECT version, checksum FROM flyway_schema_history
+                WHERE success = TRUE AND version <> '37' ORDER BY installed_rank
+                """)).isEqualTo(historyBeforeTerms);
+        assertThat(rows("""
+                SELECT version FROM flyway_schema_history
+                WHERE success = TRUE AND version IN ('36', '36.1', '37') ORDER BY installed_rank
+                """)).containsExactly(List.of("36"), List.of("36.1"), List.of("37"));
+        assertThat(rows("SELECT type FROM support_terms_type"))
+                .containsExactlyInAnyOrder(List.of("SERVICE_TERMS"), List.of("PRIVACY_POLICY"),
+                        List.of("PERSONAL_DATA_COLLECTION"), List.of("PERSONAL_DATA_THIRD_PARTY"),
+                        List.of("RESERVATION_REFUND_POLICY"), List.of("REVIEW_POLICY"),
+                        List.of("POINT_TERMS"), List.of("SERVICE_POLICY"));
+        assertThat(rows("SELECT type FROM support_terms_type WHERE current_version_id IS NOT NULL")).isEmpty();
+        assertThat(rows("SELECT id FROM support_terms_version")).isEmpty();
+        long noticeAssetAfterTerms = insertAsset(MediaPurpose.NOTICE.name());
+        insertRendition(noticeAssetAfterTerms, ImageRole.NOTICE_DETAIL.name());
+        assertPurposeRejected("UNKNOWN_PURPOSE");
+        assertRoleRejected(noticeAssetAfterTerms, "UNKNOWN_ROLE");
+        assertThat(throughV37.info().current().getVersion()).isEqualTo(MigrationVersion.fromVersion("37"));
+        assertThat(throughV37.validateWithResult().validationSuccessful).isTrue();
+        assertThat(throughV37.migrate().migrationsExecuted).isZero();
     }
 
     private Flyway migrateFromEmpty(MigrationVersion target) {
