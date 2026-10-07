@@ -9,7 +9,7 @@ import org.testcontainers.containers.MySQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
-/** V31~V33 선행 결합 후 실행한다. missing V33을 target 설정만으로 통과 처리하지 않는다. */
+/** V32~V34 선행 결합 후 실행한다. missing V33을 target 설정만으로 통과 처리하지 않는다. */
 @Testcontainers(disabledWithoutDocker = true)
 class CollectionVersionMigrationTest {
     @Container
@@ -17,12 +17,12 @@ class CollectionVersionMigrationTest {
             .withDatabaseName("hashi").withUsername("hashi").withPassword("hashi");
 
     @Test
-    void V33_기존_컬렉션과_관계를_보존하며_V34_변경번호를_초기화한다() throws Exception {
-        Flyway throughV33 = Flyway.configure().dataSource(MYSQL.getJdbcUrl(), MYSQL.getUsername(), MYSQL.getPassword())
-                .locations("classpath:db/migration").target("33").cleanDisabled(false).load();
-        throughV33.clean();
-        throughV33.migrate();
-        assertThat(throughV33.info().current().getVersion().getVersion()).isEqualTo("33");
+    void V34_기존_컬렉션과_관계를_보존하며_V35_변경번호를_초기화한다() throws Exception {
+        Flyway throughV34 = Flyway.configure().dataSource(MYSQL.getJdbcUrl(), MYSQL.getUsername(), MYSQL.getPassword())
+                .locations("classpath:db/migration").target("34").cleanDisabled(false).load();
+        throughV34.clean();
+        throughV34.migrate();
+        assertThat(throughV34.info().current().getVersion().getVersion()).isEqualTo("34");
         try (var connection = DriverManager.getConnection(MYSQL.getJdbcUrl(), MYSQL.getUsername(), MYSQL.getPassword());
              var statement = connection.createStatement()) {
             statement.executeUpdate("insert into restaurant_collection(id,user_id,name,color,description,visibility) "
@@ -33,7 +33,7 @@ class CollectionVersionMigrationTest {
                 .locations("classpath:db/migration").validateOnMigrate(true).load();
         latest.migrate();
         assertThat(latest.validateWithResult().validationSuccessful).isTrue();
-        assertThat(latest.info().current().getVersion().getVersion()).isEqualTo("34");
+        assertThat(latest.info().current().getVersion().getVersion()).isEqualTo("35");
         try (var connection = DriverManager.getConnection(MYSQL.getJdbcUrl(), MYSQL.getUsername(), MYSQL.getPassword());
              var statement = connection.createStatement();
              var result = statement.executeQuery("select name,description,collection_version,"
