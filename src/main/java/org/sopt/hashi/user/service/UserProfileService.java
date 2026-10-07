@@ -91,12 +91,12 @@ public class UserProfileService {
     }
 
     /**
-     * 내 정보 부분 수정 — 전달된 필드만 본인 제외로 중복 재검사한 뒤 반영한다. 사진 교체는 새 asset claim과
+     * 내 정보 부분 수정 — 회원 행을 잠근 뒤 전달된 필드만 본인 제외로 중복 재검사하고 반영한다. 사진 교체는 새 asset claim과
      * 기존 asset retire를 같은 트랜잭션에서 처리해 일부만 바뀐 상태를 남기지 않는다(MYP-002).
      */
     @Transactional
     public MyInfoResponse updateMyInfo(UpdateMyInfoRequest request) {
-        User user = currentUser();
+        User user = currentUserForUpdate();
         availabilityChecker.requireAvailable(request.nickname(), request.email(), request.phone(), user.getId());
         user.updateProfile(request.nickname(), request.birthDate(), request.phone(), request.email());
         if (request.profileImageAssetId() != null) {
@@ -110,7 +110,7 @@ public class UserProfileService {
     /** 프로필 사진 삭제 — 기본 프로필로 돌린다. 사진이 없으면 할 일이 없으므로 그대로 성공한다(멱등). */
     @Transactional
     public void deleteProfileImage() {
-        User user = currentUser();
+        User user = currentUserForUpdate();
         retireProfileAsset(user.getProfileImageAssetId());
         user.removeProfileImage();
     }
@@ -118,6 +118,15 @@ public class UserProfileService {
     /** 토큰은 유효하나 활성 회원이 없으면 NOT_FOUND — 탈퇴 회원의 잔여 토큰은 필터의 블랙리스트 대조가 먼저 거부하므로 이 경로는 방어선이다. */
     private User currentUser() {
         return userRepository.findByIdAndDeletedFalse(currentUserProvider.currentUserId())
+                .orElseThrow(() -> new BusinessException(UserErrorCode.NOT_FOUND));
+    }
+
+    /**
+     * 수정·삭제는 users 행을 잠근 뒤 현재 사진을 읽는다 — 같은 회원의 요청이 겹쳐도 순서대로 처리돼, 먼저 연결한 asset이
+     * 어디에도 참조되지 않은 채 BOUND로 남지 않는다. 탈퇴(회원 행 잠금 뒤 처리)와의 순서도 같은 잠금이 강제한다.
+     */
+    private User currentUserForUpdate() {
+        return userRepository.findByIdForUpdate(currentUserProvider.currentUserId())
                 .orElseThrow(() -> new BusinessException(UserErrorCode.NOT_FOUND));
     }
 
