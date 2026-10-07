@@ -3,7 +3,7 @@
 상태: 구현 계약. PLAN SPRINT-001 §10 및 TERMS 화면 기준.
 
 support_terms_type의 8개 행은 화면 유형과 동시 게시 잠금의 필수 제어 데이터다.
-환경 독립·비민감 데이터이며 V36에서 current_version_id=NULL로 최초 생성한다.
+환경 독립·비민감 데이터이며 V37에서 current_version_id=NULL로 최초 생성한다.
 본문·법률 문구·개인정보·동의 이력·실제 게시 버전은 migration에 넣지 않는다.
 서버 시작/repeatable migration으로 운영 pointer를 재초기화하지 않는다.
 
