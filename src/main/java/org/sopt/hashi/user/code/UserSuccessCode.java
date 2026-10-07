@@ -9,7 +9,8 @@ public enum UserSuccessCode implements SuccessCode {
 
     ONBOARDING_COMPLETED(HttpStatus.CREATED, "USER-201", "회원가입이 완료되었습니다"),
     COLLECTION_CREATED(HttpStatus.CREATED, "USER-202", "컬렉션을 만들었습니다"),
-    RESTAURANT_SAVED(HttpStatus.CREATED, "USER-203", "컬렉션에 식당을 저장했습니다");
+    RESTAURANT_SAVED(HttpStatus.CREATED, "USER-203", "컬렉션에 식당을 저장했습니다"),
+    WITHDRAWN(HttpStatus.OK, "USER-204", "회원 탈퇴가 완료되었습니다");
 
     private final HttpStatus status;
     private final String code;

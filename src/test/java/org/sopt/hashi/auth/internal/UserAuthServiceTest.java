@@ -1,4 +1,5 @@
 package org.sopt.hashi.auth.internal;
+import org.sopt.hashi.auth.internal.token.TokenBlacklist;
 import org.sopt.hashi.auth.internal.token.RefreshTokenStore;
 import org.sopt.hashi.auth.internal.token.OnboardingTokenStore;
 import org.sopt.hashi.auth.internal.kakao.KakaoOAuthClient;
@@ -33,9 +34,11 @@ class UserAuthServiceTest {
     private final JwtProvider jwtProvider = Mockito.mock(JwtProvider.class);
     private final RefreshTokenStore refreshTokenStore = Mockito.mock(RefreshTokenStore.class);
     private final OnboardingTokenStore onboardingTokenStore = Mockito.mock(OnboardingTokenStore.class);
+    private final TokenBlacklist tokenBlacklist = Mockito.mock(TokenBlacklist.class);
 
     private final UserAuthService service = new UserAuthService(
-            kakaoOAuthClient, authAccountService, jwtProvider, refreshTokenStore, onboardingTokenStore);
+            kakaoOAuthClient, authAccountService, jwtProvider, refreshTokenStore, onboardingTokenStore,
+            tokenBlacklist);
 
     @Test
     @DisplayName("재발급 시 리프레시를 회전(rotate)한다 — 재사용 감지가 걸리도록 매번 교체")
@@ -58,6 +61,19 @@ class UserAuthServiceTest {
                 .willReturn(new JwtClaims(7L, AuthRoles.USER, JwtProvider.TYPE_ACCESS));
 
         assertThatThrownBy(() -> service.reissue("accessToken"))
+                .isInstanceOf(BusinessException.class)
+                .hasFieldOrPropertyWithValue("errorCode", AuthErrorCode.INVALID_TOKEN);
+        verify(refreshTokenStore, never()).rotate(any(), any(), any(), any());
+    }
+
+    @Test
+    @DisplayName("탈퇴(블랙리스트) 회원의 리프레시 토큰으로 재발급하면 INVALID_TOKEN으로 거부하고 회전하지 않는다")
+    void 재발급_탈퇴_회원_거부() {
+        given(jwtProvider.parse("withdrawnRefresh"))
+                .willReturn(new JwtClaims(7L, AuthRoles.USER, JwtProvider.TYPE_REFRESH));
+        given(tokenBlacklist.isUserBlocked(7L)).willReturn(true);
+
+        assertThatThrownBy(() -> service.reissue("withdrawnRefresh"))
                 .isInstanceOf(BusinessException.class)
                 .hasFieldOrPropertyWithValue("errorCode", AuthErrorCode.INVALID_TOKEN);
         verify(refreshTokenStore, never()).rotate(any(), any(), any(), any());

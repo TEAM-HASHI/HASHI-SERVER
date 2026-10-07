@@ -1,4 +1,5 @@
 package org.sopt.hashi.auth.internal;
+import org.sopt.hashi.auth.internal.token.TokenBlacklist;
 import org.sopt.hashi.auth.internal.token.RefreshTokenStore;
 import org.sopt.hashi.auth.internal.token.OnboardingTokenStore;
 import org.sopt.hashi.auth.internal.kakao.KakaoOAuthClient;
@@ -24,17 +25,20 @@ public class UserAuthService {
     private final JwtProvider jwtProvider;
     private final RefreshTokenStore refreshTokenStore;
     private final OnboardingTokenStore onboardingTokenStore;
+    private final TokenBlacklist tokenBlacklist;
 
     public UserAuthService(KakaoOAuthClient kakaoOAuthClient,
                            AuthAccountService authAccountService,
                            JwtProvider jwtProvider,
                            RefreshTokenStore refreshTokenStore,
-                           OnboardingTokenStore onboardingTokenStore) {
+                           OnboardingTokenStore onboardingTokenStore,
+                           TokenBlacklist tokenBlacklist) {
         this.kakaoOAuthClient = kakaoOAuthClient;
         this.authAccountService = authAccountService;
         this.jwtProvider = jwtProvider;
         this.refreshTokenStore = refreshTokenStore;
         this.onboardingTokenStore = onboardingTokenStore;
+        this.tokenBlacklist = tokenBlacklist;
     }
 
     /** 카카오 인가코드로 로그인한다. 회원이면 정식 토큰, 비회원이면 온보딩 임시 토큰을 발급한다. */
@@ -45,12 +49,13 @@ public class UserAuthService {
                 .orElseGet(() -> issueOnboardingToken(kakaoId));
     }
 
-    /** 리프레시 쿠키로 토큰을 재발급한다. 회전 시 재사용이 감지되면 세션이 무효화된다. */
+    /** 리프레시 쿠키로 토큰을 재발급한다. 회전 시 재사용이 감지되면 세션이 무효화되고, 탈퇴 회원은 거부된다. */
     public TokenPair reissue(String presentedRefreshToken) {
         JwtProvider.JwtClaims claims = jwtProvider.parse(presentedRefreshToken);
         if (!claims.isRefreshToken()) {
             throw new BusinessException(AuthErrorCode.INVALID_TOKEN);
         }
+        rejectIfBlacklisted(claims);
         String newRefreshToken = jwtProvider.createRefreshToken(claims.subjectId(), claims.role());
         refreshTokenStore.rotate(claims.role(), claims.subjectId(), presentedRefreshToken, newRefreshToken);
         String newAccessToken = jwtProvider.createAccessToken(claims.subjectId(), claims.role());
@@ -67,6 +72,16 @@ public class UserAuthService {
             throw new BusinessException(AuthErrorCode.INVALID_TOKEN);
         }
         refreshTokenStore.revoke(AuthRoles.USER, claims.subjectId());
+    }
+
+    /**
+     * 블랙리스트에 오른 회원(현재는 탈퇴) 차단 — 탈퇴 처리 중 다른 기기에서 로그인해 받은 리프레시 토큰이 Redis에
+     * 남아 있어도, 블랙리스트 TTL(리프레시 만료시간) 동안 재발급을 거부해 새 액세스 토큰이 나가지 않게 한다.
+     */
+    private void rejectIfBlacklisted(JwtProvider.JwtClaims claims) {
+        if (AuthRoles.USER.equals(claims.role()) && tokenBlacklist.isUserBlocked(claims.subjectId())) {
+            throw new BusinessException(AuthErrorCode.INVALID_TOKEN);
+        }
     }
 
     private KakaoLoginResult issueMemberTokens(Long userId) {
