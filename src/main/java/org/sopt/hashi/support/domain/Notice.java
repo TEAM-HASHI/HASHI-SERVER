@@ -19,12 +19,13 @@ import lombok.Getter;
 import lombok.NoArgsConstructor;
 import org.hibernate.annotations.JdbcTypeCode;
 import org.hibernate.type.SqlTypes;
+import org.sopt.hashi.BaseTimeEntity;
 
 @Getter
 @Entity
 @Table(name = "support_notice")
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
-public class Notice extends org.sopt.hashi.BaseTimeEntity {
+public class Notice extends BaseTimeEntity {
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
@@ -65,8 +66,11 @@ public class Notice extends org.sopt.hashi.BaseTimeEntity {
         this.bodyJson = bodyJson;
         imageAssetIds.clear();
         imageAssetIds.addAll(images);
-        if (changed && publishedAt != null) {
-            modifiedAfterPublicationAt = now;
+        if (changed) {
+            markUpdatedAt(now);
+            if (publishedAt != null) {
+                modifiedAfterPublicationAt = now;
+            }
         }
     }
 

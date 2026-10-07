@@ -85,12 +85,47 @@ class NoticeMySqlTest {
         assertThat(created.publishedAt()).isNull();
         jdbc.update("UPDATE support_notice SET updated_at = '2000-01-01 00:00:00' WHERE id = ?", created.noticeId());
         NoticeInfo updated = service.update(created.noticeId(), command("변경한 초안", List.of()));
-        assertThat(updated.createdAt()).isEqualTo(created.createdAt().truncatedTo(java.time.temporal.ChronoUnit.MICROS));
+        assertThat(updated.createdAt()).isCloseTo(created.createdAt(), org.assertj.core.api.Assertions.within(1, java.time.temporal.ChronoUnit.MICROS));
         assertThat(updated.updatedAt()).isAfter(java.time.LocalDateTime.of(2000, 1, 1, 0, 0));
         assertThat(updated.publishedAt()).isNull();
         assertThat(updated.lastModifiedAt()).isNull();
         assertThat(service.adminDetail(created.noticeId()).updatedAt())
-                .isEqualTo(updated.updatedAt().truncatedTo(java.time.temporal.ChronoUnit.MICROS));
+                .isCloseTo(updated.updatedAt(), org.assertj.core.api.Assertions.within(1, java.time.temporal.ChronoUnit.MICROS));
+    }
+
+    @Test
+    void 초안의_이미지만_교체해도_수정_시각을_기록한다() {
+        NoticeInfo created = service.create(command("초안", List.of()));
+        jdbc.update("UPDATE support_notice SET updated_at = '2000-01-01 00:00:00' WHERE id = ?", created.noticeId());
+        UUID first = UUID.randomUUID();
+        UUID second = UUID.randomUUID();
+        NoticeInfo updated = service.update(created.noticeId(), command("초안", List.of(first, second)));
+        assertThat(updated.updatedAt()).isAfter(java.time.LocalDateTime.of(2000, 1, 1, 0, 0));
+        jdbc.update("UPDATE support_notice SET updated_at = '2000-01-01 00:00:00' WHERE id = ?", created.noticeId());
+        NoticeInfo reordered = service.update(created.noticeId(), command("초안", List.of(second, first)));
+        assertThat(reordered.updatedAt()).isAfter(java.time.LocalDateTime.of(2000, 1, 1, 0, 0));
+        assertThat(service.adminDetail(created.noticeId()).images()).extracting(NoticeInfo.Attachment::assetId)
+                .containsExactly(second, first);
+    }
+
+    @Test
+    void 같은_내용을_다시_저장하면_수정_시각을_바꾸지_않는다() {
+        var command = command("초안", List.of(UUID.randomUUID()));
+        Long id = service.create(command).noticeId();
+        jdbc.update("UPDATE support_notice SET updated_at = '2000-01-01 00:00:00' WHERE id = ?", id);
+        assertThat(service.update(id, command).updatedAt()).isEqualTo(java.time.LocalDateTime.of(2000, 1, 1, 0, 0));
+        assertThat(service.adminDetail(id).updatedAt()).isEqualTo(java.time.LocalDateTime.of(2000, 1, 1, 0, 0));
+    }
+
+    @Test
+    void 공개공지_수정은_감사시각과_공개용_수정시각을_함께_기록한다() {
+        Long id = service.create(command("게시할 공지", List.of())).noticeId();
+        var published = service.publish(id);
+        jdbc.update("UPDATE support_notice SET updated_at = '2000-01-01 00:00:00' WHERE id = ?", id);
+        var updated = service.update(id, command("수정한 공지", List.of()));
+        assertThat(updated.updatedAt()).isAfter(java.time.LocalDateTime.of(2000, 1, 1, 0, 0));
+        assertThat(updated.lastModifiedAt()).isAfterOrEqualTo(published.lastModifiedAt());
+        assertThat(updated.publishedAt()).isEqualTo(published.publishedAt());
     }
 
     @Test
