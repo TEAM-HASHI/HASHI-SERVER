@@ -17,8 +17,11 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.sopt.hashi.admin.dto.AdminMagazineResponse;
 import org.sopt.hashi.admin.dto.CreateMagazineRequest;
+import org.sopt.hashi.admin.dto.MagazineCardNewsRequest;
 import org.sopt.hashi.admin.dto.UpdateMagazineRequest;
 import org.sopt.hashi.magazine.AdminMagazineCommand;
+import org.sopt.hashi.magazine.AdminMagazineCommand.ImageCommand;
+import org.sopt.hashi.magazine.MagazineCardNewsInfo;
 import org.sopt.hashi.magazine.MagazineInfo;
 import org.sopt.hashi.magazine.MagazinePort;
 import org.sopt.hashi.media.MediaImage;
@@ -30,6 +33,8 @@ import org.sopt.hashi.media.MediaImageStatus;
 
 @ExtendWith(MockitoExtension.class)
 class AdminMagazineServiceTest {
+
+    private static final String INSTAGRAM_URL = "https://www.instagram.com/p/test/";
 
     @Mock
     private MagazinePort magazinePort;
@@ -49,8 +54,8 @@ class AdminMagazineServiceTest {
                 .thenReturn(info(banner, thumbnail));
 
         AdminMagazineResponse response = service.create(new CreateMagazineRequest(
-                "매거진", null, banner.assetId(), null, thumbnail.assetId(),
-                "https://www.instagram.com/p/test/"));
+                "매거진", null, banner.assetId(), null, thumbnail.assetId(), INSTAGRAM_URL,
+                null, null, null, null));
 
         ArgumentCaptor<AdminMagazineCommand> command = ArgumentCaptor.forClass(AdminMagazineCommand.class);
         verify(magazinePort).createByAdmin(command.capture());
@@ -68,11 +73,12 @@ class AdminMagazineServiceTest {
                 .thenReturn(new MagazineInfo(
                         1L, "매거진", "https://cdn.hashi.test/banner.jpg", null,
                         "https://cdn.hashi.test/thumbnail.jpg", null,
-                        "https://www.instagram.com/p/test/", LocalDateTime.now()));
+                        INSTAGRAM_URL, LocalDateTime.now(),
+                        null, List.of(), List.of(), List.of()));
 
         AdminMagazineResponse response = service.create(new CreateMagazineRequest(
-                "매거진", "magazines/banner.jpg", "magazines/thumbnail.jpg",
-                "https://www.instagram.com/p/test/"));
+                "매거진", "magazines/banner.jpg", null, "magazines/thumbnail.jpg", null, INSTAGRAM_URL,
+                null, null, null, null));
 
         ArgumentCaptor<AdminMagazineCommand> command = ArgumentCaptor.forClass(AdminMagazineCommand.class);
         verify(magazinePort).createByAdmin(command.capture());
@@ -90,7 +96,8 @@ class AdminMagazineServiceTest {
                 .thenReturn(info(banner, thumbnail));
 
         service.update(1L, new UpdateMagazineRequest(
-                null, null, banner.assetId(), null, null, null));
+                null, null, banner.assetId(), null, null, null,
+                null, null, null, null));
 
         ArgumentCaptor<AdminMagazineCommand> command = ArgumentCaptor.forClass(AdminMagazineCommand.class);
         verify(magazinePort).updateByAdmin(eq(1L), command.capture());
@@ -98,11 +105,87 @@ class AdminMagazineServiceTest {
         assertThat(command.getValue().thumbnailImage()).isNull();
     }
 
+    @Test
+    void 등록은_상세_화면_데이터를_순서대로_명령에_담아_전달한다() {
+        UUID cardAssetId = UUID.randomUUID();
+        when(magazinePort.createByAdmin(any(AdminMagazineCommand.class)))
+                .thenReturn(info(
+                        image(MediaImageRole.MAGAZINE_BANNER, 780, 354),
+                        image(MediaImageRole.MAGAZINE_THUMBNAIL, 312, 176)));
+
+        service.create(new CreateMagazineRequest(
+                "매거진", "magazines/banner.jpg", null, "magazines/thumbnail.jpg", null, INSTAGRAM_URL,
+                "본문",
+                List.of(
+                        new MagazineCardNewsRequest("magazines/card-1.jpg", null),
+                        new MagazineCardNewsRequest(null, cardAssetId)),
+                List.of("이자카야", "퇴근길"),
+                List.of(1002L, 1001L)));
+
+        ArgumentCaptor<AdminMagazineCommand> command = ArgumentCaptor.forClass(AdminMagazineCommand.class);
+        verify(magazinePort).createByAdmin(command.capture());
+        assertThat(command.getValue().content()).isEqualTo("본문");
+        assertThat(command.getValue().cardNews()).containsExactly(
+                new ImageCommand("magazines/card-1.jpg", null),
+                new ImageCommand(null, cardAssetId));
+        assertThat(command.getValue().hashtags()).containsExactly("이자카야", "퇴근길");
+        assertThat(command.getValue().restaurantIds()).containsExactly(1002L, 1001L);
+    }
+
+    @Test
+    void PATCH에서_생략한_상세_화면_데이터는_null로_빈_배열은_빈_목록으로_구분해_전달한다() {
+        when(magazinePort.updateByAdmin(eq(1L), any(AdminMagazineCommand.class)))
+                .thenReturn(info(
+                        image(MediaImageRole.MAGAZINE_BANNER, 780, 354),
+                        image(MediaImageRole.MAGAZINE_THUMBNAIL, 312, 176)));
+
+        service.update(1L, new UpdateMagazineRequest(
+                "제목", null, null, null, null, null,
+                null, List.of(), null, List.of()));
+
+        ArgumentCaptor<AdminMagazineCommand> command = ArgumentCaptor.forClass(AdminMagazineCommand.class);
+        verify(magazinePort).updateByAdmin(eq(1L), command.capture());
+        assertThat(command.getValue().content()).isNull();
+        assertThat(command.getValue().cardNews()).isEmpty();
+        assertThat(command.getValue().hashtags()).isNull();
+        assertThat(command.getValue().restaurantIds()).isEmpty();
+    }
+
+    @Test
+    void 응답은_카드뉴스_wrapper와_상세_화면_데이터를_그대로_옮긴다() {
+        MediaImage cardImage = image(MediaImageRole.MAGAZINE_CARD_NEWS, 864, 1080);
+        when(magazinePort.createByAdmin(any(AdminMagazineCommand.class)))
+                .thenReturn(new MagazineInfo(
+                        1L, "매거진", "https://cdn.hashi.test/banner.jpg", null,
+                        "https://cdn.hashi.test/thumbnail.jpg", null,
+                        INSTAGRAM_URL, LocalDateTime.now(),
+                        "본문",
+                        List.of(
+                                new MagazineCardNewsInfo(
+                                        11L, 1, null, "https://cdn.hashi.test/magazines/card-1.jpg"),
+                                new MagazineCardNewsInfo(12L, 2, cardImage, null)),
+                        List.of("이자카야"),
+                        List.of(1002L, 1001L)));
+
+        AdminMagazineResponse response = service.create(new CreateMagazineRequest(
+                "매거진", "magazines/banner.jpg", null, "magazines/thumbnail.jpg", null, INSTAGRAM_URL,
+                null, null, null, null));
+
+        assertThat(response.content()).isEqualTo("본문");
+        assertThat(response.hashtags()).containsExactly("이자카야");
+        assertThat(response.restaurantIds()).containsExactly(1002L, 1001L);
+        assertThat(response.cardNewsImages()).containsExactly(
+                new AdminMagazineResponse.CardNewsImageResponse(
+                        11L, 1, null, "https://cdn.hashi.test/magazines/card-1.jpg"),
+                new AdminMagazineResponse.CardNewsImageResponse(12L, 2, cardImage, null));
+    }
+
     private MagazineInfo info(MediaImage banner, MediaImage thumbnail) {
         return new MagazineInfo(
                 1L, "매거진", banner.defaultSource().url(), banner,
                 thumbnail.defaultSource().url(), thumbnail,
-                "https://www.instagram.com/p/test/", LocalDateTime.now());
+                INSTAGRAM_URL, LocalDateTime.now(),
+                null, List.of(), List.of(), List.of());
     }
 
     private MediaImage image(MediaImageRole role, int width, int height) {
