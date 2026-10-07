@@ -32,16 +32,25 @@ public class GeocodingBudget {
     @JdbcTypeCode(SqlTypes.LOCAL_DATE_TIME)
     private LocalDateTime blockedUntil;
 
+    /** Read-only polling hint; claim must recheck while holding the shared budget lock. */
+    public boolean canReserve(LocalDateTime now, long running) {
+        if (!enabled || dailyLimit <= 0 || running >= maxConcurrent
+                || (blockedUntil != null && now.isBefore(blockedUntil))) {
+            return false;
+        }
+        if (budgetDay == null || budgetDay.isBefore(now.toLocalDate())) {
+            return true;
+        }
+        return budgetDay.equals(now.toLocalDate()) && reservedCalls < dailyLimit;
+    }
+
     public boolean reserve(LocalDateTime now, long running) {
-        if (!enabled || running >= maxConcurrent || (blockedUntil != null && now.isBefore(blockedUntil))) {
+        if (!canReserve(now, running)) {
             return false;
         }
         if (budgetDay == null || budgetDay.isBefore(now.toLocalDate())) {
             budgetDay = now.toLocalDate();
             reservedCalls = 0;
-        }
-        if (!budgetDay.equals(now.toLocalDate()) || reservedCalls >= dailyLimit) {
-            return false;
         }
         reservedCalls++;
         return true;

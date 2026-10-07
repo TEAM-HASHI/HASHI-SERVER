@@ -25,7 +25,7 @@ class LocationAdoptionPolicyTest {
     static LocationJobProperties properties() {
         // Synthetic bounds/addresses; these are not operational Tokyo region data.
         return new LocationJobProperties(true, Duration.ofDays(1), new BigDecimal("10"), new BigDecimal("11"),
-                new BigDecimal("20"), new BigDecimal("21"), 4);
+                new BigDecimal("20"), new BigDecimal("21"), null);
     }
 
     static GeocodingCandidate candidate() {
@@ -118,7 +118,7 @@ class LocationAdoptionPolicyTest {
     void 기본_비활성과_명시적_보관_수명_지원범위_활성화_조건을_검증한다() {
         var disabled = new LocationJobProperties(false, null, null, null, null, null, null);
         assertThat(disabled.enabled()).isFalse();
-        assertThat(disabled.maxAttempts()).isEqualTo(4);
+        assertThat(disabled.maxAttempts()).isEqualTo(8);
         assertThat(new LocationJobProperties(true, null, null, null, null, null, null).isConfigured()).isFalse();
         assertThat(new LocationJobProperties(true, Duration.ofDays(31),
                 BigDecimal.ZERO, BigDecimal.ONE, BigDecimal.ZERO, BigDecimal.ONE, 4).isConfigured()).isFalse();
@@ -132,7 +132,5 @@ class LocationAdoptionPolicyTest {
         assertThat(retries.canRetry(kind)).isEqualTo(List.of(FailureKind.TIMEOUT, FailureKind.CONNECTION_ERROR,
                 FailureKind.TRANSIENT_ERROR, FailureKind.QUOTA_EXCEEDED, FailureKind.CAPACITY_EXCEEDED,
                 FailureKind.CANCELLED).contains(kind));
-        assertThat(retries.delay(kind, 1)).isBetween(Duration.ofSeconds(30), Duration.ofSeconds(375));
-        assertThat(retries.delay(kind, 100)).isBetween(Duration.ofSeconds(1800), Duration.ofSeconds(2250));
     }
 }

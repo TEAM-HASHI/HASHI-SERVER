@@ -45,9 +45,9 @@ partial_match 제거와 국가/지역 입력의 편향 의미를 반영한다. R
 | lease | 2분; adapter의 최대 30초 deadline보다 길다 |
 | polling | 기본 5초 (`hashi.map.location-job.poll-delay`, ms), cycle 후보 최대 50 |
 | 실행 스레드 | 전용 단일 scheduler, cycle 중첩 없음; 기존 예약 작업의 scheduler 유지 |
-| max-attempts | 기본 4, 허용 1~8, DB에 누적 |
-| 일반 일시 오류 | 30초 × 2^(attempt-1), 최대 30분 + 0~25% jitter |
-| Google quota | 5분부터 같은 지수 지연, DB blockedUntil로 전체 서버 대기 |
+| max-attempts | 기본 8(최초 요청 포함), 허용 1~8, 같은 작업 행에 누적 |
+| 재시도 간격 | 1분 → 5분 → 30분 → 2시간 → 6시간 → 12시간 → 24시간, 각 간격에 0~10% 무작위 지연 |
+| Google quota | 같은 재시도 간격을 DB blockedUntil에 기록해 전체 서버 대기; 마지막 실패도 24시간 + jitter 적용 |
 | 일일 예산 | DB daily_limit, 초기 0; UTC 날짜가 앞으로 바뀔 때만 갱신 |
 | 전역 동시 처리 | DB max_concurrent, 초기 0, 허용 0~4 |
 | 중단 | application enabled 또는 DB enabled=false; 새 claim 중단 |
@@ -61,7 +61,7 @@ partial_match 제거와 국가/지역 입력의 편향 의미를 반영한다. R
 | timeout/연결/5xx | RETRY_WAIT; TIMEOUT / CONNECTION_ERROR / TRANSIENT_ERROR |
 | Google 429 | RETRY_WAIT / QUOTA_EXCEEDED, 공유 대기; 마지막 시도도 공유 대기를 기록하고 FAILED / ATTEMPTS_EXHAUSTED |
 | 로컬 실행 슬롯 부족 | RETRY_WAIT / CAPACITY_EXCEEDED, Google quota와 구별 |
-| 취소 | RETRY_WAIT / CANCELLED 또는 중단된 thread의 lease 복구; 주소 오류로 취급하지 않음 |
+| 취소 | 한도 내 RETRY_WAIT / CANCELLED, 마지막 시도는 FAILED / ATTEMPTS_EXHAUSTED; 중단된 thread는 lease 만료 후 복구 |
 | 비활성 provider/키권한/설정/잘못된 요청·응답 | FAILED / adapter의 안전한 FailureKind |
 | 최대 시도 소진 | FAILED / ATTEMPTS_EXHAUSTED |
 | 오래된 revision/request/job/lease 또는 삭제 | 성공/실패 모두 no-op |
@@ -85,3 +85,13 @@ worker를 켰으나 지원 범위/보관 기간이 없거나 유효하지 않으
 제어 행 누락 시 호출을 차단하므로 누락 원인을 확인한 뒤 중단·한도 0 상태로 복원해야 한다.
 문서/로그에 키·원문 주소·좌표·Google 응답·전체 URI를 남기지 않는다.
 처리 이력에는 ID/revision/requestId/lease/시도/안전한 코드와 시각만 남는다.
+
+## 이번 변경 전후
+
+- 기존에는 갱신 시작 시 좌표를 비웠다. 이제 같은 주소의 갱신 중에는 이전 좌표를 원래 만료 시각까지 사용한다.
+  새 결과가 검증되면 교체하고, 주소가 바뀌면 즉시 제거한다. 재시도나 실패만으로 만료 시각을 늘리지 않는다.
+- 자동 시도 기본값을 4회에서 최초 요청 포함 8회로 바꿨다. 일정은 위 표를 따르며 오류가 영구적이면 즉시 중단한다.
+- 마지막 취소 응답도 재시도 대기에 남기지 않고 실패로 끝낸다. 전송 중인 요청의 실행 예약은 lease까지 남겨 중복 호출을 막는다.
+- 정기 갱신 스케줄과 Grafana 알림은 #235에서 연결한다. V31/V32의 최종 번호는 #249 등 선행 migration 병합 순서에 맞춰 정리한다.
+- 전역 호출 중단·일일 한도 소진·공유 대기·실행 슬롯 포화는 후보 조회 전에 읽기 전용으로 확인한다. 실제 예약 시에는 잠금 안에서 다시 검사한다.
+  다만 이미 시도를 소진한 만료 작업과 설정 오류는 Google 호출 없이 실패로 정리한다. 호출 대기 작업이 많아도 소진 작업이 밀리지 않도록 별도로 조회한다.

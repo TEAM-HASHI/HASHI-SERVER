@@ -139,7 +139,7 @@ class LocationMaintenanceMySqlTest {
         jdbc.update("DELETE FROM restaurant_location_maintenance_run");
         jdbc.update("DELETE FROM restaurant_location_job");
         // Keep prior parent/child fixture rows; make them ineligible for this case's retention scan.
-        jdbc.update("UPDATE restaurant_location SET source='ADMIN' WHERE status='READY'");
+        jdbc.update("UPDATE restaurant_location SET source='ADMIN' WHERE source IS NOT NULL");
         jdbc.update("""
                 UPDATE restaurant_geocoding_budget SET enabled=true, daily_limit=1000, max_concurrent=4,
                     reserved_calls=0, budget_day=NULL, blocked_until=NULL WHERE id=1
@@ -447,17 +447,20 @@ class LocationMaintenanceMySqlTest {
     }
 
     @Test
-    void 갱신은_기존좌표를_즉시지우고_실패나_재실행으로_옛수명을_연장하지않는다() {
+    void 갱신은_유효좌표를_유지하고_실패나_재실행으로_옛수명을_연장하지않는다() {
         long id = ready(Duration.ofHours(3), false);
         var options = options(Command.START, Mode.REFRESH, true, UUID.randomUUID(), id, 10, 80);
         runner.execute(options);
-        assertCleared(id, "PENDING");
+        var until = locations.get(id).validUntil();
+        tx.executeWithoutResult(status -> assertThat(restaurants.findById(id).orElseThrow()
+                .hasUsableMapLocation(clock(reader.now()))).isTrue());
         provider.answer.set(address -> new GeocodingResult.NoResults());
         worker.process(target(id));
-        assertCleared(id, "REVIEW_REQUIRED");
+        assertThat(locations.get(id).locationStatus()).isEqualTo("REVIEW_REQUIRED");
+        assertThat(locations.get(id).validUntil()).isEqualTo(until);
         runner.execute(options(Command.START, Mode.REFRESH, true, UUID.randomUUID(), id, 10, 80));
         assertThat(count("restaurant_location_job")).isEqualTo(1);
-        assertThat(maintenance.status(options.runId()).completion().currentlyUsableLocations()).isZero();
+        assertThat(maintenance.status(options.runId()).completion().currentlyUsableLocations()).isEqualTo(1);
     }
 
     @Test
@@ -717,10 +720,111 @@ class LocationMaintenanceMySqlTest {
         }
     }
 
+    @Test
+    void 자동갱신은_3일전에_한번만등록하고_짧은수명과_실패작업을_반복등록하지않는다() {
+        long id = ready(Duration.ofDays(2), false);
+        long shortLived = ready(Duration.ofHours(3), false);
+        var policy = new org.sopt.hashi.restaurant.internal.map.LocationRetentionProperties(
+                null, null, null, null, false, null);
+        assertThat(retention.refresh(policy)).isEqualTo(1);
+        var target = target(id);
+        provider.answer.set(address -> new GeocodingResult.Failure(GeocodingResult.FailureKind.TRANSIENT_ERROR, null));
+        worker.process(target);
+        assertThat(locations.get(id).attempt()).isEqualTo(1);
+        var until = locations.get(id).validUntil();
+        assertThat(retention.refresh(policy)).isZero();
+        assertThat(target(id).jobId()).isEqualTo(target.jobId());
+        assertThat(locations.get(id).attempt()).isEqualTo(1);
+        assertThat(locations.get(id).validUntil()).isEqualTo(until);
+        assertThat(locations.get(shortLived).locationStatus()).isEqualTo("READY");
+        makeDue(id);
+        provider.answer.set(address -> new GeocodingResult.Candidates(List.of(candidate())));
+        worker.process(target);
+        assertThat(retention.refresh(policy)).isZero();
+        assertThat(count("restaurant_location_job")).isEqualTo(1);
+    }
+
+    @Test
+    void 만료후_재시작도_READY최초작업을_등록하고_옛좌표만_정리한다() {
+        long id = ready(Duration.ofSeconds(-1), false);
+        jdbc.update("UPDATE restaurant_location l JOIN restaurant r ON r.location_id=l.id "
+                + "SET l.obtained_at=UTC_TIMESTAMP(6)-INTERVAL 10 DAY WHERE r.id=?", id);
+        var policy = new org.sopt.hashi.restaurant.internal.map.LocationRetentionProperties(
+                null, null, null, null, false, null);
+        assertThat(retention.refresh(policy)).isEqualTo(1);
+        var target = target(id);
+        assertThat(retention.purge(policy).purged()).isEqualTo(1);
+        assertCleared(id, "PENDING");
+        worker.process(target);
+        assertThat(locations.get(id).locationStatus()).isEqualTo("READY");
+        assertThat(locations.get(id).attempt()).isEqualTo(1);
+    }
+
+    @Test
+    void 기본정리는_만료전좌표를_유지하고_만료후에도_같은작업으로_재시도한다() {
+        long id = ready(Duration.ofHours(3), false);
+        runner.execute(options(Command.START, Mode.REFRESH, true, UUID.randomUUID(), id, 10, 80));
+        var target = target(id);
+        provider.answer.set(address -> new GeocodingResult.Failure(GeocodingResult.FailureKind.TRANSIENT_ERROR, null));
+        worker.process(target);
+        var policy = new org.sopt.hashi.restaurant.internal.map.LocationRetentionProperties(
+                null, null, null, null, false, null);
+        assertThat(retention.purge(policy).purged()).isZero();
+        jdbc.update("UPDATE restaurant_location l JOIN restaurant r ON r.location_id=l.id "
+                + "SET l.valid_until=UTC_TIMESTAMP(6)-INTERVAL 1 SECOND WHERE r.id=?", id);
+        assertThat(retention.purge(policy).purged()).isEqualTo(1);
+        assertCleared(id, "RETRY_WAIT");
+        assertThat(target(id).jobId()).isEqualTo(target.jobId());
+        assertThat(locations.get(id).attempt()).isEqualTo(1);
+        makeDue(id);
+        provider.answer.set(address -> new GeocodingResult.Candidates(List.of(candidate())));
+        worker.process(target);
+        assertThat(locations.get(id).locationStatus()).isEqualTo("READY");
+        assertThat(locations.get(id).attempt()).isEqualTo(2);
+    }
+
+    @Test
+    void 알림집계는_현재작업만_세고_주소나식당ID를_label에_노출하지않는다() {
+        long id = original();
+        enqueue(id);
+        var target = target(id);
+        provider.answer.set(address -> new GeocodingResult.Failure(GeocodingResult.FailureKind.ACCESS_DENIED, 403));
+        worker.process(target);
+        var registry = new io.micrometer.core.instrument.simple.SimpleMeterRegistry();
+        var metrics = new org.sopt.hashi.restaurant.internal.map.LocationMaintenanceMetrics(jdbc, registry,
+                new Fixtures().jobs(), new org.sopt.hashi.restaurant.internal.map.LocationRetentionProperties(
+                        null, null, null, null, false, null));
+        metrics.refresh();
+        assertThat(registry.get("hashi.map.maintenance.issues").tag("reason", "access_denied").gauge().value()).isEqualTo(1);
+        locations.retry(id, locations.get(id).addressRevision());
+        metrics.refresh();
+        assertThat(registry.get("hashi.map.maintenance.issues").tag("reason", "access_denied").gauge().value()).isZero();
+        jdbc.update("UPDATE restaurant_location_job SET attempt=3, failure_code='TIMEOUT', "
+                + "next_attempt_at=UTC_TIMESTAMP(6)-INTERVAL 16 MINUTE, "
+                + "updated_at=UTC_TIMESTAMP(6)-INTERVAL 16 MINUTE WHERE id=?", target(id).jobId());
+        ready(Duration.ofHours(23), false);
+        metrics.refresh();
+        assertThat(registry.get("hashi.map.maintenance.issues").tag("reason", "retrying").gauge().value()).isEqualTo(1);
+        assertThat(registry.get("hashi.map.maintenance.issues").tag("reason", "stalled").gauge().value()).isEqualTo(1);
+        assertThat(registry.get("hashi.map.maintenance.issues").tag("reason", "expiry_soon").gauge().value()).isEqualTo(1);
+        jdbc.update("UPDATE restaurant_geocoding_budget SET blocked_until=UTC_TIMESTAMP(6)+INTERVAL 1 HOUR WHERE id=1");
+        metrics.refresh();
+        assertThat(registry.get("hashi.map.maintenance.issues").tag("reason", "stalled").gauge().value()).isZero();
+        assertThat(registry.get("hashi.map.maintenance.issues").tag("reason", "refresh_window_invalid").gauge().value()).isEqualTo(1);
+        jdbc.update("UPDATE restaurant_location_job SET state='FAILED', failure_code='CONFIGURATION_ERROR' WHERE id=?", target(id).jobId());
+        metrics.refresh();
+        assertThat(registry.get("hashi.map.maintenance.issues").tag("reason", "configuration_error").gauge().value()).isEqualTo(1);
+        jdbc.update("UPDATE restaurant_location_job SET failure_code='ATTEMPTS_EXHAUSTED' WHERE id=?", target(id).jobId());
+        metrics.refresh();
+        assertThat(registry.get("hashi.map.maintenance.issues").tag("reason", "attempts_exhausted").gauge().value()).isEqualTo(1);
+        assertThat(registry.getMeters()).allSatisfy(meter -> assertThat(meter.getId().getTags())
+                .allSatisfy(tag -> assertThat(tag.getKey()).isEqualTo("reason")));
+    }
+
     private LocationMaintenanceProperties options(Command command, Mode mode, boolean execute, UUID runId,
                                                    Long upper, int registrations, int calls) {
         return new LocationMaintenanceProperties(command, mode, execute, runId, after, upper, 50, 2,
-                registrations, calls, null, null, false, null);
+                registrations, calls, Duration.ofDays(1), Duration.ofHours(1), false, null);
     }
 
     private long original() {

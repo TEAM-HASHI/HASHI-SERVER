@@ -48,8 +48,17 @@ public class LocationJobTransactions {
         if (!properties.enabled()) {
             return List.of();
         }
-        return jobs.findDue(now(), PageRequest.of(0, 50)).stream()
-                .map(job -> new Target(job.getRestaurantId(), job.getId())).toList();
+        LocalDateTime now = now();
+        var page = PageRequest.of(0, 50);
+        if (!properties.isConfigured()) {
+            return targets(jobs.findDue(now, page));
+        }
+        GeocodingBudget budget = budgets.findById(1L).orElse(null);
+        if (budget == null || !budget.canReserve(now, jobs.countReservations(now))) {
+            // These jobs finish without reserving budget or calling the provider.
+            return targets(jobs.findDueExhausted(now, properties.maxAttempts(), page));
+        }
+        return targets(jobs.findDue(now, page));
     }
 
     // READ_COMMITTED makes the reservation count fresh after acquiring the singleton budget lock.
@@ -142,14 +151,18 @@ public class LocationJobTransactions {
         if (kind == FailureKind.QUOTA_EXCEEDED) {
             budgets.findControlForUpdate().ifPresent(budget -> budget.blockUntil(next));
         }
-        // Cancellation is a resumable interruption. The next claim still enforces the durable attempt cap.
-        if (retryable && (!exhausted || kind == FailureKind.CANCELLED)) {
+        // Cancellation also consumes an attempt; finish immediately when the durable cap is reached.
+        if (retryable && !exhausted) {
             restaurant.deferLocation(job.getAddressRevision(), job.getRequestId(), next, at(now));
             job.defer(code, next, now);
         } else {
             restaurant.rejectLocation(job.getAddressRevision(), job.getRequestId(), RestaurantLocationStatus.FAILED);
             job.finish(State.FAILED, retryable ? "ATTEMPTS_EXHAUSTED" : code, now);
         }
+    }
+
+    private static List<Target> targets(List<RestaurantLocationJob> jobs) {
+        return jobs.stream().map(job -> new Target(job.getRestaurantId(), job.getId())).toList();
     }
 
     private LocalDateTime now() {

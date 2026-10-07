@@ -6,6 +6,7 @@ import java.util.concurrent.TimeUnit;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.context.SmartLifecycle;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.stereotype.Component;
 
 /** Private executor avoids changing Spring's default scheduler used by unrelated media work. */
@@ -16,10 +17,13 @@ public class LocationRetentionScheduler implements SmartLifecycle {
     private final LocationRetentionService service;
     private final LocationRetentionProperties options;
     private volatile ScheduledExecutorService executor;
+    private final ObjectProvider<LocationMaintenanceMetrics> metrics;
 
-    public LocationRetentionScheduler(LocationRetentionService service, LocationRetentionProperties options) {
+    public LocationRetentionScheduler(LocationRetentionService service, LocationRetentionProperties options,
+                                      ObjectProvider<LocationMaintenanceMetrics> metrics) {
         this.service = service;
         this.options = options;
+        this.metrics = metrics;
     }
 
     @Override
@@ -49,6 +53,14 @@ public class LocationRetentionScheduler implements SmartLifecycle {
 
     private void purge() {
         try {
+            try {
+                int registered = service.refresh(options);
+                if (registered > 0) {
+                    log.info("Location refresh jobs registered: count={}", registered);
+                }
+            } catch (RuntimeException exception) {
+                log.warn("Location refresh registration failed: type={}", exception.getClass().getSimpleName());
+            }
             var report = service.purge(options);
             log.info("Location retention: {}", report);
             if (report.dueRemaining() > 0) {
@@ -58,6 +70,12 @@ public class LocationRetentionScheduler implements SmartLifecycle {
         } catch (RuntimeException exception) {
             // No exception messages: SQL/connection exceptions can carry private values.
             log.error("Location retention failed; check scheduler and database health before the retention deadline");
+        } finally {
+            try {
+                metrics.ifAvailable(LocationMaintenanceMetrics::refresh);
+            } catch (RuntimeException exception) {
+                log.warn("Location maintenance metrics failed: type={}", exception.getClass().getSimpleName());
+            }
         }
     }
 }

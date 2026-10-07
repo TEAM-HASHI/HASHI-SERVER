@@ -37,10 +37,24 @@ class LocationRetentionPolicyTest {
         assertThat(location.getSource()).isNull();
         assertThat(location.getObtainedAt()).isNull();
         assertThat(location.getValidUntil()).isNull();
-        assertThat(location.getRequestId()).isNotEqualTo(request);
+        assertThat(location.getRequestId()).isEqualTo(request);
         var admin = ready(RestaurantLocationSource.ADMIN);
         assertThat(admin.purgeGoogle(1, admin.getRequestId(), NOW.minusHours(1), NOW.plusHours(1),
                 NOW.plusHours(2))).isFalse();
+    }
+
+    @Test
+    void 갱신중_만료좌표만_지우고_진행중인_요청과_재시도시각은_보존한다() {
+        var location = ready(RestaurantLocationSource.GOOGLE_GEOCODING);
+        location.beginRefresh();
+        var request = location.getRequestId();
+        var next = NOW.plusHours(2);
+        assertThat(location.defer(1, request, next, CLOCK)).isTrue();
+        assertThat(location.purgeGoogle(1, request, NOW.minusHours(1), NOW.plusHours(1), NOW.plusHours(1))).isTrue();
+        assertThat(location.getCoordinates()).isNull();
+        assertThat(location.getStatus()).isEqualTo(RestaurantLocationStatus.RETRY_WAIT);
+        assertThat(location.getRequestId()).isEqualTo(request);
+        assertThat(location.getNextAttemptAt()).isEqualTo(next);
     }
 
     private RestaurantLocation ready(RestaurantLocationSource source) {

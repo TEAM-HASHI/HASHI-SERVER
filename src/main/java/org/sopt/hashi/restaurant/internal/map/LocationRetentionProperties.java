@@ -11,18 +11,18 @@ public record LocationRetentionProperties(
     public LocationRetentionProperties {
         batchSize = batchSize == null ? 50 : batchSize;
         maxBatches = maxBatches == null ? 1 : maxBatches;
-        refreshAhead = refreshAhead == null ? Duration.ofDays(1) : refreshAhead;
-        purgeAhead = purgeAhead == null ? Duration.ofHours(1) : purgeAhead;
+        refreshAhead = refreshAhead == null ? Duration.ofDays(3) : refreshAhead;
+        purgeAhead = purgeAhead == null ? Duration.ZERO : purgeAhead;
         pollDelay = pollDelay == null ? Duration.ofMinutes(1) : pollDelay;
         range(batchSize, 1, 100, "batch-size");
         range(maxBatches, 1, 100, "max-batches");
         boolean invalidWindows = pollDelay.compareTo(Duration.ofSeconds(1)) < 0
                 || pollDelay.compareTo(Duration.ofHours(1)) > 0
-                || purgeAhead.compareTo(pollDelay.multipliedBy(2)) < 0
+                || purgeAhead.isNegative()
                 || refreshAhead.compareTo(purgeAhead) <= 0
                 || refreshAhead.compareTo(Duration.ofDays(30)) > 0;
         if (invalidWindows) {
-            throw new IllegalArgumentException("Require 2 * poll-delay <= purge-ahead < refresh-ahead <= 30d");
+            throw new IllegalArgumentException("Require 0 <= purge-ahead < refresh-ahead <= 30d");
         }
         if (refreshAhead.getNano() % 1_000 != 0) {
             throw new IllegalArgumentException("refresh-ahead must use whole microseconds");
