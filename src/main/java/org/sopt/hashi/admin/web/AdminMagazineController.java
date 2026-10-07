@@ -50,6 +50,8 @@ public class AdminMagazineController {
             message = "연결하려는 식당을 찾을 수 없습니다.")
     @ApiErrorResponse(status = HttpStatus.BAD_REQUEST, code = "MAGAZINE-003",
             message = "같은 카드뉴스 이미지를 중복해서 사용할 수 없습니다.")
+    @ApiErrorResponse(status = HttpStatus.BAD_REQUEST, code = "MAGAZINE-004",
+            message = "같은 해시태그를 중복해서 사용할 수 없습니다.")
     @ApiSuccess(value = AdminSuccessCode.class, codes = {"MAGAZINE_CREATED"})
     @ResponseStatus(HttpStatus.CREATED)
     @PostMapping
@@ -80,6 +82,8 @@ public class AdminMagazineController {
             message = "연결하려는 식당을 찾을 수 없습니다.")
     @ApiErrorResponse(status = HttpStatus.BAD_REQUEST, code = "MAGAZINE-003",
             message = "같은 카드뉴스 이미지를 중복해서 사용할 수 없습니다.")
+    @ApiErrorResponse(status = HttpStatus.BAD_REQUEST, code = "MAGAZINE-004",
+            message = "같은 해시태그를 중복해서 사용할 수 없습니다.")
     @ApiSuccess(value = AdminSuccessCode.class, codes = {"MAGAZINE_UPDATED"})
     @PatchMapping("/{magazineId}")
     public SuccessResponse<AdminMagazineResponse> update(
