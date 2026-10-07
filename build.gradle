@@ -108,7 +108,7 @@ tasks.named('test') {
     dependsOn tasks.named('bootJar')
     systemProperty 'location.maintenance.jar', tasks.named('bootJar').get().archiveFile.get().asFile.absolutePath
     useJUnitPlatform {
-        excludeTags 'map-load'
+        excludeTags 'map-load', 'map-live'
     }
     testLogging {
         exceptionFormat = 'full'
@@ -134,6 +134,8 @@ tasks.register('mapLoadTest', Test) {
     systemProperty 'map.k6.executable', providers.gradleProperty('k6Executable').getOrElse('k6')
     systemProperty 'map.k6.script', file('scripts/load/map-query.js').absolutePath
     systemProperty 'map.k6.output', layout.buildDirectory.dir('reports/map-load').get().asFile.absolutePath
+    systemProperty 'map.k6.profile', providers.gradleProperty('mapLoadProfile').getOrElse('smoke')
+    systemProperty 'map.k6.restaurants', providers.gradleProperty('mapLoadRestaurants').getOrElse('620')
     outputs.upToDateWhen { false }
     maxParallelForks = 1
     testLogging { exceptionFormat = 'full' }
@@ -142,5 +144,22 @@ tasks.register('mapLoadTest', Test) {
 tasks.named('processResources') {
     from('media-specs') {
         into 'media-specs'
+    }
+}
+
+// Real Google is excluded from ordinary CI and requires explicit opt-in plus an environment-only key.
+tasks.register('mapLiveTest', Test) {
+    group = 'verification'
+    testClassesDirs = sourceSets.test.output.classesDirs
+    classpath = sourceSets.test.runtimeClasspath
+    useJUnitPlatform { includeTags 'map-live' }
+    systemProperty 'map.live.enabled', providers.gradleProperty('mapLive').getOrElse('false')
+    outputs.upToDateWhen { false }
+    maxParallelForks = 1
+    doFirst {
+        if (providers.gradleProperty('mapLive').getOrElse('false') != 'true'
+                || !System.getenv('HASHI_MAP_GOOGLEGEOCODING_APIKEY')) {
+            throw new GradleException('mapLiveTest requires -PmapLive=true and an environment API key')
+        }
     }
 }
