@@ -6,11 +6,11 @@
 
 | 변경 | 결합한 Draft PR 기준 | 이 브랜치의 확인 범위 |
 | --- | --- | --- |
-| #220·#222·#224·#228 | #225·#226·#233·#235 | 위치 모델·Google adapter·관리자 저장/worker·유지보수, V31~V33 |
+| #220·#222·#224·#228 | #225·#226·#233·#235 | 위치 모델·Google adapter·관리자 저장/worker·유지보수, V32~V34 |
 | #223·#227 | #229·#234 | 공개 지도 조회·Redis 세션·페이지 재검증 |
-| #242 | #244 `57e29f6` | 기존 #216 컬렉션 CRUD에 전체 핀·저장 수·본인 저장 여부 연결, V34 |
+| #242 | #244 `bff85f6` | 기존 #216 컬렉션 CRUD에 전체 핀·저장 수·본인 저장 여부 연결, V35 |
 
-이 브랜치의 자체 변경은 `RestaurantMapFlowIntegrationTest`, 명시적으로 실행하는 `MapQueryLoadTest`와 k6 스크립트, 테스트 실행 설정과 이 문서다. develop에 병합된 #216 컬렉션 CRUD/스키마를 재구현하지 않는다. V28, V30, V31, V32, V33, V34 순서이며 기존 migration 파일은 수정하지 않는다. #242 결합 전 생긴 `RestaurantPortImpl.findActiveMapInfos` 중복 선언은 동일 메서드 하나를 제거했다.
+이 브랜치의 자체 변경은 `RestaurantMapFlowIntegrationTest`, 명시적으로 실행하는 `MapQueryLoadTest`와 k6 스크립트, 테스트 실행 설정과 이 문서다. develop에 병합된 #216 컬렉션 CRUD/스키마를 재구현하지 않는다. V28, V30, V31(매거진), V32(위치), V33(작업), V34(유지보수), V35(컬렉션 변경번호) 순서이며 기존 migration 파일은 수정하지 않는다. #242 결합 전 생긴 `RestaurantPortImpl.findActiveMapInfos` 중복 선언은 동일 메서드 하나를 제거했다.
 
 ## 로컬 실행 환경
 
@@ -27,7 +27,7 @@ $env:PATH="$env:JAVA_HOME\bin;C:\Program Files\Docker\Docker\resources\bin;$env:
 
 테스트 주소 `東京都試験区架空町1丁目2番3号`, 식당·관광 지역·좌표는 합성 고정값이다. Google provider, 자동 `LocationJobScheduler`, 범위 밖의 `MediaPort`·`FileStorage`를 대체한다. worker는 테스트에서 직접 한 번 실행하고 관광 지역 관계는 fixture에서 직접 설정한다. 후보 정확도·주소 일치 판정은 실제 `LocationAdoptionPolicy`를 통과한다. 위치 작업 전역 호출 예산은 기본적으로 닫혀 있으므로 테스트 전용 MySQL row에서만 연다. Redis 서명 키도 테스트 문자열을 실행 중 메모리에만 설정한다. 운영 키나 주소 원문 응답을 로그/문서에 넣지 않는다.
 
-검증은 V31~V34가 있는 MySQL 8.4 새 DB의 Flyway와 Hibernate validation을 포함한다. 관련 테스트와 전체 build, 원격 CI는 서로 구분해 확인한다.
+검증은 V32~V34가 있는 MySQL 8.4 새 DB의 Flyway와 Hibernate validation을 포함한다. 관련 테스트와 전체 build, 원격 CI는 서로 구분해 확인한다.
 
 ## 직접 연결한 흐름
 
