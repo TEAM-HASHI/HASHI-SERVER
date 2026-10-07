@@ -38,32 +38,51 @@ function page(query, operation, metric) {
         semanticFailures.add(true);
         return null;
     }
-    const data = response.json('data');
-    const valid = data && data.content && data.content.length === 10 && data.hasNext;
+    let data;
+    try {
+        data = response.json('data');
+    } catch (_) {
+        recordFailure('map response contains valid JSON');
+        return null;
+    }
+    const valid = Boolean(data && Array.isArray(data.content) && data.content.length === 10
+        && data.content.every(item => item !== null && typeof item === 'object'
+            && Number.isSafeInteger(item.restaurantId) && item.restaurantId > 0)
+        && data.hasNext === true
+        && typeof data.nextCursor === 'string' && data.nextCursor.trim().length > 0
+        && typeof data.querySessionId === 'string' && data.querySessionId.trim().length > 0);
     check(valid, { 'page has ten cards and a next page': value => value });
     semanticFailures.add(!valid);
     return valid ? data : null;
 }
 
+function recordFailure(name) {
+    check(false, { [name]: value => value });
+    semanticFailures.add(true);
+}
+
 export default function () {
-    const bounds = 'south=10&north=11&west=20&east=21';
-    const first = page(bounds, 'new', newQueryMs);
-    if (!first) {
+    try {
+        const bounds = 'south=10&north=11&west=20&east=21';
+        const first = page(bounds, 'new', newQueryMs);
+        if (!first) return;
+        const second = page(`cursor=${encodeURIComponent(first.nextCursor)}`, 'next', nextPageMs);
+        const replay = page(`cursor=${encodeURIComponent(first.nextCursor)}`, 'next', nextPageMs);
+        const sorted = page(`querySessionId=${encodeURIComponent(first.querySessionId)}&sort=rating`, 'sort', sortMs);
+        page(`${bounds}&genre=sushi`, 'filter', filterMs);
+        if (second && replay && sorted) {
+            const ids = first.content.map(item => item.restaurantId);
+            const nextIds = second.content.map(item => item.restaurantId);
+            const valid = new Set([...ids, ...nextIds]).size === 20
+                && JSON.stringify(nextIds) === JSON.stringify(replay.content.map(item => item.restaurantId))
+                && JSON.stringify(ids) === JSON.stringify(sorted.content.map(item => item.restaurantId));
+            check(valid, { 'no duplicates, cursor replay and tied sort retain order': value => value });
+            semanticFailures.add(!valid);
+        }
+    } catch (_) {
+        // k6 does not fail its process for an iteration exception unless a threshold records it.
+        recordFailure('map iteration completes without an unexpected exception');
+    } finally {
         sleep(2);
-        return;
     }
-    const second = page(`cursor=${encodeURIComponent(first.nextCursor)}`, 'next', nextPageMs);
-    const replay = page(`cursor=${encodeURIComponent(first.nextCursor)}`, 'next', nextPageMs);
-    const sorted = page(`querySessionId=${first.querySessionId}&sort=rating`, 'sort', sortMs);
-    page(`${bounds}&genre=sushi`, 'filter', filterMs);
-    if (second && replay && sorted) {
-        const ids = first.content.map(item => item.restaurantId);
-        const nextIds = second.content.map(item => item.restaurantId);
-        const valid = new Set([...ids, ...nextIds]).size === 20
-            && JSON.stringify(nextIds) === JSON.stringify(replay.content.map(item => item.restaurantId))
-            && JSON.stringify(ids) === JSON.stringify(sorted.content.map(item => item.restaurantId));
-        check(valid, { 'no duplicates, cursor replay and tied sort retain order': value => value });
-        semanticFailures.add(!valid);
-    }
-    sleep(2);
 }
