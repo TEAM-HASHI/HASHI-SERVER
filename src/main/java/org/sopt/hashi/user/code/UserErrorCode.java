@@ -5,7 +5,7 @@ import org.sopt.hashi.shared.error.ErrorCode;
 import org.springframework.http.HttpStatus;
 
 /**
- * 회원(가입·프로필)·식당 컬렉션 관련 에러 코드.
+ * 회원(가입·프로필·탈퇴)·식당 컬렉션 관련 에러 코드.
  */
 @Getter
 public enum UserErrorCode implements ErrorCode {

@@ -58,7 +58,7 @@ class UserProfileServiceTest {
     @Test
     void legacy_프로필은_기존_URL만_반환하고_media를_조회하지_않는다() {
         User user = user("profiles/legacy.jpg", null);
-        when(userRepository.findById(1L)).thenReturn(Optional.of(user));
+        when(userRepository.findByIdAndDeletedFalse(1L)).thenReturn(Optional.of(user));
         when(fileStorage.resolveFileUrl("profiles/legacy.jpg"))
                 .thenReturn("https://cdn.hashi.test/profiles/legacy.jpg");
 
@@ -76,7 +76,7 @@ class UserProfileServiceTest {
         User user = user(null, assetId);
         MediaImage image = readyImage(assetId);
         MediaImageRequest request = new MediaImageRequest(assetId, MediaImageRole.PROFILE_AVATAR);
-        when(userRepository.findById(1L)).thenReturn(Optional.of(user));
+        when(userRepository.findByIdAndDeletedFalse(1L)).thenReturn(Optional.of(user));
         when(mediaPort.findImages(List.of(request))).thenReturn(Map.of(request, image));
 
         var response = userProfileService.getMyProfileSummary();
@@ -94,7 +94,7 @@ class UserProfileServiceTest {
         MediaImage failed = new MediaImage(
                 assetId, MediaImageRole.PROFILE_AVATAR, MediaImageStatus.FAILED,
                 null, List.of());
-        when(userRepository.findById(1L)).thenReturn(Optional.of(user));
+        when(userRepository.findByIdAndDeletedFalse(1L)).thenReturn(Optional.of(user));
         when(fileStorage.resolveFileUrl("profiles/backfill.jpg"))
                 .thenReturn("https://cdn.hashi.test/profiles/backfill.jpg");
         when(mediaPort.findImages(List.of(request))).thenReturn(Map.of(request, failed));

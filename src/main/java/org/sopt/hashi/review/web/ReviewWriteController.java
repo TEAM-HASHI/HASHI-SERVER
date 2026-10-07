@@ -33,7 +33,7 @@ public class ReviewWriteController {
             codes = {"INVALID_INPUT", "UNAUTHORIZED"})
     @ApiException(value = ReviewErrorCode.class,
             codes = {"ALREADY_REVIEWED", "NOT_VISITED", "UNSUPPORTED_KEYWORD",
-                    "UNSUPPORTED_RESERVATION_TYPE", "RESTAURANT_NOT_FOUND"})
+                    "UNSUPPORTED_RESERVATION_TYPE", "RESTAURANT_NOT_FOUND", "REVIEWER_NOT_FOUND"})
     @ApiSuccess(value = CommonSuccessCode.class, codes = {"CREATED"})
     @ResponseStatus(HttpStatus.CREATED)
     @PostMapping

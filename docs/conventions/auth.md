@@ -14,14 +14,14 @@
 - **MUST**: 도메인에서 "현재 로그인 사용자"가 필요하면 **`CurrentUserProvider`** 로 읽는다.
 - **MUST**: USER, ADMIN, ONBOARDING 유형까지 구분해야 하는 media 같은 제한된 기능은 **`CurrentActorProvider`** 로 읽는다. 일반 사용자 도메인은 이를 현재 사용자 조회 대용으로 사용하지 않는다.
 - 의존 방향: **도메인 → auth** (auth는 depended-upon 위치). auth는 인증이라는 generic subdomain으로 잘 변하지 않아 불안정한 도메인이 안정적인 auth로 의존을 모은다(SDP, ADP). 현재 공개 지점은 `CurrentUserProvider`, `CurrentActorProvider`, `AuthAccountPort`다. 도메인은 `auth.internal`에 의존하지 않고 이 공개 지점으로만 auth를 참조한다.
-- **MUST**: **`auth`는 어떤 도메인 모듈도 되참조하지 않는다**(순환 방지·안정성 유지). `shared`라서 순환 검사가 면제되는 게 아니라, auth가 도메인을 되참조하지 않아 무순환이 유지된다 — auth가 도메인을 관찰해야 하면 **이벤트**로 붙인다.
+- **MUST**: **`auth`는 어떤 도메인 모듈도 되참조하지 않는다**(순환 방지·안정성 유지). `shared`라서 순환 검사가 면제되는 게 아니라, auth가 도메인을 되참조하지 않아 무순환이 유지된다 — auth가 도메인을 관찰해야 하면 **이벤트**로 붙인다. 단, 탈퇴처럼 회원 삭제와 인증 계정 정리가 함께 커밋돼야 하는 처리는 도메인이 `AuthAccountPort`를 호출한다(§3).
 
 ---
 
 ## 2. 현재 사용자 조회
 
 현재 `auth`가 노출하는 공개 지점은 `CurrentUserProvider`(현재 사용자 조회),
-`CurrentActorProvider`(인증 주체의 유형과 식별자 조회), `AuthAccountPort`(온보딩 계정 연결)다.
+`CurrentActorProvider`(인증 주체의 유형과 식별자 조회), `AuthAccountPort`(온보딩 계정 연결·탈퇴 계정 정리)다.
 일반적인 현재 사용자 조회는 `CurrentUserProvider`를 쓰고, media의 역할별 권한과 소유권 검사는
 `CurrentActorProvider`를 쓴다.
 
@@ -77,13 +77,12 @@ auth/
 ├─ CurrentUserProvider          # 공개 지점 (현재 사용자 조회)
 ├─ CurrentActorProvider         # 공개 지점 (인증 주체 유형과 식별자 조회)
 ├─ CurrentActor · ActorType     # actor 조회 계약의 반환값과 유형
-├─ AuthAccountPort              # 공개 지점 (온보딩 소셜 계정 연결 — user가 원자적 커밋 위해 호출)
+├─ AuthAccountPort              # 공개 지점 (온보딩 소셜 계정 연결·탈퇴 계정 정리 — user가 원자적 커밋 위해 호출)
 ├─ code/  AuthErrorCode · AuthSuccessCode
-├─ event/ UserWithdrawnListener  # 탈퇴 이벤트 구독 → 토큰 무효화·블랙리스트
 └─ internal/                     # 관심사별 하위 패키지 (경계 넘는 협력자는 public, 모듈 밖엔 여전히 비공개)
    ├─ account/    AuthAccount · AuthAccountRepository · AuthAccountService · AuthProvider · AuthAccountPortImpl
    ├─ jwt/        JwtProvider · JwtProperties · MemberPrincipal · OnboardingPrincipal · AuthRoles
-   ├─ token/      RefreshTokenStore(Redis) · OnboardingTokenStore(Redis)   # TokenBlacklist(Redis) 예정
+   ├─ token/      RefreshTokenStore(Redis) · OnboardingTokenStore(Redis) · TokenBlacklist(Redis)
    ├─ kakao/      KakaoOAuthClient · KakaoProperties · KakaoLoginRequest/Response
    ├─ security/   SecurityConfig · JwtAuthenticationFilter · JwtAuthenticationEntryPoint · JwtAccessDeniedHandler · CookieUtil · OriginValidator · CurrentUserProviderImpl · CurrentActorProviderImpl
    ├─ onboarding/ OnboardingJwtIssuer(응답 후처리로 정식 JWT 부착)
@@ -98,9 +97,9 @@ auth/
 - **토큰 전달**: 액세스 토큰은 `Authorization: Bearer` **헤더**로, 리프레시 토큰은 **HttpOnly 쿠키**로 내린다.
 - **회전(rotation)**: 재발급 시 리프레시 토큰을 갱신(Redis 교체)한다. **폐기된 리프레시 토큰이 재사용되면 해당 사용자 세션 전체를 무효화**한다.
 - 리프레시 토큰·온보딩 임시 토큰은 Redis에 **TTL과 함께** 보관한다.
-- **토큰 무효화**: 리프레시 토큰은 Redis에서 삭제한다. 액세스 토큰(무상태 JWT)은 삭제할 수 없으므로 **Redis 블랙리스트**에 등록하고(TTL = 토큰 잔여 만료시간), `JwtAuthenticationFilter`가 매 요청 대조해 차단한다.
+- **토큰 무효화**: 리프레시 토큰은 Redis에서 삭제한다. 액세스 토큰(무상태 JWT)은 삭제할 수 없으므로 **Redis 블랙리스트**에 회원 단위로 등록하고(TTL = 리프레시 만료시간 — 그 전에 발급된 어떤 토큰보다 오래 산다), `JwtAuthenticationFilter`가 매 요청, 재발급이 회전 전에 대조해 차단한다.
 - **사용자 로그아웃**(`POST /api/v1/auth/logout`): 리프레시 쿠키를 받아 유저 리프레시 토큰만 수용하고 Redis에서 삭제한 뒤 쿠키를 만료시킨다(어드민 로그아웃과 동일 패턴). 쿠키 기반 엔드포인트라 reissue와 같이 **Origin 검증**(CSRF 방어)을 거친다. 액세스 토큰은 무상태 JWT라 잔여 만료까지 유효하며 로그아웃은 블랙리스트에 등록하지 않는다.
-- **회원 탈퇴 시 토큰 무효화**: 탈퇴(`DELETE /api/v1/users/me`)는 `user` 소유이며, `user`가 발행한 `UserWithdrawnEvent`를 `auth`가 구독해 (리프레시 삭제 + 액세스 블랙리스트 등록)로 처리한다.
+- **회원 탈퇴 시 인증 정리**: 탈퇴(`DELETE /api/v1/users/me`)는 `user` 소유이며, 탈퇴 트랜잭션 안에서 `user`가 `AuthAccountPort.unlinkWithdrawnAccount`를 호출해 auth_account 삭제·리프레시 삭제·액세스 블랙리스트 등록을 함께 처리한다. 이벤트가 아니라 포트인 이유: 회원 삭제와 계정 삭제를 원자적으로 커밋하고, 커밋 직후 잔여 토큰이 통과하는 틈을 없애기 위해서다(블랙리스트는 커밋 전에 기록하고 롤백되면 되돌린다). 탈퇴 후 같은 소셜 계정으로 로그인하면 미가입자로 온보딩한다.
 
 ---
 
@@ -149,6 +148,6 @@ Review review = reviewRepository.findById(reviewId)
 - [ ] 역할 단위 소유권이 필요한 구현은 `CurrentActorProvider`로 actor 유형과 식별자를 함께 검증하는가
 - [ ] 어드민 API에 `ROLE_ADMIN`을 요구하는가
 - [ ] 본인 리소스 접근을 소유자 검증으로 막는가 (검증 실패는 403이 아니라 404로 존재를 숨기는가)
-- [ ] (가입) 온보딩이 임시 토큰으로 인증되고, 소셜 계정 연결만 `AuthAccountPort`로(원자적 커밋) 하며 그 외 auth 내부는 참조하지 않는가 (SMS 인증은 ⚠️ MVP 제외)
+- [ ] (가입·탈퇴) 온보딩이 임시 토큰으로 인증되고, 소셜 계정 연결·탈퇴 계정 정리만 `AuthAccountPort`로(원자적 커밋) 하며 그 외 auth 내부는 참조하지 않는가 (SMS 인증은 ⚠️ MVP 제외)
 - [ ] `auth`가 어떤 도메인 모듈도 되참조하지 않는가(도메인 관찰이 필요하면 이벤트)
 - [ ] 액세스 토큰은 헤더, 리프레시 토큰은 HttpOnly 쿠키로 내리고, 재발급 시 회전하는가
