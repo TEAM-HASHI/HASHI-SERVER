@@ -29,7 +29,7 @@ class RestaurantMapMigrationTest {
     @BeforeEach
     void 이전_스키마를_준비한다() {
         // Exercise the already-merged magazine/collection migrations before the new map version.
-        Flyway baseline = flyway("30");
+        Flyway baseline = flyway("31");
         baseline.clean();
         baseline.migrate();
         jdbc = new JdbcTemplate(new DriverManagerDataSource(
@@ -61,7 +61,7 @@ class RestaurantMapMigrationTest {
         List<Map<String, Object>> menus = jdbc.queryForList("SELECT * FROM restaurant_menu");
         List<Map<String, Object>> hashtags = jdbc.queryForList("SELECT * FROM restaurant_hashtag");
 
-        Flyway migration = flyway("31");
+        Flyway migration = flyway("32");
         assertThat(migration.migrate().migrationsExecuted).isEqualTo(1);
         List<Map<String, Object>> upgraded = jdbc.queryForList("SELECT * FROM restaurant ORDER BY id");
         assertThat(upgraded).hasSize(2);
@@ -84,7 +84,7 @@ class RestaurantMapMigrationTest {
 
     @Test
     void 좌표_쌍과_출처_수명과_재시도_제약은_SQL_우회도_차단한다() {
-        flyway("31").migrate();
+        flyway("32").migrate();
         jdbc.update("""
                 INSERT INTO restaurant_location (id, status, address_revision, request_id, lock_version)
                 VALUES (1, 'PENDING', 1, '00000000-0000-0000-0000-000000000001', 0)
@@ -125,7 +125,7 @@ class RestaurantMapMigrationTest {
 
     @Test
     void 지역_범위와_대표_위치와_코드_유일성을_검증한다() {
-        flyway("31").migrate();
+        flyway("32").migrate();
         jdbc.update("""
                 INSERT INTO map_region (id, code, name, cluster_latitude, cluster_longitude,
                     south, north, west, east, display_order) VALUES (1, 'FIXTURE', 'region', 10, 20, 10, 11, 20, 21, 0)
@@ -149,7 +149,7 @@ class RestaurantMapMigrationTest {
 
     @Test
     void FK는_식당과_소유_위치에만_걸고_좌표의_정밀도와_인덱스를_고정한다() {
-        flyway("31").migrate();
+        flyway("32").migrate();
         assertThat(jdbc.queryForObject("""
                 SELECT COUNT(*) FROM information_schema.key_column_usage
                 WHERE constraint_schema=DATABASE() AND referenced_table_name='map_region'
