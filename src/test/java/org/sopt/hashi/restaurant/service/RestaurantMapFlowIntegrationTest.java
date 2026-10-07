@@ -314,7 +314,8 @@ class RestaurantMapFlowIntegrationTest {
                 .andReturn().getResponse().getContentAsString()).path("data");
         jdbc.update("""
                 update restaurant_location l join restaurant r on r.location_id=l.id
-                set l.valid_until=UTC_TIMESTAMP(6)+interval 20 minute where r.id=?
+                set l.obtained_at=UTC_TIMESTAMP(6)-interval 1 day,
+                    l.valid_until=UTC_TIMESTAMP(6)-interval 1 second where r.id=?
                 """, id);
         jdbc.update("update restaurant_geocoding_budget set enabled=false where id=1");
         assertThat(retention.purge(maintenanceOptions.retentionOptions()).purged()).isEqualTo(1);

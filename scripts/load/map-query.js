@@ -48,7 +48,10 @@ function page(query, operation, metric) {
 export default function () {
     const bounds = 'south=10&north=11&west=20&east=21';
     const first = page(bounds, 'new', newQueryMs);
-    if (!first) return;
+    if (!first) {
+        sleep(2);
+        return;
+    }
     const second = page(`cursor=${encodeURIComponent(first.nextCursor)}`, 'next', nextPageMs);
     const replay = page(`cursor=${encodeURIComponent(first.nextCursor)}`, 'next', nextPageMs);
     const sorted = page(`querySessionId=${first.querySessionId}&sort=rating`, 'sort', sortMs);
