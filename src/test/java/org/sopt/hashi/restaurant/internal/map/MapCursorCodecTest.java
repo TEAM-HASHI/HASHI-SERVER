@@ -23,9 +23,9 @@ class MapCursorCodecTest {
 
     @Test
     void 고정_서명키로_다른_인스턴스에서도_같은_불투명_토큰을_읽는다() {
-        var id = new MapSessionId(127, UUID.randomUUID());
+        var id = new MapSessionId(UUID.randomUUID());
         String token = codec.encode(id, RestaurantMapSort.REVIEWS, 499);
-        assertThat(token).hasSize(74).doesNotContain(id.value());
+        assertThat(token).hasSize(72).doesNotContain(id.value());
         assertThat(new MapCursorCodec(configured()).decode(token))
                 .isEqualTo(new MapCursorCodec.DecodedCursor(id, RestaurantMapSort.REVIEWS, 499));
         assertThat(codec.encode(id, RestaurantMapSort.REVIEWS, 499)).isEqualTo(token);
@@ -33,7 +33,7 @@ class MapCursorCodecTest {
 
     @Test
     void 변조_과길이_비정규_base64_일반목록cursor를_거절하고_원문을_남기지_않는다() {
-        String token = codec.encode(new MapSessionId(0, UUID.randomUUID()), RestaurantMapSort.RECOMMEND, 10);
+        String token = codec.encode(new MapSessionId(UUID.randomUUID()), RestaurantMapSort.RECOMMEND, 10);
         for (String value : new String[]{"!" + token.substring(1), token + "=", "x".repeat(513), "eyJpZCI6MX0"}) {
             assertThatThrownBy(() -> codec.decode(value)).isInstanceOfSatisfying(BusinessException.class, exception -> {
                 assertThat(exception.getErrorCode()).isEqualTo(CommonErrorCode.INVALID_INPUT);
@@ -48,18 +48,18 @@ class MapCursorCodecTest {
     }
 
     @ParameterizedTest
-    @ValueSource(ints = {0, 1, 18, 19})
+    @ValueSource(ints = {0, 17, 18})
     void 서명이_맞아도_버전_슬롯_정렬_후보위치가_잘못되면_거절한다(int offset) throws Exception {
-        byte[] bytes = Base64.getUrlDecoder().decode(codec.encode(new MapSessionId(0, UUID.randomUUID()),
+        byte[] bytes = Base64.getUrlDecoder().decode(codec.encode(new MapSessionId(UUID.randomUUID()),
                 RestaurantMapSort.RATING, 10));
-        if (offset == 19) {
-            ByteBuffer.wrap(bytes).putInt(19, 501);
+        if (offset == 18) {
+            ByteBuffer.wrap(bytes).putInt(18, Integer.MAX_VALUE);
         } else {
             bytes[offset] = (byte) 255;
         }
         Mac mac = Mac.getInstance("HmacSHA256");
         mac.init(properties.requireSigningKey());
-        System.arraycopy(mac.doFinal(Arrays.copyOf(bytes, 23)), 0, bytes, 23, 32);
+        System.arraycopy(mac.doFinal(Arrays.copyOf(bytes, 22)), 0, bytes, 22, 32);
         assertThatThrownBy(() -> codec.decode(Base64.getUrlEncoder().withoutPadding().encodeToString(bytes)))
                 .isInstanceOfSatisfying(BusinessException.class,
                         exception -> assertThat(exception.getErrorCode()).isEqualTo(CommonErrorCode.INVALID_INPUT));
