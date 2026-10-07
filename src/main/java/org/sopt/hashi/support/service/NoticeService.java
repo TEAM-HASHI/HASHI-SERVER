@@ -21,6 +21,9 @@ import org.sopt.hashi.support.domain.NoticeCursor;
 import org.sopt.hashi.support.domain.NoticeRepository;
 import org.sopt.hashi.support.dto.NoticeListResponse;
 import org.springframework.data.domain.Limit;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageImpl;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -60,11 +63,10 @@ public class NoticeService {
         return info(repository.findByIdAndDeletedFalse(id).orElseThrow(this::notFound));
     }
 
-    public List<NoticeInfo> adminList(Long beforeId) {
-        if (beforeId != null && beforeId < 1) {
-            throw new BusinessException(SupportErrorCode.INVALID_CURSOR);
-        }
-        return infos(repository.findAdminPage(beforeId, Limit.of(20)));
+    public Page<NoticeInfo> adminList(int page, int size) {
+        PageRequest pageable = PageRequest.of(Math.max(page, 0), size < 1 ? 20 : Math.min(size, 100));
+        Page<Notice> notices = repository.findAdminPage(pageable);
+        return new PageImpl<>(infos(notices.getContent()), pageable, notices.getTotalElements());
     }
 
     @Transactional
@@ -85,6 +87,7 @@ public class NoticeService {
         notice.clearImages();
         repository.flush();
         notice.update(command.title(), json, command.imageAssetIds(), now(), !old.equals(command.imageAssetIds()));
+        repository.flush();
         return info(notice);
     }
 
@@ -95,6 +98,7 @@ public class NoticeService {
         codec.validateAndEncode(new NoticeCommand(notice.getTitle(), codec.decode(notice.getBodyJson()),
                 List.copyOf(notice.getImageAssetIds())));
         notice.publish(now());
+        repository.flush();
         return info(notice);
     }
 
@@ -136,6 +140,7 @@ public class NoticeService {
         return notices.stream().map(n -> new NoticeInfo(n.getId(), n.getTitle(), codec.decode(n.getBodyJson()),
                 n.getPublishedAt() == null ? "DRAFT" : "PUBLISHED", n.getPublishedAt(), n.lastModifiedAt(),
                 n.getImageAssetIds().stream().map(id -> new NoticeInfo.Attachment(id,
-                        images.get(new MediaImageRequest(id, MediaImageRole.NOTICE_DETAIL)))).toList())).toList();
+                        images.get(new MediaImageRequest(id, MediaImageRole.NOTICE_DETAIL)))).toList(),
+                n.getCreatedAt(), n.getUpdatedAt())).toList();
     }
 }

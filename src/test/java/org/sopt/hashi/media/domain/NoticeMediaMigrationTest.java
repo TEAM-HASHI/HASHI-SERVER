@@ -57,8 +57,8 @@ class NoticeMediaMigrationTest {
     }
 
     @Test
-    void V35에서_V35_1과_V36을_순서대로_적용해도_이미지_데이터와_공지_CHECK를_보존한다() throws SQLException {
-        Flyway throughV35 = migrateFromEmpty(MigrationVersion.fromVersion("35"));
+    void V36에서_V36_1과_V37을_순서대로_적용해도_이미지_데이터와_공지_CHECK를_보존한다() throws SQLException {
+        Flyway throughV36 = migrateFromEmpty(MigrationVersion.fromVersion("36"));
         for (MediaPurpose purpose : MediaPurpose.values()) {
             if (purpose != MediaPurpose.NOTICE) {
                 insertAsset(purpose.name());
@@ -76,30 +76,30 @@ class NoticeMediaMigrationTest {
                 SELECT version, checksum FROM flyway_schema_history
                 WHERE success = TRUE ORDER BY installed_rank
                 """);
-        assertThat(throughV35.info().current().getVersion()).isEqualTo(MigrationVersion.fromVersion("35"));
+        assertThat(throughV36.info().current().getVersion()).isEqualTo(MigrationVersion.fromVersion("36"));
         assertPurposeRejected(MediaPurpose.NOTICE.name());
         assertRoleRejected(legacyAssetId, ImageRole.NOTICE_DETAIL.name());
 
-        Flyway upgrade = flyway(MigrationVersion.fromVersion("35.1"));
+        Flyway upgrade = flyway(MigrationVersion.fromVersion("36.1"));
         upgrade.migrate();
 
         assertThat(rows("SELECT * FROM image_asset ORDER BY id")).isEqualTo(existingAssets);
         assertThat(rows("SELECT * FROM image_rendition ORDER BY id")).isEqualTo(existingRenditions);
         assertThat(rows("""
                 SELECT version, checksum FROM flyway_schema_history
-                WHERE success = TRUE AND version <> '35.1' ORDER BY installed_rank
+                WHERE success = TRUE AND version <> '36.1' ORDER BY installed_rank
                 """)).isEqualTo(existingHistory);
         long noticeAssetId = insertAsset(MediaPurpose.NOTICE.name());
         insertRendition(noticeAssetId, ImageRole.NOTICE_DETAIL.name());
         assertPurposeRejected("UNKNOWN_PURPOSE");
         assertRoleRejected(noticeAssetId, "UNKNOWN_ROLE");
-        assertThat(upgrade.info().current().getVersion()).isEqualTo(MigrationVersion.fromVersion("35.1"));
+        assertThat(upgrade.info().current().getVersion()).isEqualTo(MigrationVersion.fromVersion("36.1"));
         assertThat(upgrade.validateWithResult().validationSuccessful).isTrue();
         assertThat(upgrade.migrate().migrationsExecuted).isZero();
-        assertThat(MigrationVersion.fromVersion("35_1"))
-                .isEqualTo(MigrationVersion.fromVersion("35.1"))
-                .isGreaterThan(MigrationVersion.fromVersion("35"))
-                .isLessThan(MigrationVersion.fromVersion("36"));
+        assertThat(MigrationVersion.fromVersion("36_1"))
+                .isEqualTo(MigrationVersion.fromVersion("36.1"))
+                .isGreaterThan(MigrationVersion.fromVersion("36"))
+                .isLessThan(MigrationVersion.fromVersion("37"));
 
         List<List<String>> assetsBeforeTerms = rows("SELECT * FROM image_asset ORDER BY id");
         List<List<String>> renditionsBeforeTerms = rows("SELECT * FROM image_rendition ORDER BY id");
@@ -107,20 +107,20 @@ class NoticeMediaMigrationTest {
                 SELECT version, checksum FROM flyway_schema_history
                 WHERE success = TRUE ORDER BY installed_rank
                 """);
-        Flyway throughV36 = flyway(MigrationVersion.fromVersion("36"));
+        Flyway throughV37 = flyway(MigrationVersion.fromVersion("37"));
 
-        assertThat(throughV36.migrate().migrationsExecuted).isEqualTo(1);
+        assertThat(throughV37.migrate().migrationsExecuted).isEqualTo(1);
 
         assertThat(rows("SELECT * FROM image_asset ORDER BY id")).isEqualTo(assetsBeforeTerms);
         assertThat(rows("SELECT * FROM image_rendition ORDER BY id")).isEqualTo(renditionsBeforeTerms);
         assertThat(rows("""
                 SELECT version, checksum FROM flyway_schema_history
-                WHERE success = TRUE AND version <> '36' ORDER BY installed_rank
+                WHERE success = TRUE AND version <> '37' ORDER BY installed_rank
                 """)).isEqualTo(historyBeforeTerms);
         assertThat(rows("""
                 SELECT version FROM flyway_schema_history
-                WHERE success = TRUE AND version IN ('35', '35.1', '36') ORDER BY installed_rank
-                """)).containsExactly(List.of("35"), List.of("35.1"), List.of("36"));
+                WHERE success = TRUE AND version IN ('36', '36.1', '37') ORDER BY installed_rank
+                """)).containsExactly(List.of("36"), List.of("36.1"), List.of("37"));
         assertThat(rows("SELECT type FROM support_terms_type"))
                 .containsExactlyInAnyOrder(List.of("SERVICE_TERMS"), List.of("PRIVACY_POLICY"),
                         List.of("PERSONAL_DATA_COLLECTION"), List.of("PERSONAL_DATA_THIRD_PARTY"),
@@ -132,9 +132,9 @@ class NoticeMediaMigrationTest {
         insertRendition(noticeAssetAfterTerms, ImageRole.NOTICE_DETAIL.name());
         assertPurposeRejected("UNKNOWN_PURPOSE");
         assertRoleRejected(noticeAssetAfterTerms, "UNKNOWN_ROLE");
-        assertThat(throughV36.info().current().getVersion()).isEqualTo(MigrationVersion.fromVersion("36"));
-        assertThat(throughV36.validateWithResult().validationSuccessful).isTrue();
-        assertThat(throughV36.migrate().migrationsExecuted).isZero();
+        assertThat(throughV37.info().current().getVersion()).isEqualTo(MigrationVersion.fromVersion("37"));
+        assertThat(throughV37.validateWithResult().validationSuccessful).isTrue();
+        assertThat(throughV37.migrate().migrationsExecuted).isZero();
     }
 
     private Flyway migrateFromEmpty(MigrationVersion target) {

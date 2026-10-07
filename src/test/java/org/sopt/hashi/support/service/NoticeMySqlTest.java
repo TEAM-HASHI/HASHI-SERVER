@@ -35,7 +35,7 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 @Testcontainers
 @DataJpaTest
 @AutoConfigureTestDatabase(replace = AutoConfigureTestDatabase.Replace.NONE)
-@Import({NoticeService.class, NoticeContentCodec.class, ObjectMapper.class, TimeConfig.class})
+@Import({NoticeService.class, NoticeContentCodec.class, ObjectMapper.class, TimeConfig.class, org.sopt.hashi.config.JpaAuditingConfig.class})
 @TestPropertySource(properties = "spring.jpa.hibernate.ddl-auto=validate")
 @Transactional(propagation = Propagation.NOT_SUPPORTED)
 @DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_CLASS)
@@ -58,6 +58,39 @@ class NoticeMySqlTest {
     private NoticeCommand command(String title, List<UUID> ids) {
         return new NoticeCommand(title, List.of(new NoticeBlock(NoticeBlock.Type.PARAGRAPH,
                 List.of(List.of(new NoticeBlock.Span("본문", false, null))))), ids);
+    }
+
+    @Test
+    void 관리자_목록은_삭제를_제외하고_페이지와_전체_건수를_반환한다() {
+        List<Long> ids = java.util.stream.IntStream.range(0, 23)
+                .mapToObj(i -> service.create(command("공지 " + i, List.of())).noticeId()).toList();
+        service.delete(ids.getFirst());
+        var first = service.adminList(0, 20);
+        var last = service.adminList(1, 20);
+        assertThat(first.getTotalElements()).isEqualTo(22);
+        assertThat(first.getTotalPages()).isEqualTo(2);
+        assertThat(first.getContent()).hasSize(20);
+        assertThat(first.getContent().getFirst().noticeId()).isEqualTo(ids.getLast());
+        assertThat(last.getContent()).extracting(NoticeInfo::noticeId).containsExactly(ids.get(2), ids.get(1));
+        assertThat(service.adminList(2, 20).getContent()).isEmpty();
+        assertThat(service.adminList(-1, 0).getSize()).isEqualTo(20);
+        assertThat(service.adminList(0, 1000).getSize()).isEqualTo(100);
+    }
+
+    @Test
+    void 초안의_작성과_수정_시각은_게시_시각과_별도로_저장한다() {
+        NoticeInfo created = service.create(command("초안", List.of()));
+        assertThat(created.createdAt()).isNotNull();
+        assertThat(created.updatedAt()).isNotNull();
+        assertThat(created.publishedAt()).isNull();
+        jdbc.update("UPDATE support_notice SET updated_at = '2000-01-01 00:00:00' WHERE id = ?", created.noticeId());
+        NoticeInfo updated = service.update(created.noticeId(), command("변경한 초안", List.of()));
+        assertThat(updated.createdAt()).isEqualTo(created.createdAt().truncatedTo(java.time.temporal.ChronoUnit.MICROS));
+        assertThat(updated.updatedAt()).isAfter(java.time.LocalDateTime.of(2000, 1, 1, 0, 0));
+        assertThat(updated.publishedAt()).isNull();
+        assertThat(updated.lastModifiedAt()).isNull();
+        assertThat(service.adminDetail(created.noticeId()).updatedAt())
+                .isEqualTo(updated.updatedAt().truncatedTo(java.time.temporal.ChronoUnit.MICROS));
     }
 
     @Test

@@ -1,6 +1,7 @@
 package org.sopt.hashi.support;
 
 import java.util.List;
+import org.springframework.data.domain.Page;
 
 /** 관리자 진입점이 사용하는 support 공개 facade. */
 public interface SupportPort {
@@ -17,5 +18,5 @@ public interface SupportPort {
     NoticeInfo publishNotice(Long id);
     void deleteNotice(Long id);
     NoticeInfo findNoticeByAdmin(Long id);
-    List<NoticeInfo> findNoticesByAdmin(Long beforeId);
+    Page<NoticeInfo> findNoticesByAdmin(int page, int size);
 }

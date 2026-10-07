@@ -1,8 +1,8 @@
 package org.sopt.hashi.admin.service;
 
-import java.util.List;
+import org.sopt.hashi.admin.dto.AdminNoticeResponse;
+import org.sopt.hashi.admin.dto.AdminNoticeListResponse;
 import org.sopt.hashi.support.NoticeCommand;
-import org.sopt.hashi.support.NoticeInfo;
 import org.sopt.hashi.support.SupportPort;
 import org.springframework.stereotype.Service;
 
@@ -11,10 +11,12 @@ import org.springframework.stereotype.Service;
 public class AdminNoticeService {
     private final SupportPort port;
     public AdminNoticeService(SupportPort port) { this.port = port; }
-    public NoticeInfo create(NoticeCommand command) { return port.createNotice(command); }
-    public NoticeInfo update(Long id, NoticeCommand command) { return port.updateNotice(id, command); }
-    public NoticeInfo publish(Long id) { return port.publishNotice(id); }
+    public AdminNoticeResponse create(NoticeCommand command) { return AdminNoticeResponse.from(port.createNotice(command)); }
+    public AdminNoticeResponse update(Long id, NoticeCommand command) { return AdminNoticeResponse.from(port.updateNotice(id, command)); }
+    public AdminNoticeResponse publish(Long id) { return AdminNoticeResponse.from(port.publishNotice(id)); }
     public void delete(Long id) { port.deleteNotice(id); }
-    public NoticeInfo detail(Long id) { return port.findNoticeByAdmin(id); }
-    public List<NoticeInfo> list(Long beforeId) { return port.findNoticesByAdmin(beforeId); }
+    public AdminNoticeResponse detail(Long id) { return AdminNoticeResponse.from(port.findNoticeByAdmin(id)); }
+    public AdminNoticeListResponse list(int page, int size) {
+        return AdminNoticeListResponse.from(port.findNoticesByAdmin(page, size));
+    }
 }

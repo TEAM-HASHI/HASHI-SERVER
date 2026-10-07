@@ -240,6 +240,7 @@ class MediaSpecRegistryTest {
         assertThat(registry.findDefinition(1).orElseThrow().supportsPurpose(MediaPurpose.NOTICE)).isFalse();
         assertThat(registry.findDefinition(2).orElseThrow().supportsPurpose(MediaPurpose.NOTICE)).isFalse();
         var spec = registry.findDefinition(3).orElseThrow();
+        assertThat(spec.digest()).isEqualTo("df24b3eb536b57077ab163df7fdc2705c751ebe8c76265caeae2d2f14fdeaa8e");
         assertThat(spec.expectedRenditions(MediaPurpose.NOTICE, 1000, 2000)).containsExactly(
                 expected(ImageRole.NOTICE_DETAIL, 216, 432),
                 expected(ImageRole.NOTICE_DETAIL, 432, 864),

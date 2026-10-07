@@ -48,7 +48,6 @@ public class NoticeContentCodec {
                     length += span.text().length();
                     if (span.href() != null) {
                         requireSafeLink(span.href());
-                        length += span.href().length();
                     }
                     if (length > 10000) {
                         throw invalid();
@@ -60,7 +59,12 @@ public class NoticeContentCodec {
             throw invalid();
         }
         try {
-            return mapper.writeValueAsString(command.body());
+            byte[] json = mapper.writeValueAsBytes(command.body());
+            // MEDIUMTEXT는 문자 수가 아니라 UTF-8 바이트 크기로 제한된다.
+            if (json.length > 16_777_215) {
+                throw invalid();
+            }
+            return new String(json, java.nio.charset.StandardCharsets.UTF_8);
         } catch (JsonProcessingException exception) {
             throw new IllegalStateException("notice encoding failed", exception);
         }

@@ -52,6 +52,23 @@ class NoticeContentCodecTest {
     }
 
     @Test
+    void 링크주소는_본문_글자수와_분리하되_2000자_한도를_지킨다() {
+        String href = "/" + "a".repeat(1999);
+        assertThat(codec.validateAndEncode(command("가".repeat(10000), href, List.of()))).isNotBlank();
+        assertThatThrownBy(() -> codec.validateAndEncode(command("본문", href + "a", List.of())))
+                .isInstanceOf(BusinessException.class);
+    }
+
+    @Test
+    void 표시글자수가_유효해도_저장할_JSON이_MEDIUMTEXT를_넘으면_입력오류다() {
+        var span = new NoticeBlock.Span("가", false, "/" + "a".repeat(1999));
+        var block = new NoticeBlock(NoticeBlock.Type.PARAGRAPH,
+                List.of(java.util.Collections.nCopies(1000, span)));
+        var command = new NoticeCommand("공지", java.util.Collections.nCopies(10, block), List.of());
+        assertThatThrownBy(() -> codec.validateAndEncode(command)).isInstanceOf(BusinessException.class);
+    }
+
+    @Test
     void 공백본문과_중복이미지를_거절한다() {
         assertThatThrownBy(() -> codec.validateAndEncode(command(" ", null, List.of())))
                 .isInstanceOf(BusinessException.class);

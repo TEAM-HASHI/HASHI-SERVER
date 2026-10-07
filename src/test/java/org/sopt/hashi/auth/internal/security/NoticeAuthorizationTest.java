@@ -58,8 +58,12 @@ class NoticeAuthorizationTest {
     @Test
     @DisplayName("비회원은 공지 상세를 조회한다")
     void 비회원_공개조회() throws Exception {
+        org.mockito.Mockito.when(noticeService.detail(1L)).thenReturn(new org.sopt.hashi.support.NoticeInfo(
+                1L, "공지", java.util.List.of(), "PUBLISHED", null, null, java.util.List.of(), null, null));
         mvc.perform(get(NOTICE_PATH))
-                .andExpect(status().isOk());
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.noticeId").value(1))
+                .andExpect(jsonPath("$.data.title").value("공지"));
     }
 
     @Test
@@ -76,6 +80,20 @@ class NoticeAuthorizationTest {
                 .andExpect(status().isForbidden());
         mvc.perform(get(ADMIN_PATH).header("Authorization", "Bearer " + jwtProvider.createAccessToken(1L, "ROLE_ADMIN")))
                 .andExpect(status().isOk());
+    }
+
+    @Test
+    void 관리자_목록은_page_size와_전체건수를_반환한다() throws Exception {
+        org.mockito.Mockito.when(adminNoticeService.list(1, 20)).thenReturn(
+                new org.sopt.hashi.admin.dto.AdminNoticeListResponse(java.util.List.of(), 1, 20, 22, 2));
+        mvc.perform(get("/api/v1/admin/notices").param("page", "1").param("size", "20")
+                .header("Authorization", "Bearer " + jwtProvider.createAccessToken(1L, "ROLE_ADMIN")))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.page").value(1))
+                .andExpect(jsonPath("$.data.size").value(20))
+                .andExpect(jsonPath("$.data.totalCount").value(22))
+                .andExpect(jsonPath("$.data.totalPages").value(2));
+        org.mockito.Mockito.verify(adminNoticeService).list(1, 20);
     }
 
     @Test
@@ -135,7 +153,7 @@ class NoticeAuthorizationTest {
                 new org.sopt.hashi.shared.error.BusinessException(
                         org.sopt.hashi.support.code.SupportErrorCode.NOTICE_NOT_FOUND));
         mvc.perform(get(NOTICE_PATH)).andExpect(status().isNotFound())
-                .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath("$.code").value("SUPPORT-400"));
+                .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath("$.code").value("SUPPORT-001"));
     }
     @Test
     void 잘못된_날짜cursor도_공개GET에서_400봉투로_반환한다() throws Exception {
@@ -143,6 +161,6 @@ class NoticeAuthorizationTest {
                 org.sopt.hashi.support.domain.NoticeCursor.parse(invocation.getArgument(0)));
         mvc.perform(get("/api/v1/notices").param("cursor", "YmFkfDE"))
                 .andExpect(status().isBadRequest())
-                .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath("$.code").value("SUPPORT-402"));
+                .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath("$.code").value("SUPPORT-003"));
     }
 }
