@@ -65,7 +65,7 @@ public class LocationAdoptionPolicy {
                 return false;
             }
             if (component.types().contains("premise")
-                    && component.types().stream().anyMatch(ADDRESS_ORDER::contains)) {
+                    && component.types().stream().anyMatch(type -> !"premise".equals(type) && !"political".equals(type))) {
                 return false;
             }
             for (String type : component.types()) {

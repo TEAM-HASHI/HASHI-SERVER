@@ -73,6 +73,31 @@ class LocationAdoptionPolicyTest {
                 .isEqualTo("ADDRESS_MISMATCH");
     }
 
+    @ParameterizedTest
+    @ValueSource(strings = {"country", "postal_code", "sublocality"})
+    void premise가_국가나_우편번호_등_다른_역할을_겸하면_거절한다(String extraType) {
+        var original = numericPremiseCandidate("3");
+        var components = new ArrayList<>(original.addressComponents());
+        components.removeIf(component -> component.types().contains("premise")
+                || component.types().contains(extraType));
+        components.add(new AddressComponent("3", "JP", List.of("premise", extraType)));
+        var value = new GeocodingCandidate(original.latitude(), original.longitude(), original.granularity(),
+                original.countryCode(), original.administrativeArea(), components, original.types());
+        var decision = policy.evaluate(ADDRESS, new Candidates(List.of(value)));
+        assertThat(decision.failureCode()).isEqualTo("ADDRESS_MISMATCH");
+        assertThat(decision.coordinates()).isNull();
+    }
+
+    @Test
+    void premise의_political_분류는_주소의_다른_역할로_사용하지_않는다() {
+        var original = numericPremiseCandidate("3");
+        var components = new ArrayList<>(original.addressComponents());
+        components.set(0, new AddressComponent("3", "3", List.of("premise", "political")));
+        var value = new GeocodingCandidate(original.latitude(), original.longitude(), original.granularity(),
+                original.countryCode(), original.administrativeArea(), components, original.types());
+        assertThat(policy.evaluate(ADDRESS, new Candidates(List.of(value))).failureCode()).isNull();
+    }
+
     @Test
     void 같은_premise를_두개의_번지_구간으로_중복_사용하지_않는다() {
         var original = numericPremiseCandidate("3");
