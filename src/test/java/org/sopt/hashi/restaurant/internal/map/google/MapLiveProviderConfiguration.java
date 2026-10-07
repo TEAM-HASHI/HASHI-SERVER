@@ -3,10 +3,13 @@ package org.sopt.hashi.restaurant.internal.map.google;
 import java.net.InetAddress;
 import java.net.UnknownHostException;
 import java.time.Duration;
+import java.util.Set;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.UnaryOperator;
 import org.apache.hc.client5.http.DnsResolver;
 import org.sopt.hashi.restaurant.internal.map.GeocodingProvider;
+import org.sopt.hashi.restaurant.internal.map.GeocodingCandidate.AddressComponent;
+import org.sopt.hashi.restaurant.internal.map.GeocodingResult.Candidates;
 import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Primary;
@@ -28,8 +31,28 @@ class MapLiveProviderConfiguration {
             if (requests.incrementAndGet() != 1) {
                 throw new IllegalStateException("Only one live provider request is allowed");
             }
-            return delegate.geocode(address);
+            var result = delegate.geocode(address);
+            if (result instanceof Candidates candidates) {
+                for (int index = 0; index < candidates.candidates().size(); index++) {
+                    var components = candidates.candidates().get(index).addressComponents();
+                    System.out.println("Live diagnostic candidate=" + index + " componentCount=" + components.size());
+                    components.forEach(component -> System.out.println(componentSummary(component)));
+                }
+            }
+            return result;
         };
+    }
+
+    // Never print provider strings, except names in this fixed type allowlist.
+    static String componentSummary(AddressComponent component) {
+        Set<String> known = Set.of("country", "postal_code", "political", "sublocality", "locality",
+                "administrative_area_level_1", "administrative_area_level_2", "sublocality_level_1",
+                "sublocality_level_2", "sublocality_level_3", "sublocality_level_4", "sublocality_level_5",
+                "route", "street_number", "premise", "subpremise", "street_address", "point_of_interest");
+        String text = component.longText() == null ? "" : component.longText();
+        return "Live diagnostic types=" + component.types().stream().map(type -> known.contains(type) ? type : "UNKNOWN").toList()
+                + " empty=" + text.isBlank() + " digitsOnly=" + text.matches("[0-9０-９]+")
+                + " containsKanjiNumeral=" + text.matches(".*[〇零一二三四五六七八九十百千万壱弐参].*");
     }
     static final class TunnelDnsResolver implements DnsResolver {
         private void checkHost(String host) throws UnknownHostException {

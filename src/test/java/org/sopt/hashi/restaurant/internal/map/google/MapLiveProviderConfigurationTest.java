@@ -9,6 +9,14 @@ import org.junit.jupiter.api.parallel.Isolated;
 @Isolated("Changes the live-test opt-in property without invoking Google")
 class MapLiveProviderConfigurationTest {
     @Test
+    void 진단은_원문과_알수없는_타입을_출력하지_않는다() {
+        var component = new org.sopt.hashi.restaurant.internal.map.GeocodingCandidate.AddressComponent(
+                "비공개주소二丁目", "비공개약어", java.util.List.of("premise", "비공개타입"));
+        assertThat(MapLiveProviderConfiguration.componentSummary(component))
+                .isEqualTo("Live diagnostic types=[premise, UNKNOWN] empty=false digitsOnly=false containsKanjiNumeral=true");
+    }
+
+    @Test
     void 명시적_실행_동의_없이는_실제_provider를_생성하지_않는다() {
         String previous = System.getProperty("map.live.enabled");
         try {
