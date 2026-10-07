@@ -44,8 +44,9 @@ class RedisMapSessionStoreIntegrationTest {
     private static LettuceConnectionFactory connections;
     private static StringRedisTemplate redis;
     private static RedisMapSessionStore store;
+    private static MapSessionLimits limits;
     private static final MapSessionSerializer SERIALIZER = new MapSessionSerializer();
-    private static final String PREFIX = "hashi:restaurant:map:{sessions-v1}:slot:";
+    private static final String PREFIX = "hashi:restaurant:map:{sessions-v2}:query:";
 
     @BeforeAll
     static void connect() {
@@ -58,7 +59,8 @@ class RedisMapSessionStoreIntegrationTest {
         redis = new StringRedisTemplate(connections);
         var factory = new StaticListableBeanFactory();
         factory.addBean("redis", redis);
-        store = new RedisMapSessionStore(factory.getBeanProvider(StringRedisTemplate.class), SERIALIZER, Clock.systemUTC());
+        limits = new MapSessionLimits();
+        store = new RedisMapSessionStore(factory.getBeanProvider(StringRedisTemplate.class), SERIALIZER, Clock.systemUTC(), limits);
     }
 
     @AfterAll
@@ -71,6 +73,12 @@ class RedisMapSessionStoreIntegrationTest {
     @BeforeEach
     void clearOnlyTestRedis() {
         redis.getConnectionFactory().getConnection().serverCommands().flushDb();
+        limits.setIdleTimeout(Duration.ofMinutes(5));
+        limits.setSessions(1024);
+        limits.setSnapshotBytes(1_048_576);
+        limits.setTotalBytes(16_777_216);
+        limits.setNewQueriesPerCaller(12);
+        limits.setCallersPerMinute(2048);
     }
 
     @Test
@@ -87,84 +95,124 @@ class RedisMapSessionStoreIntegrationTest {
         MapSessionId id = store.save(session);
         assertThat(store.find(id)).isEqualTo(session);
         assertThat(json).doesNotContain("@class", "latitude", "longitude", "image", "isSaved");
-        String memory = REDIS.execInContainer("redis-cli", "MEMORY", "USAGE", PREFIX + id.slot()).getStdout().strip();
+        String memory = REDIS.execInContainer("redis-cli", "MEMORY", "USAGE", PREFIX + id.value()).getStdout().strip();
         System.out.println("MAP_SESSION_MEASUREMENT candidates=500 utf8Bytes=" + bytes + " redisMemoryBytes=" + memory);
         assertThat(Long.parseLong(memory)).isLessThan(100_000);
     }
 
     @Test
-    void 동시_생성도_128개를_넘지_않고_별도관리정보_유실이_한도를_늘리지_않는다() throws Exception {
-        try (var executor = Executors.newFixedThreadPool(16)) {
-            List<Callable<Boolean>> calls = IntStream.range(0, 160).mapToObj(index -> (Callable<Boolean>) () -> {
+    void 작은조회_160개는_128슬롯에_막히지_않고_설정예산_안에서_보관된다() {
+        for (int index = 0; index < 160; index++) {
+            store.save(session(Duration.ofMinutes(30)));
+        }
+        assertThat(redis.keys(PREFIX + "*")).hasSize(160);
+        assertThat(redis.opsForHash().size("hashi:restaurant:map:{sessions-v2}:admission")).isEqualTo(160);
+    }
+
+    @Test
+    void 동시_생성은_설정된_예산을_지키며_만료한_예약은_다시_사용한다() throws Exception {
+        limits.setSessions(2);
+        limits.setIdleTimeout(Duration.ofSeconds(1));
+        try (var executor = Executors.newFixedThreadPool(8)) {
+            List<Callable<Boolean>> calls = IntStream.range(0, 8).mapToObj(index -> (Callable<Boolean>) () -> {
                 try {
-                    store.save(session(Duration.ofMinutes(15)));
+                    store.save(session(Duration.ofMinutes(30)));
                     return true;
                 } catch (BusinessException exception) {
                     assertThat(exception.getErrorCode()).isEqualTo(RestaurantErrorCode.MAP_CAPACITY_EXCEEDED);
                     return false;
                 }
             }).toList();
-            var results = executor.invokeAll(calls);
             int accepted = 0;
-            for (var result : results) {
-                if (result.get()) {
-                    accepted++;
-                }
+            for (var result : executor.invokeAll(calls)) {
+                if (result.get()) accepted++;
             }
-            assertThat(accepted).isEqualTo(128);
+            assertThat(accepted).isEqualTo(2);
         }
-        assertThat(redis.keys(PREFIX + "*")).hasSize(128);
-        redis.delete("hashi:restaurant:map:admission");
-        assertCode(() -> store.save(session(Duration.ofMinutes(15))), RestaurantErrorCode.MAP_CAPACITY_EXCEEDED);
-        redis.delete(List.of(PREFIX + "0", PREFIX + "1"));
-        store.save(session(Duration.ofMinutes(15)));
-        store.save(session(Duration.ofMinutes(15)));
-        assertCode(() -> store.save(session(Duration.ofMinutes(15))), RestaurantErrorCode.MAP_CAPACITY_EXCEEDED);
+        await().atMost(Duration.ofSeconds(5)).untilAsserted(() ->
+                assertThat(redis.keys(PREFIX + "*")).isEmpty());
+        assertThat(store.find(store.save(session(Duration.ofMinutes(30))))).isNotNull();
     }
 
     @Test
-    void 실제TTL_만료와_슬롯재사용에도_옛세션을_이어붙이지_않는다() throws Exception {
-        var session = session(Duration.ofMillis(1600));
+    void 조회만으로_연장하지_않고_성공_touch는_유휴수명만_연장하며_절대수명을_넘지_않는다() throws Exception {
+        limits.setIdleTimeout(Duration.ofSeconds(2));
+        var session = session(Duration.ofMillis(4500));
         var id = store.save(session);
-        long before = redis.getExpire(PREFIX + id.slot(), java.util.concurrent.TimeUnit.MILLISECONDS);
-        Thread.sleep(200);
+        long before = redis.getExpire(PREFIX + id.value(), java.util.concurrent.TimeUnit.MILLISECONDS);
+        Thread.sleep(250);
         assertThat(store.find(id)).isEqualTo(session);
-        long after = redis.getExpire(PREFIX + id.slot(), java.util.concurrent.TimeUnit.MILLISECONDS);
-        assertThat(after).isLessThan(before);
-        await().atMost(Duration.ofSeconds(10))
-                .untilAsserted(() -> assertThat(redis.hasKey(PREFIX + id.slot())).isFalse());
-        assertThat(redis.hasKey(PREFIX + id.slot())).isFalse();
-        assertCode(() -> store.find(id), RestaurantErrorCode.MAP_SESSION_EXPIRED);
-        var replacement = store.save(session(Duration.ofMinutes(15)));
-        assertThat(replacement.slot()).isEqualTo(id.slot());
-        assertCode(() -> store.find(id), RestaurantErrorCode.MAP_SESSION_EXPIRED);
+        assertThat(redis.getExpire(PREFIX + id.value(), java.util.concurrent.TimeUnit.MILLISECONDS)).isLessThan(before);
+        Instant expiry = store.touch(id, session);
+        assertThat(expiry).isAfter(Instant.now().plusMillis(1700)).isBeforeOrEqualTo(session.expiresAt());
+        try (var executor = Executors.newFixedThreadPool(8)) {
+            List<Callable<Instant>> calls = IntStream.range(0, 8)
+                    .mapToObj(index -> (Callable<Instant>) () -> store.touch(id, session)).toList();
+            for (var result : executor.invokeAll(calls)) {
+                assertThat(result.get()).isAfterOrEqualTo(expiry).isBeforeOrEqualTo(session.expiresAt());
+            }
+        }
+        Thread.sleep(2000);
+        await().atMost(Duration.ofSeconds(5)).untilAsserted(() -> assertThat(redis.hasKey(PREFIX + id.value())).isFalse());
+        assertCode(() -> store.touch(id, session), RestaurantErrorCode.MAP_SESSION_EXPIRED);
+        assertThat(redis.hasKey(PREFIX + id.value())).isFalse();
     }
 
     @Test
-    void 가득찬_슬롯에서_만료한_한자리만_정확히_회수한다() throws Exception {
-        for (int index = 0; index < 127; index++) {
-            store.save(session(Duration.ofMinutes(15)));
+    void 호출자_신규조회와_고유호출자수_제한은_DB작업_앞에서_사용할_수_있다() {
+        limits.setNewQueriesPerCaller(2);
+        limits.setCallersPerMinute(2);
+        store.admit("caller-a", true);
+        store.admit("caller-a", true);
+        assertCode(() -> store.admit("caller-a", true), RestaurantErrorCode.MAP_RATE_LIMITED);
+        store.admit("caller-a", false);
+        store.admit("caller-b", true);
+        assertCode(() -> store.admit("caller-c", true), RestaurantErrorCode.MAP_CAPACITY_EXCEEDED);
+        assertThat(redis.keys(PREFIX + "*")).isEmpty();
+    }
+
+    @Test
+    void 세션수가_남아도_전체_byte예산을_넘으면_인증키를_보존하고_거절한다() {
+        limits.setSnapshotBytes(65_536);
+        limits.setTotalBytes(131_072);
+        redis.opsForValue().set("auth:synthetic", "unchanged");
+        var candidates = IntStream.range(0, 500).mapToObj(index -> new RestaurantMapCandidate(
+                Long.MAX_VALUE - index, new BigDecimal("5.0"), Long.MAX_VALUE)).toList();
+        var base = session(Duration.ofMinutes(30));
+        var first = new MapQuerySession(1, UUID.randomUUID(), base.criteria(), candidates,
+                base.rankingAsOf(), base.expiresAt());
+        store.save(first);
+        var second = new MapQuerySession(1, UUID.randomUUID(), base.criteria(), candidates,
+                base.rankingAsOf(), base.expiresAt());
+        assertCode(() -> store.save(second), RestaurantErrorCode.MAP_CAPACITY_EXCEEDED);
+        assertThat(redis.keys(PREFIX + "*")).hasSize(1);
+        assertThat(redis.opsForValue().get("auth:synthetic")).isEqualTo("unchanged");
+    }
+
+    @Test
+    void 공유Redis의_eviction설정은_변경하지_않고_지도입장만_거절한다() throws Exception {
+        redis.opsForValue().set("auth:synthetic", "unchanged");
+        try {
+            REDIS.execInContainer("redis-cli", "CONFIG", "SET", "maxmemory-policy", "allkeys-lru");
+            assertCode(() -> store.admit("caller", true), RestaurantErrorCode.MAP_SESSION_UNAVAILABLE);
+            assertCode(() -> store.save(session(Duration.ofMinutes(30))), RestaurantErrorCode.MAP_SESSION_UNAVAILABLE);
+            assertThat(redis.opsForValue().get("auth:synthetic")).isEqualTo("unchanged");
+        } finally {
+            REDIS.execInContainer("redis-cli", "CONFIG", "SET", "maxmemory-policy", "noeviction");
         }
-        var expiring = store.save(session(Duration.ofMillis(1400)));
-        assertCode(() -> store.save(session(Duration.ofMinutes(15))), RestaurantErrorCode.MAP_CAPACITY_EXCEEDED);
-        await().atMost(Duration.ofSeconds(10))
-                .untilAsserted(() -> assertThat(redis.hasKey(PREFIX + expiring.slot())).isFalse());
-        var replacement = store.save(session(Duration.ofMinutes(15)));
-        assertThat(replacement.slot()).isEqualTo(expiring.slot());
-        assertThat(redis.keys(PREFIX + "*")).hasSize(128);
-        assertCode(() -> store.save(session(Duration.ofMinutes(15))), RestaurantErrorCode.MAP_CAPACITY_EXCEEDED);
     }
 
     @Test
     void bytes초과와_구버전_손상_유실을_분리하고_인증키를_변경하지_않는다() {
         redis.opsForValue().set("auth:synthetic", "unchanged", Duration.ofSeconds(90));
         var id = store.save(session(Duration.ofMinutes(15)));
-        redis.opsForValue().set(PREFIX + id.slot(), "{\"schemaVersion\":999}");
+        redis.opsForValue().set(PREFIX + id.value(), "{\"schemaVersion\":999}");
         assertCode(() -> store.find(id), RestaurantErrorCode.MAP_SESSION_EXPIRED);
-        redis.delete(PREFIX + id.slot());
+        redis.delete(PREFIX + id.value());
         assertCode(() -> store.find(id), RestaurantErrorCode.MAP_SESSION_EXPIRED);
         var criteria = MapSearchCriteria.of(new MapQueryBounds(new BigDecimal("0." + "1".repeat(70_000)),
                 BigDecimal.ONE, BigDecimal.ZERO, BigDecimal.ONE), null, null, null, null);
+        limits.setSnapshotBytes(65_536);
         var oversized = new MapQuerySession(1, UUID.randomUUID(), criteria, List.of(),
                 Instant.now(), Instant.now().plusSeconds(900));
         assertCode(() -> store.save(oversized), RestaurantErrorCode.MAP_CAPACITY_EXCEEDED);

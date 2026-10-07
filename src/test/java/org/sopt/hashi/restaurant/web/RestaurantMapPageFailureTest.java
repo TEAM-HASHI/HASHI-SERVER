@@ -92,7 +92,7 @@ class RestaurantMapPageFailureTest {
     }
 
     private void assertSafeFailure(RuntimeException failure) throws Exception {
-        given(service.getPage(any(RestaurantMapPageRequest.class))).willThrow(failure);
+        given(service.getPage(any(RestaurantMapPageRequest.class), any(String.class))).willThrow(failure);
         Logger logger = (Logger) LoggerFactory.getLogger(org.slf4j.Logger.ROOT_LOGGER_NAME);
         ListAppender<ILoggingEvent> appender = new ListAppender<>();
         appender.start();

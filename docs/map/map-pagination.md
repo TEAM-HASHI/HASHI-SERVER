@@ -42,56 +42,66 @@ RestaurantMapWebConfig가 표준 OSIV interceptor를 등록하면서 새 `/api/v
 매 페이지에서 현재 공개·위치 수명·BBOX·지역·검색·분류를 다시 조회하고 탈락 후보를 건너뛴다.
 한 페이지의 조건/좌표/카드에는 같은 DB snapshot을 사용한다. 반환 후 발생한 변경까지 보장하지 않는다.
 
-cursor 위치는 10번째 표시 후보 바로 다음이다. hasNext 확인용 11번째 후보는 소비하지 않는다.
-동일 cursor는 전역 상태를 바꾸지 않으며 복구/신규 후보가 이미 지나간 위치 앞에 삽입되지 않는다.
-DB 공개 조건이 바뀌면 같은 cursor의 표시 항목이 달라질 수 있다.
+cursor 위치는 실제 검사한 후보 위치다. 후보를 32개씩 재검사하고 유효한 10개와
+hasNext 확인용 1개가 확보되면 멈춘다. 11번째 후보는 소비하지 않아 다음 페이지에 포함된다.
+동일 cursor는 전역 위치를 바꾸지 않으며 복구/신규 후보가 지나간 위치 앞에 삽입되지 않는다.
+DB 공개 조건이 바뀌면 같은 cursor의 표시 항목은 달라질 수 있다.
 
 ## 저장소와 한도
 
-schemaVersion=1 구체 record를 JSON으로 저장한다. Java default typing과 Lua cjson 변환은 쓰지 않는다.
-세션 ID(UUID), 정규화 조건, 최초 추천 순 후보·순위 값, rankingAsOf, 절대 expiresAt만 들어간다.
-식당 좌표·이미지·Google 원문·개인 상태·인증 토큰은 저장하지 않는다.
+조회 UUID별 `hashi:restaurant:map:{sessions-v2}:query:<UUID>` 키에 JSON 하나를 저장한다.
+최초 추천 순서와 별점·리뷰 수만 보관한다. 별도 정렬 자료구조나 payload 분할은 사용하지 않는다.
+검색 조건, `rankingAsOf`, 최대 보관 시각도 포함하며 좌표·이미지·Google 원문·개인 상태는 없다.
+JSON을 Lua에서 변환하지 않으므로 큰 Long ID도 그대로 보존된다.
 
-| 한도 | 값 |
-| --- | --- |
-| 후보 | 500개; DB는 501개까지 읽어 초과 전체 실패 |
-| 직렬화 UTF-8 값 | 65,536 bytes |
-| 동시에 저장 가능한 세션 | 128개 |
-| 세션 수명 | 생성 후 15분; 읽기/정렬 비연장 |
+세션은 **마지막 정상 조회부터 5분**, **최초 생성부터 최대 30분** 유지한다.
+다음 페이지와 정렬 변경이 성공하면 그 시점부터 5분으로 TTL을 갱신한다. 기존 TTL에 5분을 더하지 않는다.
+조회만 시작했거나 잘못된 cursor, DB 실패인 경우 연장하지 않는다. Redis Lua에서 현재 TTL을 확인해
+만료한 키를 다시 만들지 않으며 동시 요청도 이미 연장한 시각을 앞당기거나 최대 수명을 넘지 않는다.
+서버와 Redis 시계는 동기화해야 한다. Redis보다 미래 최대 수명을 초과하는 값은 저장하지 않는다.
+응답 `expiresAt`은 해당 성공 요청에서 확정한 실제 만료 시각이다. `rankingAsOf`는 변하지 않는다.
 
-키는 `hashi:restaurant:map:{sessions-v1}:slot:0`부터 `:127`까지 고정이다. 슬롯 값 자체가
-수용 상태여서 별도 카운터/index 관리 키가 없다. 모든 키를 Lua KEYS에 명시적으로 전달하고 같은
-Redis Cluster hash tag를 쓴다. 최대 128개의 EXISTS 검사 후 단 한 번의 SET NX PXAT으로
-전체 값을 저장한다. 실패 전 쓰기를 rollback한다고 가정하지 않는다. payload를 Lua에서 파싱하지
-않으므로 2^53보다 큰 Long 식당 ID도 그대로 보존된다.
+설정 접두사는 `hashi.restaurant.map.session.limits`다. 다음은 측정 후 조정할 초기값이며 운영 최적값이 아니다.
 
-한 슬롯 유실은 그 세션 유실과 동일하며 정확히 한 자리를 회수한다. 모든 슬롯 유실은 모든 세션을
-410으로 만들고 용량은 비워진다. 슬롯이 재사용돼도 UUID가 다르면 기존 요청은 410이다.
-쓰기 응답을 잃었을 때 남는 완전한 세션은 TTL까지 한 자리를 차지할 수 있다. 임의 복구/새 세션
-연결이나 부분 성공은 하지 않는다. namespace는 공유 Redis의 인증 메모리를 물리적으로 격리하지 않는다.
+| 설정 | 초기값 | 목적 |
+| --- | --- | --- |
+| `concurrent-requests` | 인스턴스별 4 | DB·역직렬화·정렬의 동시 작업 수 |
+| `idle-timeout` / `max-lifetime` | 5m / 30m | 유휴 만료와 최대 보관 시간 |
+| `snapshot-bytes` | 1MiB | 조회 하나의 JSON 크기 |
+| `total-bytes` | 16MiB | 지도 세션 예약 예산 |
+| `sessions` | 1,024 | 작은 세션과 ledger 처리량 제한 |
+| `new-queries-per-caller` | 분당 12 | 신규 DB 조회 남용 제한 |
+| `requests-per-caller` / `requests-per-minute` | 분당 120 / 600 | 페이지·정렬 포함 호출 제한 |
+| `callers-per-minute` | 2,048 | 익명 호출자 관리 정보 크기 제한 |
+| `redis-memory-ceiling` / `redis-headroom` | 128MiB / 32MiB | 공유 Redis 사용량 상한과 여유분 |
 
-Redis 공식 문서의 [SET NX/PXAT](https://redis.io/docs/latest/commands/set/)와
-[Lua 키 전달/실행 제약](https://redis.io/docs/latest/develop/programmability/eval-intro/)을 따른다.
-PXAT은 Redis 6.2 이상을 요구한다. 운영 버전·ACL·eviction·메모리 경쟁은 활성화 전 확인해야 한다.
-이 공개 API의 128개 슬롯은 호출자별 격리가 없다. 한 익명 호출자가 짧은 시간에 새 조회 128회를
-보내면 다른 사용자의 새 조회도 세션 만료 전까지 RESTAURANT-016을 받는다. 현재 저장소에는 이를
-막는 신뢰 가능한 ingress 제한이나 앱별 호출자 quota의 적용 증거가 없다. 공개 활성화 전
-실제 ingress 제한·호출자 식별 경계와 정상 트래픽 용량을 검증해야 하며, 그 전에는 기본 비활성화와 출시 NO-GO를 유지한다.
-후보 500개 초과 시 전체 실패하는 정책과 기획의 전체 결과 조회·실패 회복 안내 사이의 차이도
-[후속 이슈 #252](https://github.com/TEAM-HASHI/HASHI-SERVER/issues/252)에서 해결해야 한다.
-실제 조회 범위의 후보 규모와 제품 정책을 확정하기 전에는 활성화하지 않는다. 500개 상한을 유지하며
-임의 확대나 결과 잘라내기는 하지 않는다. 기본 비활성화와 Redis 슬롯 상한만으로 이 이슈나 남용 방지가 해결되지는 않는다.
-서버 TIME보다 미래 15분을 5초 넘겨 벗어나거나 이미 지난 deadline은 저장하지 않으므로 서버 시계도
-동기화해야 한다. 이 5초는 시계 차이 허용 범위이며 payload의 expiresAt이나 PXAT을 늘리지는 않는다.
+500개 고정 제한은 제거했다. 500·501·620개도 마지막 페이지까지 조회한다.
+무한 목록을 메모리에 올리지는 않는다. JSON 후보 하나에 반드시 필요한 최소 바이트보다 작은 32로
+`max snapshot bytes / 32`를 계산해 DB 조회 안전 상한을 정하고, 실제 직렬화 크기도 검사한다.
+이 안전 상한을 넘는 후보는 어차피 JSON 예산에 들어갈 수 없다. 결과를 잘라서 성공으로 반환하지 않는다.
+운영 데이터가 byte 예산을 초과하면 503으로 끝나므로 실제 후보 규모 측정과 예산 조정은 공개 전 필요하다.
 
-2026-09-27 KST 임시 Redis 7.4.11, 공식 digest
-`sha256:858f009f9709ce576febc734aa78b8f6d624b82571f9ddb6bda4377c833b3499`에서 합성 값을 측정했다.
-최대 Long ID/리뷰 수, 별점 5.0, 500개 후보, 100개 보조 평면 Unicode 검색어, 긴 소수 BBOX 및
-지역/분류 필터, 각 128자 BBOX의 최종 serializer 값은 실행별 43,226~43,232 bytes,
-MEMORY USAGE는 49,240 bytes였다. Instant의 소수 초 문자열 길이에 따라 payload 길이가 달라진다.
-이는 현재 값 형식의 합성 최대 조건 측정이며 더 큰 내부 입력도 별도 bytes 한도가 거절한다.
-실제 동시 160회 생성에서는 128회만 성공했다. 128개 전부가 64KiB라면
-payload 상한은 8MiB이고 Redis allocator/key overhead는 별도다. 운영 QPS/p95 보장은 아니다.
+`:admission` hash는 세션별 예약 바이트와 만료 시각만 보관한다. 생성 시 만료한 예약을 회수하고,
+기존 예약 합계와 세션 수를 확인한다. 예약은 `JSON bytes × 2 + 1,024`로 잡아 key/allocator/ledger 여유를 둔다.
+세션 생성·TTL 갱신·예약 변경은 같은 hash slot의 Lua로 처리한다. 예약 후 payload를 저장하므로 쓰기가
+실패해도 예산에 잡히지 않은 payload를 만들지 않는다. 예약이 남으면 유휴 기한 뒤 회수한다.
+전체 hash 스캔은 설정 최대 4,096개로 제한한다. 이 hash는 용량 관리용이며 정렬 데이터 구조가 아니다.
+
+`:requests` hash 하나에 현재 분의 호출 수를 보관한다. 다음 분 첫 요청에서 초기화하고 120초 TTL을 둔다.
+원문 IP는 저장하지 않고 서명키로 HMAC한 호출자 식별자를 사용한다. 임의의 caller마다 Redis 키를 늘리지 않는다.
+카운터 검사는 DB 후보 조회와 JSON 생성보다 먼저 실행한다.
+인스턴스별 Semaphore는 지도 작업을 기본 4개로 제한하고 대기열 없이 초과 요청을 503으로 돌려준다.
+Redis뿐 아니라 Java heap과 DB 연결도 보호하며, 실패해도 finally에서 실행 자리를 반환한다.
+`concurrent-requests`는 기동 때 적용되며 변경하려면 인스턴스를 다시 시작한다. 분 경계에서는 두 분의 한도가 연속 사용될 수 있다.
+
+Redis `INFO memory`로 실제 메모리와 `noeviction`을 확인한다. 설정 상한과 Redis maxmemory 중 작은 값에서
+headroom을 뺀 공간이 부족하거나 정책이 다르면 지도 요청만 503으로 거절한다. 서버의 Redis 설정은 수정하지 않는다. `INFO memory`와 Lua 관련 명령의 ACL도 공개 전에 확인한다.
+키 접두사나 Redis DB 번호는 인증 데이터와의 메모리 격리가 아니다. 운영자에 의한 ledger 단독 삭제도 지원하지 않는다.
+수동 정리는 지도 namespace 전체를 함께 비우고 사용 중 세션을 만료 처리해야 한다.
+
+공개 전에는 실제 후보 수·초당 신규 조회·p95·TTL 회수·인증 키 보존을 격리된 k6 환경에서 검증한다.
+`:admission`의 `HLEN`, `MEMORY USAGE`, 전체 Redis used_memory를 함께 측정한다. local 합성 테스트가
+운영 트래픽을 보장하지 않는다. 운영 QPS/메모리 예산과 ingress 제한은 별도 확인한다.
 
 ## 설정·오류와 운영 경계
 
@@ -109,17 +119,22 @@ RESTAURANT-014 / 503을 반환한다. 기존 입력 검증은 유지한다.
 dev/prod compose의 기존 `env_file`은 이미 해당 환경변수를 전달할 수 있다. 명시적인 `environment`
 매핑은 enabled 기본 `false`와 빈 키 기본값을 보여준다. 기존 배포처럼 `--env-file`로 동일 런타임
 파일을 Compose 변수 치환에도 사용해야 하며, [EC2 런타임 설정](../infra/dev-deploy.md#5-ec2-런타임-환경변수)을 따른다.
-유효한 키와 `enabled=true`만으로 ingress·용량 검증이나 #252의 제품 정책 결정이 완료되는 것은 아니다.
+유효한 키와 `enabled=true`만으로 ingress·용량 검증이 완료되는 것은 아니다.
+호출자 식별은 Servlet `remoteAddr`를 사용하며 원문 X-Forwarded-For를 직접 읽지 않는다.
+현재 `forward-headers-strategy=native`이므로 ingress가 외부 Forwarded/XFF를 제거·재설정하고
+Tomcat이 신뢰하는 프록시 범위를 확인해야 한다. 이 경계가 없으면 IP 제한을 우회할 수 있다.
+같은 NAT 사용자는 IP 한도를 공유하므로 실제 트래픽을 보고 조정한다. 애플리케이션 검사만으로 DDoS를 막지는 못한다.
 키 교체 때 기존 cursor는 검증 실패한다. 회전 기간 복수 키 지원은 이 변경에 포함하지 않는다.
 
-커서는 최대 512자 계약 안에서 74자 Base64url 토큰이며 version/slot/UUID/sort/후보 위치에 HMAC-SHA256을
+커서는 최대 512자 계약 안에서 72자 Base64url 토큰이며 version/UUID/sort/후보 위치에 HMAC-SHA256을
 검증한다. 전체 cursor·검색어·서명키를 오류나 로그에 넣지 않는다. Redis serializer/parser 예외의
 payload 포함 가능성 때문에 cause도 외부 로그에 전달하지 않는다.
 
 - RESTAURANT-013 / 410: 만료·유실·UUID 불일치·구버전/손상 세션.
-- RESTAURANT-014 / 503: 지도 세션 비활성화·서명 설정 누락/오류·Redis 읽기/쓰기/연결 장애.
+- RESTAURANT-014 / 503: 지도 세션 비활성화·서명 설정 누락/오류·Redis 읽기/쓰기/연결 장애·메모리 보호 조건 미충족.
 - RESTAURANT-015 / 503: DB 조회/transaction 장애.
-- RESTAURANT-016 / 503: 후보·bytes·슬롯 수용 한도 초과.
+- RESTAURANT-016 / 503: snapshot bytes·전체 예약·세션 수·전역 호출 한도 초과.
+- RESTAURANT-022 / 429: 호출자별 신규/전체 요청 한도 초과. 분 단위로 회복하므로 최대 60초 기다린 뒤 재시도한다.
 - 기존 011/012/017/018은 #223 의미를 유지한다.
 
 기존 RedisTemplate·인증 키·CacheManager·연결 설정은 변경하지 않았다. 기존 명령 timeout 3초와
@@ -139,21 +154,14 @@ OSIV를 테스트에서 끄지 않으며, 지도 경로의 request-bound EntityM
 지역 필터 없는 BBOX 조회에서 실제 카드 SQL은 식당 1곳과 10곳 모두 7회, MediaPort bulk 호출 1회였다.
 메뉴를 식당별로 조회하지 않는다.
 
-최초 후보 검증 명령은 JDK 21, JVM UTC에서 다음과 같다.
+현재 검증 명령:
 
 ```text
-./gradlew.bat build test --tests org.sopt.hashi.restaurant.* --tests *AdminRestaurant* --tests *ModularityTests --no-daemon --max-workers=2
+./gradlew.bat test --tests '*Map*' --tests '*ModularityTests' bootJar --no-daemon --max-workers=2
 ```
 
-44개 suite, 439개 test가 실행됐고 실패/오류/건너뜀은 모두 0이었다. 이 결과에는 새 HTTP 통합 16개,
-실제 Redis 저장소 통합 7개와 Modulith 검증이 포함된다.
-
-이후 기본 OSIV에서 Redis 저장 시 물리 DB 연결 1개가 남는 반례를 재현하고 지도 목록 경로를 제외했다.
-수정 후 다음 관련 build는 5개 suite / 37개 test / 실패·오류·건너뜀 0으로 통과했다. 이 실행에는
-DB 연결 반환과 기존 OSIV 유지 검증을 포함한 HTTP 17개, 기존 식당/지도/관리자 Controller 및 Modulith가 포함된다.
-
-```text
-./gradlew.bat build test --tests *RestaurantMapPageIntegrationTest --tests *RestaurantMapControllerTest --tests *RestaurantControllerTest --tests *AdminRestaurantControllerTest --tests *ModularityTests --no-daemon --max-workers=2
-```
-
-전체 프로젝트 빌드와 CI 결과는 PR에 따로 기록한다.
+고정 슬롯 제거, 500개 초과 전량 페이지 조회, lookahead, 같은 cursor 재시도, 실패 시 미연장,
+절대 수명, 동시 TTL 갱신, 호출자/전체 용량 제한, 인증 키 보존을 검증한다.
+실제 Redis의 후보 500개 합성 snapshot은 UTF-8 43,232 bytes, MEMORY USAGE 49,288 bytes였다.
+이는 한 payload 측정이며 전체 운영 용량을 보장하지 않는다.
+부하·지속 부하·회복은 #236의 격리된 HTTP/MySQL/Redis+k6 시나리오에서 별도로 확인한다.

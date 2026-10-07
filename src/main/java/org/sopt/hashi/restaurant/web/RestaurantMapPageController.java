@@ -1,6 +1,7 @@
 package org.sopt.hashi.restaurant.web;
 
 import jakarta.servlet.http.HttpServletResponse;
+import jakarta.servlet.http.HttpServletRequest;
 import org.sopt.hashi.restaurant.code.RestaurantErrorCode;
 import org.sopt.hashi.restaurant.dto.RestaurantMapPageRequest;
 import org.sopt.hashi.restaurant.dto.RestaurantMapPageResponse;
@@ -26,11 +27,11 @@ public class RestaurantMapPageController {
     @ApiException(value = CommonErrorCode.class, codes = {"INVALID_INPUT"})
     @ApiException(value = RestaurantErrorCode.class, codes = {"UNSUPPORTED_GENRE", "UNSUPPORTED_SORT",
             "UNSUPPORTED_PLACE_TYPE", "MAP_BOUNDS_INVALID", "MAP_REGION_INVALID", "MAP_SESSION_EXPIRED",
-            "MAP_SESSION_UNAVAILABLE", "MAP_QUERY_UNAVAILABLE", "MAP_CAPACITY_EXCEEDED", "MAP_CONFIGURATION_UNAVAILABLE"})
+            "MAP_SESSION_UNAVAILABLE", "MAP_QUERY_UNAVAILABLE", "MAP_CAPACITY_EXCEEDED", "MAP_CONFIGURATION_UNAVAILABLE", "MAP_RATE_LIMITED"})
     @GetMapping("/api/v1/restaurants/map")
     public SuccessResponse<RestaurantMapPageResponse> getPage(@RequestParam MultiValueMap<String, String> parameters,
-                                                             HttpServletResponse response) {
+                                                             HttpServletResponse response, HttpServletRequest request) {
         response.setHeader(HttpHeaders.CACHE_CONTROL, "no-store");
-        return SuccessResponse.of(CommonSuccessCode.OK, service.getPage(RestaurantMapPageRequest.from(parameters)));
+        return SuccessResponse.of(CommonSuccessCode.OK, service.getPage(RestaurantMapPageRequest.from(parameters), request.getRemoteAddr()));
     }
 }
