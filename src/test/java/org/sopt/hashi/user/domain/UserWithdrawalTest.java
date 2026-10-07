@@ -58,6 +58,13 @@ class UserWithdrawalTest {
         assertThat(User.isReservedNickname("한입여행자2")).isFalse();
     }
 
+    @Test
+    void 탈퇴_자리값_이메일_도메인은_대소문자와_무관하게_예약어다() {
+        assertThat(User.isReservedEmail("withdrawn+7@hashi.invalid")).isTrue();
+        assertThat(User.isReservedEmail("anyone@HASHI.INVALID")).isTrue();
+        assertThat(User.isReservedEmail("hashi@example.com")).isFalse();
+    }
+
     private User user(Long id, String key, UUID assetId) {
         User user = User.onboard(
                 "하시", "HASHI", LocalDate.of(1998, 1, 1),

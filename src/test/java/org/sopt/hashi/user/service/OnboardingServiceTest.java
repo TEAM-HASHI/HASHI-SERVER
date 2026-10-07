@@ -108,6 +108,18 @@ class OnboardingServiceTest {
         verifyNoInteractions(authAccountPort, mediaPort);
     }
 
+    @Test
+    void 탈퇴_자리값_이메일_도메인은_중복으로_가입을_거절한다() {
+        CompleteOnboardingRequest request = new CompleteOnboardingRequest(
+                "하시", "HASHI", LocalDate.of(1998, 1, 1), "01012345678", "withdrawn+7@hashi.invalid", null, null);
+
+        assertThatThrownBy(() -> onboardingService.completeOnboarding(request))
+                .isInstanceOf(BusinessException.class)
+                .hasFieldOrPropertyWithValue("errorCode", UserErrorCode.DUPLICATE_EMAIL);
+        verify(userRepository, never()).save(any(User.class));
+        verifyNoInteractions(authAccountPort, mediaPort);
+    }
+
     private CompleteOnboardingRequest request(String key, UUID assetId) {
         return new CompleteOnboardingRequest(
                 "하시", "HASHI", LocalDate.of(1998, 1, 1),

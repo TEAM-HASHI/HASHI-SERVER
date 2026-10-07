@@ -8,6 +8,7 @@ import jakarta.persistence.Id;
 import jakarta.persistence.Table;
 import jakarta.persistence.UniqueConstraint;
 import java.time.LocalDate;
+import java.util.Locale;
 import java.util.Objects;
 import java.util.UUID;
 import lombok.AccessLevel;
@@ -39,9 +40,14 @@ import org.sopt.hashi.BaseTimeEntity;
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
 public class User extends BaseTimeEntity {
 
-    /** 탈퇴 회원의 유니크 컬럼 자리값 — 실제 가입 입력과 겹치지 않는 형식이며, 닉네임 접두어는 온보딩에서 중복 닉네임으로 거절한다. */
+    /**
+     * 탈퇴 회원의 유니크 컬럼 자리값. 전화번호 자리값은 숫자 형식 검증에 걸려 가입 입력과 겹칠 수 없고,
+     * 닉네임 접두어와 이메일 도메인은 가입 입력이 통과할 수 있으므로 온보딩에서 중복으로 거절한다.
+     */
     private static final String WITHDRAWN_NICKNAME_PREFIX = "탈퇴회원#";
-    private static final String WITHDRAWN_EMAIL_FORMAT = "withdrawn+%d@hashi.invalid";
+    /** .invalid는 실제 메일이 올 수 없는 예약 최상위 도메인(RFC 2606)이라 활성 회원의 이메일과 겹칠 이유가 없다. */
+    private static final String WITHDRAWN_EMAIL_DOMAIN = "@hashi.invalid";
+    private static final String WITHDRAWN_EMAIL_FORMAT = "withdrawn+%d" + WITHDRAWN_EMAIL_DOMAIN;
     private static final String WITHDRAWN_PHONE_FORMAT = "withdrawn-%d";
 
     @Id
@@ -113,6 +119,11 @@ public class User extends BaseTimeEntity {
     /** 활성 회원이 쓸 수 없는 닉네임 — 탈퇴 자리값 접두어(탈퇴 시 유니크 충돌 방지)와 익명 닉네임 후보(탈퇴 회원과 혼동 방지). */
     public static boolean isReservedNickname(String nickname) {
         return nickname.startsWith(WITHDRAWN_NICKNAME_PREFIX) || AnonymousNickname.isCandidate(nickname);
+    }
+
+    /** 활성 회원이 쓸 수 없는 이메일 — 탈퇴 자리값 도메인. 누가 먼저 가입하면 그 id의 회원이 탈퇴할 때 유니크 충돌이 난다. */
+    public static boolean isReservedEmail(String email) {
+        return email.toLowerCase(Locale.ROOT).endsWith(WITHDRAWN_EMAIL_DOMAIN);
     }
 
     /** 온보딩에서 media 소유권 인계·claim이 성공한 뒤 빈 프로필 슬롯에 연결한다. */
