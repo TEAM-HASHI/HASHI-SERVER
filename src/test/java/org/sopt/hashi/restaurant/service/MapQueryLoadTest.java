@@ -100,7 +100,7 @@ class MapQueryLoadTest {
         List<Map<String, Object>> samples = new ArrayList<>();
         try (HttpClient client = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(5)).build()) {
             assertThat(request(client, base).statusCode()).isEqualTo(200);
-            ProcessBuilder builder = new ProcessBuilder(System.getProperty("map.k6.executable"), "run",
+            ProcessBuilder builder = new ProcessBuilder(System.getProperty("map.k6.executable"), "run", "--no-usage-report",
                     "--summary-export", output.resolve("k6-summary.json").toString(),
                     System.getProperty("map.k6.script"));
             builder.environment().put("BASE_URL", base);
