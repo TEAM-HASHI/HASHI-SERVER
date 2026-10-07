@@ -9,7 +9,7 @@ import org.testcontainers.containers.MySQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
-/** V32~V34 선행 결합 후 실행한다. missing V33을 target 설정만으로 통과 처리하지 않는다. */
+/** V32~V34 선행 결합 후 실행한다. missing V34를 target 설정만으로 통과 처리하지 않는다. */
 @Testcontainers(disabledWithoutDocker = true)
 class CollectionVersionMigrationTest {
     @Container
