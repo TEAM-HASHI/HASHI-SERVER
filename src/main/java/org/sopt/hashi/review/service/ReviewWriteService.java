@@ -19,6 +19,7 @@ import org.sopt.hashi.review.dto.CreateReviewRequest;
 import org.sopt.hashi.review.dto.CreateReviewResponse;
 import org.sopt.hashi.shared.error.BusinessException;
 import org.sopt.hashi.shared.error.CommonErrorCode;
+import org.sopt.hashi.user.UserPort;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -33,6 +34,7 @@ public class ReviewWriteService {
     private final ReservationPort reservationPort;
     private final RestaurantPort restaurantPort;
     private final PointPort pointPort;
+    private final UserPort userPort;
     private final CurrentUserProvider currentUserProvider;
 
     public ReviewWriteService(
@@ -40,12 +42,14 @@ public class ReviewWriteService {
             ReservationPort reservationPort,
             RestaurantPort restaurantPort,
             PointPort pointPort,
+            UserPort userPort,
             CurrentUserProvider currentUserProvider
     ) {
         this.reviewRepository = reviewRepository;
         this.reservationPort = reservationPort;
         this.restaurantPort = restaurantPort;
         this.pointPort = pointPort;
+        this.userPort = userPort;
         this.currentUserProvider = currentUserProvider;
     }
 
@@ -72,6 +76,7 @@ public class ReviewWriteService {
         review.replaceKeywords(keywordCodes);
         review.replaceImages(images);
 
+        lockActiveReviewer(userId);
         Review savedReview = save(review);
         restaurantPort.increaseReviewStatistics(reservation.restaurantId(), request.rating());
         long earnedPoint = pointPort.earnReviewReward(userId, reservation.id());
@@ -79,6 +84,17 @@ public class ReviewWriteService {
         log.info("리뷰 작성. reviewId={}, reservationId={}, restaurantId={}, rating={}, earnedPoint={}",
                 savedReview.getId(), reservation.id(), reservation.restaurantId(), request.rating(), earnedPoint);
         return new CreateReviewResponse(savedReview.getId(), earnedPoint);
+    }
+
+    /**
+     * 작성자의 users 행을 잠그고 활성 회원인지 확인한다 — 잠금은 리뷰 저장·식당 통계·포인트 보상까지 같은 트랜잭션에서
+     * 유지된다. 탈퇴는 회원 행을 잠근 뒤 처리하므로, 탈퇴 직전에 들어온 리뷰가 탈퇴 뒤에 저장되거나 소멸된 계정에
+     * 보상이 적립되는 일을 막는다.
+     */
+    private void lockActiveReviewer(Long userId) {
+        if (!userPort.lockActiveUser(userId)) {
+            throw new BusinessException(ReviewErrorCode.REVIEWER_NOT_FOUND);
+        }
     }
 
     private void validateReviewableReservation(ReservationReviewInfo reservation) {

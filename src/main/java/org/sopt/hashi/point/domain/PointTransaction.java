@@ -78,4 +78,10 @@ public class PointTransaction extends BaseTimeEntity {
                                            PointSourceType sourceType, Long sourceId) {
         return new PointTransaction(pointAccountId, PointTransactionType.RESTORE, amount, null, sourceType, sourceId);
     }
+
+    /** 소멸 기록 — 탈퇴 시점 잔액 전액. 출처는 회원(USER, userId)이라 유니크 제약으로 회원당 한 번만 기록된다. */
+    public static PointTransaction forfeit(Long pointAccountId, long amount, String reason, Long userId) {
+        return new PointTransaction(pointAccountId, PointTransactionType.FORFEIT, amount, reason,
+                PointSourceType.USER, userId);
+    }
 }

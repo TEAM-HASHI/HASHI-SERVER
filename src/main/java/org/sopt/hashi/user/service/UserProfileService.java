@@ -58,9 +58,9 @@ public class UserProfileService {
         return ProfileSummaryResponse.of(user, profileImage.url(), profileImage.image());
     }
 
-    /** 토큰은 유효하나 회원이 없으면(탈퇴 직후 잔여 토큰 등) NOT_FOUND — 잔여 토큰 차단(블랙리스트)은 탈퇴 이슈 소관. */
+    /** 토큰은 유효하나 활성 회원이 없으면 NOT_FOUND — 탈퇴 회원의 잔여 토큰은 필터의 블랙리스트 대조가 먼저 거부하므로 이 경로는 방어선이다. */
     private User currentUser() {
-        return userRepository.findById(currentUserProvider.currentUserId())
+        return userRepository.findByIdAndDeletedFalse(currentUserProvider.currentUserId())
                 .orElseThrow(() -> new BusinessException(UserErrorCode.NOT_FOUND));
     }
 
