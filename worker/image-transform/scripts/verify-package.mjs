@@ -32,7 +32,7 @@ assert.equal(
 );
 
 const noticeSpec = manifestModule.loadMediaSpec(3);
-assert.equal(noticeSpec.digest, "df24b3eb536b57077ab163df7fdc2705c751ebe8c76265caeae2d2f14fdeaa8e");
+assert.equal(noticeSpec.digest, "ab130db4caea347d5945531e22c9f2b783a95ad1a9c9fa7b5741a6adcd16b97a");
 
 console.log(
   JSON.stringify({
