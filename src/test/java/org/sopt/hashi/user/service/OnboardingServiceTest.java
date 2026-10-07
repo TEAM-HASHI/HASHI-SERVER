@@ -46,7 +46,8 @@ class OnboardingServiceTest {
 
     @BeforeEach
     void setUp() {
-        onboardingService = new OnboardingService(userRepository, authAccountPort, mediaPort);
+        onboardingService = new OnboardingService(
+                userRepository, authAccountPort, mediaPort, new ProfileAvailabilityChecker(userRepository));
         // 예약어 닉네임 거절 케이스는 save까지 가지 않으므로 공통 stub은 lenient로 둔다
         lenient().when(userRepository.save(any(User.class))).thenAnswer(invocation -> {
             User user = invocation.getArgument(0);
@@ -104,6 +105,31 @@ class OnboardingServiceTest {
                     .isInstanceOf(BusinessException.class)
                     .hasFieldOrPropertyWithValue("errorCode", UserErrorCode.DUPLICATE_NICKNAME);
         }
+        verify(userRepository, never()).save(any(User.class));
+        verifyNoInteractions(authAccountPort, mediaPort);
+    }
+
+    @Test
+    void 닉네임_이메일_연락처가_각각_중복이면_해당_필드_코드로_거절하고_저장하지_않는다() {
+        CompleteOnboardingRequest request = request(null, null);
+
+        when(userRepository.existsByNickname("하시")).thenReturn(true);
+        assertThatThrownBy(() -> onboardingService.completeOnboarding(request))
+                .isInstanceOf(BusinessException.class)
+                .hasFieldOrPropertyWithValue("errorCode", UserErrorCode.DUPLICATE_NICKNAME);
+
+        when(userRepository.existsByNickname("하시")).thenReturn(false);
+        when(userRepository.existsByEmail("hashi@example.com")).thenReturn(true);
+        assertThatThrownBy(() -> onboardingService.completeOnboarding(request))
+                .isInstanceOf(BusinessException.class)
+                .hasFieldOrPropertyWithValue("errorCode", UserErrorCode.DUPLICATE_EMAIL);
+
+        when(userRepository.existsByEmail("hashi@example.com")).thenReturn(false);
+        when(userRepository.existsByPhone("01012345678")).thenReturn(true);
+        assertThatThrownBy(() -> onboardingService.completeOnboarding(request))
+                .isInstanceOf(BusinessException.class)
+                .hasFieldOrPropertyWithValue("errorCode", UserErrorCode.DUPLICATE_PHONE);
+
         verify(userRepository, never()).save(any(User.class));
         verifyNoInteractions(authAccountPort, mediaPort);
     }
