@@ -50,9 +50,9 @@
 ## DB 적용 순서
 
 V34는 컬렉션에 `collection_version BIGINT NOT NULL DEFAULT 0`을 추가한다.
-이미 적용 가능한 V28/V30 파일을 수정하지 않는다. 지도 스택의 V31~V33을 먼저 병합/적용한 뒤
+이미 병합된 V28/V30 및 `V31__link_magazine_card_news_to_media_assets.sql`은 수정하지 않는다. 지도 스택의 V32~V33을 먼저 병합/적용한 뒤
 V34를 적용해야 한다. V31만 있는 환경에 V34를 먼저 배포하지 않는다.
-`outOfOrder`로 순서를 우회하지 않는다. 최종 업그레이드 검증은 V31~V33 포함 기준 SHA에서 수행한다.
+`outOfOrder`로 순서를 우회하지 않는다. 최종 업그레이드 검증은 V32~V34 포함 기준 SHA에서 수행한다.
 
 ## 좌표 갱신 정책 반영
 
