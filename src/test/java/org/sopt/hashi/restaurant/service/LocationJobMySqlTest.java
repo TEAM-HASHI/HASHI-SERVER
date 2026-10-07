@@ -526,6 +526,21 @@ class LocationJobMySqlTest {
     }
 
     @Test
+    void 숫자_premise_주소는_worker가_한번_확인하고_좌표와_READY를_저장한다() {
+        provider.answer.set(address -> new GeocodingResult.Candidates(
+                List.of(LocationAdoptionPolicyTest.numericPremiseCandidate("３"))));
+        Long id = restaurants.createByAdmin(createCommand()).restaurantId();
+        assertThat(locations.get(id).locationStatus()).isEqualTo("PENDING");
+        worker.process(target(id));
+        assertThat(locations.get(id).locationStatus()).isEqualTo("READY");
+        assertThat(locations.get(id).attempt()).isEqualTo(1);
+        assertThat(locations.get(id).failureCode()).isNull();
+        assertThat(readLocation(id).getCoordinates().getLatitude()).isEqualByComparingTo("10.123457");
+        assertThat(readLocation(id).getCoordinates().getLongitude()).isEqualByComparingTo("20.765432");
+        assertThat(used()).isEqualTo(1);
+    }
+
+    @Test
     void 관리자_재처리는_pending에서_멱등이고_revision과_ready_충돌을_거부한다() {
         Long id = restaurants.createByAdmin(createCommand()).restaurantId();
         Target original = target(id);

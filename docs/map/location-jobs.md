@@ -24,6 +24,9 @@ v1은 **일본어로 행정구역과 동·번지가 완전하게 입력된 도�
 2. ROOFTOP과 street_address/premise 유형을 모두 요구한다.
 3. administrative_area_level_1 → locality → sublocality_level_1~4 → route → street_number 순서의
    구성 요소를 합친다. 필수 행정구역 누락, 같은 유형 중복, 알 수 없는 구성 요소는 확인 필요다.
+   street_number가 없을 때만 숫자로만 구성된 단일 premise를 마지막 번지로 비교한다.
+   반각·전각 숫자만 허용하며 건물명, 영숫자 혼합, street_number와 동시 존재는 확인 필요다.
+   이는 Google 응답 형태를 지원하는 Hashi 정책이며, 아래의 전체 주소 일치 조건은 그대로 적용한다.
 4. NFKC 전각 숫자, 공백, 명시된 하이픈, 숫자 뒤 丁目/番/番地/号만 정규화한다. 결과는 행정구역 뒤
    세 숫자(정/번/호)인 완전 주소여야 하며 원래 주소와 **전체가 정확히 일치**해야 한다.
    선택적인 日本 접두사와 응답 postal_code와 정확히 같은 〒 접두사만 허용한다.
