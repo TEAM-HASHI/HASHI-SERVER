@@ -159,6 +159,47 @@ class RedisMapSessionStoreIntegrationTest {
     }
 
     @Test
+    void 짧은설정의_새인스턴스가_기존ledger수명과_갱신한예약을_줄이지_않는다() throws Exception {
+        String ledger = "hashi:restaurant:map:{sessions-v2}:admission";
+        var longLimits = new MapSessionLimits();
+        longLimits.setIdleTimeout(Duration.ofSeconds(4));
+        longLimits.setMaxLifetime(Duration.ofSeconds(10));
+        var longStore = storeWith(longLimits);
+        var existing = session(Duration.ofSeconds(10));
+        var existingId = longStore.save(existing);
+        long before = redis.getExpire(ledger, java.util.concurrent.TimeUnit.MILLISECONDS);
+
+        var shortLimits = new MapSessionLimits();
+        shortLimits.setIdleTimeout(Duration.ofSeconds(1));
+        shortLimits.setMaxLifetime(Duration.ofSeconds(2));
+        var shortStore = storeWith(shortLimits);
+        var shorter = shortStore.save(session(Duration.ofSeconds(2)));
+        long after = redis.getExpire(ledger, java.util.concurrent.TimeUnit.MILLISECONDS);
+        // Normal command elapsed time is allowed, but replacing the 11s lifetime with 3s is not.
+        assertThat(after).isGreaterThan(before - 1000);
+
+        Thread.sleep(2200);
+        assertThat(redis.hasKey(PREFIX + shorter.value())).isFalse();
+        longStore.touch(existingId, existing);
+        Thread.sleep(1200); // Past the short instance's maxLifetime + 1s ledger deadline.
+        assertThat(redis.opsForHash().hasKey(ledger, existingId.value())).isTrue();
+        assertThat(longStore.find(existingId)).isEqualTo(existing);
+        assertThat(longStore.touch(existingId, existing)).isAfter(Instant.now());
+    }
+
+    @Test
+    void 기존ledger에_TTL이_없으면_살아있는예약을_보존한다() {
+        String ledger = "hashi:restaurant:map:{sessions-v2}:admission";
+        var existing = session(Duration.ofMinutes(30));
+        var existingId = store.save(existing);
+        redis.persist(ledger);
+        store.save(session(Duration.ofMinutes(30)));
+        assertThat(redis.getExpire(ledger)).isEqualTo(-1);
+        assertThat(redis.opsForHash().hasKey(ledger, existingId.value())).isTrue();
+        assertThat(store.touch(existingId, existing)).isAfter(Instant.now());
+    }
+
+    @Test
     void 호출자_신규조회와_고유호출자수_제한은_DB작업_앞에서_사용할_수_있다() {
         limits.setNewQueriesPerCaller(2);
         limits.setCallersPerMinute(2);
@@ -244,6 +285,13 @@ class RedisMapSessionStoreIntegrationTest {
         } finally {
             REDIS.getDockerClient().unpauseContainerCmd(REDIS.getContainerId()).exec();
         }
+    }
+
+    private RedisMapSessionStore storeWith(MapSessionLimits configuration) {
+        var factory = new StaticListableBeanFactory();
+        factory.addBean("redis", redis);
+        return new RedisMapSessionStore(factory.getBeanProvider(StringRedisTemplate.class), SERIALIZER,
+                Clock.systemUTC(), configuration);
     }
 
     private MapQuerySession session(Duration ttl) {
