@@ -40,7 +40,7 @@ $env:PATH="$env:JAVA_HOME\bin;C:\Program Files\Docker\Docker\resources\bin;$env:
 2. worker가 정확한 한 후보를 처리한다. provider 진입에서 활성 DB transaction이 없음을 관측한다. 이후 관리자 `READY`, 공개 현재 위치, 관광 지역 count, RestaurantPort bulk, 공개 첫 페이지에서 같은 식당 ID와 좌표를 확인한다.
 3. 주소 B PATCH의 기존 `200 ADMIN-205`, revision 2와 새 `PENDING`을 확인한다. 기존 위치·지역 count·Port 좌표가 사라지고 기존 Redis 세션을 정렬 재조회해도 오래된 카드가 돌아오지 않는다.
 4. 주소 A 작업을 claim한 채 B를 저장하고 A의 늦은 성공을 완료한다. 현재 revision을 덮지 못한다. B claim 뒤 삭제하고 늦은 실패를 완료해도 삭제 식당이 공개되지 않는다.
-5. Google 결과를 READY로 만든 뒤 합성 DB의 남은 수명을 3시간으로 당기고, provider 예산을 닫은 상태에서 원본 1일 수명보다 짧은 6시간 갱신 창으로 run을 등록한다. 새 작업 등록, 추가 provider 호출 없음, 기존 좌표의 즉시 제외를 관리자 상태, 현재 위치, Port, 기존 페이지에서 확인한다.
+5. Google 결과를 READY로 만든 뒤 합성 DB의 남은 수명을 3시간으로 당기고, provider 예산을 닫은 상태에서 원본 1일 수명보다 짧은 6시간 갱신 창으로 run을 등록한다. 새 작업 등록, 추가 provider 호출 없음, 기존 유효 좌표 유지를 관리자 상태, 현재 위치, Port, 기존 페이지에서 확인한다.
 6. 별도의 READY fixture를 보존 경계 안으로 당긴다. provider 예산을 끄고 정리를 실행하여 실제 DB의 좌표·유효기간이 제거되고 현재 위치, Port, 기존 페이지 재조회에서 보이지 않는지 확인한다.
 
 7. 별도 합성 READY 식당 23개를 실제 DB에 만들어 공개 페이지를 10/10/3으로 순회한다. 모든 카드의 `restaurantId`가 중복 없이 예상 식당 ID와 일치하고 각 카드의 위치가 같은 핀 좌표인지 확인한다.

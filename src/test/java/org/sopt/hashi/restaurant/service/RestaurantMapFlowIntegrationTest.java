@@ -280,7 +280,8 @@ class RestaurantMapFlowIntegrationTest {
                 .andReturn().getResponse().getContentAsString()).path("data");
         jdbc.update("""
                 update restaurant_location l join restaurant r on r.location_id=l.id
-                set l.valid_until=UTC_TIMESTAMP(6)+interval 20 minute where r.id=?
+                set l.obtained_at=UTC_TIMESTAMP(6)-interval 1 day,
+                    l.valid_until=UTC_TIMESTAMP(6)-interval 1 second where r.id=?
                 """, id);
         jdbc.update("update restaurant_geocoding_budget set enabled=false where id=1");
         assertThat(retention.purge(maintenanceOptions.retentionOptions()).purged()).isEqualTo(1);
@@ -298,7 +299,7 @@ class RestaurantMapFlowIntegrationTest {
     }
 
     @Test
-    void 갱신_등록은_오래된_좌표를_현재위치와_기존_페이지에서_즉시_제외한다() throws Exception {
+    void 같은_주소의_갱신_등록은_유효한_좌표를_현재위치와_기존_페이지에_유지한다() throws Exception {
         String token = jwt.createAccessToken(1L, "ROLE_ADMIN");
         long id = body(mvc.perform(post("/api/v1/admin/restaurants")
                         .header("Authorization", "Bearer " + token)
@@ -335,12 +336,12 @@ class RestaurantMapFlowIntegrationTest {
                         .header("Authorization", "Bearer " + token))
                 .andExpect(status().isOk()).andExpect(jsonPath("$.data.locationStatus").value("PENDING"));
         mvc.perform(get("/api/v1/restaurants/{id}/map-location", id))
-                .andExpect(status().isConflict());
-        assertThat(port.findActiveMapInfos(List.of(id)).getFirst().location()).isNull();
+                .andExpect(status().isOk());
+        assertThat(port.findActiveMapInfos(List.of(id)).getFirst().location()).isNotNull();
         mvc.perform(get("/api/v1/restaurants/map")
                         .param("querySessionId", first.path("querySessionId").asText())
                         .param("sort", "recommend"))
-                .andExpect(status().isOk()).andExpect(jsonPath("$.data.content").isEmpty());
+                .andExpect(status().isOk()).andExpect(jsonPath("$.data.content[0].restaurantId").value(id));
     }
 
     @Test
