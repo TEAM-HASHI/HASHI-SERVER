@@ -24,15 +24,14 @@ class UserEventPublicationRecoveryTest {
             new UserEventPublicationRecovery(incompletePublications, CLOCK);
 
     @Test
-    void 기동_시_탈퇴_이벤트의_미완료_publication만_배치_크기까지_재제출한다() {
+    void 기동_시_탈퇴_이벤트의_미완료_publication을_나이와_건수_제한_없이_재제출한다() {
         recovery.resubmitOnStartup();
 
         Predicate<EventPublication> predicate = capturedPredicate();
         assertThat(predicate.test(publication("other-module-event", Instant.now(CLOCK)))).isFalse();
-        for (int index = 0; index < UserEventPublicationRecovery.RESUBMIT_BATCH_SIZE; index++) {
+        for (int index = 0; index < 100; index++) {
             assertThat(predicate.test(publication(new UserWithdrawnEvent((long) index), Instant.now(CLOCK)))).isTrue();
         }
-        assertThat(predicate.test(publication(new UserWithdrawnEvent(999L), Instant.now(CLOCK)))).isFalse();
     }
 
     @Test
