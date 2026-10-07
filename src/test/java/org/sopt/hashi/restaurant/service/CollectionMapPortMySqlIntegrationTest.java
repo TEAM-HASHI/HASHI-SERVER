@@ -165,6 +165,37 @@ class CollectionMapPortMySqlIntegrationTest {
     }
 
     @Test
+    void 갱신과_재시도중_유효핀은_유지하고_만료와_주소변경은_핀만_제외한다() {
+        List<Restaurant> rows = seedRestaurants(4, 4);
+        Long collectionId = seedCollection("좌표 갱신", rows);
+        rows.forEach(Restaurant::refreshLocation);
+        Restaurant retrying = rows.get(1);
+        retrying.deferLocation(1, retrying.getLocation().getRequestId(),
+                LocalDateTime.ofInstant(NOW.plusSeconds(60), ZoneOffset.UTC), FIXED);
+        Restaurant failed = rows.get(2);
+        failed.rejectLocation(1, failed.getLocation().getRequestId(),
+                org.sopt.hashi.restaurant.domain.RestaurantLocationStatus.FAILED);
+        Restaurant moved = rows.get(3);
+        moved.updateBasicInfo(null, null, null, null, "changed address", null, null, null,
+                null, null, null, null);
+        restaurants.saveAllAndFlush(rows);
+
+        var refreshing = maps.getMarkers(collectionId);
+        assertThat(refreshing.visibleRestaurantCount()).isEqualTo(4);
+        assertThat(refreshing.content()).extracting(marker -> marker.restaurantId())
+                .containsExactly(rows.get(0).getId(), retrying.getId(), failed.getId());
+        assertThat(refreshing.locationUnavailableCount()).isEqualTo(1);
+        assertThat(saved.findAllByCollection_IdOrderByIdDesc(collectionId)).hasSize(4);
+
+        given(clock.instant()).willReturn(NOW.plusSeconds(3600));
+        var expired = maps.getMarkers(collectionId);
+        assertThat(expired.visibleRestaurantCount()).isEqualTo(4);
+        assertThat(expired.content()).isEmpty();
+        assertThat(expired.locationUnavailableCount()).isEqualTo(4);
+        assertThat(saved.findAllByCollection_IdOrderByIdDesc(collectionId)).hasSize(4);
+    }
+
+    @Test
     void 실제_1000개_전체핀은_Port_2batch와_전체_5SQL로_조회한다() {
         Long collectionId = seedCollection("1000 경로", seedRestaurants(1000, 1000));
         var statistics = entityManagerFactory.unwrap(SessionFactory.class).getStatistics();
