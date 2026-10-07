@@ -1,6 +1,7 @@
 package org.sopt.hashi.restaurant.internal.map;
 
 import java.nio.ByteBuffer;
+import java.nio.charset.StandardCharsets;
 import java.security.GeneralSecurityException;
 import java.security.MessageDigest;
 import java.util.Arrays;
@@ -15,8 +16,8 @@ import org.springframework.stereotype.Component;
 
 @Component
 public class MapCursorCodec {
-    private static final int VERSION = 1;
-    private static final int PAYLOAD_SIZE = 23;
+    private static final int VERSION = 2;
+    private static final int PAYLOAD_SIZE = 22;
     private static final int SIGNATURE_SIZE = 32;
     private final MapSessionProperties properties;
 
@@ -31,14 +32,14 @@ public class MapCursorCodec {
     public String encode(MapSessionId session, RestaurantMapSort sort, int position) {
         validatePosition(position);
         ByteBuffer bytes = ByteBuffer.allocate(PAYLOAD_SIZE + SIGNATURE_SIZE);
-        bytes.put((byte) VERSION).put((byte) session.slot()).putLong(session.id().getMostSignificantBits())
+        bytes.put((byte) VERSION).putLong(session.id().getMostSignificantBits())
                 .putLong(session.id().getLeastSignificantBits()).put((byte) sort.ordinal()).putInt(position);
         bytes.put(sign(Arrays.copyOf(bytes.array(), PAYLOAD_SIZE)));
         return Base64.getUrlEncoder().withoutPadding().encodeToString(bytes.array());
     }
 
     public DecodedCursor decode(String token) {
-        if (token == null || token.length() > 512 || !token.matches("[A-Za-z0-9_-]{74}")) {
+        if (token == null || token.length() > 512 || !token.matches("[A-Za-z0-9_-]{72}")) {
             throw invalid();
         }
         byte[] bytes;
@@ -54,7 +55,6 @@ public class MapCursorCodec {
         }
         ByteBuffer payload = ByteBuffer.wrap(bytes);
         int version = Byte.toUnsignedInt(payload.get());
-        int slot = Byte.toUnsignedInt(payload.get());
         UUID id = new UUID(payload.getLong(), payload.getLong());
         int sort = Byte.toUnsignedInt(payload.get());
         int position = payload.getInt();
@@ -62,7 +62,13 @@ public class MapCursorCodec {
             throw invalid();
         }
         validatePosition(position);
-        return new DecodedCursor(new MapSessionId(slot, id), RestaurantMapSort.values()[sort], position);
+        return new DecodedCursor(new MapSessionId(id), RestaurantMapSort.values()[sort], position);
+    }
+
+    public String callerKey(String remoteAddress) {
+        String address = remoteAddress == null ? "unknown" : remoteAddress;
+        return Base64.getUrlEncoder().withoutPadding().encodeToString(
+                sign(("map-caller:" + address).getBytes(StandardCharsets.UTF_8)));
     }
 
     private byte[] sign(byte[] payload) {

@@ -29,6 +29,7 @@ import org.sopt.hashi.restaurant.domain.RestaurantMapSort;
 import org.sopt.hashi.restaurant.internal.map.MapCursorCodec;
 import org.sopt.hashi.restaurant.internal.map.MapSessionId;
 import org.sopt.hashi.restaurant.internal.map.MapSessionProperties;
+import org.sopt.hashi.restaurant.internal.map.MapSessionLimits;
 import org.sopt.hashi.restaurant.internal.map.RedisMapSessionStore;
 import org.sopt.hashi.restaurant.service.RestaurantMapPageReader;
 import org.sopt.hashi.restaurant.service.RestaurantMapPageService;
@@ -54,7 +55,7 @@ import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilde
         CookieUtil.class, OriginValidator.class, JwtAuthenticationEntryPoint.class, JwtAccessDeniedHandler.class,
         RestaurantMapExceptionHandler.class, GlobalExceptionHandler.class,
         RestaurantMapPageService.class, MapCursorCodec.class, RestaurantMapSessionGateTest.Configuration.class})
-@EnableConfigurationProperties(MapSessionProperties.class)
+@EnableConfigurationProperties({MapSessionProperties.class, MapSessionLimits.class})
 @TestPropertySource(properties = {
         "jwt.secret=test-secret-key-must-be-at-least-32-bytes-long",
         "jwt.access-token-ttl=30m", "jwt.refresh-token-ttl=14d", "jwt.onboarding-token-ttl=30m",
@@ -108,7 +109,7 @@ class RestaurantMapSessionGateTest {
     }
 
     private MockHttpServletRequestBuilder request(QueryMode mode) {
-        var id = new MapSessionId(0, new UUID(0, 1));
+        var id = new MapSessionId(new UUID(0, 1));
         return switch (mode) {
             case NEW -> get(PATH).param("south", "0").param("north", "1").param("west", "0").param("east", "1");
             case NEXT -> get(PATH).param("cursor", cursors.encode(id, RestaurantMapSort.RECOMMEND, 10));

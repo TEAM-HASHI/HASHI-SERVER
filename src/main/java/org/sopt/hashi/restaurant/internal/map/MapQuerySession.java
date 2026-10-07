@@ -14,10 +14,9 @@ import org.sopt.hashi.restaurant.domain.RestaurantMapSort;
 public record MapQuerySession(int schemaVersion, UUID id, MapSearchCriteria criteria,
                               List<RestaurantMapCandidate> candidates, Instant rankingAsOf, Instant expiresAt) {
     public static final int SCHEMA_VERSION = 1;
-    public static final int MAX_CANDIDATES = 500;
-    public static final int MAX_BYTES = 65_536;
-    public static final int MAX_SESSIONS = 128;
-    public static final Duration LIFETIME = Duration.ofMinutes(15);
+    public static final int MAX_CANDIDATES = 4_194_304 / 32;
+    public static final int MAX_BYTES = 4_194_304;
+    public static final Duration LIFETIME = Duration.ofMinutes(30);
 
     public MapQuerySession {
         if (schemaVersion != SCHEMA_VERSION || id == null || criteria == null || candidates == null

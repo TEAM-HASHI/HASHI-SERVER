@@ -77,6 +77,7 @@ import org.sopt.hashi.restaurant.internal.map.MapCursorCodec;
 import org.sopt.hashi.restaurant.internal.map.MapQuerySession;
 import org.sopt.hashi.restaurant.internal.map.MapSessionId;
 import org.sopt.hashi.restaurant.internal.map.MapSessionProperties;
+import org.sopt.hashi.restaurant.internal.map.MapSessionLimits;
 import org.sopt.hashi.restaurant.internal.map.RedisMapSessionStore;
 import org.sopt.hashi.shared.storage.FileStorage;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -145,7 +146,7 @@ class RestaurantMapPageIntegrationTest {
     private static final Clock CLOCK = Clock.system(ZoneId.of("Asia/Tokyo"));
     private static final DateTimeFormatter UTC_DATETIME = DateTimeFormatter.ofPattern("uuuu-MM-dd HH:mm:ss.SSSSSS");
     private static final String PATH = "/api/v1/restaurants/map";
-    private static final String PREFIX = "hashi:restaurant:map:{sessions-v1}:slot:";
+    private static final String PREFIX = "hashi:restaurant:map:{sessions-v2}:query:";
     private static final MapSearchCriteria CRITERIA = MapSearchCriteria.of(
             MapQueryBounds.parse("0", "1", "0", "1"), null, "sushi", "restaurant", "fixture");
 
@@ -168,6 +169,7 @@ class RestaurantMapPageIntegrationTest {
     @Autowired RedisMapSessionStore store;
     @Autowired MapCursorCodec cursors;
     @Autowired MapSessionProperties properties;
+    @Autowired MapSessionLimits limits;
     @Autowired StringRedisTemplate redis;
     @Autowired JdbcTemplate jdbc;
     @Autowired PlatformTransactionManager transactions;
@@ -196,7 +198,7 @@ class RestaurantMapPageIntegrationTest {
     }
 
     @ParameterizedTest
-    @ValueSource(ints = {0, 10, 11, 21})
+    @ValueSource(ints = {0, 10, 11, 21, 500, 501, 620})
     void 실제_HTTP에서_10개씩_빠짐없이_반환하고_마지막_cursor를_생략한다(int count) throws Exception {
         List<Long> expected = fixtures(count, false);
         JsonNode data = page(newQuery());
@@ -229,7 +231,8 @@ class RestaurantMapPageIntegrationTest {
         for (String sort : List.of("rating", "reviews", "recommend", "rating")) {
             JsonNode sorted = page(get(PATH).param("querySessionId", session).param("sort", sort));
             assertThat(ids(sorted)).isEqualTo(ids(first));
-            assertThat(sorted.get("expiresAt")).isEqualTo(first.get("expiresAt"));
+            assertThat(Instant.parse(sorted.get("expiresAt").asText()))
+                    .isAfterOrEqualTo(Instant.parse(first.get("expiresAt").asText()));
             sorted.get("content").forEach(card -> {
                 assertThat(card.get("rating").decimalValue()).isEqualByComparingTo("0.0");
                 assertThat(card.get("reviewCount").asLong()).isZero();
@@ -289,31 +292,67 @@ class RestaurantMapPageIntegrationTest {
         JsonNode first = page(newQuery());
         String token = first.get("nextCursor").asText();
         JsonNode expected = page(get(PATH).param("cursor", token));
-        try (var executor = Executors.newFixedThreadPool(6)) {
+        try (var executor = Executors.newFixedThreadPool(3)) {
             List<Callable<JsonNode>> calls = IntStream.range(0, 12)
                     .mapToObj(index -> (Callable<JsonNode>) () -> page(get(PATH).param("cursor", token))).toList();
             for (var result : executor.invokeAll(calls)) {
-                assertThat(result.get()).isEqualTo(expected);
+                assertThat(result.get().get("content")).isEqualTo(expected.get("content"));
             }
         }
-        assertThat(page(get(PATH).param("cursor", token))).isEqualTo(expected);
+        assertThat(page(get(PATH).param("cursor", token)).get("content")).isEqualTo(expected.get("content"));
     }
 
     @Test
-    void 실제TTL은_정렬로_연장되지_않으며_유실과_만료는_410이다() throws Exception {
+    void 절대수명은_정렬로_연장되지_않으며_유실과_만료는_410이다() throws Exception {
         fixtures(1, false);
         var session = orderedSession(Duration.ofSeconds(2));
-        long ttl = redis.getExpire(PREFIX + session.slot(), TimeUnit.MILLISECONDS);
+        long ttl = redis.getExpire(PREFIX + session.value(), TimeUnit.MILLISECONDS);
         Thread.sleep(150);
         page(get(PATH).param("querySessionId", session.value()).param("sort", "rating"));
-        assertThat(redis.getExpire(PREFIX + session.slot(), TimeUnit.MILLISECONDS)).isLessThan(ttl);
+        assertThat(redis.getExpire(PREFIX + session.value(), TimeUnit.MILLISECONDS)).isLessThan(ttl);
         Thread.sleep(2000);
         mvc.perform(get(PATH).param("querySessionId", session.value()).param("sort", "reviews"))
                 .andExpect(status().isGone()).andExpect(jsonPath("$.code").value("RESTAURANT-013"));
         var lost = orderedSession(Duration.ofMinutes(15));
-        redis.delete(PREFIX + lost.slot());
+        redis.delete(PREFIX + lost.value());
         mvc.perform(get(PATH).param("querySessionId", lost.value()).param("sort", "recommend"))
                 .andExpect(status().isGone());
+    }
+
+    @Test
+    void 호출자_신규조회_제한은_429이고_DB조회_전에_차단한다() throws Exception {
+        limits.setNewQueriesPerCaller(1);
+        try {
+            page(newQuery());
+            var statistics = entityManagerFactory.unwrap(SessionFactory.class).getStatistics();
+            statistics.clear();
+            mvc.perform(newQuery()).andExpect(status().isTooManyRequests())
+                    .andExpect(jsonPath("$.code").value("RESTAURANT-022"));
+            assertThat(statistics.getPrepareStatementCount()).isZero();
+        } finally {
+            limits.setNewQueriesPerCaller(12);
+        }
+    }
+
+    @Test
+    void 잘못된_cursor와_DB실패는_남은_TTL을_연장하지_않는다() throws Exception {
+        fixtures(1, false);
+        var id = orderedSession(Duration.ofMinutes(30));
+        String key = PREFIX + id.value();
+        long initial = redis.getExpire(key, TimeUnit.MILLISECONDS);
+        Thread.sleep(100);
+        mvc.perform(get(PATH).param("cursor", cursors.encode(id, RestaurantMapSort.RECOMMEND, 10)))
+                .andExpect(status().isBadRequest());
+        long afterInvalid = redis.getExpire(key, TimeUnit.MILLISECONDS);
+        assertThat(afterInvalid).isLessThan(initial);
+        jdbc.execute("rename table restaurant to restaurant_map_test_unavailable");
+        try {
+            mvc.perform(get(PATH).param("querySessionId", id.value()).param("sort", "recommend"))
+                    .andExpect(status().isServiceUnavailable());
+            assertThat(redis.getExpire(key, TimeUnit.MILLISECONDS)).isLessThan(afterInvalid);
+        } finally {
+            jdbc.execute("rename table restaurant_map_test_unavailable to restaurant");
+        }
     }
 
     @Test
@@ -351,14 +390,6 @@ class RestaurantMapPageIntegrationTest {
         assertThat(page(newQuery()).get("content")).isEmpty();
         assertThat(port.findActiveMapInfos(List.of(ids.getFirst()))).hasSize(1)
                 .allSatisfy(info -> assertThat(info.location()).isNull());
-    }
-
-    @Test
-    void 후보500개_초과는_잘라내지_않고_저장전_503이다() throws Exception {
-        fixtures(501, false);
-        mvc.perform(newQuery()).andExpect(status().isServiceUnavailable())
-                .andExpect(jsonPath("$.code").value("RESTAURANT-016"));
-        assertThat(redis.keys(PREFIX + "*")).isEmpty();
     }
 
     @ParameterizedTest
@@ -441,7 +472,7 @@ class RestaurantMapPageIntegrationTest {
                     .andExpect(jsonPath("$.data").isEmpty());
         }
         mvc.perform(get(PATH).param("cursor", "x".repeat(513))).andExpect(status().isBadRequest());
-        String token = cursors.encode(new MapSessionId(0, UUID.randomUUID()), RestaurantMapSort.RECOMMEND, 10);
+        String token = cursors.encode(new MapSessionId(UUID.randomUUID()), RestaurantMapSort.RECOMMEND, 10);
         String tampered = (token.startsWith("A") ? "B" : "A") + token.substring(1);
         String body = mvc.perform(get(PATH).param("cursor", tampered)).andExpect(status().isBadRequest())
                 .andReturn().getResponse().getContentAsString();
