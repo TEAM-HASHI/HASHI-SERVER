@@ -36,6 +36,19 @@ public interface RestaurantLocationJobRepository extends JpaRepository<Restauran
             """)
     List<RestaurantLocationJob> findDue(@Param("now") LocalDateTime now, Pageable pageable);
 
+    /** Budget pauses must not hide cleanup behind ordinary jobs that cannot make a call. */
+    @Query("""
+            select j from RestaurantLocationJob j
+            where j.attempt >= :maxAttempts and (
+                (j.state = 'PENDING' and (j.reservedUntil is null or j.reservedUntil <= :now))
+                or (j.state = 'RETRY_WAIT' and j.nextAttemptAt <= :now
+                    and (j.reservedUntil is null or j.reservedUntil <= :now))
+                or (j.state = 'LEASED' and j.leaseUntil <= :now))
+            order by j.nextAttemptAt, j.id
+            """)
+    List<RestaurantLocationJob> findDueExhausted(@Param("now") LocalDateTime now,
+                                               @Param("maxAttempts") int maxAttempts, Pageable pageable);
+
     @Query("select count(j) from RestaurantLocationJob j where j.reservedUntil > :now")
     long countReservations(@Param("now") LocalDateTime now);
 }

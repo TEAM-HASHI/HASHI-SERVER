@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import java.math.BigDecimal;
 import java.time.Clock;
+import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
@@ -105,16 +106,136 @@ class RestaurantLocationTest {
     }
 
     @Test
-    void READY_재시도는_거절하고_갱신은_기존_좌표를_제거한다() {
+    void READY_재시도는_거절하고_같은_주소의_갱신은_기존_좌표를_만료까지만_유지한다() {
         Restaurant restaurant = pending();
         complete(restaurant, 1, request(restaurant));
         UUID previous = request(restaurant);
         assertThatThrownBy(restaurant::requestLocationResolution).isInstanceOf(IllegalStateException.class);
         restaurant.refreshLocation();
-        assertPendingWithoutCoordinates(restaurant);
+        assertThat(restaurant.getLocation().getStatus()).isEqualTo(RestaurantLocationStatus.PENDING);
+        assertThat(restaurant.getLocation().getAddressRevision()).isEqualTo(1);
+        assertAcceptedLocationUnchanged(restaurant);
+        assertThat(restaurant.getLocation().getNextAttemptAt()).isNull();
+        assertThat(restaurant.hasUsableMapLocation(CLOCK)).isTrue();
+        assertThat(restaurant.hasUsableMapLocation(clockAt(NOW.plusDays(1).minusNanos(1000)))).isTrue();
+        assertThat(restaurant.hasUsableMapLocation(clockAt(NOW.plusDays(1)))).isFalse();
         assertThat(request(restaurant)).isNotEqualTo(previous);
         assertThat(complete(restaurant, 1, previous)).isFalse();
         assertThatThrownBy(restaurant::refreshLocation).isInstanceOf(IllegalStateException.class);
+    }
+
+    @Test
+    void 반복_재시도는_기존_좌표와_만료를_유지하고_지난_요청의_결과를_거절한다() {
+        Restaurant restaurant = readyForRefresh();
+        for (int attempt = 1; attempt <= 3; attempt++) {
+            UUID previousRequest = request(restaurant);
+            Clock attemptedAt = clockAt(NOW.plusMinutes(attempt - 1));
+            LocalDateTime nextAttemptAt = NOW.plusMinutes(attempt);
+            assertThat(restaurant.deferLocation(1, previousRequest, nextAttemptAt, attemptedAt)).isTrue();
+            assertThat(restaurant.getLocation().getStatus()).isEqualTo(RestaurantLocationStatus.RETRY_WAIT);
+            assertAcceptedLocationUnchanged(restaurant);
+            assertThat(restaurant.hasUsableMapLocation(attemptedAt)).isTrue();
+            assertThat(restaurant.retryLocationWhenDue(attemptedAt)).isFalse();
+            assertThat(restaurant.retryLocationWhenDue(clockAt(nextAttemptAt))).isTrue();
+            assertThat(request(restaurant)).isNotEqualTo(previousRequest);
+            assertThat(restaurant.getLocation().getNextAttemptAt()).isNull();
+            assertThat(complete(restaurant, 1, previousRequest)).isFalse();
+            assertThat(restaurant.deferLocation(1, previousRequest, NOW.plusHours(1), CLOCK)).isFalse();
+            assertThat(restaurant.rejectLocation(1, previousRequest, RestaurantLocationStatus.FAILED)).isFalse();
+            assertAcceptedLocationUnchanged(restaurant);
+        }
+    }
+
+    @ParameterizedTest
+    @EnumSource(value = RestaurantLocationStatus.class, names = {"REVIEW_REQUIRED", "FAILED"})
+    void 갱신_실패와_명시적_재요청은_기존_좌표의_수명을_연장하지_않는다(RestaurantLocationStatus outcome) {
+        Restaurant restaurant = readyForRefresh();
+        UUID failedRequest = request(restaurant);
+        assertThat(restaurant.rejectLocation(1, failedRequest, outcome)).isTrue();
+        assertThat(restaurant.getLocation().getStatus()).isEqualTo(outcome);
+        assertThat(restaurant.retryLocationWhenDue(CLOCK)).isFalse();
+        assertThat(restaurant.hasUsableMapLocation(CLOCK)).isTrue();
+        assertThat(restaurant.hasUsableMapLocation(clockAt(NOW.plusDays(1)))).isFalse();
+        assertAcceptedLocationUnchanged(restaurant);
+
+        restaurant.requestLocationResolution();
+        assertThat(request(restaurant)).isNotEqualTo(failedRequest);
+        assertThat(complete(restaurant, 1, failedRequest)).isFalse();
+        assertThat(restaurant.getLocation().getStatus()).isEqualTo(RestaurantLocationStatus.PENDING);
+        assertAcceptedLocationUnchanged(restaurant);
+        assertThat(restaurant.hasUsableMapLocation(clockAt(NOW.plusDays(1)))).isFalse();
+    }
+
+    @Test
+    void 검증을_통과한_갱신_결과만_좌표와_출처와_수명을_함께_교체한다() {
+        Restaurant restaurant = readyForRefresh();
+        MapCoordinates updated = MapCoordinates.of(BigDecimal.ONE, BigDecimal.TEN);
+        Clock completedAt = Clock.offset(CLOCK, Duration.ofHours(1));
+
+        assertThat(restaurant.completeLocation(1, request(restaurant), updated, RestaurantLocationSource.ADMIN,
+                NOW.plusHours(1), NOW.plusDays(2), completedAt)).isTrue();
+
+        assertThat(restaurant.getLocation().getStatus()).isEqualTo(RestaurantLocationStatus.READY);
+        assertThat(restaurant.getLocation().getCoordinates()).isEqualTo(updated);
+        assertThat(restaurant.getLocation().getSource()).isEqualTo(RestaurantLocationSource.ADMIN);
+        assertThat(restaurant.getLocation().getObtainedAt()).isEqualTo(NOW.plusHours(1));
+        assertThat(restaurant.getLocation().getValidUntil()).isEqualTo(NOW.plusDays(2));
+        assertThat(restaurant.hasUsableMapLocation(clockAt(NOW.plusDays(1)))).isTrue();
+    }
+
+    @Test
+    void 잘못된_갱신_결과는_기존_좌표나_작업_상태를_부분_변경하지_않는다() {
+        Restaurant restaurant = readyForRefresh();
+        UUID request = request(restaurant);
+        MapCoordinates updated = MapCoordinates.of(BigDecimal.ONE, BigDecimal.TEN);
+        assertThatThrownBy(() -> restaurant.completeLocation(1, request, updated,
+                RestaurantLocationSource.ADMIN, NOW.plusSeconds(1), NOW.plusDays(2), CLOCK))
+                .isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> restaurant.completeLocation(1, request, updated,
+                RestaurantLocationSource.ADMIN, NOW.minusDays(1), NOW, CLOCK))
+                .isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> restaurant.completeLocation(1, request, updated,
+                null, NOW, NOW.plusDays(2), CLOCK)).isInstanceOf(NullPointerException.class);
+        assertThatThrownBy(() -> restaurant.completeLocation(1, request, null,
+                RestaurantLocationSource.ADMIN, NOW, NOW.plusDays(2), CLOCK)).isInstanceOf(NullPointerException.class);
+        assertThatThrownBy(() -> restaurant.deferLocation(1, request, NOW, CLOCK))
+                .isInstanceOf(IllegalArgumentException.class);
+        assertAcceptedLocationUnchanged(restaurant);
+        assertThat(restaurant.getLocation().getStatus()).isEqualTo(RestaurantLocationStatus.PENDING);
+        assertThat(request(restaurant)).isEqualTo(request);
+        assertThat(restaurant.getLocation().getNextAttemptAt()).isNull();
+    }
+
+    @Test
+    void 갱신_중_주소가_바뀌면_이전_좌표를_지우고_늦은_갱신_결과를_거절한다() {
+        Restaurant restaurant = readyForRefresh();
+        UUID refreshRequest = request(restaurant);
+        restaurant.assignMapRegion(7L);
+
+        updateAddress(restaurant, "갱신 중 바뀐 합성 주소");
+
+        assertPendingWithoutCoordinates(restaurant);
+        assertThat(restaurant.getLocation().getAddressRevision()).isEqualTo(2);
+        assertThat(restaurant.getMapRegionId()).isEqualTo(7L);
+        assertThat(complete(restaurant, 1, refreshRequest)).isFalse();
+        assertThat(complete(restaurant, 2, refreshRequest)).isFalse();
+        assertThat(restaurant.deferLocation(1, refreshRequest, NOW.plusHours(1), CLOCK)).isFalse();
+        assertThat(complete(restaurant, 2, request(restaurant))).isTrue();
+    }
+
+    @Test
+    void 갱신_중_삭제된_식당은_유효한_이전_좌표도_노출하지_않고_작업을_중단한다() {
+        Restaurant restaurant = readyForRefresh();
+        UUID request = request(restaurant);
+        restaurant.softDelete();
+        assertThat(restaurant.hasUsableMapLocation(CLOCK)).isFalse();
+        assertThat(complete(restaurant, 1, request)).isFalse();
+        assertThat(restaurant.deferLocation(1, request, NOW.plusHours(1), CLOCK)).isFalse();
+        assertThat(restaurant.rejectLocation(1, request, RestaurantLocationStatus.FAILED)).isFalse();
+        assertThat(restaurant.retryLocationWhenDue(CLOCK)).isFalse();
+        assertThatThrownBy(restaurant::refreshLocation).isInstanceOf(IllegalStateException.class);
+        assertThatThrownBy(restaurant::requestLocationResolution).isInstanceOf(IllegalStateException.class);
+        assertAcceptedLocationUnchanged(restaurant);
     }
 
     @Test
@@ -192,6 +313,25 @@ class RestaurantLocationTest {
 
     private UUID request(Restaurant restaurant) {
         return restaurant.getLocation().getRequestId();
+    }
+
+    private Restaurant readyForRefresh() {
+        Restaurant restaurant = pending();
+        complete(restaurant, 1, request(restaurant));
+        restaurant.refreshLocation();
+        return restaurant;
+    }
+
+    private Clock clockAt(LocalDateTime time) {
+        return Clock.fixed(time.toInstant(ZoneOffset.UTC), ZoneOffset.UTC);
+    }
+
+    private void assertAcceptedLocationUnchanged(Restaurant restaurant) {
+        RestaurantLocation location = restaurant.getLocation();
+        assertThat(location.getCoordinates()).isEqualTo(POINT);
+        assertThat(location.getSource()).isEqualTo(RestaurantLocationSource.GOOGLE_GEOCODING);
+        assertThat(location.getObtainedAt()).isEqualTo(NOW);
+        assertThat(location.getValidUntil()).isEqualTo(NOW.plusDays(1));
     }
 
     private boolean complete(Restaurant restaurant, long revision, UUID requestId) {
