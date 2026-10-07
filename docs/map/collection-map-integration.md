@@ -1,16 +1,7 @@
 # 컬렉션 전체 지도와 저장 정보 (#242)
 
-상태: 구현과 독립 리뷰, 개발 후보 결합 및 upgrade 완료. 선행 최종 기준 재확인/전체 CI/GO는 진행 중이다.
-
-기준 develop: `053fdb3a050d48956241357934a43e191ef99ece`.
-V31~V33 개발 결합 기준: #231 `8d53a36c99378747afa33ab7b8f4e89343775efd` (최종 선행 GO 전 후보).
-최신 선행 결합: `1f4248b56d75a2a38c87674d24388dac0d03c6bb`.
-추가 변경은 Google 오류 분류와 Redis 테스트/문서이며 컬렉션 계약·schema·지도 Port 의미 변경은 없다.
-최종 HEAD의 전체 CI에서 upgrade와 컬렉션 관련 테스트도 다시 실행한다.
-이 후보의 RestaurantPortImpl에 같은 findActiveMapInfos 선언이 두 번 있어 compileJava가 실패했다.
-#242 결합 브랜치에서 동일 선언 한 개만 제거한 `3b03760`으로 관련 검증을 실행했다.
-기획: HASHI-PLAN `6f2c99c3d089ddb65f015121312e19f66572ea03`.
-이 문서는 #232 컬렉션을 확장하며, 새 컬렉션 CRUD를 만들지 않는다.
+기존 컬렉션의 저장 관계를 사용해 전체 핀과 저장 정보를 조회한다.
+일반 지도 목록의 페이지 조회와 별개이며, 확대·축소나 BBOX로 핀을 줄이지 않는다.
 
 ## API
 
@@ -63,50 +54,14 @@ V34는 컬렉션에 `collection_version BIGINT NOT NULL DEFAULT 0`을 추가한�
 V34를 적용해야 한다. V31만 있는 환경에 V34를 먼저 배포하지 않는다.
 `outOfOrder`로 순서를 우회하지 않는다. 최종 업그레이드 검증은 V31~V33 포함 기준 SHA에서 수행한다.
 
-## 남은 검증
+## 좌표 갱신 정책 반영
 
-- 개발 기준 #229 `53ed783`을 merge했으며 전체 핀 Port를 연결했다. 독립 리뷰/최종 승인은 별도다.
-- V31~V33 개발 후보 결합과 V33→V34 업그레이드, 기존 관련 45건 검증 통과.
-- 신규 관리자 위치 의존성의 테스트 wiring 보완 후 실제 지도 Port 3건 재검증 통과.
-- 최종 PR/GO 전에 선행 최신 후보 및 승인 상태 재확인.
-- 최종 clean build/CI와 Draft PR, 중앙 담당자의 GO 판단.
+이전에는 위치 작업 상태가 READY일 때만 컬렉션 핀을 반환했다.
+이제 같은 주소의 정기 갱신이나 재시도·실패 중에도 기존 검증 좌표가 유효하면 핀을 유지한다.
+주소가 바뀌었거나 validUntil에 도달하면 핀만 제외한다. 식당과 컬렉션의 저장 관계는 유지한다.
+새 결과 없이 기존 좌표의 만료 시각을 연장하지 않는다.
 
-## 독립 리뷰와 검증 근거
-
-`0bc1dd46a9eba55144316ecefabc20daa88ae308`을 고정하고
-`53ed78382572d6873e5bd52a6c8690fbe3efffed..HEAD`의 #242 변경을 독립 readonly 서브 에이전트 3명이 검토했다.
-전체 흐름·scope, DB·migration·동시성, API·권한·반례 모두 supported blocker 없이 READY였다.
-이는 선행 스택 및 운영 병합 GO를 대신하지 않는다. 수용 finding은 없어 production 보완 round는 없었다.
-
-관련 검증 명령은 JDK21에서 다음과 같다.
-
-```text
-gradlew.bat test --tests '*RestaurantCollectionIntegrationTest' --tests '*CollectionMySqlIntegrationTest' --tests '*RestaurantSaveSummaryHttpTest' --tests '*CollectionMapHttpMySqlTest' --tests '*ModularityTests' --console=plain --max-workers=2
-```
-
-5 suites / 45 tests / failures 0 / errors 0 / skipped 0.
-MySQL8.4에서 기존 managed Entity가 stale인 것을 먼저 증명한 뒤 현재 비공개를 scalar locking read로 차단했다.
-실제 HTTP OSIV=true request를 Port에서 멈춘 동안 비공개 전환/삭제/이동이 커밋되어 404/404/409로 응답했다.
-동시 마지막 자리 저장은 성공 1개와 USER-011 1개로 상한 1000을 유지했으며, 반대 방향 이동도 모두 완료했다.
-전체 ID snapshot은 저장 1000개에도 2 SQL, 최종 검사 1 SQL이었다.
-
-실제 RestaurantPortImpl과 RestaurantMapService를 연결한 MySQL8.4 검증:
-
-```text
-gradlew.bat test --tests '*CollectionMapPortMySqlIntegrationTest' --console=plain --max-workers=2
-```
-
-1 suite / 3 tests / failures 0 / errors 0 / skipped 0.
-실제 저장 후 지도·집계·내 저장 여부를 조회했고, 23개 중 좌표 없는 2개를 제외한 21개 핀을 확인했다.
-삭제 식당은 저장 관계를 유지하면서 응답에서 제외했다. 1000개 지도는 Port 2 batch와 전체 5 SQL,
-컬렉션 Entity 1개 로딩으로 반환했다. 501개 조회의 두 번째 batch 장애는 USER-017(503)으로 전파했다.
-
-## V33→V34 개발 후보 업그레이드
-
-`8d53a36` 결합 및 중복 선언 제거 후 위 45건과 `CollectionVersionMigrationTest` 1건이 모두 통과했다.
-MySQL8.4/Flyway의 실제 current version 33에서 기존 컬렉션과 저장 관계를 넣고 V34를 적용했다.
-기존 이름·설명 공백과 저장 관계 2개가 보존되고, collection_version은 null 없이 0으로 초기화됐다.
-Flyway validate도 통과했다. 이 근거는 최종 선행 후보 승인 및 전체 CI를 대신하지 않는다.
-결합 후 실제 Port 테스트는 미사용 관리자 위치 Service bean 누락으로 3건이 초기화 실패했다.
-해당 의존성만 mock으로 격리한 뒤 같은 3건을 재실행해 failures/errors/skipped 모두 0을 확인했다.
-따라서 개발 후보 결합의 관련 검증은 45 + upgrade 1 + 실제 Port 3 = 49건이다.
+관련 검증은 실제 CollectionMapQueryService → RestaurantPort → MySQL 경로로 수행한다.
+23개 중 좌표가 없는 2개 제외, 1,000개 전체 핀, 두 번째 batch 실패 시 부분 응답 차단과 함께
+갱신·재시도·실패 중 좌표 유지, 주소 변경·정확한 만료 시각의 핀 제외를 확인한다.
+공개/비공개 접근과 응답 직전 컬렉션 변경 검사는 기존 HTTP 통합 테스트로 확인한다.

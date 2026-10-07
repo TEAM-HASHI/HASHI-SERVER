@@ -71,7 +71,7 @@ public class LocationMaintenanceStore {
                 SELECT COUNT(*) FROM restaurant_location_maintenance_job m
                 JOIN restaurant_location_job j ON j.id=m.job_id
                 JOIN restaurant r ON r.id=j.restaurant_id JOIN restaurant_location l ON l.id=r.location_id
-                WHERE m.run_id=? AND r.deleted=false AND j.state='SUCCEEDED' AND l.status='READY'
+                WHERE m.run_id=? AND r.deleted=false AND l.latitude IS NOT NULL AND l.longitude IS NOT NULL
                     AND l.address_revision=j.address_revision AND l.request_id=j.request_id AND l.valid_until > ?
                 """, Long.class, id.toString(), LocationMaintenanceReader.sqlTime(now));
         return new Completion(now.toInstant(ZoneOffset.UTC), Map.copyOf(states), attempts, usable);

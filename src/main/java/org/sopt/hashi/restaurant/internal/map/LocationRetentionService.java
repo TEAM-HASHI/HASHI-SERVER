@@ -15,6 +15,28 @@ public class LocationRetentionService {
         this.transactions = transactions;
     }
 
+    public int refresh(LocationRetentionProperties options) {
+        if (TransactionSynchronizationManager.isActualTransactionActive()) {
+            throw new IllegalStateException("Refresh loop must run outside a transaction");
+        }
+        int registered = 0;
+        for (int batch = 0; batch < options.maxBatches() && !Thread.currentThread().isInterrupted(); batch++) {
+            var candidates = reader.refreshCandidates(reader.now(), options.refreshAhead(), options.batchSize());
+            for (var candidate : candidates) {
+                if (Thread.currentThread().isInterrupted()) {
+                    break;
+                }
+                if (transactions.refresh(candidate, options.refreshAhead())) {
+                    registered++;
+                }
+            }
+            if (candidates.size() < options.batchSize()) {
+                break;
+            }
+        }
+        return registered;
+    }
+
     public Report purge(LocationRetentionProperties options) {
         if (TransactionSynchronizationManager.isActualTransactionActive()) {
             throw new IllegalStateException("Retention loop must run outside a transaction");

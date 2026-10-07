@@ -79,14 +79,16 @@ public class RestaurantLocation extends BaseTimeEntity {
         return location;
     }
 
-    /** 시각은 UTC DATETIME(6). 정확히 validUntil이면 이미 만료다. */
+    /** 갱신 작업 상태와 별개로 마지막 검증 좌표를 사용한다. 정확히 validUntil이면 이미 만료다. */
     public boolean isUsable(Clock clock) {
-        return status == RestaurantLocationStatus.READY && coordinates != null
-                && utcNow(clock).isBefore(validUntil);
+        boolean hasAcceptedLocation = coordinates != null && source != null
+                && obtainedAt != null && validUntil != null && obtainedAt.isBefore(validUntil);
+        return hasAcceptedLocation && utcNow(clock).isBefore(validUntil);
     }
 
     void addressChanged() {
         addressRevision = Math.incrementExact(addressRevision);
+        clearAcceptedLocation();
         beginPending();
     }
 
@@ -167,16 +169,18 @@ public class RestaurantLocation extends BaseTimeEntity {
     /** Snapshot identity and lifetime protect a newer result from an old retention scan. */
     boolean purgeGoogle(long revision, UUID request, LocalDateTime obtained, LocalDateTime until,
                         LocalDateTime purgeBefore) {
-        boolean matches = status == RestaurantLocationStatus.READY && source == RestaurantLocationSource.GOOGLE_GEOCODING
+        boolean matches = source == RestaurantLocationSource.GOOGLE_GEOCODING
                 && addressRevision == revision && requestId.equals(request)
                 && Objects.equals(obtainedAt, obtained) && Objects.equals(validUntil, until)
                 && !validUntil.isAfter(purgeBefore);
         if (!matches) {
             return false;
         }
-        beginPending();
-        // Cleanup never creates or retries a job. A deliberate administrator action can retry later.
-        status = RestaurantLocationStatus.REVIEW_REQUIRED;
+        clearAcceptedLocation();
+        // Keep an active job identity and its durable attempt count intact.
+        if (status == RestaurantLocationStatus.READY) {
+            status = RestaurantLocationStatus.REVIEW_REQUIRED;
+        }
         return true;
     }
 
@@ -188,11 +192,14 @@ public class RestaurantLocation extends BaseTimeEntity {
     private void beginPending() {
         this.status = RestaurantLocationStatus.PENDING;
         this.requestId = UUID.randomUUID();
+        this.nextAttemptAt = null;
+    }
+
+    private void clearAcceptedLocation() {
         this.coordinates = null;
         this.source = null;
         this.obtainedAt = null;
         this.validUntil = null;
-        this.nextAttemptAt = null;
     }
 
     private static LocalDateTime utcNow(Clock clock) {
