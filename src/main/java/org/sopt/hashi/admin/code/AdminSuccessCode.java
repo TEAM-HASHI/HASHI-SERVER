@@ -17,7 +17,11 @@ public enum AdminSuccessCode implements SuccessCode {
     MAGAZINE_DELETED(HttpStatus.OK, "ADMIN-203", "매거진이 삭제되었습니다"),
     RESTAURANT_CREATED(HttpStatus.CREATED, "ADMIN-204", "식당이 등록되었습니다"),
     RESTAURANT_UPDATED(HttpStatus.OK, "ADMIN-205", "식당이 수정되었습니다"),
-    RESTAURANT_DELETED(HttpStatus.OK, "ADMIN-206", "식당이 삭제되었습니다");
+    RESTAURANT_DELETED(HttpStatus.OK, "ADMIN-206", "식당이 삭제되었습니다"),
+    NOTICE_CREATED(HttpStatus.CREATED, "ADMIN-207", "공지사항 초안 저장 완료"),
+    NOTICE_UPDATED(HttpStatus.OK, "ADMIN-208", "공지사항 수정 완료"),
+    NOTICE_PUBLISHED(HttpStatus.OK, "ADMIN-209", "공지사항 게시 완료"),
+    NOTICE_DELETED(HttpStatus.OK, "ADMIN-210", "공지사항 삭제 완료");
 
     private final HttpStatus status;
     private final String code;

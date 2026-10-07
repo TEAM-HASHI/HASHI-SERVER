@@ -10,6 +10,7 @@ assert.equal(process.platform, "linux", "Lambda package smoke test must run on L
 assert.equal(process.arch, "x64", "Lambda package smoke test must run on x64");
 assert.equal(existsSync(resolve(packageRoot, "media-specs", "v1.json")), true);
 assert.equal(existsSync(resolve(packageRoot, "media-specs", "v2.json")), true);
+assert.equal(existsSync(resolve(packageRoot, "media-specs", "v3.json")), true);
 assert.equal(existsSync(resolve(packageRoot, "node_modules", "typescript")), false);
 
 const sharp = packageRequire("sharp");
@@ -30,6 +31,9 @@ assert.equal(
   "b8e67084bcdf81ac7fc94951c905726a97ade3783320c67e03c505f5643ddf75",
 );
 
+const noticeSpec = manifestModule.loadMediaSpec(3);
+assert.equal(noticeSpec.digest, "ab130db4caea347d5945531e22c9f2b783a95ad1a9c9fa7b5741a6adcd16b97a");
+
 console.log(
   JSON.stringify({
     architecture: process.arch,
@@ -39,5 +43,6 @@ console.log(
     sharp: sharp.versions.sharp,
     specDigest: spec.digest,
     cardNewsSpecDigest: cardNewsSpec.digest,
+    noticeSpecDigest: noticeSpec.digest,
   }),
 );

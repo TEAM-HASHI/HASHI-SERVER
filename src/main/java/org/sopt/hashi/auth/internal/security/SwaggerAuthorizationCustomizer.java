@@ -46,7 +46,10 @@ public class SwaggerAuthorizationCustomizer implements GlobalOpenApiCustomizer {
         boolean isPublicCollectionRead = method == PathItem.HttpMethod.GET
                 && Arrays.stream(SecurityConfig.COLLECTION_PUBLIC_GET_PATHS)
                         .anyMatch(publicPath -> pathMatcher.match(publicPath, path));
-        if (isPublicCollectionRead) {
+        boolean isPublicNoticeRead = method == PathItem.HttpMethod.GET
+                && Arrays.stream(SecurityConfig.NOTICE_PUBLIC_GET_PATHS)
+                        .anyMatch(publicPath -> pathMatcher.match(publicPath, path));
+        if (isPublicCollectionRead || isPublicNoticeRead) {
             return false;
         }
         return Arrays.stream(SecurityConfig.PUBLIC_PATHS)
