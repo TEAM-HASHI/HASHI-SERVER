@@ -85,14 +85,19 @@ class NoticeAuthorizationTest {
     @Test
     void 관리자_목록은_page_size와_전체건수를_반환한다() throws Exception {
         org.mockito.Mockito.when(adminNoticeService.list(1, 20)).thenReturn(
-                new org.sopt.hashi.admin.dto.AdminNoticeListResponse(java.util.List.of(), 1, 20, 22, 2));
+                new org.sopt.hashi.admin.dto.AdminNoticeListResponse(java.util.List.of(
+                        new org.sopt.hashi.admin.dto.AdminNoticeSummaryResponse(1L, "공지", "DRAFT", null, null, null, null)),
+                        1, 20, 22, 2));
         mvc.perform(get("/api/v1/admin/notices").param("page", "1").param("size", "20")
                 .header("Authorization", "Bearer " + jwtProvider.createAccessToken(1L, "ROLE_ADMIN")))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.page").value(1))
                 .andExpect(jsonPath("$.data.size").value(20))
                 .andExpect(jsonPath("$.data.totalCount").value(22))
-                .andExpect(jsonPath("$.data.totalPages").value(2));
+                .andExpect(jsonPath("$.data.totalPages").value(2))
+                .andExpect(jsonPath("$.data.notices[0].noticeId").value(1))
+                .andExpect(jsonPath("$.data.notices[0].body").doesNotExist())
+                .andExpect(jsonPath("$.data.notices[0].images").doesNotExist());
         org.mockito.Mockito.verify(adminNoticeService).list(1, 20);
     }
 

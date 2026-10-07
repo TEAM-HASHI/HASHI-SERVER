@@ -18,5 +18,5 @@ public interface SupportPort {
     NoticeInfo publishNotice(Long id);
     void deleteNotice(Long id);
     NoticeInfo findNoticeByAdmin(Long id);
-    Page<NoticeInfo> findNoticesByAdmin(int page, int size);
+    Page<NoticeSummaryInfo> findNoticesByAdmin(int page, int size);
 }

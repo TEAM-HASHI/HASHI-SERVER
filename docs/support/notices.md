@@ -11,12 +11,15 @@
 
 title 1~100자, body 필수(화면에 표시하는 text 합계 최대 10,000 UTF-16 code units; href는 개별 2,000자), imageAssetIds 필수 배열(빈 배열 가능), 최대 10개·중복 금지.
 저장하는 JSON은 UTF-8 기준 MEDIUMTEXT 한도(16,777,215 bytes)를 별도로 검사한다.
+배포 DB의 `max_allowed_packet`도 이 JSON과 쿼리 부가 데이터를 수용해야 한다. DB 한도가 더 작으면 입력 검증을 통과해도 DB 오류(500)가 발생하므로 배포 전에 확인한다. 이 PR은 서버 설정을 변경하지 않는다.
 body는 HTML이 아닌 배열이다. 각 block은 type(PARAGRAPH/BULLET_LIST/ORDERED_LIST)과 items 배열이다.
 items의 각 항목은 span 배열이며 span은 text, bold, href(null 허용)를 가진다.
 PARAGRAPH는 item 하나만 허용한다. text 줄바꿈은 줄바꿈으로 렌더링하며 text를 innerHTML에 넣지 않는다.
 href는 내부 / 경로 또는 host가 있는 http(s)만 허용한다. 내부는 같은 탭, 외부는 새 탭과 noopener/noreferrer를 사용한다.
 목록/제목 날짜는 lastModifiedAt을 YYYY.MM.DD로 표현한다. 상세 복귀 스크롤·재시도·뷰어는 클라이언트 책임이다.
 
+공개·관리자 목록은 본문과 이미지 컬렉션을 SQL에서 제외하고 목록에 필요한 메타데이터만 조회한다.
+관리자 목록 항목은 `noticeId/title/status/publishedAt/lastModifiedAt/createdAt/updatedAt`이며, `body/images`는 상세에서 조회한다.
 관리자 상세 응답의 `createdAt`·`updatedAt`은 JPA Auditing으로 기록한다.
 이미지만 추가하거나 순서를 바꾼 경우도 수정 시각을 기록하며, 같은 내용을 다시 저장하면 유지한다.
 `publishedAt`은 최초 게시 시각, `lastModifiedAt`은 공개 화면에 표시할 게시 후 수정 시각이다. 초안 수정도 감사 시각에는 남는다.
