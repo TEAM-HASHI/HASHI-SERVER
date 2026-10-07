@@ -27,6 +27,8 @@ import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.parallel.Isolated;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.sopt.hashi.auth.internal.jwt.JwtProvider;
 import org.sopt.hashi.media.MediaPort;
 import org.sopt.hashi.restaurant.RestaurantPort;
@@ -81,7 +83,10 @@ import org.testcontainers.utility.DockerImageName;
         "hashi.restaurant.map.initial-bounds.south=10", "hashi.restaurant.map.initial-bounds.north=11",
         "hashi.restaurant.map.initial-bounds.west=20", "hashi.restaurant.map.initial-bounds.east=21",
         "hashi.restaurant.map.supported-bounds.south=10", "hashi.restaurant.map.supported-bounds.north=11",
-        "hashi.restaurant.map.supported-bounds.west=20", "hashi.restaurant.map.supported-bounds.east=21"
+        "hashi.restaurant.map.supported-bounds.west=20", "hashi.restaurant.map.supported-bounds.east=21",
+        "hashi.restaurant.map.session.limits.requests-per-caller=600",
+        "hashi.restaurant.map.session.limits.new-queries-per-caller=100",
+        "hashi.restaurant.map.session.limits.requests-per-minute=3000"
 })
 @AutoConfigureMockMvc
 @DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_CLASS)
@@ -327,7 +332,7 @@ class RestaurantMapFlowIntegrationTest {
     }
 
     @Test
-    void 갱신_등록은_오래된_좌표를_현재위치와_기존_페이지에서_즉시_제외한다() throws Exception {
+    void 같은_주소의_갱신_등록은_유효한_좌표를_현재위치와_기존_페이지에_유지한다() throws Exception {
         String token = jwt.createAccessToken(1L, "ROLE_ADMIN");
         long id = body(mvc.perform(post("/api/v1/admin/restaurants")
                         .header("Authorization", "Bearer " + token)
@@ -364,20 +369,21 @@ class RestaurantMapFlowIntegrationTest {
                         .header("Authorization", "Bearer " + token))
                 .andExpect(status().isOk()).andExpect(jsonPath("$.data.locationStatus").value("PENDING"));
         mvc.perform(get("/api/v1/restaurants/{id}/map-location", id))
-                .andExpect(status().isConflict());
-        assertThat(port.findActiveMapInfos(List.of(id)).getFirst().location()).isNull();
+                .andExpect(status().isOk()).andExpect(jsonPath("$.data.restaurantId").value(id));
+        assertThat(port.findActiveMapInfos(List.of(id)).getFirst().location()).isNotNull();
         mvc.perform(get("/api/v1/restaurants/map")
                         .param("querySessionId", first.path("querySessionId").asText())
                         .param("sort", "recommend"))
-                .andExpect(status().isOk()).andExpect(jsonPath("$.data.content").isEmpty());
+                .andExpect(status().isOk()).andExpect(jsonPath("$.data.content[0].restaurantId").value(id));
     }
 
-    @Test
-    void 합성_23개는_10_10_3으로_조회되고_모든_카드_ID에_같은_핀_좌표가_있다() throws Exception {
+    @ParameterizedTest
+    @ValueSource(ints = {23, 500, 501, 620})
+    void 전체_식당은_중복누락없이_조회되고_같은_커서와_동점정렬은_순서를_유지한다(int count) throws Exception {
         Clock clock = Clock.systemUTC();
         List<Long> expected = transactionTemplate.execute(status -> {
             List<Long> ids = new ArrayList<>();
-            for (int index = 0; index < 23; index++) {
+            for (int index = 0; index < count; index++) {
                 Restaurant restaurant = Restaurant.create("합성 식당 " + index, "試験", "요약", "설명",
                         ADDRESS, "합성 지역", RestaurantGenre.SUSHI, "초밥", RestaurantPlaceType.RESTAURANT,
                         PriceCurrency.JPY, BigDecimal.ONE, BigDecimal.TEN);
@@ -397,7 +403,12 @@ class RestaurantMapFlowIntegrationTest {
                 .andExpect(status().isOk()).andReturn().getResponse().getContentAsString()).path("data");
         List<Long> seen = new ArrayList<>();
         String sessionId = page.path("querySessionId").asText();
-        for (int size : List.of(10, 10, 3)) {
+        JsonNode sorted = body(mvc.perform(get("/api/v1/restaurants/map")
+                        .param("querySessionId", sessionId).param("sort", "rating"))
+                .andExpect(status().isOk()).andReturn().getResponse().getContentAsString()).path("data");
+        assertThat(sorted.path("content")).isEqualTo(page.path("content"));
+        for (int offset = 0; offset < count; offset += 10) {
+            int size = Math.min(10, count - offset);
             assertThat(page.path("querySessionId").asText()).isEqualTo(sessionId);
             assertThat(page.path("content").size()).isEqualTo(size);
             page.path("content").forEach(card -> {
@@ -408,14 +419,20 @@ class RestaurantMapFlowIntegrationTest {
                         .isEqualByComparingTo("20.5");
                 seen.add(card.path("restaurantId").asLong());
             });
-            if (size == 3) {
+            if (offset + size == count) {
                 assertThat(page.path("hasNext").asBoolean()).isFalse();
                 assertThat(page.has("nextCursor")).isFalse();
             } else {
                 assertThat(page.path("hasNext").asBoolean()).isTrue();
-                page = body(mvc.perform(get("/api/v1/restaurants/map")
-                                .param("cursor", page.path("nextCursor").asText()))
+                String cursor = page.path("nextCursor").asText();
+                page = body(mvc.perform(get("/api/v1/restaurants/map").param("cursor", cursor))
                         .andExpect(status().isOk()).andReturn().getResponse().getContentAsString()).path("data");
+                if (offset == 0) {
+                    JsonNode replay = body(mvc.perform(get("/api/v1/restaurants/map").param("cursor", cursor))
+                            .andExpect(status().isOk()).andReturn().getResponse().getContentAsString()).path("data");
+                    assertThat(replay.path("content")).isEqualTo(page.path("content"));
+                    assertThat(replay.path("nextCursor")).isEqualTo(page.path("nextCursor"));
+                }
             }
         }
         assertThat(seen).doesNotHaveDuplicates().containsExactlyInAnyOrderElementsOf(expected);

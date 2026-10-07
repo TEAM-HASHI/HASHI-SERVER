@@ -107,7 +107,9 @@ tasks.named('test') {
     // The maintenance smoke test launches the same artifact shipped by the existing build.
     dependsOn tasks.named('bootJar')
     systemProperty 'location.maintenance.jar', tasks.named('bootJar').get().archiveFile.get().asFile.absolutePath
-    useJUnitPlatform()
+    useJUnitPlatform {
+        excludeTags 'map-load'
+    }
     testLogging {
         exceptionFormat = 'full'
     }
@@ -120,6 +122,21 @@ tasks.named('test') {
             '.github/workflows/ci-restaurant-media-backfill.yml',
             '.github/workflows/deploy-image-pipeline.yml'
     ).withPropertyName('mediaBackfillInfrastructure')
+}
+
+// Explicit local capacity experiment; ordinary CI remains deterministic and does not require k6.
+tasks.register('mapLoadTest', Test) {
+    description = 'Runs the isolated MySQL/Redis HTTP map workload using a local k6 binary.'
+    group = 'verification'
+    testClassesDirs = sourceSets.test.output.classesDirs
+    classpath = sourceSets.test.runtimeClasspath
+    useJUnitPlatform { includeTags 'map-load' }
+    systemProperty 'map.k6.executable', providers.gradleProperty('k6Executable').getOrElse('k6')
+    systemProperty 'map.k6.script', file('scripts/load/map-query.js').absolutePath
+    systemProperty 'map.k6.output', layout.buildDirectory.dir('reports/map-load').get().asFile.absolutePath
+    outputs.upToDateWhen { false }
+    maxParallelForks = 1
+    testLogging { exceptionFormat = 'full' }
 }
 
 tasks.named('processResources') {
