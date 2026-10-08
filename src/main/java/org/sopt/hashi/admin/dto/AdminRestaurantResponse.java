@@ -1,5 +1,6 @@
 package org.sopt.hashi.admin.dto;
 
+import io.swagger.v3.oas.annotations.media.Schema;
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.List;
@@ -12,13 +13,16 @@ import org.sopt.hashi.restaurant.RestaurantImageInfo;
  * 신규 이미지 필드는 상태와 반응형 후보를 전달한다. genre·curationTypes는 사용자 API와 같은
  * 소문자 케밥 값이고, placeType(음식점 분류, #211)은 restaurant·cafe·bar다.
  */
+@Schema(description = "어드민 식당 저장 결과. 저장 성공과 Google 위치 확인 완료는 별개이며 locationStatus로 후속 상태를 확인")
 public record AdminRestaurantResponse(
         Long restaurantId,
         String name,
         String localName,
         String summary,
         String description,
+        @Schema(description = "사용자 화면에 표시할 전체 주소")
         String address,
+        @Schema(description = "Google 위치 확인에만 쓰는 별도 지정 주소. null이면 address를 위치 확인 기준으로 사용")
         String geocodingAddress,
         String area,
         String genre,
@@ -37,7 +41,12 @@ public record AdminRestaurantResponse(
         List<String> curationTypes,
         List<AdminRestaurantBusinessHourResponse> businessHours,
         LocalDateTime createdAt,
+        @Schema(description = "비동기 위치 처리 상태. PENDING 응답은 식당 저장과 작업 등록 성공이며 Google 위치 확인 완료가 아님",
+                allowableValues = {"UNRESOLVED", "PENDING", "READY", "RETRY_WAIT", "REVIEW_REQUIRED", "FAILED"},
+                example = "PENDING")
         String locationStatus,
+        @Schema(description = "현재 위치 확인 기준 주소의 revision. 위치 재시도 전 상태 조회 API에서 최신 값을 확인",
+                example = "1")
         long addressRevision) {
 
     public static AdminRestaurantResponse from(AdminRestaurantInfo info) {
