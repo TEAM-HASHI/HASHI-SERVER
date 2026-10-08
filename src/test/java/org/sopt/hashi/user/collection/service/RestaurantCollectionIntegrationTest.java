@@ -273,6 +273,8 @@ class RestaurantCollectionIntegrationTest {
 
     @Test
     void 생성과_수정은_이름과_설명의_공백을_보존한다() {
+        User active = saveUser("공백검증회원", "01011110003", "whitespace@hashi.test");
+        loginAs(active.getId());
         var created = collectionService.create(new org.sopt.hashi.user.collection.dto.CreateRestaurantCollectionRequest(
                 "  도쿄  ", "red", "   ", "public"));
         assertThat(created.name()).isEqualTo("  도쿄  ");
@@ -294,6 +296,8 @@ class RestaurantCollectionIntegrationTest {
 
     @Test
     void 공백만인_이름은_거부하고_중복이름은_기존_409를_유지한다() {
+        User active = saveUser("중복검증회원", "01011110004", "duplicate@hashi.test");
+        loginAs(active.getId());
         for (String name : List.of(" ", "\u00a0\u3000", "\n\t")) {
             assertBusinessError(() -> collectionService.create(
                     new org.sopt.hashi.user.collection.dto.CreateRestaurantCollectionRequest(name, "red", null, "public")),
