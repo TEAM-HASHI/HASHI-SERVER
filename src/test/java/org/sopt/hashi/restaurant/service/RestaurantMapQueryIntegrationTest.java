@@ -331,6 +331,7 @@ class RestaurantMapQueryIntegrationTest {
         assertThat(snapshot.candidates()).isEmpty();
         assertThat(snapshot.resultExtent().totalCount()).isZero();
         assertThat(snapshot.resultExtent().bounds()).isNull();
+        assertThat(snapshot.resultExtent().earliestValidUntil()).isNull();
     }
 
     @Test
@@ -348,6 +349,7 @@ class RestaurantMapQueryIntegrationTest {
         assertThat(snapshot.resultExtent().bounds().north()).isEqualByComparingTo(".25");
         assertThat(snapshot.resultExtent().bounds().west()).isEqualByComparingTo(".75");
         assertThat(snapshot.resultExtent().bounds().east()).isEqualByComparingTo(".75");
+        assertThat(snapshot.resultExtent().earliestValidUntil()).isEqualTo(NOW.plusSeconds(3600));
     }
 
     @Test
@@ -356,9 +358,13 @@ class RestaurantMapQueryIntegrationTest {
         for (int index = 0; index < 11; index++) {
             expected.add(ready("match cafe " + index, ".2", ".2", RestaurantPlaceType.CAFE).getId());
         }
-        expected.add(ready("match cafe edge", ".9", ".8", RestaurantPlaceType.CAFE).getId());
+        Restaurant edge = ready("match cafe edge", ".9", ".8", RestaurantPlaceType.CAFE);
+        expected.add(edge.getId());
         ready("match wrong category", ".05", ".95", RestaurantPlaceType.BAR);
         ready("unrelated cafe", ".01", ".99", RestaurantPlaceType.CAFE);
+        entityManager.flush();
+        jdbc.update("update restaurant_location set valid_until=? where id=?",
+                UTC_NOW.plusMinutes(30), edge.getLocation().getId());
         flushAndReset();
 
         MapSearchCriteria filter = MapSearchCriteria.of(BOUNDS, null, null, "cafe", "match");
@@ -371,6 +377,7 @@ class RestaurantMapQueryIntegrationTest {
         assertThat(snapshot.resultExtent().bounds().north()).isEqualByComparingTo(".9");
         assertThat(snapshot.resultExtent().bounds().west()).isEqualByComparingTo(".2");
         assertThat(snapshot.resultExtent().bounds().east()).isEqualByComparingTo(".8");
+        assertThat(snapshot.resultExtent().earliestValidUntil()).isEqualTo(NOW.plusSeconds(1800));
     }
 
     @Test
