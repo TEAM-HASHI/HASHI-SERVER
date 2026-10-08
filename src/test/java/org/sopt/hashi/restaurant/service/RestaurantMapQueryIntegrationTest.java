@@ -287,6 +287,40 @@ class RestaurantMapQueryIntegrationTest {
     }
 
     @Test
+    void 여러_검색어는_식당명_메뉴_해시태그에서_OR로_찾고_중복후보를_만들지_않는다() {
+        Restaurant everyField = ready("SUSHI house", ".5", ".5");
+        everyField.addMenu(menu("ramen menu"));
+        everyField.replaceHashtags(List.of("night-view"));
+        Restaurant nameOnly = ready("sushi name", ".5", ".5");
+        Restaurant menuOnly = ready("menu only", ".5", ".5");
+        menuOnly.addMenu(menu("ramen special"));
+        Restaurant hashtagOnly = ready("tag only", ".5", ".5");
+        hashtagOnly.replaceHashtags(List.of("night-view"));
+        ready("unrelated", ".5", ".5");
+        flushAndReset();
+
+        assertThat(service.findCandidates(criteria("SuShI ramen NIGHT"), 10).candidates())
+                .extracting(RestaurantMapCandidate::restaurantId)
+                .containsExactly(everyField.getId(), nameOnly.getId(), menuOnly.getId(), hashtagOnly.getId());
+        assertThat(statistics().getPrepareStatementCount()).isEqualTo(1);
+        assertThat(statistics().getEntityLoadCount()).isZero();
+    }
+
+    @Test
+    void 샵_검색은_해시태그만_대소문자없이_리터럴_부분일치한다() {
+        Restaurant hashtag = ready("plain", ".5", ".5");
+        hashtag.replaceHashtags(List.of("Best_Night%Spot"));
+        ready("night% name", ".5", ".5");
+        Restaurant menu = ready("menu only", ".5", ".5");
+        menu.addMenu(menu("night% menu"));
+        flushAndReset();
+
+        assertThat(service.findCandidates(criteria("#nIgHt%"), 10).candidates())
+                .extracting(RestaurantMapCandidate::restaurantId)
+                .containsExactly(hashtag.getId());
+    }
+
+    @Test
     void 퍼센트_밑줄_escape_백슬래시는_리터럴로_검색한다() {
         Restaurant literal = ready("100%_!\\ hit", ".5", ".5");
         Restaurant menuLiteral = ready("menu", ".5", ".5");

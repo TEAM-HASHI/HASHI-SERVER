@@ -40,13 +40,29 @@ class MapSearchCriteriaTest {
     }
 
     @Test
-    void Unicode_앞뒤공백만_제거하고_내부공백과_100자_코드포인트를_보존한다() {
+    void Unicode_앞뒤공백을_제거하고_30자_코드포인트와_OR_검색어를_보존한다() {
         var criteria = criteria(" \u00a0\u3000 A\u00a0\u3000B  %_!\\ \u00a0\u3000 ");
         assertThat(criteria.keyword()).isEqualTo("A\u00a0\u3000B  %_!\\");
-        assertThat(criteria.keywordPattern()).isEqualTo("%a\u00a0\u3000b  !%!_!!\\%");
-        assertThat(criteria("가".repeat(100)).keyword()).hasSize(100);
-        assertThat(criteria("😀".repeat(100)).keyword().codePointCount(0, 200)).isEqualTo(100);
-        assertThatThrownBy(() -> criteria("가".repeat(101))).isInstanceOf(BusinessException.class);
+        assertThat(criteria.keywordPatterns()).containsExactly("%a%", "%b%", "%!%!_!!\\%");
+        assertThat(criteria("가".repeat(30)).keyword()).hasSize(30);
+        assertThat(criteria("😀".repeat(30)).keyword().codePointCount(0, 60)).isEqualTo(30);
+        assertThatThrownBy(() -> criteria("가".repeat(31))).isInstanceOf(BusinessException.class);
+        assertThatThrownBy(() -> criteria("😀".repeat(31))).isInstanceOf(BusinessException.class);
+    }
+
+    @Test
+    void 샵_접두어는_공백없는_단일_해시태그_부분검색으로_해석한다() {
+        var criteria = criteria(" \u3000#NiGhT%_! \u00a0");
+        assertThat(criteria.keyword()).isEqualTo("#NiGhT%_!");
+        assertThat(criteria.hashtagOnly()).isTrue();
+        assertThat(criteria.keywordPatterns()).containsExactly("%night!%!_!!%");
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"#", "# ", "# tag", "#tag name", "#tag\u00a0name", "#tag\u3000name"})
+    void 비어있거나_공백이_섞인_해시태그_검색어는_거절한다(String keyword) {
+        assertThatThrownBy(() -> criteria(keyword)).isInstanceOfSatisfying(BusinessException.class,
+                exception -> assertThat(exception.getErrorCode()).isEqualTo(CommonErrorCode.INVALID_INPUT));
     }
 
     @ParameterizedTest
@@ -83,7 +99,7 @@ class MapSearchCriteriaTest {
     void 지역_ID는_양수이며_필터_생략은_null로_유지한다() {
         assertThatThrownBy(() -> MapSearchCriteria.of(bounds(), 0L, null, null, null))
                 .isInstanceOf(BusinessException.class);
-        assertThat(criteria(null).keywordPattern()).isNull();
+        assertThat(criteria(null).keywordPatterns()).isEmpty();
     }
 
     private MapSearchCriteria criteria(String keyword) {

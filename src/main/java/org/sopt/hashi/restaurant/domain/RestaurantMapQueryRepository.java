@@ -112,11 +112,7 @@ public class RestaurantMapQueryRepository {
             sql.append(" and r.place_type = :placeType");
         }
         if (criteria.keyword() != null) {
-            sql.append("""
-                     and (lower(r.name) like :keyword escape '!'
-                     or exists (select 1 from restaurant_menu m where m.restaurant_id = r.id
-                                and lower(m.name) like :keyword escape '!'))
-                    """);
+            appendKeywordPredicate(sql, criteria);
         }
         if (ids != null) {
             sql.append(" and r.id in (:ids)");
@@ -135,7 +131,10 @@ public class RestaurantMapQueryRepository {
             query.setParameter("placeType", criteria.placeType().name());
         }
         if (criteria.keyword() != null) {
-            query.setParameter("keyword", criteria.keywordPattern());
+            List<String> patterns = criteria.keywordPatterns();
+            for (int index = 0; index < patterns.size(); index++) {
+                query.setParameter("keyword" + index, patterns.get(index));
+            }
         }
         if (ids != null) {
             query.setParameter("ids", ids);
@@ -145,6 +144,32 @@ public class RestaurantMapQueryRepository {
         }
         return rows(query).stream().map(row -> new RestaurantMapCandidate(number(row[0]),
                 (BigDecimal) row[1], number(row[2]))).toList();
+    }
+
+    private static void appendKeywordPredicate(StringBuilder sql, MapSearchCriteria criteria) {
+        sql.append(" and (");
+        List<String> patterns = criteria.keywordPatterns();
+        for (int index = 0; index < patterns.size(); index++) {
+            if (index > 0) {
+                sql.append(" or ");
+            }
+            String parameter = ":keyword" + index;
+            if (criteria.hashtagOnly()) {
+                appendHashtagExists(sql, parameter);
+            } else {
+                sql.append("(lower(r.name) like ").append(parameter).append(" escape '!' or ")
+                        .append("exists (select 1 from restaurant_menu m where m.restaurant_id = r.id ")
+                        .append("and lower(m.name) like ").append(parameter).append(" escape '!') or ");
+                appendHashtagExists(sql, parameter);
+                sql.append(")");
+            }
+        }
+        sql.append(")");
+    }
+
+    private static void appendHashtagExists(StringBuilder sql, String parameter) {
+        sql.append("exists (select 1 from restaurant_hashtag h where h.restaurant_id = r.id ")
+                .append("and lower(h.hashtag) like ").append(parameter).append(" escape '!')");
     }
 
     @SuppressWarnings("unchecked")
