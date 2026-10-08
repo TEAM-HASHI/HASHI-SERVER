@@ -17,6 +17,7 @@ import org.sopt.hashi.restaurant.code.RestaurantErrorCode;
 import org.sopt.hashi.restaurant.domain.MapQueryBounds;
 import org.sopt.hashi.restaurant.domain.MapRegionSummary;
 import org.sopt.hashi.restaurant.domain.MapSearchCriteria;
+import org.sopt.hashi.restaurant.domain.MapSearchResultExtent;
 import org.sopt.hashi.restaurant.domain.RestaurantMapCandidate;
 import org.sopt.hashi.restaurant.domain.RestaurantMapQueryRepository;
 import org.sopt.hashi.restaurant.dto.RestaurantMapLocationResponse;
@@ -32,6 +33,7 @@ import org.sopt.hashi.shared.error.CommonErrorCode;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.dao.DataAccessException;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Isolation;
 import org.springframework.transaction.annotation.Transactional;
 
 @Slf4j
@@ -83,6 +85,7 @@ public class RestaurantMapService {
     }
 
     /** capacity는 후속 세션 담당자가 측정해 전달한다. 초과 후보 목록은 반환하지 않는다. */
+    @Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ)
     public CandidateSnapshot findCandidates(MapSearchCriteria criteria, int capacity) {
         if (capacity < 1 || capacity == Integer.MAX_VALUE) {
             throw new IllegalArgumentException("후보 상한은 1 이상이고 상한 + 1을 조회할 수 있어야 합니다");
@@ -94,7 +97,9 @@ public class RestaurantMapService {
         if (candidates.size() > capacity) {
             throw new BusinessException(RestaurantErrorCode.MAP_CAPACITY_EXCEEDED);
         }
-        return new CandidateSnapshot(candidates, rankingAsOf);
+        MapSearchResultExtent resultExtent = criteria.keyword() == null ? null
+                : read(() -> repository.findResultExtent(criteria, rankingAsOf));
+        return new CandidateSnapshot(candidates, rankingAsOf, resultExtent);
     }
 
     /** 현재 조건을 재검사한 ID만 첫 요청 순서로 반환한다. 새 순위 값은 세션의 고정 순위를 대체하지 않는다. */
@@ -116,9 +121,14 @@ public class RestaurantMapService {
         return readBatches(ids, batch -> repository.findActiveMapInfos(batch, now), RestaurantMapInfo::restaurantId);
     }
 
-    public record CandidateSnapshot(List<RestaurantMapCandidate> candidates, Instant rankingAsOf) {
+    public record CandidateSnapshot(List<RestaurantMapCandidate> candidates, Instant rankingAsOf,
+                                    MapSearchResultExtent resultExtent) {
         public CandidateSnapshot {
             candidates = List.copyOf(candidates);
+        }
+
+        public CandidateSnapshot(List<RestaurantMapCandidate> candidates, Instant rankingAsOf) {
+            this(candidates, rankingAsOf, null);
         }
     }
 

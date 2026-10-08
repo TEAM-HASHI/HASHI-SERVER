@@ -15,7 +15,12 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.Stream;
 import org.hibernate.SessionFactory;
 import org.hibernate.resource.jdbc.spi.StatementInspector;
@@ -72,7 +77,10 @@ import org.springframework.modulith.test.ApplicationModuleTest;
 import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionTemplate;
 import org.testcontainers.containers.MySQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
@@ -83,6 +91,7 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 @TestPropertySource(properties = {
         "spring.jpa.hibernate.ddl-auto=validate",
         "spring.jpa.properties.hibernate.generate_statistics=true",
+        "spring.datasource.hikari.transaction-isolation=TRANSACTION_READ_COMMITTED",
         "spring.flyway.enabled=true",
         "jwt.secret=test-secret-key-must-be-at-least-32-bytes-long",
         "kakao.client-id=test-client-id",
@@ -98,6 +107,7 @@ class RestaurantMapQueryIntegrationTest {
     private static final LocalDateTime UTC_NOW = LocalDateTime.ofInstant(NOW, ZoneOffset.UTC);
     private static final MapQueryBounds BOUNDS = MapQueryBounds.parse("0", "1", "0", "1");
     private static final List<String> SQL = new CopyOnWriteArrayList<>();
+    private static final AtomicReference<AggregateBarrier> AGGREGATE_BARRIER = new AtomicReference<>();
 
     @Container
     @ServiceConnection
@@ -115,6 +125,7 @@ class RestaurantMapQueryIntegrationTest {
     @Autowired private EntityManager entityManager;
     @Autowired private EntityManagerFactory entityManagerFactory;
     @Autowired private JdbcTemplate jdbc;
+    @Autowired private PlatformTransactionManager transactionManager;
     @MockitoBean private MediaPort mediaPort;
     @MockitoBean private FileStorage fileStorage;
     @MockitoBean private RedisTemplate<String, Object> redisTemplate;
@@ -135,6 +146,7 @@ class RestaurantMapQueryIntegrationTest {
         var snapshot = service.findCandidates(criteria(null), 20);
         assertThat(snapshot.candidates()).extracting(RestaurantMapCandidate::restaurantId).containsExactlyElementsOf(expected);
         assertThat(snapshot.rankingAsOf()).isEqualTo(NOW);
+        assertThat(snapshot.resultExtent()).isNull();
         assertThat(statistics().getPrepareStatementCount()).isEqualTo(1);
         assertThat(statistics().getEntityLoadCount()).isZero();
         verifyNoInteractions(mediaPort, fileStorage);
@@ -282,8 +294,134 @@ class RestaurantMapQueryIntegrationTest {
         flushAndReset();
         assertThat(service.findCandidates(criteria("  sUsHi  "), 2).candidates())
                 .extracting(RestaurantMapCandidate::restaurantId).containsExactly(match.getId(), menuOnly.getId());
-        assertThat(statistics().getPrepareStatementCount()).isEqualTo(1);
+        assertThat(statistics().getPrepareStatementCount()).isEqualTo(2);
         assertThat(statistics().getEntityLoadCount()).isZero();
+    }
+
+    @Test
+    void 여러_검색어는_식당명_메뉴_해시태그에서_OR로_찾고_중복후보를_만들지_않는다() {
+        Restaurant everyField = ready("SUSHI house", ".5", ".5");
+        everyField.addMenu(menu("ramen menu"));
+        everyField.replaceHashtags(List.of("night-view"));
+        Restaurant nameOnly = ready("sushi name", ".5", ".5");
+        Restaurant menuOnly = ready("menu only", ".5", ".5");
+        menuOnly.addMenu(menu("ramen special"));
+        Restaurant hashtagOnly = ready("tag only", ".5", ".5");
+        hashtagOnly.replaceHashtags(List.of("night-view"));
+        ready("unrelated", ".5", ".5");
+        flushAndReset();
+
+        assertThat(service.findCandidates(criteria("SuShI ramen NIGHT"), 10).candidates())
+                .extracting(RestaurantMapCandidate::restaurantId)
+                .containsExactly(everyField.getId(), nameOnly.getId(), menuOnly.getId(), hashtagOnly.getId());
+        assertThat(statistics().getPrepareStatementCount()).isEqualTo(2);
+        assertThat(statistics().getEntityLoadCount()).isZero();
+    }
+
+    @Test
+    void 샵_검색은_해시태그만_대소문자없이_리터럴_부분일치한다() {
+        Restaurant hashtag = ready("plain", ".5", ".5");
+        hashtag.replaceHashtags(List.of("Best_Night%Spot"));
+        ready("night% name", ".5", ".5");
+        Restaurant menu = ready("menu only", ".5", ".5");
+        menu.addMenu(menu("night% menu"));
+        flushAndReset();
+
+        assertThat(service.findCandidates(criteria("#nIgHt%"), 10).candidates())
+                .extracting(RestaurantMapCandidate::restaurantId)
+                .containsExactly(hashtag.getId());
+    }
+
+    @Test
+    void 검색결과가_없으면_전체개수는_0이고_결과경계는_없다() {
+        ready("unrelated", ".5", ".5");
+        flushAndReset();
+
+        var snapshot = service.findCandidates(criteria("missing"), 10);
+
+        assertThat(snapshot.candidates()).isEmpty();
+        assertThat(snapshot.resultExtent().totalCount()).isZero();
+        assertThat(snapshot.resultExtent().bounds()).isNull();
+        assertThat(snapshot.resultExtent().earliestValidUntil()).isNull();
+    }
+
+    @Test
+    void 검색결과가_하나면_같은_남북동서_좌표를_결과경계로_반환한다() {
+        Restaurant match = ready("single match", ".25", ".75");
+        ready("unrelated", ".1", ".9");
+        flushAndReset();
+
+        var snapshot = service.findCandidates(criteria("match"), 10);
+
+        assertThat(snapshot.candidates()).extracting(RestaurantMapCandidate::restaurantId)
+                .containsExactly(match.getId());
+        assertThat(snapshot.resultExtent().totalCount()).isOne();
+        assertThat(snapshot.resultExtent().bounds().south()).isEqualByComparingTo(".25");
+        assertThat(snapshot.resultExtent().bounds().north()).isEqualByComparingTo(".25");
+        assertThat(snapshot.resultExtent().bounds().west()).isEqualByComparingTo(".75");
+        assertThat(snapshot.resultExtent().bounds().east()).isEqualByComparingTo(".75");
+        assertThat(snapshot.resultExtent().earliestValidUntil()).isEqualTo(NOW.plusSeconds(3600));
+    }
+
+    @Test
+    void 결과경계는_첫_10개를_넘는_현재영역_카테고리_키워드_전체결과를_포함한다() {
+        List<Long> expected = new ArrayList<>();
+        for (int index = 0; index < 11; index++) {
+            expected.add(ready("match cafe " + index, ".2", ".2", RestaurantPlaceType.CAFE).getId());
+        }
+        Restaurant edge = ready("match cafe edge", ".9", ".8", RestaurantPlaceType.CAFE);
+        expected.add(edge.getId());
+        ready("match wrong category", ".05", ".95", RestaurantPlaceType.BAR);
+        ready("unrelated cafe", ".01", ".99", RestaurantPlaceType.CAFE);
+        entityManager.flush();
+        jdbc.update("update restaurant_location set valid_until=? where id=?",
+                UTC_NOW.plusMinutes(30), edge.getLocation().getId());
+        flushAndReset();
+
+        MapSearchCriteria filter = MapSearchCriteria.of(BOUNDS, null, null, "cafe", "match");
+        var snapshot = service.findCandidates(filter, 20);
+
+        assertThat(snapshot.candidates()).extracting(RestaurantMapCandidate::restaurantId)
+                .containsExactlyElementsOf(expected);
+        assertThat(snapshot.resultExtent().totalCount()).isEqualTo(12);
+        assertThat(snapshot.resultExtent().bounds().south()).isEqualByComparingTo(".2");
+        assertThat(snapshot.resultExtent().bounds().north()).isEqualByComparingTo(".9");
+        assertThat(snapshot.resultExtent().bounds().west()).isEqualByComparingTo(".2");
+        assertThat(snapshot.resultExtent().bounds().east()).isEqualByComparingTo(".8");
+        assertThat(snapshot.resultExtent().earliestValidUntil()).isEqualTo(NOW.plusSeconds(1800));
+    }
+
+    @Test
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
+    void READ_COMMITTED_환경의_동시삭제에도_후보와_검색결과집계는_같은_스냅샷을_본다() throws Exception {
+        assertThat(jdbc.queryForObject("select @@transaction_isolation", String.class))
+                .isEqualTo("READ-COMMITTED");
+        Long restaurantId = new TransactionTemplate(transactionManager).execute(
+                status -> ready("rr-concurrent-fixture", ".25", ".75").getId());
+        AggregateBarrier barrier = new AggregateBarrier(new CountDownLatch(1), new CountDownLatch(1));
+        assertThat(AGGREGATE_BARRIER.compareAndSet(null, barrier)).isTrue();
+        ExecutorService executor = Executors.newSingleThreadExecutor();
+
+        try {
+            var snapshotFuture = executor.submit(
+                    () -> service.findCandidates(criteria("rr-concurrent-fixture"), 10));
+            assertThat(barrier.aggregateReached().await(20, TimeUnit.SECONDS)).isTrue();
+
+            assertThat(jdbc.update("update restaurant set deleted=true where id=?", restaurantId)).isOne();
+            barrier.continueAggregate().countDown();
+
+            var snapshot = snapshotFuture.get(20, TimeUnit.SECONDS);
+            assertThat(snapshot.candidates()).extracting(RestaurantMapCandidate::restaurantId)
+                    .containsExactly(restaurantId);
+            assertThat(snapshot.resultExtent().totalCount()).isOne();
+            assertThat(snapshot.resultExtent().bounds().south()).isEqualByComparingTo(".25");
+            assertThat(snapshot.resultExtent().bounds().north()).isEqualByComparingTo(".25");
+        } finally {
+            barrier.continueAggregate().countDown();
+            AGGREGATE_BARRIER.compareAndSet(barrier, null);
+            executor.shutdownNow();
+            jdbc.update("update restaurant set deleted=true where id=?", restaurantId);
+        }
     }
 
     @Test
@@ -299,7 +437,7 @@ class RestaurantMapQueryIntegrationTest {
 
     @ParameterizedTest
     @MethodSource("inheritedSearchKeywords")
-    void 일반_목록과_지도는_특수문자와_연속공백의_검색결과가_같다(
+    void 일반_목록과_지도는_단일_특수문자_검색결과가_같다(
             String keyword, String matchingName, String nonMatchingName) {
         Restaurant nameMatch = ready(matchingName, ".5", ".5");
         nameMatch.addMenu(menu(matchingName + " first"));
@@ -345,11 +483,7 @@ class RestaurantMapQueryIntegrationTest {
                 Arguments.of("_", "under_score", "underXscore"),
                 Arguments.of("!", "wow! house", "wow house"),
                 Arguments.of("\\", "slash\\name", "slashname"),
-                Arguments.of("%_!\\", "100%_!\\ hit", "100ANY!\\ false"),
-                Arguments.of(" \u00a0\u3000SUSHI  HOUSE\u00a0\u3000 ", "Sushi  House", "Sushi House"),
-                Arguments.of(" \u3000SUSHI\u00a0\u00a0HOUSE\u00a0 ", "Sushi\u00a0\u00a0House", "Sushi\u00a0House"),
-                Arguments.of(" \u00a0SUSHI\u3000\u3000HOUSE\u3000 ", "Sushi\u3000\u3000House", "Sushi\u3000House"),
-                Arguments.of("  SUSHI \u00a0\u3000 HOUSE  ", "Sushi \u00a0\u3000 House", "SushiXHouse")
+                Arguments.of("%_!\\", "100%_!\\ hit", "100ANY!\\ false")
         );
     }
 
@@ -567,7 +701,11 @@ class RestaurantMapQueryIntegrationTest {
     }
 
     private Restaurant ready(String name, String latitude, String longitude) {
-        Restaurant restaurant = restaurant(name, RestaurantGenre.SUSHI, RestaurantPlaceType.RESTAURANT);
+        return ready(name, latitude, longitude, RestaurantPlaceType.RESTAURANT);
+    }
+
+    private Restaurant ready(String name, String latitude, String longitude, RestaurantPlaceType type) {
+        Restaurant restaurant = restaurant(name, RestaurantGenre.SUSHI, type);
         restaurant.requestLocationResolution();
         restaurant.completeLocation(1, restaurant.getLocation().getRequestId(), point(latitude, longitude),
                 RestaurantLocationSource.ADMIN, UTC_NOW.minusHours(1), UTC_NOW.plusHours(1), CLOCK);
@@ -626,6 +764,25 @@ class RestaurantMapQueryIntegrationTest {
                 exception -> assertThat(exception.getErrorCode()).isEqualTo(code));
     }
 
+    private static void awaitAggregateBarrier(String sql) {
+        AggregateBarrier barrier = AGGREGATE_BARRIER.get();
+        if (barrier == null || !sql.contains("select count(*)") || !sql.contains("min(l.valid_until)")) {
+            return;
+        }
+        barrier.aggregateReached().countDown();
+        try {
+            if (!barrier.continueAggregate().await(20, TimeUnit.SECONDS)) {
+                throw new IllegalStateException("검색 결과 집계 동시성 테스트가 시간 안에 재개되지 않았습니다");
+            }
+        } catch (InterruptedException exception) {
+            Thread.currentThread().interrupt();
+            throw new IllegalStateException("검색 결과 집계 동시성 테스트 대기가 중단됐습니다", exception);
+        }
+    }
+
+    private record AggregateBarrier(CountDownLatch aggregateReached, CountDownLatch continueAggregate) {
+    }
+
     @TestConfiguration(proxyBeanMethods = false)
     @EnableJpaAuditing
     static class Infrastructure {
@@ -645,6 +802,7 @@ class RestaurantMapQueryIntegrationTest {
         HibernatePropertiesCustomizer statementInspector() {
             return properties -> properties.put("hibernate.session_factory.statement_inspector", (StatementInspector) sql -> {
                 SQL.add(sql);
+                awaitAggregateBarrier(sql);
                 return sql;
             });
         }
