@@ -848,10 +848,11 @@ class LocationJobMySqlTest {
         AtomicReference<String> query = new AtomicReference<>();
         PlacesCandidate candidate = placesCandidate("place-123");
         placesProvider.searchAnswer.set(value -> {
+            assertThat(TransactionSynchronizationManager.isActualTransactionActive()).isFalse();
             query.set(value);
             return new PlacesSearchResult.Candidates(List.of(candidate));
         });
-        var search = places.search(id, 1);
+        var search = restaurantPort.searchLocationPlacesByAdmin(id, 1);
 
         assertThat(query.get()).contains("試験", LocationAdoptionPolicyTest.ADDRESS);
         assertThat(search.candidates()).singleElement().satisfies(value -> {
@@ -861,7 +862,7 @@ class LocationJobMySqlTest {
         assertThat(placesUsed("SEARCH")).isEqualTo(1);
         assertThat(placesUsed("DETAILS")).isZero();
 
-        var pending = places.select(id, 1, search.candidates().getFirst().selectionToken());
+        var pending = restaurantPort.selectLocationPlaceByAdmin(id, 1, search.candidates().getFirst().selectionToken());
         assertThat(pending.locationStatus()).isEqualTo("PENDING");
         assertThat(pending.source()).isNull();
         assertThat(pending.verificationMode()).isEqualTo("PLACE_DETAILS");
@@ -888,6 +889,24 @@ class LocationJobMySqlTest {
                 """, Integer.class, id)).isEqualTo(30);
         assertThat(restaurantPort.findLocationReviewsByAdmin("READY", "GOOGLE_PLACES", id - 1, 20).restaurants())
                 .extracting("restaurantId").contains(id);
+    }
+
+    @Test
+    void 최대길이_현지명과_기본주소도_Port를_거쳐_잘림없이_검색한다() {
+        Long id = placesReviewRequiredRestaurant();
+        String localName = "가".repeat(100);
+        String address = "東".repeat(255);
+        jdbc.update("UPDATE restaurant SET local_name=?, geocoding_address=? WHERE id=?", localName, address, id);
+        AtomicReference<String> sent = new AtomicReference<>();
+        placesProvider.searchAnswer.set(value -> {
+            assertThat(TransactionSynchronizationManager.isActualTransactionActive()).isFalse();
+            sent.set(value);
+            return new PlacesSearchResult.NoResults();
+        });
+
+        assertThat(restaurantPort.searchLocationPlacesByAdmin(id, 1).candidates()).isEmpty();
+        assertThat(sent.get()).isEqualTo(localName + " " + address);
+        assertThat(placesUsed("SEARCH")).isEqualTo(1);
     }
 
     @Test
