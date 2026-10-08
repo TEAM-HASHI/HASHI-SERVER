@@ -15,7 +15,12 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.Stream;
 import org.hibernate.SessionFactory;
 import org.hibernate.resource.jdbc.spi.StatementInspector;
@@ -72,7 +77,10 @@ import org.springframework.modulith.test.ApplicationModuleTest;
 import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionTemplate;
 import org.testcontainers.containers.MySQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
@@ -83,6 +91,7 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 @TestPropertySource(properties = {
         "spring.jpa.hibernate.ddl-auto=validate",
         "spring.jpa.properties.hibernate.generate_statistics=true",
+        "spring.datasource.hikari.transaction-isolation=TRANSACTION_READ_COMMITTED",
         "spring.flyway.enabled=true",
         "jwt.secret=test-secret-key-must-be-at-least-32-bytes-long",
         "kakao.client-id=test-client-id",
@@ -98,6 +107,7 @@ class RestaurantMapQueryIntegrationTest {
     private static final LocalDateTime UTC_NOW = LocalDateTime.ofInstant(NOW, ZoneOffset.UTC);
     private static final MapQueryBounds BOUNDS = MapQueryBounds.parse("0", "1", "0", "1");
     private static final List<String> SQL = new CopyOnWriteArrayList<>();
+    private static final AtomicReference<AggregateBarrier> AGGREGATE_BARRIER = new AtomicReference<>();
 
     @Container
     @ServiceConnection
@@ -115,6 +125,7 @@ class RestaurantMapQueryIntegrationTest {
     @Autowired private EntityManager entityManager;
     @Autowired private EntityManagerFactory entityManagerFactory;
     @Autowired private JdbcTemplate jdbc;
+    @Autowired private PlatformTransactionManager transactionManager;
     @MockitoBean private MediaPort mediaPort;
     @MockitoBean private FileStorage fileStorage;
     @MockitoBean private RedisTemplate<String, Object> redisTemplate;
@@ -378,6 +389,39 @@ class RestaurantMapQueryIntegrationTest {
         assertThat(snapshot.resultExtent().bounds().west()).isEqualByComparingTo(".2");
         assertThat(snapshot.resultExtent().bounds().east()).isEqualByComparingTo(".8");
         assertThat(snapshot.resultExtent().earliestValidUntil()).isEqualTo(NOW.plusSeconds(1800));
+    }
+
+    @Test
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
+    void READ_COMMITTED_환경의_동시삭제에도_후보와_검색결과집계는_같은_스냅샷을_본다() throws Exception {
+        assertThat(jdbc.queryForObject("select @@transaction_isolation", String.class))
+                .isEqualTo("READ-COMMITTED");
+        Long restaurantId = new TransactionTemplate(transactionManager).execute(
+                status -> ready("rr-concurrent-fixture", ".25", ".75").getId());
+        AggregateBarrier barrier = new AggregateBarrier(new CountDownLatch(1), new CountDownLatch(1));
+        assertThat(AGGREGATE_BARRIER.compareAndSet(null, barrier)).isTrue();
+        ExecutorService executor = Executors.newSingleThreadExecutor();
+
+        try {
+            var snapshotFuture = executor.submit(
+                    () -> service.findCandidates(criteria("rr-concurrent-fixture"), 10));
+            assertThat(barrier.aggregateReached().await(20, TimeUnit.SECONDS)).isTrue();
+
+            assertThat(jdbc.update("update restaurant set deleted=true where id=?", restaurantId)).isOne();
+            barrier.continueAggregate().countDown();
+
+            var snapshot = snapshotFuture.get(20, TimeUnit.SECONDS);
+            assertThat(snapshot.candidates()).extracting(RestaurantMapCandidate::restaurantId)
+                    .containsExactly(restaurantId);
+            assertThat(snapshot.resultExtent().totalCount()).isOne();
+            assertThat(snapshot.resultExtent().bounds().south()).isEqualByComparingTo(".25");
+            assertThat(snapshot.resultExtent().bounds().north()).isEqualByComparingTo(".25");
+        } finally {
+            barrier.continueAggregate().countDown();
+            AGGREGATE_BARRIER.compareAndSet(barrier, null);
+            executor.shutdownNow();
+            jdbc.update("update restaurant set deleted=true where id=?", restaurantId);
+        }
     }
 
     @Test
@@ -720,6 +764,25 @@ class RestaurantMapQueryIntegrationTest {
                 exception -> assertThat(exception.getErrorCode()).isEqualTo(code));
     }
 
+    private static void awaitAggregateBarrier(String sql) {
+        AggregateBarrier barrier = AGGREGATE_BARRIER.get();
+        if (barrier == null || !sql.contains("select count(*)") || !sql.contains("min(l.valid_until)")) {
+            return;
+        }
+        barrier.aggregateReached().countDown();
+        try {
+            if (!barrier.continueAggregate().await(20, TimeUnit.SECONDS)) {
+                throw new IllegalStateException("검색 결과 집계 동시성 테스트가 시간 안에 재개되지 않았습니다");
+            }
+        } catch (InterruptedException exception) {
+            Thread.currentThread().interrupt();
+            throw new IllegalStateException("검색 결과 집계 동시성 테스트 대기가 중단됐습니다", exception);
+        }
+    }
+
+    private record AggregateBarrier(CountDownLatch aggregateReached, CountDownLatch continueAggregate) {
+    }
+
     @TestConfiguration(proxyBeanMethods = false)
     @EnableJpaAuditing
     static class Infrastructure {
@@ -739,6 +802,7 @@ class RestaurantMapQueryIntegrationTest {
         HibernatePropertiesCustomizer statementInspector() {
             return properties -> properties.put("hibernate.session_factory.statement_inspector", (StatementInspector) sql -> {
                 SQL.add(sql);
+                awaitAggregateBarrier(sql);
                 return sql;
             });
         }
