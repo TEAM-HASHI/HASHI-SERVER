@@ -72,6 +72,7 @@ class MapQueryLoadTest {
     private static final String PROFILE = System.getProperty("map.k6.profile", "smoke");
     private static final String TRAFFIC = System.getProperty("map.k6.traffic", "shared");
     private static final int RESTAURANTS = Integer.parseInt(System.getProperty("map.k6.restaurants", "620"));
+    private static final int BUDGET_MIB = Integer.parseInt(System.getProperty("map.k6.budget-mib", "16"));
     private static final int IDLE_SECONDS = "ttl".equals(PROFILE) ? 300 : 10;
     private static final int WORKLOAD_SECONDS = "smoke".equals(PROFILE) ? 90 : 300;
     private static final String QUERIES = "hashi:restaurant:map:{sessions-v2}:query:*";
@@ -101,6 +102,8 @@ class MapQueryLoadTest {
         assertThat(PROFILE).isIn("smoke", "normal", "staged", "ttl");
         assertThat(TRAFFIC).isIn("shared", "distinct");
         assertThat(RESTAURANTS).isBetween(620, 5000);
+        assertThat(BUDGET_MIB).isIn(16, 32);
+        limits.setTotalBytes(BUDGET_MIB * 1_048_576L);
         if ("normal".equals(PROFILE) || "ttl".equals(PROFILE)) {
             assertThat(TRAFFIC).as("paced profiles model distinct callers").isEqualTo("distinct");
             limits.setRequestsPerCaller(120);
@@ -172,7 +175,7 @@ class MapQueryLoadTest {
             assertThat(redis.opsForValue().get(SENTINEL)).isEqualTo("synthetic-auth-value");
             json.writeValue(output.resolve("recovery.json").toFile(), Map.of(
                     "syntheticRestaurants", RESTAURANTS, "workloadSeconds", WORKLOAD_SECONDS, "idleTimeoutSeconds", IDLE_SECONDS,
-                    "profile", PROFILE, "traffic", TRAFFIC, "k6Exit", k6Exit,
+                    "profile", PROFILE, "traffic", TRAFFIC, "sessionBudgetMiB", BUDGET_MIB, "k6Exit", k6Exit,
                     "capacityRejected", true, "recoveredAfterExpiry", true, "authSentinelPreserved", true));
             json.writeValue(output.resolve("resource-samples.json").toFile(), samples);
             assertThat(k6Exit).as("Original k6 thresholds remain enforced; see rejection counters and k6.log").isZero();
