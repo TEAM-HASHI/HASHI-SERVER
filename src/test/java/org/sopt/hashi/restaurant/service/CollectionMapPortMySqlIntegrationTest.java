@@ -126,6 +126,7 @@ class CollectionMapPortMySqlIntegrationTest {
     @MockitoBean CurrentUserProvider currentUser;
     @MockitoBean RestaurantService unusedRestaurantService;
     @MockitoBean RestaurantLocationService unusedAdminLocationService;
+    @MockitoBean PlacesLocationService unusedPlacesLocationService;
     @MockitoBean MediaPort media;
     @MockitoBean FileStorage storage;
     @MockitoBean(name = "japanClock") Clock clock;
@@ -203,6 +204,30 @@ class CollectionMapPortMySqlIntegrationTest {
         assertThat(expired.content()).isEmpty();
         assertThat(expired.locationUnavailableCount()).isEqualTo(4);
         assertThat(saved.findAllByCollection_IdOrderByIdDesc(collectionId)).hasSize(4);
+    }
+
+    @Test
+    void Places_출처는_전체핀과_함께_전달하고_만료되면_좌표와_같이_제외한다() {
+        List<Restaurant> rows = seedRestaurants(1, 1);
+        Long id = rows.getFirst().getId();
+        Long collectionId = seedCollection("출처 표시", rows);
+        jdbc.update("""
+                UPDATE restaurant_location l JOIN restaurant r ON r.location_id = l.id
+                SET l.source = 'GOOGLE_PLACES', l.google_place_id = 'synthetic-place',
+                    l.places_attributions = '[{"displayName":"지도 제공처","uri":"https://example.test/credit"}]'
+                WHERE r.id = ?
+                """, id);
+
+        var response = maps.getMarkers(collectionId);
+        assertThat(response.content()).singleElement().satisfies(marker ->
+                assertThat(marker.location().attributions()).singleElement().satisfies(attribution -> {
+                    assertThat(attribution.displayName()).isEqualTo("지도 제공처");
+                    assertThat(attribution.uri()).isEqualTo("https://example.test/credit");
+                }));
+
+        given(clock.instant()).willReturn(NOW.plusSeconds(3600));
+        assertThat(maps.getMarkers(collectionId).content()).isEmpty();
+        assertThat(saved.findAllByCollection_IdOrderByIdDesc(collectionId)).hasSize(1);
     }
 
     @Test
