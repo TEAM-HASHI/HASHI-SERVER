@@ -36,10 +36,11 @@ public record CreateRestaurantRequest(
         @Schema(description = "매장 상세 설명", example = "엄선된 고기와 다양한 코스를 제공합니다.")
         @NotBlank(message = "상세 설명은 필수입니다")
         @Size(max = 500, message = "상세 설명은 500자 이내입니다") String description,
-        @Schema(description = "주소", example = "도쿄도 도시마구 히가시이케부쿠로 1-1-1")
+        @Schema(description = "사용자 화면에 표시할 전체 주소. 건물명·층 정보를 보존하며, geocodingAddress를 생략하면 Google 위치 확인에도 이 값을 사용",
+                example = "도쿄도 도시마구 히가시이케부쿠로 1-1-1")
         @NotBlank(message = "주소는 필수입니다")
         @Size(max = 255, message = "주소는 255자 이내입니다") String address,
-        @Schema(description = "Google 위치 확인용 주소 override(선택, 미지정 시 표시 주소 사용)",
+        @Schema(description = "Google 위치 확인에만 사용할 별도 지정 주소(선택). 화면에는 address의 건물명·층 정보를 그대로 보여주면서 검색에는 정제한 주소를 쓰기 위한 필드. 생략/null이면 address를 사용하고 공백은 허용하지 않음",
                 example = "東京都豊島区東池袋1-1-1")
         @Pattern(regexp = "(?s).*[^\\p{javaWhitespace}\\p{Z}].*",
                 message = "위치 확인용 주소는 공백일 수 없습니다")
