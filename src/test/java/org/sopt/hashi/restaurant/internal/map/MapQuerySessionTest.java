@@ -15,6 +15,7 @@ import java.util.Map;
 import java.util.UUID;
 import java.util.stream.IntStream;
 import org.junit.jupiter.api.Test;
+import org.sopt.hashi.restaurant.code.RestaurantErrorCode;
 import org.sopt.hashi.restaurant.domain.MapQueryBounds;
 import org.sopt.hashi.restaurant.domain.MapSearchCriteria;
 import org.sopt.hashi.restaurant.domain.RestaurantMapCandidate;
@@ -79,10 +80,13 @@ class MapQuerySessionTest {
         var serializer = new MapSessionSerializer();
         String json = serializer.serialize(session(List.of(candidate(1, "4.0", 2))));
 
-        assertThatThrownBy(() -> serializer.deserialize(json.replace("[1,4.0,2]", "[1,4.0]")))
-                .isInstanceOf(BusinessException.class);
-        assertThatThrownBy(() -> serializer.deserialize(json.replace("[1,4.0,2]", "[1,4.0,2,3]")))
-                .isInstanceOf(BusinessException.class);
+        for (String corrupted : List.of(json.replace("[1,4.0,2]", "[1,4.0]"),
+                json.replace("[1,4.0,2]", "[1,4.0,2,3]"),
+                json.replace("[[1,4.0,2]]", "[null]"))) {
+            assertThatThrownBy(() -> serializer.deserialize(corrupted))
+                    .isInstanceOfSatisfying(BusinessException.class, exception ->
+                            assertThat(exception.getErrorCode()).isEqualTo(RestaurantErrorCode.MAP_SESSION_EXPIRED));
+        }
     }
 
     @Test

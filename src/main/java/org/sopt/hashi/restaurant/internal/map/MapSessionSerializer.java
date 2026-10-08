@@ -69,7 +69,7 @@ public class MapSessionSerializer {
         }
 
         private MapQuerySession toSession() {
-            if (candidates == null) {
+            if (candidates == null || candidates.stream().anyMatch(candidate -> candidate == null)) {
                 throw new IllegalArgumentException("Invalid map session payload");
             }
             return new MapQuerySession(schemaVersion, id, criteria,
