@@ -15,6 +15,7 @@ import org.sopt.hashi.restaurant.RestaurantMapInfo;
 import org.sopt.hashi.restaurant.RestaurantMapInfo.LocationInfo;
 import org.sopt.hashi.restaurant.RestaurantMapInfo.AttributionInfo;
 import org.springframework.stereotype.Repository;
+import org.springframework.dao.DataRetrievalFailureException;
 
 /** 지도 전용 값 projection. 모든 SQL은 restaurant 모듈 안의 테이블만 사용한다. */
 @Repository
@@ -182,10 +183,11 @@ public class RestaurantMapQueryRepository {
             return List.of();
         }
         try {
-            return List.of(ATTRIBUTIONS_MAPPER.readValue((String) value, AttributionInfo[].class));
-        } catch (JsonProcessingException exception) {
+            return List.of(ATTRIBUTIONS_MAPPER.readValue((String) value, RestaurantLocationAttribution[].class))
+                    .stream().map(item -> new AttributionInfo(item.displayName(), item.uri())).toList();
+        } catch (JsonProcessingException | IllegalArgumentException | NullPointerException exception) {
             // 출처가 손상된 좌표를 출처 없이 공개하지 않는다. 원문은 로그/예외에 포함하지 않는다.
-            throw new IllegalStateException("Stored location attribution is invalid");
+            throw new DataRetrievalFailureException("Stored location attribution is invalid");
         }
     }
 }

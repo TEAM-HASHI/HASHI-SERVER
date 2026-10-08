@@ -231,6 +231,22 @@ class CollectionMapPortMySqlIntegrationTest {
     }
 
     @Test
+    void 손상된_Places_출처는_출처없는_핀_대신_조회실패로_처리한다() {
+        List<Restaurant> rows = seedRestaurants(1, 1);
+        Long collectionId = seedCollection("출처 오류", rows);
+        jdbc.update("""
+                UPDATE restaurant_location l JOIN restaurant r ON r.location_id = l.id
+                SET l.source = 'GOOGLE_PLACES', l.google_place_id = 'synthetic-place',
+                    l.places_attributions = '[null]'
+                WHERE r.id = ?
+                """, rows.getFirst().getId());
+        BusinessException failure = catchThrowableOfType(() -> maps.getMarkers(collectionId), BusinessException.class);
+        assertThat(failure).isNotNull();
+        assertThat(failure.getErrorCode()).isEqualTo(UserErrorCode.COLLECTION_MAP_UNAVAILABLE);
+        assertThat(saved.findAllByCollection_IdOrderByIdDesc(collectionId)).hasSize(1);
+    }
+
+    @Test
     void 실제_1000개_전체핀은_Port_2batch와_전체_5SQL로_조회한다() {
         Long collectionId = seedCollection("1000 경로", seedRestaurants(1000, 1000));
         var statistics = entityManagerFactory.unwrap(SessionFactory.class).getStatistics();
