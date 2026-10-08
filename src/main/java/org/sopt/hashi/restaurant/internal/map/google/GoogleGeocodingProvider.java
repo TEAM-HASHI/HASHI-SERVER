@@ -137,7 +137,7 @@ final class GoogleGeocodingProvider implements GeocodingProvider {
             URI uri = UriComponentsBuilder.fromUriString(ENDPOINT)
                     .queryParam("address.addressLines", "{address}")
                     .queryParam("address.regionCode", "JP")
-                    .queryParam("languageCode", "ja").queryParam("regionCode", "JP")
+                    .queryParam("languageCode", "en").queryParam("regionCode", "JP")
                     .encode().buildAndExpand(address).toUri();
             return restClient.get().uri(uri).accept(MediaType.APPLICATION_JSON)
                     .header("X-Goog-Api-Key", properties.apiKey())
