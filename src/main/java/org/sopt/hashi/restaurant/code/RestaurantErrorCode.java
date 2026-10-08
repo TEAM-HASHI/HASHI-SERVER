@@ -18,9 +18,26 @@ public enum RestaurantErrorCode implements ErrorCode {
     RECOMMENDATION_NOT_FOUND(HttpStatus.NOT_FOUND, "RESTAURANT-008", "추천 가능한 식당이 없습니다."),
     MENU_NOT_FOUND(HttpStatus.NOT_FOUND, "RESTAURANT-009", "메뉴를 찾을 수 없습니다."),
     UNSUPPORTED_PLACE_TYPE(HttpStatus.BAD_REQUEST, "RESTAURANT-010", "지원하지 않는 음식점 분류입니다."),
+    MAP_BOUNDS_INVALID(HttpStatus.BAD_REQUEST, "RESTAURANT-011", "조회할 지도 범위가 올바르지 않습니다."),
+    MAP_REGION_INVALID(HttpStatus.BAD_REQUEST, "RESTAURANT-012", "조회할 관광 지역이 없거나 비활성 상태입니다."),
+    MAP_SESSION_EXPIRED(HttpStatus.GONE, "RESTAURANT-013", "지도 조회가 만료되었습니다. 새로 조회해주세요"),
+    MAP_SESSION_UNAVAILABLE(HttpStatus.SERVICE_UNAVAILABLE, "RESTAURANT-014", "지도 조회를 이어갈 수 없습니다."),
+    MAP_QUERY_UNAVAILABLE(HttpStatus.SERVICE_UNAVAILABLE, "RESTAURANT-015", "지도 정보를 조회할 수 없습니다."),
+    MAP_CAPACITY_EXCEEDED(HttpStatus.SERVICE_UNAVAILABLE, "RESTAURANT-016",
+            "지도 조회 수용량이 일시적으로 부족합니다. 잠시 후 다시 시도해주세요."),
+    MAP_CONFIGURATION_UNAVAILABLE(HttpStatus.SERVICE_UNAVAILABLE, "RESTAURANT-017", "지도 설정이 준비되지 않았습니다."),
+    MAP_LOCATION_UNAVAILABLE(HttpStatus.CONFLICT, "RESTAURANT-018", "현재 표시할 수 있는 식당 위치가 없습니다."),
+    LOCATION_RETRY_CONFLICT(HttpStatus.CONFLICT, "RESTAURANT-019", "현재 주소의 위치 상태를 다시 확인해주세요"),
     // RESTAURANT-011~019는 진행 중 기능 브랜치에 이미 배정돼 있어 #230은 020부터 쓴다 — 번호 재사용 금지
     DUPLICATE_NAME(HttpStatus.CONFLICT, "RESTAURANT-020", "이미 등록된 식당명입니다."),
-    DUPLICATE_ADDRESS(HttpStatus.CONFLICT, "RESTAURANT-021", "이미 등록된 주소입니다.");
+    DUPLICATE_ADDRESS(HttpStatus.CONFLICT, "RESTAURANT-021", "이미 등록된 주소입니다."),
+    MAP_RATE_LIMITED(HttpStatus.TOO_MANY_REQUESTS, "RESTAURANT-022", "지도 조회 요청이 많습니다. 잠시 후 다시 시도해주세요."),
+    // RESTAURANT-023 is reserved for the admin tourist-region API (#256).
+    PLACES_UNAVAILABLE(HttpStatus.SERVICE_UNAVAILABLE, "RESTAURANT-024", "Places 위치 확인을 사용할 수 없습니다"),
+    PLACES_BUDGET_EXHAUSTED(HttpStatus.TOO_MANY_REQUESTS, "RESTAURANT-025", "Places 호출 한도를 확인해주세요"),
+    PLACES_PROVIDER_FAILED(HttpStatus.BAD_GATEWAY, "RESTAURANT-026", "Places 응답을 확인할 수 없습니다"),
+    PLACE_SELECTION_INVALID(HttpStatus.BAD_REQUEST, "RESTAURANT-027", "Places 선택 정보가 올바르지 않습니다"),
+    PLACE_SELECTION_CONFLICT(HttpStatus.CONFLICT, "RESTAURANT-028", "현재 위치 상태를 다시 확인해주세요");
 
     private final HttpStatus status;
     private final String code;

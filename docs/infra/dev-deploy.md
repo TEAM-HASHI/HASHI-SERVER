@@ -117,6 +117,12 @@ CLOUDFRONT_DOMAIN
 CORS_ALLOWED_ORIGINS
 CORS_ALLOWED_ORIGIN_PATTERNS
 
+HASHI_MAP_GOOGLE_PLACES_ENABLED
+HASHI_MAP_GOOGLE_PLACES_API_KEY
+HASHI_MAP_PLACES_SELECTION_ENABLED
+HASHI_MAP_PLACES_SELECTION_SIGNING_KEY
+HASHI_MAP_PLACES_SELECTION_TOKEN_TTL
+
 GRAFANA_ADMIN_PASSWORD
 ```
 
@@ -124,7 +130,23 @@ GRAFANA_ADMIN_PASSWORD
 
 ```text
 GRAFANA_ADMIN_USER
+HASHI_RESTAURANT_MAP_SESSION_ENABLED
+HASHI_RESTAURANT_MAP_SESSION_SIGNINGKEY
 ```
+
+지도 세션은 `HASHI_RESTAURANT_MAP_SESSION_ENABLED=false`가 기본값이다. 키 준비와 공개 활성화는
+별개이며, 키는 현재 EC2 런타임 환경 파일에서 관리한다. `HASHI_RESTAURANT_MAP_SESSION_SIGNINGKEY`는
+모든 서버가 공유하는 Base64 형식 32~64 byte 비밀값이다. 실제 키는 repository나 GitHub Actions에 중복 저장하지 않는다.
+비활성화 상태에서는 유효한 키를 넣어도 지도 목록 세 모드가 DB/Redis 접근 전에 RESTAURANT-014 / 503을 반환한다.
+활성화한 상태에서 키가 없거나 잘못되면 부팅은 유지하고 시작 시 값·예외 원문 없는 WARN을 한 번 남기며,
+지도 세션 요청은 같은 503을 반환한다. 비활성화 상태에서는 키 누락/오류로 WARN을 남기지 않는다.
+
+공개 활성화 전 신뢰 가능한 ingress 제한·호출자 식별 경계와 정상 트래픽 용량을 검증하고,
+실제 후보 규모가 세션별 계획 상한(`snapshot-bytes / 32`)과 직렬화 byte 예산 안에 드는지 확인해야 한다.
+[후속 이슈 #252](https://github.com/TEAM-HASHI/HASHI-SERVER/issues/252)에서 이를 별도로 다룬다.
+기본 비활성화 추가로 해당 문제가 해결되지는 않는다. 고정 500개 상한은 없으며, 계획 상한이나 실제
+byte 예산을 넘으면 RESTAURANT-016 / 503으로 전체 요청을 실패시키고 결과를 잘라내지 않는다.
+상세 계약은 [지도 목록 운영 경계](../map/map-pagination.md#설정오류와-운영-경계)를 따른다.
 
 `GRAFANA_ADMIN_USER`를 생략하면 `admin`을 기본값으로 사용한다.
 `GRAFANA_ADMIN_PASSWORD`는 기본값이 없으며, 누락하거나 빈 값으로 두면 Docker Compose 실행이 실패한다.
@@ -147,6 +169,22 @@ CORS_ALLOWED_ORIGIN_PATTERNS=https://hashi-client-*-<vercel-team-slug>.vercel.ap
 
 크리덴셜을 포함한 요청을 허용하므로 `https://*.vercel.app`처럼 다른 프로젝트까지 포함하는
 넓은 패턴은 사용하지 않는다.
+
+Google Places 관리자 위치 검토 기능은 기본적으로 꺼져 있다. 활성화 준비 시 아래 값을 서버 환경 파일에
+설정하되, 애플리케이션 설정과 DB의 `SEARCH`, `DETAILS` 예산 행을 별도로 검토하고 활성화한다.
+
+```text
+HASHI_MAP_GOOGLE_PLACES_ENABLED=false
+HASHI_MAP_GOOGLE_PLACES_API_KEY=
+HASHI_MAP_PLACES_SELECTION_ENABLED=false
+HASHI_MAP_PLACES_SELECTION_SIGNING_KEY=
+HASHI_MAP_PLACES_SELECTION_TOKEN_TTL=10m
+```
+
+Google Cloud에서 같은 API key에 Geocoding API와 Places API (New)를 모두 허용한 경우에도
+`HASHI_MAP_GOOGLE_PLACES_API_KEY`에는 그 값을 별도로 주입한다. selection 서명키는 provider API key와
+다른 전용 비밀값이며, Base64 디코딩 후 32바이트 이상이어야 한다. 실제 key와 token은 repository,
+이슈, PR, 문서와 로그에 기록하지 않는다.
 
 다음 key는 `.env.dev`에 넣지 않는다.
 
@@ -178,6 +216,13 @@ compose 파일은 다음 경로의 환경변수 파일을 읽는다.
 env_file:
   - ../.env.dev
 ```
+
+기존 `env_file`만으로도 정확한 이름의 지도 세션 환경변수를 컨테이너에 전달할 수 있다.
+명시적인 `environment` 매핑은 기본 비활성화와 빈 키 기본값을 드러내기 위한 것이다.
+`environment`가 `env_file`보다 우선하므로, 기존 배포 명령처럼 `--env-file ../.env.dev`를 지정해
+같은 파일을 Compose 변수 치환에도 사용한다. 운영 compose도 `--env-file ../.env.prod`를 사용한다.
+이 옵션을 빼고 기본 치환값이 적용되면 `env_file`의 키가 빈 값으로 덮일 수 있다.
+실제 환경에서 `docker compose config` 전체 출력으로 키를 확인하지 않는다.
 
 애플리케이션 컨테이너는 localhost에만 바인딩한다.
 

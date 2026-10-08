@@ -4,8 +4,8 @@ import java.util.Collection;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
-import java.util.Objects;
 import java.util.Optional;
+import java.util.Objects;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 import org.sopt.hashi.media.ImageReference;
@@ -14,12 +14,20 @@ import org.sopt.hashi.restaurant.AdminRestaurantInfo;
 import org.sopt.hashi.restaurant.RestaurantCardInfo;
 import org.sopt.hashi.restaurant.RestaurantDetailInfo;
 import org.sopt.hashi.restaurant.RestaurantInfo;
+import org.sopt.hashi.restaurant.RestaurantMapInfo;
 import org.sopt.hashi.restaurant.RestaurantPort;
+import org.sopt.hashi.restaurant.RestaurantLocationInfo;
+import org.sopt.hashi.restaurant.RestaurantLocationReviewPage;
+import org.sopt.hashi.restaurant.RestaurantPlacesSearchInfo;
 import org.sopt.hashi.restaurant.domain.Restaurant;
 import org.sopt.hashi.restaurant.domain.RestaurantImage;
 import org.sopt.hashi.restaurant.domain.RestaurantRepository;
 import org.sopt.hashi.shared.storage.FileStorage;
 import org.springframework.stereotype.Component;
+import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.transaction.annotation.Isolation;
+import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
 /**
@@ -33,12 +41,36 @@ class RestaurantPortImpl implements RestaurantPort {
     private final RestaurantRepository restaurantRepository;
     private final RestaurantService restaurantService;
     private final FileStorage fileStorage;
+    private final RestaurantLocationService locationService;
+    private final RestaurantMapService restaurantMapService;
+    private final PlacesLocationService placesLocationService;
 
     RestaurantPortImpl(RestaurantRepository restaurantRepository, RestaurantService restaurantService,
-                       FileStorage fileStorage) {
+                       FileStorage fileStorage, RestaurantLocationService locationService,
+                       RestaurantMapService restaurantMapService) {
         this.restaurantRepository = restaurantRepository;
         this.restaurantService = restaurantService;
         this.fileStorage = fileStorage;
+        this.locationService = locationService;
+        this.restaurantMapService = restaurantMapService;
+        this.placesLocationService = null;
+    }
+
+    @Autowired
+    RestaurantPortImpl(RestaurantRepository restaurantRepository, RestaurantService restaurantService,
+                       FileStorage fileStorage, RestaurantLocationService locationService,
+                       RestaurantMapService restaurantMapService,
+                       ObjectProvider<PlacesLocationService> placesLocationServices) {
+        this.restaurantRepository = restaurantRepository;
+        this.restaurantService = restaurantService;
+        this.fileStorage = fileStorage;
+        this.locationService = locationService;
+        this.restaurantMapService = restaurantMapService;
+        this.placesLocationService = placesLocationServices.getIfAvailable();
+    }
+
+    private PlacesLocationService requirePlacesLocationService() {
+        return Objects.requireNonNull(placesLocationService, "PlacesLocationService is unavailable");
     }
 
     @Override
@@ -115,6 +147,11 @@ class RestaurantPortImpl implements RestaurantPort {
     }
 
     @Override
+    public List<RestaurantMapInfo> findActiveMapInfos(Collection<Long> restaurantIds) {
+        return restaurantMapService.findActiveMapInfos(restaurantIds);
+    }
+
+    @Override
     @Transactional
     public void increaseReviewStatistics(Long restaurantId, int rating) {
         if (restaurantRepository.increaseReviewStatistics(restaurantId, rating) == 0) {
@@ -140,21 +177,52 @@ class RestaurantPortImpl implements RestaurantPort {
     }
 
     @Override
-    @Transactional
+    @Transactional(isolation = Isolation.READ_COMMITTED)
     public AdminRestaurantInfo createByAdmin(AdminRestaurantCommand command) {
         return restaurantService.createByAdmin(command);
     }
 
     @Override
-    @Transactional
+    @Transactional(isolation = Isolation.READ_COMMITTED)
     public AdminRestaurantInfo updateByAdmin(Long restaurantId, AdminRestaurantCommand command) {
         return restaurantService.updateByAdmin(restaurantId, command);
     }
 
     @Override
-    @Transactional
+    @Transactional(isolation = Isolation.READ_COMMITTED)
     public void deleteByAdmin(Long restaurantId) {
         restaurantService.deleteByAdmin(restaurantId);
+    }
+
+    @Override
+    public RestaurantLocationInfo getLocationByAdmin(Long restaurantId) {
+        return locationService.get(restaurantId);
+    }
+
+    @Override
+    @Transactional(isolation = Isolation.READ_COMMITTED)
+    public RestaurantLocationInfo retryLocationByAdmin(Long restaurantId, long expectedAddressRevision) {
+        return locationService.retry(restaurantId, expectedAddressRevision);
+    }
+
+    @Override
+    @Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ)
+    public RestaurantLocationReviewPage findLocationReviewsByAdmin(
+            String status, String source, int page, int size) {
+        return locationService.findReviews(status, source, page, size);
+    }
+
+    @Override
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
+    public RestaurantPlacesSearchInfo searchLocationPlacesByAdmin(Long restaurantId, long expectedAddressRevision) {
+        return requirePlacesLocationService().search(restaurantId, expectedAddressRevision);
+    }
+
+    @Override
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
+    public RestaurantLocationInfo selectLocationPlaceByAdmin(
+            Long restaurantId, long expectedAddressRevision, String selectionToken) {
+        return requirePlacesLocationService().select(restaurantId, expectedAddressRevision, selectionToken);
     }
 
     private RestaurantInfo toInfo(Restaurant restaurant) {
