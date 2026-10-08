@@ -41,7 +41,7 @@ public class MapSessionLimits {
         }
     }
 
-    /** JSON 후보 한 건은 최소 32 bytes보다 크다. 이 상한에서 걸린 목록은 byte 예산에도 들어갈 수 없다. */
+    /** DB 결과를 무제한 적재하지 않는 보수적 32-byte 계획 단위다. 최종 tuple JSON은 실제 byte로 다시 검사한다. */
     public int candidateCapacity() {
         validate();
         return snapshotBytes / 32;

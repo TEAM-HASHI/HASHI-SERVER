@@ -28,6 +28,7 @@ import org.sopt.hashi.auth.internal.token.OnboardingTokenStore;
 import org.sopt.hashi.auth.internal.token.TokenBlacklist;
 import org.sopt.hashi.restaurant.domain.RestaurantMapSort;
 import org.sopt.hashi.restaurant.internal.map.MapCursorCodec;
+import org.sopt.hashi.restaurant.internal.map.MapCapacityMetrics;
 import org.sopt.hashi.restaurant.internal.map.MapSessionId;
 import org.sopt.hashi.restaurant.internal.map.MapSessionProperties;
 import org.sopt.hashi.restaurant.internal.map.MapSessionLimits;
@@ -72,6 +73,7 @@ class RestaurantMapSessionGateTest {
     @MockitoBean RestaurantMapService mapService;
     @MockitoBean RestaurantMapPageReader reader;
     @MockitoBean RedisMapSessionStore store;
+    @MockitoBean MapCapacityMetrics mapCapacityMetrics;
     @MockitoBean OnboardingTokenStore onboardingTokenStore;
     @MockitoBean TokenBlacklist tokenBlacklist;
 
