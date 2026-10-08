@@ -140,6 +140,47 @@ class LocationJobMySqlTest {
     }
 
     @Test
+    void 명시_위치확인주소를_provider와_채택정책에_사용하고_표시주소는_보존한다() {
+        AtomicReference<String> providerInput = new AtomicReference<>();
+        provider.answer.set(address -> {
+            providerInput.set(address);
+            return new GeocodingResult.Candidates(List.of(LocationAdoptionPolicyTest.candidate()));
+        });
+        var response = restaurants.createByAdmin(createCommandWithGeocodingAddress());
+
+        worker.process(target(response.restaurantId()));
+
+        assertThat(providerInput).hasValue(LocationAdoptionPolicyTest.ADDRESS);
+        assertThat(response.address()).contains("架空ビル");
+        assertThat(response.geocodingAddress()).isEqualTo(LocationAdoptionPolicyTest.ADDRESS);
+        assertThat(locations.get(response.restaurantId()).locationStatus()).isEqualTo("READY");
+    }
+
+    @Test
+    void 위치확인주소만_바꿔도_이전_job결과를_막고_공백으로_지우면_표시주소로_fallback한다() {
+        var created = restaurants.createByAdmin(createCommandWithGeocodingAddress());
+        Long id = created.restaurantId();
+        Claim first = transactions.claim(target(id)).orElseThrow();
+
+        var changed = restaurants.updateByAdmin(id,
+                geocodingAddressCommand("  東京都試験区架空町1丁目2番4号  "));
+
+        assertThat(changed.addressRevision()).isEqualTo(2);
+        assertThat(changed.geocodingAddress()).isEqualTo("東京都試験区架空町1丁目2番4号");
+        assertThat(transactions.complete(first, ready())).isFalse();
+        Claim second = transactions.claim(target(id)).orElseThrow();
+        assertThat(second.geocodingAddress()).isEqualTo("東京都試験区架空町1丁目2番4号");
+
+        var cleared = restaurants.updateByAdmin(id, geocodingAddressCommand(" \u3000 "));
+
+        assertThat(cleared.addressRevision()).isEqualTo(3);
+        assertThat(cleared.geocodingAddress()).isNull();
+        assertThat(transactions.complete(second, ready())).isFalse();
+        Claim fallback = transactions.claim(target(id)).orElseThrow();
+        assertThat(fallback.geocodingAddress()).isEqualTo(cleared.address());
+    }
+
+    @Test
     void 같은_주소_갱신의_재시도와_실패도_기존_좌표와_만료를_보존한다() {
         Long id = restaurants.createByAdmin(createCommand()).restaurantId();
         transactions.complete(transactions.claim(target(id)).orElseThrow(), ready());
@@ -675,6 +716,23 @@ class LocationJobMySqlTest {
                 "표시 지역", "sushi", "초밥", "restaurant", "JPY", BigDecimal.ONE, BigDecimal.TEN,
                 List.of("restaurants/synthetic.jpg"), null, null, null, List.of("합성"), List.of(),
                 Arrays.stream(DayOfWeek.values()).map(day -> new BusinessHourCommand(day, null, null, null, null, true)).toList());
+    }
+
+    private AdminRestaurantCommand createCommandWithGeocodingAddress() {
+        int sequence = RESTAURANT_SEQUENCE.incrementAndGet();
+        String displayAddress = LocationAdoptionPolicyTest.ADDRESS.replace(
+                "試験区", " ".repeat(sequence) + "試験区") + " 架空ビル" + sequence + " 1F";
+        return new AdminRestaurantCommand("합성 식당 " + sequence, "試験", "요약", "설명",
+                displayAddress, LocationAdoptionPolicyTest.ADDRESS, "표시 지역", "sushi", "초밥",
+                "restaurant", "JPY", BigDecimal.ONE, BigDecimal.TEN,
+                List.of("restaurants/synthetic.jpg"), null, null, null, List.of("합성"), List.of(),
+                Arrays.stream(DayOfWeek.values())
+                        .map(day -> new BusinessHourCommand(day, null, null, null, null, true)).toList());
+    }
+
+    private AdminRestaurantCommand geocodingAddressCommand(String geocodingAddress) {
+        return new AdminRestaurantCommand(null, null, null, null, null, geocodingAddress,
+                null, null, null, null, null, null, null, null, null, null, null, null, null, null);
     }
 
     private AdminRestaurantCommand addressCommand(String address) {

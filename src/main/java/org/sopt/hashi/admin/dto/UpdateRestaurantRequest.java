@@ -19,7 +19,8 @@ import java.util.List;
 import java.util.UUID;
 
 /**
- * 어드민 식당 부분 수정(PATCH) 요청 — null 필드는 변경하지 않는다(값 비우기 불가).
+ * 어드민 식당 부분 수정(PATCH) 요청 — null 필드는 변경하지 않는다.
+ * geocodingAddress만 공백 문자열로 명시적 override 삭제가 가능하다.
  * 컬렉션은 전체 교체 의미다. null이면 유지하며, imageKeys·hashtags는 최소 1개를 유지해야 한다.
  * businessHours는 보낼 경우 7개 요일을 중복 없이 모두 포함해야 한다.
  */
@@ -35,6 +36,9 @@ public record UpdateRestaurantRequest(
         @Size(max = 500, message = "상세 설명은 500자 이내입니다") String description,
         @Schema(description = "주소(선택)", example = "도쿄도 도시마구 히가시이케부쿠로 1-1-1")
         @Size(max = 255, message = "주소는 255자 이내입니다") String address,
+        @Schema(description = "Google 위치 확인용 일본어 기본 주소. null은 유지, 공백은 override 삭제",
+                example = "東京都豊島区東池袋1-1-1")
+        @Size(max = 255, message = "위치 확인용 주소는 255자 이내입니다") String geocodingAddress,
         @Schema(description = "지역(선택)", example = "이케부쿠로")
         @Size(max = 20, message = "지역은 20자 이내입니다") String area,
         @Schema(description = "장르(소문자 케밥, 선택)", example = "sushi")
@@ -70,6 +74,18 @@ public record UpdateRestaurantRequest(
         List<@NotBlank(message = "큐레이션 유형은 비어 있을 수 없습니다") String> curationTypes,
         @Size(min = 7, max = 7, message = "영업시간은 모든 요일(7개)을 포함해야 합니다")
         List<@NotNull(message = "영업시간 항목은 null일 수 없습니다") @Valid BusinessHourRequest> businessHours) {
+
+    /** geocodingAddress 도입 전 Java 호출부의 source compatibility를 유지한다. */
+    public UpdateRestaurantRequest(
+            String name, String localName, String summary, String description, String address,
+            String area, String genre, String foodCategory, String placeType, String priceCurrency,
+            BigDecimal minPrice, BigDecimal maxPrice, List<String> imageKeys, List<ImageRequest> images,
+            JsonNode unsupportedImageAssetIds, List<MenuRequest> menus, List<String> hashtags,
+            List<String> curationTypes, List<BusinessHourRequest> businessHours) {
+        this(name, localName, summary, description, address, null, area, genre, foodCategory, placeType,
+                priceCurrency, minPrice, maxPrice, imageKeys, images, unsupportedImageAssetIds, menus,
+                hashtags, curationTypes, businessHours);
+    }
 
     @AssertTrue(message = "imageKeys와 images는 함께 사용할 수 없습니다")
     @JsonIgnore

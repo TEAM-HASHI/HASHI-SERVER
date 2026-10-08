@@ -19,6 +19,7 @@ public record AdminRestaurantInfo(
         String summary,
         String description,
         String address,
+        String geocodingAddress,
         String area,
         String genre,
         String foodCategory,

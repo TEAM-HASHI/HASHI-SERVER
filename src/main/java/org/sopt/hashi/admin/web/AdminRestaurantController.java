@@ -49,7 +49,8 @@ public class AdminRestaurantController {
               "localName": "焼肉力丸 池袋東口店",
               "summary": "이케부쿠로의 인기 야키니쿠 전문점",
               "description": "엄선된 고기와 다양한 코스를 제공합니다.",
-              "address": "도쿄도 도시마구 히가시이케부쿠로 1-1-1",
+              "address": "東京都豊島区東池袋1-1-1 架空ビル1F",
+              "geocodingAddress": "東京都豊島区東池袋1-1-1",
               "area": "이케부쿠로",
               "genre": "grill",
               "foodCategory": "야키니쿠",
@@ -111,6 +112,7 @@ public class AdminRestaurantController {
             {
               "name": "야키니쿠 리키마루 이케부쿠로 본점",
               "summary": "리뉴얼한 이케부쿠로 야키니쿠 맛집",
+              "geocodingAddress": "東京都豊島区東池袋1-1-1",
               "placeType": "cafe",
               "menus": [
                 {
