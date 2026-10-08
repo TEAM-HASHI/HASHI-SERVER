@@ -45,6 +45,18 @@ kakao:
   client-secret: ${KAKAO_CLIENT_SECRET:}   # 카카오 콘솔에서 활성화한 경우만
 
 hashi:
+  map:
+    google-places:
+      enabled: ${HASHI_MAP_GOOGLE_PLACES_ENABLED:false}
+      api-key: ${HASHI_MAP_GOOGLE_PLACES_API_KEY:}
+      connect-timeout: ${HASHI_MAP_GOOGLE_PLACES_CONNECT_TIMEOUT:2s}
+      response-timeout: ${HASHI_MAP_GOOGLE_PLACES_RESPONSE_TIMEOUT:5s}
+      max-response-bytes: ${HASHI_MAP_GOOGLE_PLACES_MAX_RESPONSE_BYTES:65536}
+    places-selection:
+      # 후보 선택은 provider와 별도로 opt-in하며 Base64 디코딩 기준 32바이트 이상의 전용 키가 필요하다.
+      enabled: ${HASHI_MAP_PLACES_SELECTION_ENABLED:false}
+      signing-key: ${HASHI_MAP_PLACES_SELECTION_SIGNING_KEY:}
+      token-ttl: ${HASHI_MAP_PLACES_SELECTION_TOKEN_TTL:10m}
   cors:
     # 콤마 구분 목록. 운영은 env CORS_ALLOWED_ORIGINS로 프론트 도메인을 주입한다.
     allowed-origins: ${CORS_ALLOWED_ORIGINS:http://localhost:5173}

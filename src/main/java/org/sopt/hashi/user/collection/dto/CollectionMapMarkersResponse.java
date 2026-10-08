@@ -4,6 +4,7 @@ import io.swagger.v3.oas.annotations.media.Schema;
 import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.List;
+import org.sopt.hashi.restaurant.RestaurantMapInfo.AttributionInfo;
 
 /** visibleRestaurantCount는 현재 존재하는 식당 수다. 좌표 없는 식당은 이 수에 포함되지만 content에는 없다. */
 @Schema(description = "컬렉션 전체의 현재 유효 지도 핀. viewport·BBOX·목록 페이지·필터는 적용하지 않음")
@@ -41,5 +42,15 @@ public record CollectionMapMarkersResponse(
             @Schema(description = "경도", example = "139.767125")
             BigDecimal longitude,
             @Schema(description = "좌표 유효 기한(UTC). generatedAt보다 늦은 핀만 응답")
-            Instant validUntil) { }
+            Instant validUntil,
+            @Schema(description = "좌표와 함께 표시할 제3자 출처. 각 이름과 링크를 표시하며 좌표 만료 시 함께 제거. 빈 배열이면 추가 출처 없음")
+            List<AttributionInfo> attributions) {
+        public Position {
+            attributions = List.copyOf(attributions);
+        }
+
+        public Position(BigDecimal latitude, BigDecimal longitude, Instant validUntil) {
+            this(latitude, longitude, validUntil, List.of());
+        }
+    }
 }

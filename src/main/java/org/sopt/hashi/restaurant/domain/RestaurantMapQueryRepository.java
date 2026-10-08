@@ -2,6 +2,8 @@ package org.sopt.hashi.restaurant.domain;
 
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.Query;
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import java.math.BigDecimal;
 import java.time.Instant;
 import java.time.LocalDateTime;
@@ -12,11 +14,15 @@ import java.util.Optional;
 import org.sopt.hashi.restaurant.RestaurantMapInfo;
 import org.sopt.hashi.restaurant.RestaurantMapInfo.LocationInfo;
 import org.sopt.hashi.restaurant.domain.MapSearchResultExtent.ResultBounds;
+import org.sopt.hashi.restaurant.RestaurantMapInfo.AttributionInfo;
 import org.springframework.stereotype.Repository;
+import org.springframework.dao.DataRetrievalFailureException;
 
 /** 지도 전용 값 projection. 모든 SQL은 restaurant 모듈 안의 테이블만 사용한다. */
 @Repository
 public class RestaurantMapQueryRepository {
+
+    private static final ObjectMapper ATTRIBUTIONS_MAPPER = new ObjectMapper();
 
     private static final DateTimeFormatter UTC_DATETIME = DateTimeFormatter.ofPattern("uuuu-MM-dd HH:mm:ss.SSSSSS");
     private static final String USABLE_LOCATION = """
@@ -75,14 +81,16 @@ public class RestaurantMapQueryRepository {
         }
         Query query = entityManager.createNativeQuery("""
                 select r.id, r.name, r.place_type, r.genre, l.latitude, l.longitude,
-                       date_format(l.valid_until, '%Y-%m-%dT%H:%i:%s.%f')
+                       date_format(l.valid_until, '%Y-%m-%dT%H:%i:%s.%f'),
+                       cast(l.places_attributions as char)
                 from restaurant r left join restaurant_location l on l.id = r.location_id and
                 """ + USABLE_LOCATION + " where r.deleted = false and r.id in (:ids)")
                 .setParameter("ids", ids).setParameter("now", utc(now));
         return rows(query).stream().map(row -> new RestaurantMapInfo(number(row[0]), (String) row[1],
                 RestaurantPlaceType.valueOf((String) row[2]).value(),
                 RestaurantGenre.valueOf((String) row[3]).value(),
-                row[4] == null ? null : new LocationInfo((BigDecimal) row[4], (BigDecimal) row[5], instant(row[6]))))
+                row[4] == null ? null : new LocationInfo((BigDecimal) row[4], (BigDecimal) row[5], instant(row[6]),
+                        attributions(row[7]))))
                 .toList();
     }
 
@@ -221,5 +229,18 @@ public class RestaurantMapQueryRepository {
 
     private static Instant instant(Object value) {
         return LocalDateTime.parse((String) value).toInstant(ZoneOffset.UTC);
+    }
+
+    private static List<AttributionInfo> attributions(Object value) {
+        if (value == null) {
+            return List.of();
+        }
+        try {
+            return List.of(ATTRIBUTIONS_MAPPER.readValue((String) value, RestaurantLocationAttribution[].class))
+                    .stream().map(item -> new AttributionInfo(item.displayName(), item.uri())).toList();
+        } catch (JsonProcessingException | IllegalArgumentException | NullPointerException exception) {
+            // 출처가 손상된 좌표를 출처 없이 공개하지 않는다. 원문은 로그/예외에 포함하지 않는다.
+            throw new DataRetrievalFailureException("Stored location attribution is invalid");
+        }
     }
 }

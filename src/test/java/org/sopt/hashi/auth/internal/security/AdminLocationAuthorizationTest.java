@@ -9,6 +9,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import java.util.List;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
@@ -20,7 +21,10 @@ import org.sopt.hashi.auth.internal.onboarding.OnboardingJwtIssuer;
 import org.sopt.hashi.auth.internal.token.OnboardingTokenStore;
 import org.sopt.hashi.auth.internal.token.TokenBlacklist;
 import org.sopt.hashi.restaurant.RestaurantLocationInfo;
+import org.sopt.hashi.restaurant.RestaurantLocationReviewInfo;
+import org.sopt.hashi.restaurant.RestaurantLocationReviewPage;
 import org.sopt.hashi.restaurant.RestaurantPort;
+import org.sopt.hashi.restaurant.RestaurantPlacesSearchInfo;
 import org.sopt.hashi.restaurant.code.RestaurantErrorCode;
 import org.sopt.hashi.shared.error.BusinessException;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -45,6 +49,7 @@ import org.springframework.test.web.servlet.MockMvc;
 })
 class AdminLocationAuthorizationTest {
     private static final String PATH = "/api/v1/admin/restaurants/1/location";
+    private static final String LIST_PATH = "/api/v1/admin/restaurants/locations";
     @Autowired MockMvc mvc;
     @Autowired JwtProvider tokens;
     @MockitoBean RestaurantPort restaurants;
@@ -54,7 +59,8 @@ class AdminLocationAuthorizationTest {
     @ParameterizedTest
     @ValueSource(longs = {0, 3})
     void ADMIN은_실제_controller_service_port로_상태와_재처리_계약을_사용한다(long revision) throws Exception {
-        var state = new RestaurantLocationInfo(1L, "PENDING", revision, null, 0, null, null, false);
+        var state = new RestaurantLocationInfo(1L, "PENDING", revision, null, "GEOCODING",
+                null, 0, null, null, false);
         given(restaurants.getLocationByAdmin(1L)).willReturn(state);
         given(restaurants.retryLocationByAdmin(1L, revision)).willReturn(state);
         mvc.perform(get(PATH).header("Authorization", admin()))
@@ -122,6 +128,104 @@ class AdminLocationAuthorizationTest {
         mvc.perform(post(PATH + "/retry").header("Authorization", admin()).contentType(MediaType.APPLICATION_JSON)
                         .content("{\"expectedAddressRevision\":1}"))
                 .andExpect(status().isConflict()).andExpect(jsonPath("$.code").value("RESTAURANT-019"));
+    }
+
+    @Test
+    void ADMIN은_기본_REVIEW_REQUIRED_필터와_커서_응답을_사용한다() throws Exception {
+        var item = new RestaurantLocationReviewInfo(
+                10L, "검토 식당", "東京都豊島区1-1", null, "REVIEW_REQUIRED", null,
+                "GEOCODING", 2, null, 1, null, "ZERO_RESULTS", true);
+        given(restaurants.findLocationReviewsByAdmin("REVIEW_REQUIRED", null, null, 20))
+                .willReturn(new RestaurantLocationReviewPage(List.of(item), null, false));
+
+        mvc.perform(get(LIST_PATH).header("Authorization", admin()))
+                .andExpect(status().isOk())
+                .andExpect(header().string("Cache-Control", "no-store"))
+                .andExpect(jsonPath("$.code").value("COMMON-200"))
+                .andExpect(jsonPath("$.data.restaurants[0].restaurantId").value(10))
+                .andExpect(jsonPath("$.data.restaurants[0].locationStatus").value("REVIEW_REQUIRED"))
+                .andExpect(jsonPath("$.data.restaurants[0].failureCode").value("ZERO_RESULTS"))
+                .andExpect(jsonPath("$.data.hasNext").value(false));
+        verify(restaurants).findLocationReviewsByAdmin("REVIEW_REQUIRED", null, null, 20);
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"USER", "ONBOARDING", "ANONYMOUS"})
+    void 일반회원과_온보딩과_익명은_위치_검토_목록도_차단한다(String role) throws Exception {
+        var request = get(LIST_PATH);
+        if (!role.equals("ANONYMOUS")) {
+            String token = role.equals("ONBOARDING") ? tokens.createOnboardingToken(1L)
+                    : tokens.createAccessToken(1L, "ROLE_USER");
+            request.header("Authorization", "Bearer " + token);
+        }
+        mvc.perform(request).andExpect(status().is(role.equals("ANONYMOUS") ? 401 : 403));
+        verifyNoInteractions(restaurants);
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {
+            "?status=UNKNOWN",
+            "?source=PLACES",
+            "?cursor=0",
+            "?size=0",
+            "?size=101"
+    })
+    void 위치_검토_목록의_지원하지_않는_필터와_범위는_400으로_거부한다(String query) throws Exception {
+        mvc.perform(get(LIST_PATH + query).header("Authorization", admin()))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("COMMON-400"));
+        verifyNoInteractions(restaurants);
+    }
+
+    @Test
+    void ADMIN은_POST로_Places_빈후보를_조회하고_서명후보를_선택한다() throws Exception {
+        given(restaurants.searchLocationPlacesByAdmin(1L, 2))
+                .willReturn(new RestaurantPlacesSearchInfo(1L, 2, List.of()));
+        var pending = new RestaurantLocationInfo(1L, "PENDING", 2, null, "PLACE_DETAILS",
+                null, 0, null, null, false);
+        given(restaurants.selectLocationPlaceByAdmin(1L, 2, "signed-token")).willReturn(pending);
+
+        mvc.perform(post(PATH + "/place-candidates").header("Authorization", admin())
+                        .contentType(MediaType.APPLICATION_JSON).content("{\"expectedAddressRevision\":2}"))
+                .andExpect(status().isOk()).andExpect(header().string("Cache-Control", "no-store"))
+                .andExpect(jsonPath("$.data.restaurantId").value(1))
+                .andExpect(jsonPath("$.data.addressRevision").value(2))
+                .andExpect(jsonPath("$.data.candidates.length()").value(0));
+
+        mvc.perform(post(PATH + "/place-selection").header("Authorization", admin())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"expectedAddressRevision\":2,\"selectionToken\":\"signed-token\"}"))
+                .andExpect(status().isOk()).andExpect(header().string("Cache-Control", "no-store"))
+                .andExpect(jsonPath("$.data.locationStatus").value("PENDING"))
+                .andExpect(jsonPath("$.data.verificationMode").value("PLACE_DETAILS"));
+        verify(restaurants).searchLocationPlacesByAdmin(1L, 2);
+        verify(restaurants).selectLocationPlaceByAdmin(1L, 2, "signed-token");
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"/place-candidates", "/place-selection"})
+    void 일반회원은_Places_관리자_API를_사용할수없다(String suffix) throws Exception {
+        String body = suffix.equals("/place-selection")
+                ? "{\"expectedAddressRevision\":2,\"selectionToken\":\"signed-token\"}"
+                : "{\"expectedAddressRevision\":2}";
+        mvc.perform(post(PATH + suffix)
+                        .header("Authorization", "Bearer " + tokens.createAccessToken(1L, "ROLE_USER"))
+                        .contentType(MediaType.APPLICATION_JSON).content(body))
+                .andExpect(status().isForbidden());
+        verifyNoInteractions(restaurants);
+    }
+
+    @ParameterizedTest
+    @CsvSource(delimiter = '|', textBlock = """
+            /place-candidates | {"expectedAddressRevision":0}
+            /place-selection | {"expectedAddressRevision":2,"selectionToken":" "}
+            /place-selection | {"selectionToken":"signed-token"}
+            """)
+    void Places_요청의_누락과_잘못된값은_provider호출전_400이다(String suffix, String body) throws Exception {
+        mvc.perform(post(PATH + suffix).header("Authorization", admin())
+                        .contentType(MediaType.APPLICATION_JSON).content(body))
+                .andExpect(status().isBadRequest()).andExpect(jsonPath("$.code").value("COMMON-400"));
+        verifyNoInteractions(restaurants);
     }
 
     private String admin() {
