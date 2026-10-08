@@ -74,7 +74,7 @@ class GoogleGeocodingWireTest {
         assertThat(params).hasSize(4);
         assertThat(URLDecoder.decode(params[0].substring("address.addressLines=".length()), StandardCharsets.UTF_8))
                 .isEqualTo(GeocodingFixtures.ADDRESS);
-        assertThat(params).contains("address.regionCode=JP", "languageCode=ja", "regionCode=JP");
+        assertThat(params).contains("address.regionCode=JP", "languageCode=en", "regionCode=JP");
         assertThat(query.get()).contains("%2B", "%26", "%23", "%2F", "%25");
         assertThat(query.get()).doesNotContain(GeocodingFixtures.API_KEY);
     }
