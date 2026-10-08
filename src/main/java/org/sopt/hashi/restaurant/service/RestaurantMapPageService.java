@@ -10,6 +10,8 @@ import org.sopt.hashi.restaurant.dto.RestaurantMapPageRequest;
 import org.sopt.hashi.restaurant.dto.RestaurantMapPageResponse;
 import org.sopt.hashi.restaurant.dto.RestaurantMapPageResponse.QueryResponse;
 import org.sopt.hashi.restaurant.internal.map.MapCursorCodec;
+import org.sopt.hashi.restaurant.internal.map.MapCapacityMetrics;
+import org.sopt.hashi.restaurant.internal.map.MapCapacityMetrics.Reason;
 import org.sopt.hashi.restaurant.internal.map.MapQuerySession;
 import org.sopt.hashi.restaurant.internal.map.MapSessionId;
 import org.sopt.hashi.restaurant.internal.map.MapSessionLimits;
@@ -29,16 +31,18 @@ public class RestaurantMapPageService {
     private final RedisMapSessionStore store;
     private final MapCursorCodec cursors;
     private final MapSessionLimits limits;
+    private final MapCapacityMetrics metrics;
     private final Semaphore activeRequests;
 
     public RestaurantMapPageService(RestaurantMapService mapService, RestaurantMapPageReader reader,
                                     RedisMapSessionStore store, MapCursorCodec cursors,
-                                    MapSessionLimits limits) {
+                                    MapSessionLimits limits, MapCapacityMetrics metrics) {
         this.mapService = mapService;
         this.reader = reader;
         this.store = store;
         this.cursors = cursors;
         this.limits = limits;
+        this.metrics = metrics;
         this.activeRequests = new Semaphore(Math.max(1, Math.min(16, limits.getConcurrentRequests())));
     }
 
@@ -50,6 +54,7 @@ public class RestaurantMapPageService {
         cursors.requireConfigured();
         limits.validate();
         if (!activeRequests.tryAcquire()) {
+            metrics.rejected(Reason.CONCURRENT_REQUESTS);
             throw new BusinessException(RestaurantErrorCode.MAP_CAPACITY_EXCEEDED);
         }
         try {
@@ -77,7 +82,15 @@ public class RestaurantMapPageService {
             session = store.find(id);
         } else {
             var startedAt = store.admit(cursors.callerKey(remoteAddress), true);
-            var snapshot = mapService.findCandidates(request.criteria(), limits.candidateCapacity());
+            RestaurantMapService.CandidateSnapshot snapshot;
+            try {
+                snapshot = mapService.findCandidates(request.criteria(), limits.candidateCapacity());
+            } catch (BusinessException exception) {
+                if (exception.getErrorCode() == RestaurantErrorCode.MAP_CAPACITY_EXCEEDED) {
+                    metrics.rejected(Reason.CANDIDATE_COUNT);
+                }
+                throw exception;
+            }
             var recommendation = new ArrayList<>(snapshot.candidates());
             Collections.shuffle(recommendation);
             session = new MapQuerySession(MapQuerySession.SCHEMA_VERSION, UUID.randomUUID(), request.criteria(),

@@ -3,6 +3,7 @@ package org.sopt.hashi.restaurant.internal.map;
 import java.time.Instant;
 import java.util.List;
 import org.sopt.hashi.restaurant.code.RestaurantErrorCode;
+import org.sopt.hashi.restaurant.internal.map.MapCapacityMetrics.Reason;
 import org.sopt.hashi.shared.error.BusinessException;
 import org.springframework.beans.BeansException;
 import org.springframework.beans.factory.ObjectProvider;
@@ -23,12 +24,14 @@ public class RedisMapSessionStore {
     private final ObjectProvider<StringRedisTemplate> templates;
     private final MapSessionSerializer serializer;
     private final MapSessionLimits limits;
+    private final MapCapacityMetrics metrics;
 
     public RedisMapSessionStore(ObjectProvider<StringRedisTemplate> templates, MapSessionSerializer serializer,
-                               MapSessionLimits limits) {
+                               MapSessionLimits limits, MapCapacityMetrics metrics) {
         this.templates = templates;
         this.serializer = serializer;
         this.limits = limits;
+        this.metrics = metrics;
     }
 
     /** DB 조회와 JSON 생성 전에 호출한다. 원문 IP 대신 서명키로 HMAC한 caller만 Redis에 남긴다. */
@@ -40,22 +43,31 @@ public class RedisMapSessionStore {
                 Integer.toString(limits.getRequestsPerCaller()), Integer.toString(limits.getNewQueriesPerCaller()),
                 newQuery ? "1" : "0");
         if (result == -3) {
+            metrics.rejected(Reason.CALLER_RATE);
             throw new BusinessException(RestaurantErrorCode.MAP_RATE_LIMITED);
         }
-        checkCapacity(result);
+        checkAdmission(result);
         return Instant.ofEpochMilli(result);
     }
 
     public MapSessionId save(MapQuerySession session) {
         limits.validate();
-        String payload = serializer.serialize(session);
+        String payload;
+        try {
+            payload = serializer.serialize(session);
+        } catch (BusinessException exception) {
+            if (exception.getErrorCode() == RestaurantErrorCode.MAP_CAPACITY_EXCEEDED) {
+                metrics.rejected(Reason.SNAPSHOT_BYTES);
+            }
+            throw exception;
+        }
         var id = new MapSessionId(session.id());
         long result = execute(CREATE, List.of(key(id), LEDGER),
                 Long.toString(limits.getRedisMemoryCeiling()), Long.toString(limits.getRedisHeadroom()), payload,
                 Long.toString(session.expiresAt().toEpochMilli()), Long.toString(limits.getIdleTimeout().toMillis()),
                 Integer.toString(limits.getSnapshotBytes()), Long.toString(limits.getTotalBytes()),
                 Integer.toString(limits.getSessions()), id.value(), Long.toString(limits.getMaxLifetime().toMillis()));
-        checkCapacity(result);
+        checkCreation(result);
         return id;
     }
 
@@ -96,13 +108,44 @@ public class RedisMapSessionStore {
         }
     }
 
-    private static void checkCapacity(long result) {
+    private void checkAdmission(long result) {
         if (result == -1) {
-            throw new BusinessException(RestaurantErrorCode.MAP_CAPACITY_EXCEEDED);
+            reject(Reason.CALLER_CARDINALITY);
+        }
+        if (result == -4) {
+            reject(Reason.GLOBAL_REQUESTS);
+        }
+        if (result == -5) {
+            metrics.rejected(Reason.REDIS_MEMORY_GUARD);
+            throw unavailable();
         }
         if (result < 0) {
             throw unavailable();
         }
+    }
+
+    private void checkCreation(long result) {
+        if (result == -1) {
+            reject(Reason.SNAPSHOT_BYTES);
+        }
+        if (result == -3) {
+            reject(Reason.TOTAL_BYTES);
+        }
+        if (result == -4) {
+            reject(Reason.SESSION_COUNT);
+        }
+        if (result == -5) {
+            metrics.rejected(Reason.REDIS_MEMORY_GUARD);
+            throw unavailable();
+        }
+        if (result < 0) {
+            throw unavailable();
+        }
+    }
+
+    private void reject(Reason reason) {
+        metrics.rejected(reason);
+        throw new BusinessException(RestaurantErrorCode.MAP_CAPACITY_EXCEEDED);
     }
 
     private static String key(MapSessionId id) {
