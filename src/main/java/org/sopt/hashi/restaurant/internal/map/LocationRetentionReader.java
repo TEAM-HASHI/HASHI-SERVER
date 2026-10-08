@@ -16,7 +16,7 @@ public class LocationRetentionReader {
             SELECT r.id, r.deleted, l.address_revision, l.request_id, l.status, l.source,
                 l.obtained_at, l.valid_until
             FROM restaurant_location l JOIN restaurant r ON r.location_id = l.id
-            WHERE l.source = 'GOOGLE_GEOCODING' AND l.valid_until <= ?
+            WHERE l.source IN ('GOOGLE_GEOCODING', 'GOOGLE_PLACES') AND l.valid_until <= ?
             ORDER BY l.valid_until, l.id LIMIT ?
             """;
     private static final DateTimeFormatter SQL_TIME = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss.SSSSSS");
@@ -39,7 +39,7 @@ public class LocationRetentionReader {
     public long purgeRemaining(LocalDateTime cutoff) {
         return jdbc.queryForObject("""
                 SELECT COUNT(*) FROM restaurant_location l JOIN restaurant r ON r.location_id=l.id
-                WHERE l.source='GOOGLE_GEOCODING' AND l.valid_until <= ?
+                WHERE l.source IN ('GOOGLE_GEOCODING', 'GOOGLE_PLACES') AND l.valid_until <= ?
                 """, Long.class, sqlTime(cutoff));
     }
 
@@ -48,7 +48,8 @@ public class LocationRetentionReader {
                 SELECT r.id, r.deleted, l.address_revision, l.request_id, l.status, l.source,
                     l.obtained_at, l.valid_until
                 FROM restaurant_location l JOIN restaurant r ON r.location_id=l.id
-                WHERE r.deleted=false AND l.status='READY' AND l.source='GOOGLE_GEOCODING'
+                WHERE r.deleted=false AND l.status='READY'
+                    AND l.source IN ('GOOGLE_GEOCODING', 'GOOGLE_PLACES')
                     AND l.valid_until <= ?
                     AND TIMESTAMPDIFF(MICROSECOND, l.obtained_at, l.valid_until) > ?
                 ORDER BY l.valid_until, l.id LIMIT ?
