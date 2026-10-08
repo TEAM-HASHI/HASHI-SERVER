@@ -18,6 +18,9 @@ import org.sopt.hashi.admin.dto.UpdateRestaurantRequest;
 import org.sopt.hashi.admin.dto.RestaurantLocationResponse;
 import org.sopt.hashi.admin.dto.RestaurantLocationReviewListResponse;
 import org.sopt.hashi.admin.dto.RetryRestaurantLocationRequest;
+import org.sopt.hashi.admin.dto.RestaurantPlacesSearchResponse;
+import org.sopt.hashi.admin.dto.SearchRestaurantPlacesRequest;
+import org.sopt.hashi.admin.dto.SelectRestaurantPlaceRequest;
 import org.sopt.hashi.admin.service.AdminRestaurantService;
 import org.sopt.hashi.shared.error.CommonErrorCode;
 import org.sopt.hashi.shared.error.CommonSuccessCode;
@@ -274,7 +277,7 @@ public class AdminRestaurantController {
     @Operation(summary = "식당 위치 검토 목록 조회", description = """
             활성 식당을 locationStatus로 필터링해 restaurantId 오름차순으로 조회합니다.
             status 기본값은 REVIEW_REQUIRED이며 UNRESOLVED는 아직 위치 행이 없는 식당입니다.
-            source는 GOOGLE_GEOCODING 또는 ADMIN으로 좁힐 때만 보내며, 승인 위치가 없는 행의 source는 null입니다.
+            source는 GOOGLE_GEOCODING, GOOGLE_PLACES 또는 ADMIN으로 좁힐 때만 보내며, 승인 위치가 없는 행의 source는 null입니다.
             각 항목의 attempt와 failureCode는 위치의 현재 requestId와 일치하는 작업에서만 가져옵니다.
             READY는 validUntil이 현재보다 늦어야 실제 지도 위치로 사용할 수 있습니다.
             재시도는 canRetry가 true인 항목의 최신 addressRevision을 expectedAddressRevision으로 보내세요.
@@ -290,9 +293,9 @@ public class AdminRestaurantController {
             @Pattern(regexp = "UNRESOLVED|PENDING|READY|RETRY_WAIT|REVIEW_REQUIRED|FAILED")
             @RequestParam(defaultValue = "REVIEW_REQUIRED") String status,
             @Parameter(description = "승인 위치 출처 필터. 생략하면 출처와 무관하게 조회",
-                    schema = @Schema(allowableValues = {"GOOGLE_GEOCODING", "ADMIN"}),
-                    example = "GOOGLE_GEOCODING")
-            @Pattern(regexp = "GOOGLE_GEOCODING|ADMIN")
+                    schema = @Schema(allowableValues = {"GOOGLE_GEOCODING", "GOOGLE_PLACES", "ADMIN"}),
+                    example = "GOOGLE_PLACES")
+            @Pattern(regexp = "GOOGLE_GEOCODING|GOOGLE_PLACES|ADMIN")
             @RequestParam(required = false) String source,
             @Parameter(description = "직전 응답의 nextCursor. 첫 페이지에서는 생략", example = "1020")
             @Positive @RequestParam(required = false) Long cursor,
@@ -302,5 +305,63 @@ public class AdminRestaurantController {
         response.setHeader("Cache-Control", "no-store");
         return SuccessResponse.of(CommonSuccessCode.OK,
                 adminRestaurantService.findLocationReviews(status, source, cursor, size));
+    }
+
+    @PostMapping("/{restaurantId}/location/place-candidates")
+    @Operation(summary = "식당 Places 후보 검색", description = """
+            저장된 식당 현지명과 위치 확인 주소로 Google Places 후보를 새로 조회합니다.
+            클라이언트가 임의 검색어나 Place ID, 좌표를 보내지 않으며 서버가 일본·도쿄·지도 서비스 범위를 검증합니다.
+            외부 유료 호출이므로 화면 진입만으로 자동 호출하지 말고 관리자가 검색을 요청할 때 호출하세요.
+            검색 결과가 없거나 범위를 통과한 후보가 없으면 200과 빈 candidates를 반환합니다.
+            각 selectionToken은 검색 당시 restaurantId, addressRevision, requestId, Place ID에 묶여 10분 동안 유효합니다.
+            """)
+    @io.swagger.v3.oas.annotations.parameters.RequestBody(content = @Content(examples = @ExampleObject(
+            name = "현재 주소의 후보 검색", value = """
+            {"expectedAddressRevision": 2}
+            """)))
+    @ApiSuccess(value = CommonSuccessCode.class, codes = {"OK"})
+    @ApiException(value = CommonErrorCode.class, codes = {"INVALID_INPUT", "UNAUTHORIZED", "FORBIDDEN"})
+    @ApiErrorResponse(status = HttpStatus.NOT_FOUND, code = "RESTAURANT-004", message = "식당을 찾을 수 없습니다.")
+    @ApiErrorResponse(status = HttpStatus.SERVICE_UNAVAILABLE, code = "RESTAURANT-022", message = "Places 위치 확인을 사용할 수 없습니다")
+    @ApiErrorResponse(status = HttpStatus.TOO_MANY_REQUESTS, code = "RESTAURANT-023", message = "Places 호출 한도를 확인해주세요")
+    @ApiErrorResponse(status = HttpStatus.BAD_GATEWAY, code = "RESTAURANT-024", message = "Places 응답을 확인할 수 없습니다")
+    @ApiErrorResponse(status = HttpStatus.CONFLICT, code = "RESTAURANT-026", message = "현재 위치 상태를 다시 확인해주세요")
+    public SuccessResponse<RestaurantPlacesSearchResponse> searchLocationPlaces(
+            @PathVariable Long restaurantId,
+            @Valid @RequestBody SearchRestaurantPlacesRequest request,
+            HttpServletResponse response) {
+        response.setHeader("Cache-Control", "no-store");
+        return SuccessResponse.of(CommonSuccessCode.OK,
+                adminRestaurantService.searchLocationPlaces(restaurantId, request));
+    }
+
+    @PostMapping("/{restaurantId}/location/place-selection")
+    @Operation(summary = "식당 Places 후보 선택", description = """
+            직전 후보 검색 응답의 expectedAddressRevision과 selectionToken으로 한 후보를 선택합니다.
+            토큰을 수정했거나 만료됐으면 400, 주소·현재 작업·상태가 달라졌거나 PENDING이면 409입니다.
+            선택 즉시 기존 승인 좌표를 제거하고 새 PLACE_DETAILS 작업을 PENDING으로 등록합니다.
+            200 응답은 선택 저장과 작업 등록 성공을 뜻하며 Places 상세 확인 완료를 뜻하지 않습니다.
+            locationStatus를 다시 조회해 READY와 validUntil을 확인하세요.
+            """)
+    @io.swagger.v3.oas.annotations.parameters.RequestBody(content = @Content(examples = @ExampleObject(
+            name = "검색 후보 선택", value = """
+            {
+              "expectedAddressRevision": 2,
+              "selectionToken": "ZXlK...Q2Q"
+            }
+            """)))
+    @ApiSuccess(value = CommonSuccessCode.class, codes = {"OK"})
+    @ApiException(value = CommonErrorCode.class, codes = {"INVALID_INPUT", "UNAUTHORIZED", "FORBIDDEN"})
+    @ApiErrorResponse(status = HttpStatus.BAD_REQUEST, code = "RESTAURANT-025", message = "Places 선택 정보가 올바르지 않습니다")
+    @ApiErrorResponse(status = HttpStatus.NOT_FOUND, code = "RESTAURANT-004", message = "식당을 찾을 수 없습니다.")
+    @ApiErrorResponse(status = HttpStatus.SERVICE_UNAVAILABLE, code = "RESTAURANT-022", message = "Places 위치 확인을 사용할 수 없습니다")
+    @ApiErrorResponse(status = HttpStatus.CONFLICT, code = "RESTAURANT-026", message = "현재 위치 상태를 다시 확인해주세요")
+    public SuccessResponse<RestaurantLocationResponse> selectLocationPlace(
+            @PathVariable Long restaurantId,
+            @Valid @RequestBody SelectRestaurantPlaceRequest request,
+            HttpServletResponse response) {
+        response.setHeader("Cache-Control", "no-store");
+        return SuccessResponse.of(CommonSuccessCode.OK,
+                adminRestaurantService.selectLocationPlace(restaurantId, request));
     }
 }

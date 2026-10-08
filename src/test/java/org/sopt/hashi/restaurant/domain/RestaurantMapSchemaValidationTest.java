@@ -100,6 +100,10 @@ class RestaurantMapSchemaValidationTest {
         assertThat(reloaded.getLocation().getObtainedAt()).isEqualTo(NOW);
         assertThat(reloaded.getLocation().getValidUntil()).isEqualTo(NOW.plusDays(1));
         assertThat(reloaded.getLocation().getSource()).isEqualTo(source);
+        assertThat(reloaded.getLocation().getGooglePlaceId())
+                .isEqualTo(source == RestaurantLocationSource.GOOGLE_PLACES ? "place-roundtrip" : null);
+        assertThat(reloaded.getLocation().getPlacesAttributions())
+                .isEqualTo(source == RestaurantLocationSource.GOOGLE_PLACES ? List.of() : null);
         assertThat(jdbc.queryForObject("SELECT source FROM restaurant_location WHERE id=?", String.class,
                 reloaded.getLocation().getId())).isEqualTo(source.name());
         assertThat(reloaded.getMapRegionId()).isEqualTo(region.getId());
@@ -315,8 +319,13 @@ class RestaurantMapSchemaValidationTest {
     private Restaurant ready(RestaurantLocationSource source) {
         Restaurant restaurant = restaurant();
         restaurant.requestLocationResolution();
-        restaurant.completeLocation(1, restaurant.getLocation().getRequestId(), point(),
-                source, NOW, NOW.plusDays(1), CLOCK);
+        if (source == RestaurantLocationSource.GOOGLE_PLACES) {
+            restaurant.completePlacesLocation(1, restaurant.getLocation().getRequestId(), point(),
+                    "place-roundtrip", List.of(), NOW, NOW.plusDays(1), CLOCK);
+        } else {
+            restaurant.completeLocation(1, restaurant.getLocation().getRequestId(), point(),
+                    source, NOW, NOW.plusDays(1), CLOCK);
+        }
         return restaurant;
     }
 

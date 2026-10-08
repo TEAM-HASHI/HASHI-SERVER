@@ -10,6 +10,7 @@ public record RestaurantLocationReviewInfo(
         String geocodingAddress,
         String locationStatus,
         String source,
+        String verificationMode,
         long addressRevision,
         Instant validUntil,
         int attempt,

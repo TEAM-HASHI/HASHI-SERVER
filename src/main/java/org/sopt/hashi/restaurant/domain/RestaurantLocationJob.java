@@ -35,6 +35,11 @@ public class RestaurantLocationJob {
     private UUID requestId;
     @Enumerated(EnumType.STRING)
     @Column(length = 20, nullable = false)
+    private Operation operation;
+    @Column(name = "google_place_id", length = 255)
+    private String googlePlaceId;
+    @Enumerated(EnumType.STRING)
+    @Column(length = 20, nullable = false)
     private State state;
     @Column(nullable = false)
     private int attempt;
@@ -59,10 +64,26 @@ public class RestaurantLocationJob {
     private LocalDateTime updatedAt;
 
     public static RestaurantLocationJob pending(Restaurant restaurant, LocalDateTime now) {
+        return pending(restaurant, Operation.GEOCODING, null, now);
+    }
+
+    public static RestaurantLocationJob pendingDetails(Restaurant restaurant, String googlePlaceId,
+                                                       LocalDateTime now) {
+        if (googlePlaceId == null || googlePlaceId.isBlank() || !googlePlaceId.equals(googlePlaceId.trim())
+                || googlePlaceId.length() > 255) {
+            throw new IllegalArgumentException("Google Place ID is invalid");
+        }
+        return pending(restaurant, Operation.PLACE_DETAILS, googlePlaceId, now);
+    }
+
+    private static RestaurantLocationJob pending(Restaurant restaurant, Operation operation,
+                                                 String googlePlaceId, LocalDateTime now) {
         RestaurantLocationJob job = new RestaurantLocationJob();
         job.restaurantId = restaurant.getId();
         job.addressRevision = restaurant.getLocation().getAddressRevision();
         job.requestId = restaurant.getLocation().getRequestId();
+        job.operation = operation;
+        job.googlePlaceId = googlePlaceId;
         job.state = State.PENDING;
         job.nextAttemptAt = now;
         job.createdAt = now;
@@ -136,5 +157,9 @@ public class RestaurantLocationJob {
 
     public enum State {
         PENDING, LEASED, RETRY_WAIT, SUCCEEDED, REVIEW_REQUIRED, FAILED, SUPERSEDED
+    }
+
+    public enum Operation {
+        GEOCODING, PLACE_DETAILS
     }
 }
