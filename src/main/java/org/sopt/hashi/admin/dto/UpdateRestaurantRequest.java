@@ -19,7 +19,8 @@ import java.util.List;
 import java.util.UUID;
 
 /**
- * 어드민 식당 부분 수정(PATCH) 요청 — null 필드는 변경하지 않는다(값 비우기 불가).
+ * 어드민 식당 부분 수정(PATCH) 요청 — null 필드는 변경하지 않는다.
+ * geocodingAddress만 공백 문자열로 명시적 override 삭제가 가능하다.
  * 컬렉션은 전체 교체 의미다. null이면 유지하며, imageKeys·hashtags는 최소 1개를 유지해야 한다.
  * businessHours는 보낼 경우 7개 요일을 중복 없이 모두 포함해야 한다.
  */
@@ -33,8 +34,14 @@ public record UpdateRestaurantRequest(
         @Size(max = 100, message = "한 줄 소개는 100자 이내입니다") String summary,
         @Schema(description = "매장 상세 설명(선택)", example = "엄선된 고기와 다양한 코스를 제공합니다.")
         @Size(max = 500, message = "상세 설명은 500자 이내입니다") String description,
-        @Schema(description = "주소(선택)", example = "도쿄도 도시마구 히가시이케부쿠로 1-1-1")
+        @Schema(description = "사용자 화면에 표시할 전체 주소(PATCH 선택). 건물명·층 정보를 보존. 이 값만 바꾸면 기존 geocodingAddress를 삭제하고 새 address를 위치 확인 기준으로 사용하며, 유효 입력까지 달라질 때만 위치 확인을 다시 요청",
+                example = "도쿄도 도시마구 히가시이케부쿠로 1-1-1")
         @Size(max = 255, message = "주소는 255자 이내입니다") String address,
+        @Schema(description = "Google 위치 확인용 별도 지정 주소(PATCH). 생략/null은 address가 그대로일 때 기존 값을 유지하고, "
+                + "address 변경 시 기존 별도 지정 주소를 삭제함. 공백은 별도 지정 주소를 명시적으로 삭제하고 현재 address를 사용. "
+                + "표시 주소를 바꿔도 기존과 같은 위치 확인 기준을 함께 보내면 좌표·상태를 유지",
+                example = "東京都豊島区東池袋1-1-1")
+        @Size(max = 255, message = "위치 확인용 주소는 255자 이내입니다") String geocodingAddress,
         @Schema(description = "지역(선택)", example = "이케부쿠로")
         @Size(max = 20, message = "지역은 20자 이내입니다") String area,
         @Schema(description = "장르(소문자 케밥, 선택)", example = "sushi")
@@ -70,6 +77,18 @@ public record UpdateRestaurantRequest(
         List<@NotBlank(message = "큐레이션 유형은 비어 있을 수 없습니다") String> curationTypes,
         @Size(min = 7, max = 7, message = "영업시간은 모든 요일(7개)을 포함해야 합니다")
         List<@NotNull(message = "영업시간 항목은 null일 수 없습니다") @Valid BusinessHourRequest> businessHours) {
+
+    /** geocodingAddress 도입 전 Java 호출부의 source compatibility를 유지한다. */
+    public UpdateRestaurantRequest(
+            String name, String localName, String summary, String description, String address,
+            String area, String genre, String foodCategory, String placeType, String priceCurrency,
+            BigDecimal minPrice, BigDecimal maxPrice, List<String> imageKeys, List<ImageRequest> images,
+            JsonNode unsupportedImageAssetIds, List<MenuRequest> menus, List<String> hashtags,
+            List<String> curationTypes, List<BusinessHourRequest> businessHours) {
+        this(name, localName, summary, description, address, null, area, genre, foodCategory, placeType,
+                priceCurrency, minPrice, maxPrice, imageKeys, images, unsupportedImageAssetIds, menus,
+                hashtags, curationTypes, businessHours);
+    }
 
     @AssertTrue(message = "imageKeys와 images는 함께 사용할 수 없습니다")
     @JsonIgnore

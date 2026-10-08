@@ -1,5 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <configuration>
+    <!-- Geocoding transport: wire/header/request logs may contain the server key and raw address. -->
+    <logger name="org.apache.hc.client5.http" level="OFF"/>
     <!-- dev·prod: 콘솔 JSON — 도커 로그로 남아 Promtail이 수집한다. MDC(requestId·userId)가 JSON 필드로 포함된다 -->
     <springProfile name="dev | prod">
         <appender name="CONSOLE_JSON" class="ch.qos.logback.core.ConsoleAppender">
