@@ -9,6 +9,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import java.time.LocalDate;
 import java.util.Base64;
 import org.junit.jupiter.api.Test;
 import org.sopt.hashi.auth.internal.jwt.JwtProvider;
@@ -17,6 +18,8 @@ import org.sopt.hashi.restaurant.internal.map.LocationJobScheduler;
 import org.sopt.hashi.restaurant.internal.map.MapSessionProperties;
 import org.sopt.hashi.restaurant.internal.map.RestaurantLocationWorker;
 import org.sopt.hashi.shared.storage.FileStorage;
+import org.sopt.hashi.user.domain.User;
+import org.sopt.hashi.user.domain.UserRepository;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -73,6 +76,7 @@ class MapGoogleLiveFlowTest {
     @Autowired ObjectMapper json;
     @Autowired JwtProvider jwt;
     @Autowired JdbcTemplate jdbc;
+    @Autowired UserRepository users;
     @Autowired RestaurantLocationWorker worker;
     @Autowired MapSessionProperties sessionProperties;
     @MockitoBean LocationJobScheduler scheduler;
@@ -119,7 +123,10 @@ class MapGoogleLiveFlowTest {
                 .andExpect(status().isOk()).andExpect(header().string("Cache-Control", "no-store"))
                 .andExpect(jsonPath("$.data.content[0].restaurantId").value(id))
                 .andReturn().getResponse().getContentAsString()).path("data");
-        String userToken = jwt.createAccessToken(42L, "ROLE_USER");
+        User mapUser = users.saveAndFlush(User.onboard(
+                "지도실호출회원", "HASHI", LocalDate.of(1998, 1, 1),
+                "01011110007", "map-live@hashi.test", null));
+        String userToken = jwt.createAccessToken(mapUser.getId(), "ROLE_USER");
         long collectionId = body(mvc.perform(post("/api/v1/collections")
                         .header("Authorization", "Bearer " + userToken)
                         .contentType(MediaType.APPLICATION_JSON)
