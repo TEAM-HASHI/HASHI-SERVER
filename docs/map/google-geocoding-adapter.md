@@ -42,7 +42,8 @@ classpath에 따른 자동 선택의 영향을 받지 않는다. 다른 RestClie
 
 - 고정 `https://geocode.googleapis.com/v4/geocode/address`에 GET을 보낸다. endpoint 설정은 없다.
 - 주소는 `address.addressLines` URI 변수로 엄격히 인코딩한다. 일본어와 `+ & # / %`를 데이터로 보존한다.
-- `languageCode=ja`, `regionCode=JP`는 언어/지역 편향이다. 일본 결과를 보장하지 않는다.
+- `languageCode=en`, `regionCode=JP`는 언어/지역 편향이다. 운영 주소 표본에서 영어 주소의 오해석을
+  줄이기 위해 응답 언어를 고정하며, 일본 결과나 식당 POI 일치를 보장하지 않는다.
 - 서버 키는 `X-Goog-Api-Key` 헤더에만 넣는다.
 - `X-Goog-FieldMask`는 location, granularity, postalAddress의 regionCode/administrativeArea,
   addressComponents의 longText/shortText/types와 결과 types로 제한한다.
