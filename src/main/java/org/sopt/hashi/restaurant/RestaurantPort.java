@@ -66,4 +66,8 @@ public interface RestaurantPort {
 
     /** expectedAddressRevision이 현재와 일치할 때 같은 주소의 새 작업을 등록한다. */
     RestaurantLocationInfo retryLocationByAdmin(Long restaurantId, long expectedAddressRevision);
+
+    /** 관리자 위치 검토 목록. restaurantId 오름차순 커서로 활성 식당만 조회한다. */
+    RestaurantLocationReviewPage findLocationReviewsByAdmin(
+            String status, String source, Long cursor, int size);
 }

@@ -1,9 +1,14 @@
 package org.sopt.hashi.restaurant.service;
 
 import java.time.Clock;
+import java.time.Instant;
 import java.time.LocalDateTime;
 import java.time.ZoneOffset;
+import java.util.List;
+import java.util.Set;
 import org.sopt.hashi.restaurant.RestaurantLocationInfo;
+import org.sopt.hashi.restaurant.RestaurantLocationReviewInfo;
+import org.sopt.hashi.restaurant.RestaurantLocationReviewPage;
 import org.sopt.hashi.restaurant.code.RestaurantErrorCode;
 import org.sopt.hashi.restaurant.domain.Restaurant;
 import org.sopt.hashi.restaurant.domain.RestaurantLocation;
@@ -11,9 +16,11 @@ import org.sopt.hashi.restaurant.domain.RestaurantLocationJob;
 import org.sopt.hashi.restaurant.domain.RestaurantLocationJobRepository;
 import org.sopt.hashi.restaurant.domain.RestaurantLocationStatus;
 import org.sopt.hashi.restaurant.domain.RestaurantRepository;
+import org.sopt.hashi.restaurant.domain.RestaurantRepository.RestaurantLocationReviewProjection;
 import org.sopt.hashi.shared.error.BusinessException;
 import org.sopt.hashi.shared.error.CommonErrorCode;
 import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Isolation;
 import org.springframework.transaction.annotation.Propagation;
@@ -21,6 +28,10 @@ import org.springframework.transaction.annotation.Transactional;
 
 @Service
 public class RestaurantLocationService {
+    private static final int MAX_REVIEW_PAGE_SIZE = 100;
+    private static final Set<String> REVIEW_STATUSES = Set.of(
+            "UNRESOLVED", "PENDING", "READY", "RETRY_WAIT", "REVIEW_REQUIRED", "FAILED");
+    private static final Set<String> LOCATION_SOURCES = Set.of("GOOGLE_GEOCODING", "ADMIN");
     private final RestaurantRepository restaurants;
     private final RestaurantLocationJobRepository jobs;
     private final Clock clock;
@@ -50,6 +61,18 @@ public class RestaurantLocationService {
     public RestaurantLocationInfo get(Long restaurantId) {
         return info(restaurants.findByIdAndDeletedFalse(restaurantId)
                 .orElseThrow(() -> new BusinessException(RestaurantErrorCode.NOT_FOUND)));
+    }
+
+    @Transactional(readOnly = true)
+    public RestaurantLocationReviewPage findReviews(String status, String source, Long cursor, int size) {
+        validateReviewQuery(status, source, cursor, size);
+        List<RestaurantLocationReviewProjection> rows = restaurants.findLocationReviews(
+                status, source, cursor, PageRequest.of(0, size + 1));
+        boolean hasNext = rows.size() > size;
+        List<RestaurantLocationReviewProjection> pageRows = hasNext ? rows.subList(0, size) : rows;
+        List<RestaurantLocationReviewInfo> content = pageRows.stream().map(this::toReviewInfo).toList();
+        Long nextCursor = hasNext ? content.getLast().restaurantId() : null;
+        return new RestaurantLocationReviewPage(content, nextCursor, hasNext);
     }
 
     @Transactional(isolation = Isolation.READ_COMMITTED)
@@ -85,6 +108,36 @@ public class RestaurantLocationService {
                 job == null ? 0 : job.getAttempt(),
                 location.getNextAttemptAt() == null ? null : location.getNextAttemptAt().toInstant(ZoneOffset.UTC),
                 job == null ? null : job.getFailureCode(), canRetry);
+    }
+
+    private RestaurantLocationReviewInfo toReviewInfo(RestaurantLocationReviewProjection row) {
+        boolean canRetry = !"PENDING".equals(row.getLocationStatus()) && !"READY".equals(row.getLocationStatus());
+        return new RestaurantLocationReviewInfo(
+                row.getRestaurantId(),
+                row.getRestaurantName(),
+                row.getAddress(),
+                row.getGeocodingAddress(),
+                row.getLocationStatus(),
+                row.getLocationSource(),
+                row.getAddressRevision(),
+                toInstant(row.getValidUntil()),
+                row.getAttempt(),
+                toInstant(row.getNextAttemptAt()),
+                row.getFailureCode(),
+                canRetry);
+    }
+
+    private void validateReviewQuery(String status, String source, Long cursor, int size) {
+        if (status == null || !REVIEW_STATUSES.contains(status)
+                || (source != null && !LOCATION_SOURCES.contains(source))
+                || (cursor != null && cursor < 1)
+                || size < 1 || size > MAX_REVIEW_PAGE_SIZE) {
+            throw new BusinessException(CommonErrorCode.INVALID_INPUT);
+        }
+    }
+
+    private Instant toInstant(LocalDateTime value) {
+        return value == null ? null : value.toInstant(ZoneOffset.UTC);
     }
 
     private void supersede(Long restaurantId, LocalDateTime now) {

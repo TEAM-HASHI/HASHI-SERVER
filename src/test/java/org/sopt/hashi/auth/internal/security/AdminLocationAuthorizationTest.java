@@ -9,6 +9,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import java.util.List;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
@@ -20,6 +21,8 @@ import org.sopt.hashi.auth.internal.onboarding.OnboardingJwtIssuer;
 import org.sopt.hashi.auth.internal.token.OnboardingTokenStore;
 import org.sopt.hashi.auth.internal.token.TokenBlacklist;
 import org.sopt.hashi.restaurant.RestaurantLocationInfo;
+import org.sopt.hashi.restaurant.RestaurantLocationReviewInfo;
+import org.sopt.hashi.restaurant.RestaurantLocationReviewPage;
 import org.sopt.hashi.restaurant.RestaurantPort;
 import org.sopt.hashi.restaurant.code.RestaurantErrorCode;
 import org.sopt.hashi.shared.error.BusinessException;
@@ -45,6 +48,7 @@ import org.springframework.test.web.servlet.MockMvc;
 })
 class AdminLocationAuthorizationTest {
     private static final String PATH = "/api/v1/admin/restaurants/1/location";
+    private static final String LIST_PATH = "/api/v1/admin/restaurants/locations";
     @Autowired MockMvc mvc;
     @Autowired JwtProvider tokens;
     @MockitoBean RestaurantPort restaurants;
@@ -122,6 +126,53 @@ class AdminLocationAuthorizationTest {
         mvc.perform(post(PATH + "/retry").header("Authorization", admin()).contentType(MediaType.APPLICATION_JSON)
                         .content("{\"expectedAddressRevision\":1}"))
                 .andExpect(status().isConflict()).andExpect(jsonPath("$.code").value("RESTAURANT-019"));
+    }
+
+    @Test
+    void ADMIN은_기본_REVIEW_REQUIRED_필터와_커서_응답을_사용한다() throws Exception {
+        var item = new RestaurantLocationReviewInfo(
+                10L, "검토 식당", "東京都豊島区1-1", null, "REVIEW_REQUIRED", null,
+                2, null, 1, null, "ZERO_RESULTS", true);
+        given(restaurants.findLocationReviewsByAdmin("REVIEW_REQUIRED", null, null, 20))
+                .willReturn(new RestaurantLocationReviewPage(List.of(item), null, false));
+
+        mvc.perform(get(LIST_PATH).header("Authorization", admin()))
+                .andExpect(status().isOk())
+                .andExpect(header().string("Cache-Control", "no-store"))
+                .andExpect(jsonPath("$.code").value("COMMON-200"))
+                .andExpect(jsonPath("$.data.restaurants[0].restaurantId").value(10))
+                .andExpect(jsonPath("$.data.restaurants[0].locationStatus").value("REVIEW_REQUIRED"))
+                .andExpect(jsonPath("$.data.restaurants[0].failureCode").value("ZERO_RESULTS"))
+                .andExpect(jsonPath("$.data.hasNext").value(false));
+        verify(restaurants).findLocationReviewsByAdmin("REVIEW_REQUIRED", null, null, 20);
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"USER", "ONBOARDING", "ANONYMOUS"})
+    void 일반회원과_온보딩과_익명은_위치_검토_목록도_차단한다(String role) throws Exception {
+        var request = get(LIST_PATH);
+        if (!role.equals("ANONYMOUS")) {
+            String token = role.equals("ONBOARDING") ? tokens.createOnboardingToken(1L)
+                    : tokens.createAccessToken(1L, "ROLE_USER");
+            request.header("Authorization", "Bearer " + token);
+        }
+        mvc.perform(request).andExpect(status().is(role.equals("ANONYMOUS") ? 401 : 403));
+        verifyNoInteractions(restaurants);
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {
+            "?status=UNKNOWN",
+            "?source=PLACES",
+            "?cursor=0",
+            "?size=0",
+            "?size=101"
+    })
+    void 위치_검토_목록의_지원하지_않는_필터와_범위는_400으로_거부한다(String query) throws Exception {
+        mvc.perform(get(LIST_PATH + query).header("Authorization", admin()))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("COMMON-400"));
+        verifyNoInteractions(restaurants);
     }
 
     private String admin() {

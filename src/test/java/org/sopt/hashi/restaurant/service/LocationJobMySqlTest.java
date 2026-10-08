@@ -694,6 +694,92 @@ class LocationJobMySqlTest {
         assertThat(transactions.complete(claim, ready())).isFalse();
     }
 
+    @Test
+    void 관리자_위치검토_목록은_현재작업을_조인하고_ID_ASC_커서로_다음페이지를_읽는다() {
+        Long startCursor = restaurants.createByAdmin(createCommand()).restaurantId();
+        Long first = createReviewRequired("OLD_RESULT");
+        locations.retry(first, 1);
+        Claim current = transactions.claim(target(first)).orElseThrow();
+        transactions.complete(current, new Outcome(null, null, "CURRENT_RESULT"));
+        Long second = createReviewRequired("SECOND_RESULT");
+        Long third = createReviewRequired("THIRD_RESULT");
+
+        var firstPage = restaurantPort.findLocationReviewsByAdmin(
+                "REVIEW_REQUIRED", null, startCursor, 2);
+        assertThat(firstPage.restaurants()).extracting("restaurantId").containsExactly(first, second);
+        assertThat(firstPage.restaurants().getFirst().failureCode()).isEqualTo("CURRENT_RESULT");
+        assertThat(firstPage.restaurants().getFirst().attempt()).isEqualTo(1);
+        assertThat(firstPage.nextCursor()).isEqualTo(second);
+        assertThat(firstPage.hasNext()).isTrue();
+
+        var secondPage = restaurantPort.findLocationReviewsByAdmin(
+                "REVIEW_REQUIRED", null, firstPage.nextCursor(), 2);
+        assertThat(secondPage.restaurants()).extracting("restaurantId").containsExactly(third);
+        assertThat(secondPage.nextCursor()).isNull();
+        assertThat(secondPage.hasNext()).isFalse();
+    }
+
+    @Test
+    void 관리자_위치검토_목록은_상태와_source를_필터하고_미해결과_삭제식당을_구분한다() {
+        Long startCursor = restaurants.createByAdmin(createCommand()).restaurantId();
+        Long pending = restaurants.createByAdmin(createCommand()).restaurantId();
+
+        Long ready = restaurants.createByAdmin(createCommand()).restaurantId();
+        Claim readyClaim = transactions.claim(target(ready)).orElseThrow();
+        transactions.complete(readyClaim, ready());
+
+        Long retryWait = restaurants.createByAdmin(createCommand()).restaurantId();
+        transactions.complete(transactions.claim(target(retryWait)).orElseThrow(),
+                Outcome.failure(FailureKind.TRANSIENT_ERROR));
+
+        Long failed = restaurants.createByAdmin(createCommand()).restaurantId();
+        transactions.complete(transactions.claim(target(failed)).orElseThrow(),
+                Outcome.failure(FailureKind.INVALID_REQUEST));
+
+        Long unresolved = restaurants.createByAdmin(createCommand()).restaurantId();
+        jdbc.update("UPDATE restaurant SET location_id=NULL WHERE id=?", unresolved);
+
+        Long deleted = createReviewRequired("DELETED_RESULT");
+        restaurantPort.deleteByAdmin(deleted);
+
+        assertThat(restaurantPort.findLocationReviewsByAdmin("PENDING", null, startCursor, 20).restaurants())
+                .extracting("restaurantId").containsExactly(pending);
+        assertThat(restaurantPort.findLocationReviewsByAdmin(
+                "READY", "GOOGLE_GEOCODING", startCursor, 20).restaurants())
+                .singleElement()
+                .satisfies(item -> {
+                    assertThat(item.restaurantId()).isEqualTo(ready);
+                    assertThat(item.source()).isEqualTo("GOOGLE_GEOCODING");
+                    assertThat(item.validUntil())
+                            .isEqualTo(readyClaim.obtainedAt().plusDays(1).toInstant(ZoneOffset.UTC));
+                    assertThat(item.canRetry()).isFalse();
+                });
+        assertThat(restaurantPort.findLocationReviewsByAdmin("READY", "ADMIN", startCursor, 20).restaurants())
+                .isEmpty();
+        assertThat(restaurantPort.findLocationReviewsByAdmin("RETRY_WAIT", null, startCursor, 20).restaurants())
+                .extracting("restaurantId").containsExactly(retryWait);
+        assertThat(restaurantPort.findLocationReviewsByAdmin("FAILED", null, startCursor, 20).restaurants())
+                .extracting("restaurantId").containsExactly(failed);
+        assertThat(restaurantPort.findLocationReviewsByAdmin("UNRESOLVED", null, startCursor, 20).restaurants())
+                .singleElement()
+                .satisfies(item -> {
+                    assertThat(item.restaurantId()).isEqualTo(unresolved);
+                    assertThat(item.addressRevision()).isZero();
+                    assertThat(item.attempt()).isZero();
+                    assertThat(item.canRetry()).isTrue();
+                });
+        assertThat(restaurantPort.findLocationReviewsByAdmin(
+                "REVIEW_REQUIRED", null, startCursor, 20).restaurants())
+                .isEmpty();
+    }
+
+    private Long createReviewRequired(String failureCode) {
+        Long id = restaurants.createByAdmin(createCommand()).restaurantId();
+        Claim claim = transactions.claim(target(id)).orElseThrow();
+        transactions.complete(claim, new Outcome(null, null, failureCode));
+        return id;
+    }
+
     private String saveLocationJob(AdminOperation operation, Long id) {
         return switch (operation) {
             case CREATE -> restaurantPort.createByAdmin(createCommand()).locationStatus();
