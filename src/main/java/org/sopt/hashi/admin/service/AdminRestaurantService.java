@@ -5,6 +5,7 @@ import org.sopt.hashi.admin.dto.AdminRestaurantResponse;
 import org.sopt.hashi.admin.dto.CreateRestaurantRequest;
 import org.sopt.hashi.admin.dto.UpdateRestaurantRequest;
 import org.sopt.hashi.admin.dto.RestaurantLocationResponse;
+import org.sopt.hashi.admin.dto.RestaurantLocationReviewListResponse;
 import org.sopt.hashi.admin.dto.RetryRestaurantLocationRequest;
 import org.sopt.hashi.restaurant.AdminRestaurantCommand;
 import org.sopt.hashi.restaurant.AdminRestaurantCommand.BusinessHourCommand;
@@ -45,6 +46,12 @@ public class AdminRestaurantService {
     public RestaurantLocationResponse retryLocation(Long restaurantId, RetryRestaurantLocationRequest request) {
         return RestaurantLocationResponse.from(
                 restaurantPort.retryLocationByAdmin(restaurantId, request.expectedAddressRevision()));
+    }
+
+    public RestaurantLocationReviewListResponse findLocationReviews(
+            String status, String source, Long cursor, int size) {
+        return RestaurantLocationReviewListResponse.from(
+                restaurantPort.findLocationReviewsByAdmin(status, source, cursor, size));
     }
 
     private AdminRestaurantCommand toCommand(CreateRestaurantRequest request) {

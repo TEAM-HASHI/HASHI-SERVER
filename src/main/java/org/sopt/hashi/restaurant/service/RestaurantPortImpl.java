@@ -16,6 +16,7 @@ import org.sopt.hashi.restaurant.RestaurantDetailInfo;
 import org.sopt.hashi.restaurant.RestaurantInfo;
 import org.sopt.hashi.restaurant.RestaurantPort;
 import org.sopt.hashi.restaurant.RestaurantLocationInfo;
+import org.sopt.hashi.restaurant.RestaurantLocationReviewPage;
 import org.sopt.hashi.restaurant.domain.Restaurant;
 import org.sopt.hashi.restaurant.domain.RestaurantImage;
 import org.sopt.hashi.restaurant.domain.RestaurantRepository;
@@ -170,6 +171,12 @@ class RestaurantPortImpl implements RestaurantPort {
     @Transactional(isolation = Isolation.READ_COMMITTED)
     public RestaurantLocationInfo retryLocationByAdmin(Long restaurantId, long expectedAddressRevision) {
         return locationService.retry(restaurantId, expectedAddressRevision);
+    }
+
+    @Override
+    public RestaurantLocationReviewPage findLocationReviewsByAdmin(
+            String status, String source, Long cursor, int size) {
+        return locationService.findReviews(status, source, cursor, size);
     }
 
     private RestaurantInfo toInfo(Restaurant restaurant) {

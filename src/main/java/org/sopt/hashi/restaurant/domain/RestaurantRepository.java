@@ -35,6 +35,62 @@ public interface RestaurantRepository extends JpaRepository<Restaurant, Long>, J
 
     boolean existsByAddressAndIdNotAndDeletedFalse(String address, Long id);
 
+    /** 위치와 현재 requestId의 작업을 한 번에 읽어 관리자 목록의 per-row 추가 조회를 막는다. */
+    @Query(value = """
+            select r.id as restaurantId,
+                   r.name as restaurantName,
+                   r.address as address,
+                   r.geocoding_address as geocodingAddress,
+                   case when l.id is null then 'UNRESOLVED' else l.status end as locationStatus,
+                   l.source as locationSource,
+                   coalesce(l.address_revision, 0) as addressRevision,
+                   date_format(l.valid_until, '%Y-%m-%dT%H:%i:%s.%f') as validUntilUtc,
+                   coalesce(j.attempt, 0) as attempt,
+                   date_format(l.next_attempt_at, '%Y-%m-%dT%H:%i:%s.%f') as nextAttemptAtUtc,
+                   j.failure_code as failureCode
+            from restaurant r
+            left join restaurant_location l on l.id = r.location_id
+            left join restaurant_location_job j
+                   on j.restaurant_id = r.id and j.request_id = l.request_id
+            where r.deleted = false
+              and (:cursor is null or r.id > :cursor)
+              and ((:status = 'UNRESOLVED' and l.id is null)
+                   or (:status <> 'UNRESOLVED' and l.status = :status))
+              and (:source is null or l.source = :source)
+            order by r.id asc
+            """, nativeQuery = true)
+    List<RestaurantLocationReviewProjection> findLocationReviews(
+            @Param("status") String status,
+            @Param("source") String source,
+            @Param("cursor") Long cursor,
+            Pageable pageable
+    );
+
+    /** 관리자 위치 검토 목록의 단일 조인 결과. Repository 밖에서는 공개 포트 DTO로 변환한다. */
+    interface RestaurantLocationReviewProjection {
+        Long getRestaurantId();
+
+        String getRestaurantName();
+
+        String getAddress();
+
+        String getGeocodingAddress();
+
+        String getLocationStatus();
+
+        String getLocationSource();
+
+        Long getAddressRevision();
+
+        String getValidUntilUtc();
+
+        Integer getAttempt();
+
+        String getNextAttemptAtUtc();
+
+        String getFailureCode();
+    }
+
     @EntityGraph(attributePaths = "businessHours")
     @Query("select distinct r from Restaurant r where r.id = :restaurantId and r.deleted = false")
     Optional<Restaurant> findActiveByIdWithBusinessHours(@Param("restaurantId") Long restaurantId);
