@@ -111,6 +111,9 @@ class MapQueryLoadTest {
         limits.setMaxLifetime(Duration.ofSeconds("ttl".equals(PROFILE) ? 1800 : 30));
         Path output = Path.of(System.getProperty("map.k6.output"));
         Files.createDirectories(output);
+        for (String file : List.of("k6-summary.json", "k6.log", "resource-samples.json", "recovery.json")) {
+            Files.deleteIfExists(output.resolve(file));
+        }
         seedRestaurants();
         redis.opsForValue().set(SENTINEL, "synthetic-auth-value", Duration.ofDays(1));
         String base = "http://127.0.0.1:" + port;
