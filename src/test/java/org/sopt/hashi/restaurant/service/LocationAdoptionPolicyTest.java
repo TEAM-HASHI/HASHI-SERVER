@@ -169,6 +169,14 @@ class LocationAdoptionPolicyTest {
     }
 
     @Test
+    void 입력에_서로다른_본번이_두개면_거절하고_같은_본번의_반복은_허용한다() {
+        assertThat(policy.evaluate("東京都新宿区西新宿1-2-3 / 4-5-6",
+                new Candidates(List.of(candidate()))).failureCode()).isEqualTo("ADDRESS_MISMATCH");
+        assertThat(policy.evaluate("東京都新宿区西新宿1-2-3 / 1-2-3",
+                new Candidates(List.of(candidate()))).failureCode()).isNull();
+    }
+
+    @Test
     void country_누락과_다른국가를_서로_다른_운영사유로_남긴다() {
         var original = candidate();
         var missing = copy(original, original.latitude(), original.longitude(), original.granularity(),
