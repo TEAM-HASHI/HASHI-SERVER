@@ -37,7 +37,7 @@ class RestaurantMapMigrationTest {
     }
 
     @Test
-    void 기존_활성_삭제_식당과_하위_데이터를_보존하고_V39_1은_명시주소를_null로_추가한다() {
+    void 기존_데이터와_명시주소를_보존하며_Places_스키마까지_적용한다() {
         jdbc.update("""
                 INSERT INTO restaurant (id, name, local_name, summary, description, address, area,
                     genre, food_category, place_type, price_currency, price_min, price_max,
@@ -94,6 +94,19 @@ class RestaurantMapMigrationTest {
                 .isEqualTo("東京都千代田区丸の内1-9-1");
         assertThat(geocodingAddress.validateWithResult().validationSuccessful).isTrue();
         assertThat(geocodingAddress.migrate().migrationsExecuted).isZero();
+
+        List<Map<String, Object>> beforePlaces = jdbc.queryForList("SELECT * FROM restaurant ORDER BY id");
+        Flyway places = flyway("39.2");
+        assertThat(places.migrate().migrationsExecuted).isEqualTo(1);
+        assertThat(jdbc.queryForList("SELECT * FROM restaurant ORDER BY id")).isEqualTo(beforePlaces);
+        assertThat(jdbc.queryForList("SELECT * FROM restaurant_image")).isEqualTo(images);
+        assertThat(jdbc.queryForList("SELECT * FROM restaurant_menu")).isEqualTo(menus);
+        assertThat(jdbc.queryForList("SELECT * FROM restaurant_hashtag")).isEqualTo(hashtags);
+        assertThat(jdbc.queryForObject(
+                "SELECT COUNT(*) FROM restaurant_places_budget WHERE enabled=FALSE", Integer.class))
+                .isEqualTo(2);
+        assertThat(places.validateWithResult().validationSuccessful).isTrue();
+        assertThat(places.migrate().migrationsExecuted).isZero();
         validateUpgradedSchema();
     }
 
