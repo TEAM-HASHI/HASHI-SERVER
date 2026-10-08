@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.zaxxer.hikari.HikariDataSource;
+import io.micrometer.core.instrument.MeterRegistry;
 import java.math.BigDecimal;
 import java.net.URI;
 import java.net.http.HttpClient;
@@ -15,6 +16,7 @@ import java.time.Clock;
 import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.TimeUnit;
@@ -73,10 +75,16 @@ class MapQueryLoadTest {
     private static final String TRAFFIC = System.getProperty("map.k6.traffic", "shared");
     private static final int RESTAURANTS = Integer.parseInt(System.getProperty("map.k6.restaurants", "620"));
     private static final int BUDGET_MIB = Integer.parseInt(System.getProperty("map.k6.budget-mib", "16"));
+    private static final int CONCURRENT_REQUESTS = Integer.parseInt(System.getProperty(
+            "hashi.restaurant.map.session.limits.concurrent-requests", "4"));
     private static final int IDLE_SECONDS = "ttl".equals(PROFILE) ? 300 : 10;
     private static final int WORKLOAD_SECONDS = "smoke".equals(PROFILE) ? 90 : 300;
     private static final String QUERIES = "hashi:restaurant:map:{sessions-v2}:query:*";
     private static final String SENTINEL = "map-load:auth-sentinel";
+    private static final String REJECTION_METRIC = "hashi.restaurant.map.capacity.rejected";
+    private static final List<String> REJECTION_REASONS = List.of("concurrent_requests", "candidate_count",
+            "snapshot_bytes", "total_bytes", "session_count", "caller_rate", "caller_cardinality",
+            "global_requests", "redis_memory_guard");
 
     @Container @ServiceConnection
     static final MySQLContainer<?> MYSQL = new MySQLContainer<>("mysql:8.4")
@@ -94,6 +102,7 @@ class MapQueryLoadTest {
     @Autowired MapSessionLimits limits;
     @Autowired ObjectMapper json;
     @Autowired DataSource dataSource;
+    @Autowired MeterRegistry meterRegistry;
     @MockitoBean MediaPort mediaPort;
     @MockitoBean FileStorage fileStorage;
 
@@ -103,6 +112,8 @@ class MapQueryLoadTest {
         assertThat(TRAFFIC).isIn("shared", "distinct");
         assertThat(RESTAURANTS).isBetween(620, 5000);
         assertThat(BUDGET_MIB).isIn(16, 32);
+        assertThat(CONCURRENT_REQUESTS).isIn(4, 8);
+        assertThat(limits.getConcurrentRequests()).isEqualTo(CONCURRENT_REQUESTS);
         limits.setTotalBytes(BUDGET_MIB * 1_048_576L);
         if ("normal".equals(PROFILE) || "ttl".equals(PROFILE)) {
             assertThat(TRAFFIC).as("paced profiles model distinct callers").isEqualTo("distinct");
@@ -148,6 +159,7 @@ class MapQueryLoadTest {
                 }
                 json.writeValue(output.resolve("resource-samples.json").toFile(), samples);
             }
+            Map<String, Double> workloadRejections = capacityRejections();
             assertThat(samples).isNotEmpty();
             assertThat(samples.stream().mapToInt(sample -> ((Number) sample.get("sessions")).intValue())
                     .max().orElseThrow()).isPositive();
@@ -173,10 +185,14 @@ class MapQueryLoadTest {
             awaitSessionCleanup(samples);
             assertThat(request(client, base).statusCode()).isEqualTo(200);
             assertThat(redis.opsForValue().get(SENTINEL)).isEqualTo("synthetic-auth-value");
-            json.writeValue(output.resolve("recovery.json").toFile(), Map.of(
-                    "syntheticRestaurants", RESTAURANTS, "workloadSeconds", WORKLOAD_SECONDS, "idleTimeoutSeconds", IDLE_SECONDS,
-                    "profile", PROFILE, "traffic", TRAFFIC, "sessionBudgetMiB", BUDGET_MIB, "k6Exit", k6Exit,
-                    "capacityRejected", true, "recoveredAfterExpiry", true, "authSentinelPreserved", true));
+            json.writeValue(output.resolve("recovery.json").toFile(), Map.ofEntries(
+                    Map.entry("syntheticRestaurants", RESTAURANTS), Map.entry("workloadSeconds", WORKLOAD_SECONDS),
+                    Map.entry("idleTimeoutSeconds", IDLE_SECONDS), Map.entry("profile", PROFILE),
+                    Map.entry("traffic", TRAFFIC), Map.entry("sessionBudgetMiB", BUDGET_MIB),
+                    Map.entry("k6Exit", k6Exit), Map.entry("capacityRejected", true),
+                    Map.entry("recoveredAfterExpiry", true), Map.entry("authSentinelPreserved", true),
+                    Map.entry("workloadCapacityRejections", workloadRejections),
+                    Map.entry("finalCapacityRejections", capacityRejections())));
             json.writeValue(output.resolve("resource-samples.json").toFile(), samples);
             assertThat(k6Exit).as("Original k6 thresholds remain enforced; see rejection counters and k6.log").isZero();
         }
@@ -191,7 +207,8 @@ class MapQueryLoadTest {
     private Map<String, Object> sample() {
         try (var connection = redis.getConnectionFactory().getConnection()) {
             var memory = connection.serverCommands().info("memory");
-            var pool = ((HikariDataSource) dataSource).getHikariPoolMXBean();
+            var hikari = (HikariDataSource) dataSource;
+            var pool = hikari.getHikariPoolMXBean();
             var ledger = redis.opsForHash().values("hashi:restaurant:map:{sessions-v2}:admission");
             var requestLedger = "hashi:restaurant:map:{sessions-v2}:requests";
             Object requestTotal = redis.opsForHash().get(requestLedger, "total");
@@ -204,14 +221,25 @@ class MapQueryLoadTest {
                     Map.entry("redisUsedBytes", Long.parseLong(memory.getProperty("used_memory"))),
                     Map.entry("dbActive", pool.getActiveConnections()),
                     Map.entry("dbWaiting", pool.getThreadsAwaitingConnection()),
+                    Map.entry("dbMaximumPoolSize", hikari.getMaximumPoolSize()),
                     Map.entry("ledgerRecordedBytes", recordedBytes),
                     Map.entry("ledgerEntries", ledger.size()),
                     Map.entry("requestWindowTotal", requestTotal == null ? 0 : Long.parseLong(requestTotal.toString())),
                     Map.entry("requestCallerEntries", Math.max(0, requestFields - 2)),
+                    Map.entry("capacityRejections", capacityRejections()),
                     Map.entry("concurrentRequestLimit", limits.getConcurrentRequests()),
                     Map.entry("ledgerBudgetBytes", limits.getTotalBytes()),
                     Map.entry("sessionLimit", limits.getSessions()));
         }
+    }
+
+    private Map<String, Double> capacityRejections() {
+        var counts = new LinkedHashMap<String, Double>();
+        for (String reason : REJECTION_REASONS) {
+            var counter = meterRegistry.find(REJECTION_METRIC).tag("reason", reason).counter();
+            counts.put(reason, counter == null ? 0 : counter.count());
+        }
+        return counts;
     }
 
     private void awaitSessionCleanup(List<Map<String, Object>> samples) throws InterruptedException {

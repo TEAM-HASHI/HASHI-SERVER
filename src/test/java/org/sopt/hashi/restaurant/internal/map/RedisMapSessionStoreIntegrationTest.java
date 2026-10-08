@@ -10,6 +10,7 @@ import static org.mockito.Mockito.when;
 
 import io.lettuce.core.ClientOptions;
 import io.lettuce.core.SocketOptions;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import java.math.BigDecimal;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
@@ -55,6 +56,8 @@ class RedisMapSessionStoreIntegrationTest {
     private static StringRedisTemplate redis;
     private static RedisMapSessionStore store;
     private static MapSessionLimits limits;
+    private static final SimpleMeterRegistry METRICS = new SimpleMeterRegistry();
+    private static final MapCapacityMetrics CAPACITY_METRICS = new MapCapacityMetrics(METRICS);
     private static final MapSessionSerializer SERIALIZER = new MapSessionSerializer();
     private static final String PREFIX = "hashi:restaurant:map:{sessions-v2}:query:";
 
@@ -70,7 +73,8 @@ class RedisMapSessionStoreIntegrationTest {
         var factory = new StaticListableBeanFactory();
         factory.addBean("redis", redis);
         limits = new MapSessionLimits();
-        store = new RedisMapSessionStore(factory.getBeanProvider(StringRedisTemplate.class), SERIALIZER, limits);
+        store = new RedisMapSessionStore(factory.getBeanProvider(StringRedisTemplate.class), SERIALIZER, limits,
+                CAPACITY_METRICS);
     }
 
     @AfterAll
@@ -83,11 +87,14 @@ class RedisMapSessionStoreIntegrationTest {
     @BeforeEach
     void clearOnlyTestRedis() {
         redis.getConnectionFactory().getConnection().serverCommands().flushDb();
+        METRICS.clear();
         limits.setIdleTimeout(Duration.ofMinutes(5));
         limits.setMaxLifetime(Duration.ofMinutes(30));
         limits.setSessions(1024);
         limits.setSnapshotBytes(1_048_576);
         limits.setTotalBytes(16_777_216);
+        limits.setRequestsPerMinute(600);
+        limits.setRequestsPerCaller(120);
         limits.setNewQueriesPerCaller(12);
         limits.setCallersPerMinute(2048);
     }
@@ -104,7 +111,7 @@ class RedisMapSessionStoreIntegrationTest {
         properties.setSigningKey(Base64.getEncoder().encodeToString(new byte[32]));
         var sessionStore = storeWith(configuration);
         var service = new RestaurantMapPageService(repository, reader,
-                sessionStore, new MapCursorCodec(properties), configuration);
+                sessionStore, new MapCursorCodec(properties), configuration, CAPACITY_METRICS);
         Instant before = redisNow();
         Instant appRankingTime = before.plusSeconds(20);
         var criteria = session(Duration.ofSeconds(10)).criteria();
@@ -171,6 +178,7 @@ class RedisMapSessionStoreIntegrationTest {
             }
             assertThat(accepted).isEqualTo(2);
         }
+        assertThat(rejections("session_count")).isEqualTo(6);
         await().atMost(Duration.ofSeconds(5)).untilAsserted(() ->
                 assertThat(redis.keys(PREFIX + "*")).isEmpty());
         assertThat(store.find(store.save(session(Duration.ofMinutes(30))))).isNotNull();
@@ -248,16 +256,28 @@ class RedisMapSessionStoreIntegrationTest {
         store.admit("caller-a", true);
         store.admit("caller-a", true);
         assertCode(() -> store.admit("caller-a", true), RestaurantErrorCode.MAP_RATE_LIMITED);
+        assertThat(rejections("caller_rate")).isEqualTo(1);
         store.admit("caller-a", false);
         store.admit("caller-b", true);
         assertCode(() -> store.admit("caller-c", true), RestaurantErrorCode.MAP_CAPACITY_EXCEEDED);
+        assertThat(rejections("caller_cardinality")).isEqualTo(1);
         assertThat(redis.keys(PREFIX + "*")).isEmpty();
+    }
+
+    @Test
+    void 전역호출한도_거절은_호출자한도와_다른_내부사유로_집계한다() {
+        limits.setRequestsPerMinute(2);
+        store.admit("caller-a", false);
+        store.admit("caller-b", false);
+
+        assertCode(() -> store.admit("caller-c", false), RestaurantErrorCode.MAP_CAPACITY_EXCEEDED);
+        assertThat(rejections("global_requests")).isEqualTo(1);
     }
 
     @Test
     void 세션수가_남아도_전체_byte예산을_넘으면_인증키를_보존하고_거절한다() {
         limits.setSnapshotBytes(65_536);
-        limits.setTotalBytes(131_072);
+        limits.setTotalBytes(65_536);
         redis.opsForValue().set("auth:synthetic", "unchanged");
         var candidates = IntStream.range(0, 500).mapToObj(index -> new RestaurantMapCandidate(
                 Long.MAX_VALUE - index, new BigDecimal("5.0"), Long.MAX_VALUE)).toList();
@@ -268,6 +288,7 @@ class RedisMapSessionStoreIntegrationTest {
         var second = new MapQuerySession(1, UUID.randomUUID(), base.criteria(), candidates,
                 base.rankingAsOf(), base.expiresAt());
         assertCode(() -> store.save(second), RestaurantErrorCode.MAP_CAPACITY_EXCEEDED);
+        assertThat(rejections("total_bytes")).isEqualTo(1);
         assertThat(redis.keys(PREFIX + "*")).hasSize(1);
         assertThat(redis.opsForValue().get("auth:synthetic")).isEqualTo("unchanged");
     }
@@ -279,6 +300,7 @@ class RedisMapSessionStoreIntegrationTest {
             REDIS.execInContainer("redis-cli", "CONFIG", "SET", "maxmemory-policy", "allkeys-lru");
             assertCode(() -> store.admit("caller", true), RestaurantErrorCode.MAP_SESSION_UNAVAILABLE);
             assertCode(() -> store.save(session(Duration.ofMinutes(30))), RestaurantErrorCode.MAP_SESSION_UNAVAILABLE);
+            assertThat(rejections("redis_memory_guard")).isEqualTo(2);
             assertThat(redis.opsForValue().get("auth:synthetic")).isEqualTo("unchanged");
         } finally {
             REDIS.execInContainer("redis-cli", "CONFIG", "SET", "maxmemory-policy", "noeviction");
@@ -299,6 +321,7 @@ class RedisMapSessionStoreIntegrationTest {
         var oversized = new MapQuerySession(1, UUID.randomUUID(), criteria, List.of(),
                 Instant.now(), Instant.now().plusSeconds(900));
         assertCode(() -> store.save(oversized), RestaurantErrorCode.MAP_CAPACITY_EXCEEDED);
+        assertThat(rejections("snapshot_bytes")).isEqualTo(1);
         assertThat(redis.keys(PREFIX + "*")).isEmpty();
         assertThat(redis.opsForValue().get("auth:synthetic")).isEqualTo("unchanged");
         assertThat(redis.getExpire("auth:synthetic")).isBetween(1L, 90L);
@@ -332,7 +355,8 @@ class RedisMapSessionStoreIntegrationTest {
     private RedisMapSessionStore storeWith(MapSessionLimits configuration) {
         var factory = new StaticListableBeanFactory();
         factory.addBean("redis", redis);
-        return new RedisMapSessionStore(factory.getBeanProvider(StringRedisTemplate.class), SERIALIZER, configuration);
+        return new RedisMapSessionStore(factory.getBeanProvider(StringRedisTemplate.class), SERIALIZER, configuration,
+                CAPACITY_METRICS);
     }
 
     private MapQuerySession session(Duration ttl) {
@@ -350,5 +374,9 @@ class RedisMapSessionStoreIntegrationTest {
     private void assertCode(Runnable action, RestaurantErrorCode code) {
         assertThatThrownBy(action::run).isInstanceOfSatisfying(BusinessException.class,
                 exception -> assertThat(exception.getErrorCode()).isEqualTo(code));
+    }
+
+    private double rejections(String reason) {
+        return METRICS.get(MapCapacityMetrics.REJECTION_METRIC).tag("reason", reason).counter().count();
     }
 }

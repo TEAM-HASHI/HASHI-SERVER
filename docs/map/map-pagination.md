@@ -50,9 +50,16 @@ DB 공개 조건이 바뀌면 같은 cursor의 표시 항목은 달라질 수 �
 ## 저장소와 한도
 
 조회 UUID별 `hashi:restaurant:map:{sessions-v2}:query:<UUID>` 키에 JSON 하나를 저장한다.
-최초 추천 순서와 별점·리뷰 수만 보관한다. 별도 정렬 자료구조나 payload 분할은 사용하지 않는다.
+최초 추천 순서와 별점·리뷰 수만 보관한다. 후보는 `[restaurantId, rating, reviewCount]` tuple 배열로
+직렬화해 세 값의 관계와 추천 순서를 함께 유지하면서 후보마다 반복되던 필드명을 제거한다.
+별도 정렬 자료구조나 payload 분할은 사용하지 않는다.
 검색 조건, `rankingAsOf`, 최대 보관 시각도 포함하며 좌표·이미지·Google 원문·개인 상태는 없다.
 JSON을 Lua에서 변환하지 않으므로 큰 Long ID도 그대로 보존된다.
+
+저장 형식은 domain의 `schemaVersion`과 별도로 `formatVersion`을 검사한다. 이번 compact tuple 형식은
+`formatVersion=1`이며 누락·불일치·tuple 길이 오류는 부분 복원하지 않고 RESTAURANT-013 / 410으로 끝난다.
+이전 long-form JSON도 배포 뒤에는 410이므로 기존 cursor가 만료된다. 공개 기본 비활성 상태에서 전환하며,
+향후 활성화 뒤 형식을 바꿀 때는 rolling 배포의 양방향 읽기 호환을 별도로 설계해야 한다.
 
 세션은 **마지막 정상 조회부터 5분**, **첫 조회 admission부터 최대 30분** 유지한다.
 생성 시각과 TTL 판단은 Redis `TIME`으로 통일한다. 기존 admission 호출에서 받은 시각을 재사용하므로 추가 왕복은 없다.
@@ -78,9 +85,10 @@ JSON을 Lua에서 변환하지 않으므로 큰 Long ID도 그대로 보존된�
 | `redis-memory-ceiling` / `redis-headroom` | 128MiB / 32MiB | 공유 Redis 사용량 상한과 여유분 |
 
 500개 고정 제한은 제거했다. 500·501·620개도 마지막 페이지까지 조회한다.
-무한 목록을 메모리에 올리지는 않는다. JSON 후보 하나에 반드시 필요한 최소 바이트보다 작은 32로
-`max snapshot bytes / 32`를 계산해 DB 조회 안전 상한을 정하고, 실제 직렬화 크기도 검사한다.
-이 안전 상한을 넘는 후보는 어차피 JSON 예산에 들어갈 수 없다. 결과를 잘라서 성공으로 반환하지 않는다.
+무한 목록을 메모리에 올리지는 않는다. 후보당 32 byte를 보수적 계획 단위로 사용해
+`max snapshot bytes / 32`로 DB 조회 안전 상한을 정하고, compact tuple의 실제 직렬화 크기도 다시 검사한다.
+32 byte는 저장 형식의 최소 크기 주장이 아니라 DB 결과를 무제한 적재하지 않기 위한 메모리 경계다.
+결과를 잘라서 성공으로 반환하지 않고 계획 상한이나 실제 byte 예산을 넘으면 전체 요청을 503으로 끝낸다.
 운영 데이터가 byte 예산을 초과하면 503으로 끝나므로 실제 후보 규모 측정과 예산 조정은 공개 전 필요하다.
 
 `:admission` hash는 세션별 예약 바이트와 만료 시각만 보관한다. 생성 시 만료한 예약을 회수하고,
@@ -95,6 +103,11 @@ JSON을 Lua에서 변환하지 않으므로 큰 Long ID도 그대로 보존된�
 인스턴스별 Semaphore는 지도 작업을 기본 4개로 제한하고 대기열 없이 초과 요청을 503으로 돌려준다.
 Redis뿐 아니라 Java heap과 DB 연결도 보호하며, 실패해도 finally에서 실행 자리를 반환한다.
 `concurrent-requests`는 기동 때 적용되며 변경하려면 인스턴스를 다시 시작한다. 분 경계에서는 두 분의 한도가 연속 사용될 수 있다.
+
+내부 counter `hashi.restaurant.map.capacity.rejected`는 사용자 입력 없이 고정된 `reason`만 기록한다.
+`concurrent_requests`, `candidate_count`, `snapshot_bytes`, `total_bytes`, `session_count`,
+`caller_rate`, `caller_cardinality`, `global_requests`, `redis_memory_guard`를 구분하며 공개 상태·오류 코드는 바꾸지 않는다.
+Prometheus에서는 `hashi_restaurant_map_capacity_rejected_total`로 조회한다.
 
 Redis `INFO memory`로 실제 메모리와 `noeviction`을 확인한다. 설정 상한과 Redis maxmemory 중 작은 값에서
 headroom을 뺀 공간이 부족하거나 정책이 다르면 지도 요청만 503으로 거절한다. 서버의 Redis 설정은 수정하지 않는다. `INFO memory`와 Lua 관련 명령의 ACL도 공개 전에 확인한다.
@@ -164,6 +177,8 @@ OSIV를 테스트에서 끄지 않으며, 지도 경로의 request-bound EntityM
 
 고정 슬롯 제거, 500개 초과 전량 페이지 조회, lookahead, 같은 cursor 재시도, 실패 시 미연장,
 절대 수명, 동시 TTL 갱신, 호출자/전체 용량 제한, 인증 키 보존을 검증한다.
-실제 Redis의 후보 500개 합성 snapshot은 UTF-8 43,232 bytes, MEMORY USAGE 49,288 bytes였다.
-이는 한 payload 측정이며 전체 운영 용량을 보장하지 않는다.
+620개 합성 후보의 serializer 비교에서 기존 객체 배열은 UTF-8 31,188 bytes, compact tuple은
+7,646 bytes였다. ledger 예약식까지 적용하면 63,400 bytes에서 16,316 bytes로 74.3% 줄었다.
+큰 Long ID·리뷰 수와 긴 조건을 넣은 실제 Redis 500개 snapshot은 UTF-8 24,250 bytes,
+MEMORY USAGE 24,712 bytes였다. 이는 한 payload 측정이며 전체 운영 용량을 보장하지 않는다.
 부하·지속 부하·회복은 #236의 격리된 HTTP/MySQL/Redis+k6 시나리오에서 별도로 확인한다.

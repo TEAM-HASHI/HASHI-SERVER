@@ -1,7 +1,6 @@
 package org.sopt.hashi.restaurant.service;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import java.math.BigDecimal;
 import java.time.Duration;
@@ -29,99 +28,22 @@ class LocationAdoptionPolicyTest {
     }
 
     static GeocodingCandidate candidate() {
-        return new GeocodingCandidate(new BigDecimal("10.1234567"), new BigDecimal("20.7654321"),
-                Granularity.ROOFTOP, "JP", "東京都", List.of(
-                component("日本", "JP", "country"), component("東京都", "東京都", "administrative_area_level_1"),
-                component("試験区", "試験区", "locality"), component("架空町", "架空町", "sublocality_level_1"),
-                component("1丁目", "1丁目", "sublocality_level_2"), component("2番", "2", "sublocality_level_3"),
-                component("3号", "3", "sublocality_level_4")), List.of("street_address"));
+        return numericPremiseCandidate("3");
     }
 
     static GeocodingCandidate numericPremiseCandidate(String premise) {
-        var original = candidate();
-        return new GeocodingCandidate(original.latitude(), original.longitude(), Granularity.ROOFTOP,
-                "JP", "東京都", List.of(component(premise, premise, "premise"),
-                component("2", "2", "sublocality_level_4"), component("1丁目", "1丁目", "sublocality_level_3"),
-                component("架空町", "架空町", "sublocality_level_2"), component("試験区", "試験区", "locality"),
-                component("東京都", "東京都", "administrative_area_level_1"), component("日本", "JP", "country")),
-                List.of("premise"));
-    }
-
-    @ParameterizedTest
-    @ValueSource(strings = {"3", "３"})
-    void 숫자만_있는_premise는_street_number가_없을때_마지막_번지로_비교한다(String premise) {
-        assertThat(policy.evaluate(ADDRESS, new Candidates(List.of(numericPremiseCandidate(premise))))
-                .failureCode()).isNull();
-    }
-
-    @ParameterizedTest
-    @ValueSource(strings = {"", " ", "3号", "3A", "三", "③", "３別館", "3-4", "03", "4", "13"})
-    void 건물명과_불명확하거나_다른_premise는_채택하지_않는다(String premise) {
-        assertThat(policy.evaluate(ADDRESS, new Candidates(List.of(numericPremiseCandidate(premise))))
-                .failureCode()).isEqualTo("ADDRESS_MISMATCH");
-    }
-
-    @ParameterizedTest
-    @ValueSource(strings = {"street_number", "premise", "unknown_component"})
-    void premise의_상충_중복_알수없는_구성요소는_거절한다(String extraType) {
-        var original = numericPremiseCandidate("3");
-        var components = new ArrayList<>(original.addressComponents());
-        components.add(component("3", "3", extraType));
-        var value = new GeocodingCandidate(original.latitude(), original.longitude(), original.granularity(),
-                original.countryCode(), original.administrativeArea(), components, original.types());
-        assertThat(policy.evaluate(ADDRESS, new Candidates(List.of(value))).failureCode())
-                .isEqualTo("ADDRESS_MISMATCH");
-    }
-
-    @ParameterizedTest
-    @ValueSource(strings = {"country", "postal_code", "sublocality"})
-    void premise가_국가나_우편번호_등_다른_역할을_겸하면_거절한다(String extraType) {
-        var original = numericPremiseCandidate("3");
-        var components = new ArrayList<>(original.addressComponents());
-        components.removeIf(component -> component.types().contains("premise")
-                || component.types().contains(extraType));
-        components.add(new AddressComponent("3", "JP", List.of("premise", extraType)));
-        var value = new GeocodingCandidate(original.latitude(), original.longitude(), original.granularity(),
-                original.countryCode(), original.administrativeArea(), components, original.types());
-        var decision = policy.evaluate(ADDRESS, new Candidates(List.of(value)));
-        assertThat(decision.failureCode()).isEqualTo("ADDRESS_MISMATCH");
-        assertThat(decision.coordinates()).isNull();
-    }
-
-    @Test
-    void premise의_political_분류는_주소의_다른_역할로_사용하지_않는다() {
-        var original = numericPremiseCandidate("3");
-        var components = new ArrayList<>(original.addressComponents());
-        components.set(0, new AddressComponent("3", "3", List.of("premise", "political")));
-        var value = new GeocodingCandidate(original.latitude(), original.longitude(), original.granularity(),
-                original.countryCode(), original.administrativeArea(), components, original.types());
-        assertThat(policy.evaluate(ADDRESS, new Candidates(List.of(value))).failureCode()).isNull();
-    }
-
-    @Test
-    void 같은_premise를_두개의_번지_구간으로_중복_사용하지_않는다() {
-        var original = numericPremiseCandidate("3");
-        var components = new ArrayList<>(original.addressComponents());
-        components.removeIf(component -> component.types().contains("premise")
-                || component.types().contains("sublocality_level_4"));
-        components.add(new AddressComponent("3", "3", List.of("premise", "sublocality_level_4")));
-        var value = new GeocodingCandidate(original.latitude(), original.longitude(), original.granularity(),
-                original.countryCode(), original.administrativeArea(), components, original.types());
-        assertThat(policy.evaluate("東京都試験区架空町1-3-3", new Candidates(List.of(value))).failureCode())
-                .isEqualTo("ADDRESS_MISMATCH");
-    }
-
-    @ParameterizedTest
-    @ValueSource(strings = {"locality", "administrative_area_level_1", "country", "sublocality_level_3",
-            "sublocality_level_4"})
-    void premise가_있어도_행정구역과_세구간_번지는_생략하지_않는다(String missingType) {
-        var original = numericPremiseCandidate("3");
-        var components = original.addressComponents().stream()
-                .filter(component -> !component.types().contains(missingType)).toList();
-        var value = new GeocodingCandidate(original.latitude(), original.longitude(), original.granularity(),
-                original.countryCode(), original.administrativeArea(), components, original.types());
-        assertThat(policy.evaluate(ADDRESS, new Candidates(List.of(value))).failureCode())
-                .isEqualTo("ADDRESS_MISMATCH");
+        return new GeocodingCandidate(new BigDecimal("10.1234567"), new BigDecimal("20.7654321"),
+                Granularity.ROOFTOP, "JP", "東京都", List.of(
+                component("日本", "JP", "country"),
+                component("東京都", "東京都", "administrative_area_level_1"),
+                component("試験区", "試験区", "locality"),
+                component("架空町", "架空町", "sublocality_level_2"),
+                component("1丁目", "1丁目", "sublocality_level_3"),
+                component("2", "2", "sublocality_level_4"),
+                component(premise, premise, "premise"),
+                component("100-0001", "100-0001", "postal_code"),
+                component("架空ビル 99F", "99F", "subpremise")),
+                List.of("establishment", "point_of_interest", "shopping_mall"));
     }
 
     static AddressComponent component(String value, String shortValue, String type) {
@@ -129,76 +51,223 @@ class LocationAdoptionPolicyTest {
     }
 
     @ParameterizedTest
-    @ValueSource(strings = {ADDRESS, "東京都 試験区 架空町１丁目２番３号", "東京都試験区架空町1-2-3",
-            "日本 東京都試験区架空町1‐2‐3"})
-    void 완전한_주소만_명시한_정규화와_소수점6자리_반올림으로_자동_채택한다(String address) {
+    @ValueSource(strings = {ADDRESS, "東京都試験区架空町1-2-3", "東京都試験区架空町１−２−３ 架空ビル 4F",
+            "Tokyo Shiken-ku Kaku-cho 1 Chome-2-3, Building 4F"})
+    void 언어와_건물층_표기와_결과type에_관계없이_안전한_rooftop을_채택한다(String address) {
         var decision = policy.evaluate(address, new Candidates(List.of(candidate())));
+
         assertThat(decision.failureCode()).isNull();
         assertThat(decision.coordinates().getLatitude()).isEqualByComparingTo("10.123457");
         assertThat(decision.coordinates().getLongitude()).isEqualByComparingTo("20.765432");
     }
 
+    @Test
+    void subpremise와_알수없는_component는_본번_충돌판정에서_무시한다() {
+        var original = candidate();
+        var components = new ArrayList<>(original.addressComponents());
+        components.add(component("untrusted detail 777", "777", "future_component"));
+        var value = copy(original, original.latitude(), original.longitude(), original.granularity(),
+                original.countryCode(), original.administrativeArea(), components);
+
+        assertThat(policy.evaluate("東京都試験区架空町1-2-3 別館777 99F",
+                new Candidates(List.of(value))).failureCode()).isNull();
+    }
+
+    @Test
+    void 두구간_주소는_provider가_마지막_본번만_확실히_주면_suffix만_비교한다() {
+        var suffix = candidateWithComponents(List.of(
+                component("日本", "JP", "country"),
+                component("東京都", "東京都", "administrative_area_level_1"),
+                component("3", "3", "premise")));
+
+        assertThat(policy.evaluate("東京都試験区架空町2-3", new Candidates(List.of(suffix)))
+                .failureCode()).isNull();
+        assertThat(policy.evaluate("東京都試験区架空町2-4", new Candidates(List.of(suffix)))
+                .failureCode()).isEqualTo("ADDRESS_MISMATCH");
+    }
+
     @ParameterizedTest
-    @ValueSource(strings = {"東京都試験区架空町1-2-4", "東京都試験区架空町", "東京都試験区別町1-2-3",
-            "Tokyo Shiken-ku Kaku-cho 1-2-3", "도쿄도 시험구 가공정 1-2-3", "東京都試験区架空町1-2-3別館",
-            "東京都試験区架空町11-2-3", "東京都試験区架空町1-12-3"})
-    void 다른_번지와_불완전한_주소와_언어_추측은_채택하지_않는다(String address) {
+    @ValueSource(strings = {"東京都試験区架空町2-2-3", "東京都試験区架空町1-9-3",
+            "東京都試験区架空町1-2-4"})
+    void 양쪽에서_전체_본번을_확실히_추출하면_어느구간_충돌도_거절한다(String address) {
         assertThat(policy.evaluate(address, new Candidates(List.of(candidate()))).failureCode())
                 .isEqualTo("ADDRESS_MISMATCH");
     }
 
     @Test
-    void 복수_후보의_첫번째가_일치해도_자동_선택하지_않는다() {
-        assertThat(policy.evaluate(ADDRESS, new Candidates(List.of(candidate(), candidate()))).failureCode())
-                .isEqualTo("AMBIGUOUS_RESULTS");
+    void 영어응답의_Chome과_component계층도_전체tuple로_비교한다() {
+        var value = candidateWithComponents(List.of(
+                component("日本", "JP", "country"),
+                component("東京都", "東京都", "administrative_area_level_1"),
+                component("1-chōme", "1-chōme", "sublocality_level_3"),
+                component("2", "2", "sublocality_level_4"),
+                component("3", "3", "premise")));
+
+        assertThat(policy.evaluate("Tokyo Shiken-ku 1丁目2番3号", new Candidates(List.of(value)))
+                .failureCode()).isNull();
+        assertThat(policy.evaluate("Tokyo Shiken-ku 2丁目2番3号", new Candidates(List.of(value)))
+                .failureCode()).isEqualTo("ADDRESS_MISMATCH");
+        assertThat(policy.evaluate("Tokyo Shiken-ku 1丁目9番3号", new Candidates(List.of(value)))
+                .failureCode()).isEqualTo("ADDRESS_MISMATCH");
+        assertThat(policy.evaluate("Tokyo Shiken-ku 1丁目2番4号", new Candidates(List.of(value)))
+                .failureCode()).isEqualTo("ADDRESS_MISMATCH");
+    }
+
+    @Test
+    void premise에_층표기가_섞이면_본번tuple로_추측하지_않는다() {
+        var value = candidateWithComponents(List.of(
+                component("日本", "JP", "country"),
+                component("東京都", "東京都", "administrative_area_level_1"),
+                component("6-chōme", "6-chōme", "sublocality_level_3"),
+                component("4", "4", "sublocality_level_4"),
+                component("12-7F", "12-7F", "premise")));
+
+        assertThat(policy.evaluate("Tokyo Chuo City 6 Chome-4-12 Building 7F",
+                new Candidates(List.of(value))).failureCode()).isNull();
+    }
+
+    @Test
+    void 우편번호는_양쪽에서_하나씩_확실할때만_충돌을_거절한다() {
+        assertThat(policy.evaluate("〒100-0001 " + ADDRESS, new Candidates(List.of(candidate())))
+                .failureCode()).isNull();
+        assertThat(policy.evaluate("〒100-0002 " + ADDRESS, new Candidates(List.of(candidate())))
+                .failureCode()).isEqualTo("ADDRESS_MISMATCH");
+
+        var withoutPostal = candidateWithComponents(candidate().addressComponents().stream()
+                .filter(component -> !component.types().contains("postal_code")).toList());
+        assertThat(policy.evaluate("〒100-0002 " + ADDRESS, new Candidates(List.of(withoutPostal)))
+                .failureCode()).isNull();
+
+        var conflictingProviderPostal = new ArrayList<>(candidate().addressComponents());
+        conflictingProviderPostal.add(component("100-0002", "100-0002", "postal_code"));
+        assertThat(policy.evaluate("〒100-0001 " + ADDRESS,
+                new Candidates(List.of(candidateWithComponents(conflictingProviderPostal)))).failureCode())
+                .isEqualTo("ADDRESS_MISMATCH");
+    }
+
+    @Test
+    void provider의_서로다른_본번component는_불확실하다고_우회하지_않고_거절한다() {
+        var components = new ArrayList<>(candidate().addressComponents());
+        components.add(component("9-chōme", "9-chōme", "sublocality_level_3"));
+
+        assertThat(policy.evaluate(ADDRESS, new Candidates(List.of(candidateWithComponents(components))))
+                .failureCode()).isEqualTo("ADDRESS_MISMATCH");
+    }
+
+    @Test
+    void 긴_숫자component도_overflow없이_충돌로_거절한다() {
+        String longNumber = "9".repeat(100);
+        var value = candidateWithComponents(List.of(
+                component("日本", "JP", "country"),
+                component("東京都", "東京都", "administrative_area_level_1"),
+                component(longNumber + "-chōme", longNumber + "-chōme", "sublocality_level_3"),
+                component("2", "2", "sublocality_level_4"),
+                component("3", "3", "premise")));
+
+        assertThat(policy.evaluate("Tokyo Shiken-ku 1 Chome-2-3", new Candidates(List.of(value)))
+                .failureCode()).isEqualTo("ADDRESS_MISMATCH");
+    }
+
+    @Test
+    void 입력에_서로다른_본번이_두개면_거절하고_같은_본번의_반복은_허용한다() {
+        assertThat(policy.evaluate("東京都新宿区西新宿1-2-3 / 4-5-6",
+                new Candidates(List.of(candidate()))).failureCode()).isEqualTo("ADDRESS_MISMATCH");
+        assertThat(policy.evaluate("東京都新宿区西新宿1-2-3 / 1-2-3",
+                new Candidates(List.of(candidate()))).failureCode()).isNull();
+    }
+
+    @Test
+    void country_누락과_다른국가를_서로_다른_운영사유로_남긴다() {
+        var original = candidate();
+        var missing = copy(original, original.latitude(), original.longitude(), original.granularity(),
+                "", original.administrativeArea(), original.addressComponents());
+        var foreign = copy(original, original.latitude(), original.longitude(), original.granularity(),
+                "US", original.administrativeArea(), original.addressComponents());
+
+        assertThat(policy.evaluate(ADDRESS, new Candidates(List.of(missing))).failureCode())
+                .isEqualTo("COUNTRY_MISSING");
+        assertThat(policy.evaluate(ADDRESS, new Candidates(List.of(foreign))).failureCode())
+                .isEqualTo("COUNTRY_MISMATCH");
+    }
+
+    @Test
+    void 고정된_영어응답의_Tokyo도_같은_도쿄지원영역으로_인정한다() {
+        var original = candidate();
+        var english = copy(original, original.latitude(), original.longitude(), original.granularity(),
+                original.countryCode(), "Tokyo", original.addressComponents());
+
+        assertThat(policy.evaluate("Tokyo Shiken-ku 1 Chome-2-3", new Candidates(List.of(english)))
+                .failureCode()).isNull();
     }
 
     @ParameterizedTest
     @EnumSource(value = Granularity.class, names = "ROOFTOP", mode = EnumSource.Mode.EXCLUDE)
-    void 넓은_지역_중심과_보간_좌표는_주소가_같아도_채택하지_않는다(Granularity accuracy) {
+    void rooftop이_아닌_좌표는_주소나_type과_관계없이_거절한다(Granularity granularity) {
         var original = candidate();
-        var value = new GeocodingCandidate(original.latitude(), original.longitude(), accuracy, "JP", "東京都",
-                original.addressComponents(), original.types());
+        var value = copy(original, original.latitude(), original.longitude(), granularity,
+                original.countryCode(), original.administrativeArea(), original.addressComponents());
+
         assertThat(policy.evaluate(ADDRESS, new Candidates(List.of(value))).failureCode())
                 .isEqualTo("INSUFFICIENT_PRECISION");
     }
 
     @Test
-    void 국가와_지원_영역과_원본_좌표_범위를_반올림_전에_검증한다() {
+    void 좌표와_도쿄_지원범위를_반올림전에_검증한다() {
         var original = candidate();
-        var foreign = new GeocodingCandidate(original.latitude(), original.longitude(), Granularity.ROOFTOP,
-                "US", "東京都", original.addressComponents(), original.types());
-        var outside = new GeocodingCandidate(new BigDecimal("12"), original.longitude(), Granularity.ROOFTOP,
-                "JP", "東京都", original.addressComponents(), original.types());
-        var invalid = new GeocodingCandidate(new BigDecimal("90.0000001"), original.longitude(), Granularity.ROOFTOP,
-                "JP", "東京都", original.addressComponents(), original.types());
-        assertThat(policy.evaluate(ADDRESS, new Candidates(List.of(foreign))).failureCode()).isEqualTo("COUNTRY_MISMATCH");
-        assertThat(policy.evaluate(ADDRESS, new Candidates(List.of(outside))).failureCode()).isEqualTo("OUTSIDE_SUPPORTED_AREA");
-        assertThat(policy.evaluate(ADDRESS, new Candidates(List.of(invalid))).failureCode()).isEqualTo("INVALID_COORDINATES");
+        var outside = copy(original, new BigDecimal("12"), original.longitude(), original.granularity(),
+                original.countryCode(), original.administrativeArea(), original.addressComponents());
+        var invalid = copy(original, new BigDecimal("90.0000001"), original.longitude(), original.granularity(),
+                original.countryCode(), original.administrativeArea(), original.addressComponents());
+        var unsupportedArea = copy(original, original.latitude(), original.longitude(), original.granularity(),
+                original.countryCode(), "Osaka", original.addressComponents());
+
+        assertThat(policy.evaluate(ADDRESS, new Candidates(List.of(outside))).failureCode())
+                .isEqualTo("OUTSIDE_SUPPORTED_AREA");
+        assertThat(policy.evaluate(ADDRESS, new Candidates(List.of(invalid))).failureCode())
+                .isEqualTo("INVALID_COORDINATES");
+        assertThat(policy.evaluate(ADDRESS, new Candidates(List.of(unsupportedArea))).failureCode())
+                .isEqualTo("OUTSIDE_SUPPORTED_AREA");
     }
 
     @Test
-    void 상충하거나_누락된_구성요소는_rooftop으로_보완하지_않는다() {
+    void 여러응답중_안전한후보가_하나면_그후보만_채택하고_둘이면_거절한다() {
         var original = candidate();
-        var components = new ArrayList<>(original.addressComponents());
-        components.add(component("別区", "別区", "locality"));
-        var duplicate = new GeocodingCandidate(original.latitude(), original.longitude(), Granularity.ROOFTOP,
-                "JP", "東京都", components, original.types());
-        var missing = new GeocodingCandidate(original.latitude(), original.longitude(), Granularity.ROOFTOP,
-                "JP", "東京都", List.of(), original.types());
-        assertThat(policy.evaluate(ADDRESS, new Candidates(List.of(duplicate))).coordinates()).isNull();
-        assertThat(policy.evaluate(ADDRESS, new Candidates(List.of(missing))).coordinates()).isNull();
+        var outside = copy(original, new BigDecimal("12"), original.longitude(), original.granularity(),
+                original.countryCode(), original.administrativeArea(), original.addressComponents());
+
+        assertThat(policy.evaluate(ADDRESS, new Candidates(List.of(outside, original))).failureCode()).isNull();
+        var distinct = copy(original, new BigDecimal("10.1234568"), original.longitude(), original.granularity(),
+                original.countryCode(), original.administrativeArea(), original.addressComponents());
+        assertThat(policy.evaluate(ADDRESS, new Candidates(List.of(original, distinct))).failureCode())
+                .isEqualTo("AMBIGUOUS_RESULTS");
     }
 
     @Test
-    void street_number와_일본어_행정구역_경로도_완전한_주소이면_채택한다() {
+    void 반올림전_숫자좌표가_정확히_같은_중복후보만_하나의_위치로_취급한다() {
         var original = candidate();
-        var value = new GeocodingCandidate(original.latitude(), original.longitude(), Granularity.ROOFTOP,
-                "JP", "東京都", List.of(component("日本", "JP", "country"),
-                component("東京都", "東京都", "administrative_area_level_1"),
-                component("試験区", "試験区", "locality"), component("架空町", "架空町", "route"),
-                component("1-2-3", "1-2-3", "street_number")), List.of("premise"));
-        assertThat(policy.evaluate(ADDRESS, new Candidates(List.of(value))).failureCode()).isNull();
+        var samePointDifferentScale = copy(original, new BigDecimal("10.123456700"),
+                new BigDecimal("20.765432100"), original.granularity(), original.countryCode(),
+                original.administrativeArea(), original.addressComponents());
+        var roundsToSameButDistinct = copy(original, new BigDecimal("10.12345671"),
+                original.longitude(), original.granularity(), original.countryCode(),
+                original.administrativeArea(), original.addressComponents());
+
+        assertThat(policy.evaluate(ADDRESS, new Candidates(List.of(original, samePointDifferentScale)))
+                .failureCode()).isNull();
+        assertThat(policy.evaluate(ADDRESS, new Candidates(List.of(original, roundsToSameButDistinct)))
+                .failureCode()).isEqualTo("AMBIGUOUS_RESULTS");
+    }
+
+    @Test
+    void 여러후보가_모두_탈락하면_임의로_첫후보를_고르지_않는다() {
+        var original = candidate();
+        var first = copy(original, new BigDecimal("12"), original.longitude(), original.granularity(),
+                original.countryCode(), original.administrativeArea(), original.addressComponents());
+        var second = copy(original, original.latitude(), original.longitude(), Granularity.APPROXIMATE,
+                original.countryCode(), original.administrativeArea(), original.addressComponents());
+
+        assertThat(policy.evaluate(ADDRESS, new Candidates(List.of(first, second))).failureCode())
+                .isEqualTo("AMBIGUOUS_RESULTS");
     }
 
     @Test
@@ -219,5 +288,18 @@ class LocationAdoptionPolicyTest {
         assertThat(retries.canRetry(kind)).isEqualTo(List.of(FailureKind.TIMEOUT, FailureKind.CONNECTION_ERROR,
                 FailureKind.TRANSIENT_ERROR, FailureKind.QUOTA_EXCEEDED, FailureKind.CAPACITY_EXCEEDED,
                 FailureKind.CANCELLED).contains(kind));
+    }
+
+    private static GeocodingCandidate candidateWithComponents(List<AddressComponent> components) {
+        var original = candidate();
+        return copy(original, original.latitude(), original.longitude(), original.granularity(),
+                original.countryCode(), original.administrativeArea(), components);
+    }
+
+    private static GeocodingCandidate copy(GeocodingCandidate original, BigDecimal latitude, BigDecimal longitude,
+                                           Granularity granularity, String countryCode, String administrativeArea,
+                                           List<AddressComponent> components) {
+        return new GeocodingCandidate(latitude, longitude, granularity, countryCode, administrativeArea,
+                components, original.types());
     }
 }

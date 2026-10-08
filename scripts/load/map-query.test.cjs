@@ -14,6 +14,7 @@ function run(name, response, expectedFailure) {
     let calls = 0, sleeps = 0;
     vm.runInNewContext(source, {
         __ENV: { BASE_URL: 'http://127.0.0.1:12345' },
+        __VU: 1,
         http: { get() { return response(calls++); } },
         check(value, rules) {
             const passed = Object.values(rules).every(rule => rule(value)); checks.push(passed); return passed;
@@ -57,6 +58,8 @@ for (const profile of ['smoke', 'staged', 'ttl']) {
     assert.equal(stages.reduce((seconds, stage) => seconds + parseInt(stage.duration), 0), profile === 'smoke' ? 90 : 300);
     assert.equal(Math.max(...stages.map(stage => stage.target)), profile === 'smoke' ? 2 : 20);
     assert.equal(context.options.thresholds.http_req_failed[0], 'rate<0.01');
+    assert.equal(context.options.thresholds.map_success_new_query_ms[0], 'p(95)<3000');
+    assert.equal(context.options.thresholds.map_success_next_page_ms[0], 'p(95)<3000');
 }
 for (const env of [{ BASE_URL: 'https://production.example' },
         { BASE_URL: 'http://127.0.0.1:12345', MAP_LOAD_PROFILE: 'unbounded' }]) {

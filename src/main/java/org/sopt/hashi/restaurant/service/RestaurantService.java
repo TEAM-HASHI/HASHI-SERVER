@@ -447,10 +447,7 @@ public class RestaurantService {
         validateExclusiveImageCollections(command.imageKeys(), command.images());
         Restaurant restaurant = findRestaurantForAdminUpdate(restaurantId);
 
-        boolean addressChanged = command.address() != null && !command.address().equals(restaurant.getAddress());
-        boolean geocodingAddressChanged = command.geocodingAddress() != null
-                && !Objects.equals(Restaurant.normalizeGeocodingAddress(command.geocodingAddress()),
-                restaurant.getGeocodingAddress());
+        String previousGeocodingInput = restaurant.geocodingAddressForResolution();
 
         RestaurantGenre genre = command.genre() == null ? null : toGenre(command.genre());
         RestaurantPlaceType placeType = command.placeType() == null ? null : toPlaceType(command.placeType());
@@ -497,7 +494,9 @@ public class RestaurantService {
                 command.minPrice(),
                 command.maxPrice());
 
-        if ((addressChanged || geocodingAddressChanged) && !restaurant.isDeleted()) {
+        boolean geocodingInputChanged = !Objects.equals(
+                previousGeocodingInput, restaurant.geocodingAddressForResolution());
+        if (geocodingInputChanged && !restaurant.isDeleted()) {
             locationService.enqueue(restaurant);
         }
 

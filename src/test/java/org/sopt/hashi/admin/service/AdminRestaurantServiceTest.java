@@ -64,7 +64,8 @@ class AdminRestaurantServiceTest {
 
     @Test
     void 식당_수정은_명시한_위치확인주소를_restaurant_포트에_전달한다() {
-        UpdateRestaurantRequest request = geocodingAddressRequest("  東京都千代田区丸の内1-9-1  ");
+        UpdateRestaurantRequest request = addressAndGeocodingAddressRequest(
+                "東京都千代田区丸の内1-9-1 建物2F", "  東京都千代田区丸の内1-9-1  ");
         given(restaurantPort.updateByAdmin(eq(1L), any(AdminRestaurantCommand.class)))
                 .willReturn(adminRestaurantInfo());
 
@@ -73,6 +74,7 @@ class AdminRestaurantServiceTest {
         ArgumentCaptor<AdminRestaurantCommand> commandCaptor =
                 ArgumentCaptor.forClass(AdminRestaurantCommand.class);
         verify(restaurantPort).updateByAdmin(eq(1L), commandCaptor.capture());
+        assertThat(commandCaptor.getValue().address()).isEqualTo("東京都千代田区丸の内1-9-1 建物2F");
         assertThat(commandCaptor.getValue().geocodingAddress())
                 .isEqualTo("  東京都千代田区丸の内1-9-1  ");
     }
@@ -101,9 +103,9 @@ class AdminRestaurantServiceTest {
         );
     }
 
-    private UpdateRestaurantRequest geocodingAddressRequest(String geocodingAddress) {
+    private UpdateRestaurantRequest addressAndGeocodingAddressRequest(String address, String geocodingAddress) {
         return new UpdateRestaurantRequest(
-                null, null, null, null, null, geocodingAddress, null, null, null, null,
+                null, null, null, null, address, geocodingAddress, null, null, null, null,
                 null, null, null, null, null, null, null, null, null, null);
     }
 
