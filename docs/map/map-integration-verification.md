@@ -46,7 +46,7 @@ Java 21과 Docker가 필요하다. 일반 검증과 부하는 동시에 실행�
 `MapGoogleLiveFlowTest`는 일반 `test`와 CI에서 제외된다. `-PmapLive=true`와 환경 변수의 API key가 모두 있어야 실행되며, key를 Gradle 인자·파일·로그에 적지 않는다.
 
 ```powershell
-.\gradlew.bat mapLiveTest -PmapLive=true --no-daemon --console=plain --max-workers=1
+.\gradlew.bat mapLiveTest -PmapLive=true --tests '*MapGoogleLiveFlowTest' --no-daemon --console=plain --max-workers=1
 ```
 
 승인된 loopback TCP 터널을 사용할 때도 제품 HTTPS endpoint, SNI와 인증서 검증은 유지한다. 자동 scheduler는 대체하고 worker만 수동 실행한다. DB 일일 예산과 테스트 provider counter의 상한은 두 번이다.
@@ -60,6 +60,20 @@ Java 21과 Docker가 필요하다. 일반 검증과 부하는 동시에 실행�
 `languageCode=en`은 provider 응답 언어를 고정하기 위한 값이며 입력 주소나 UI 표시 주소의 언어를 강제하지 않는다. JP 지역 정보와 후보의 국가·행정구역·정밀도·주소 구성요소를 채택 정책에서 확인한다. Google 응답 언어와 관리자가 저장한 표시 주소 언어는 서로 다른 계약이다. 통과를 위해 실제 응답이나 기대 좌표를 임의로 바꾸지 않는다. Google 원문, 좌표 원문, 운영 주소와 key는 저장소에 남기지 않는다.
 
 2026-10-08 코드 `39266dd`에서 위 흐름을 실제로 실행해 통과했다. Google 호출은 최초 등록과 갱신 각 한 번이며, 층수만 바꾸는 PATCH는 추가 호출 없이 기존 revision·job·핀을 유지했다. 별도 Testcontainers DB/Redis를 사용했고 운영 데이터나 자동 호출 설정은 변경하지 않았다.
+
+### Places 매장 선택과 갱신
+
+`MapPlacesLiveFlowTest`는 별도 opt-in 검증이다. 위 Geocoding 테스트와 한꺼번에 실행하지 않고 `--tests`로 대상을 지정한다.
+
+```powershell
+.\gradlew.bat mapLiveTest -PmapLive=true --tests '*MapPlacesLiveFlowTest' --no-daemon --console=plain --max-workers=1
+```
+
+격리된 MySQL·Redis에서 관리자 식당 등록 후 `REVIEW_REQUIRED`를 만들고, 후보 검색·관리자 선택·Details 저장·같은 매장 갱신을 실제 API 경로로 확인한다. 처음 확인 대상 상태를 만드는 Geocoding 응답만 mock이며, Places는 Text Search 1회와 동일 Place ID의 Details 2회로 제한한다. 지도 카드와 컬렉션 핀이 갱신 전·중·후 모두 조회되는지 확인한다.
+
+실제 Google 통신만 개발 서버의 승인된 SSH 터널을 거친다. 애플리케이션과 DB는 개발 EC2의 실행 중 서비스가 아닌 로컬 테스트 컨테이너다. 주소·응답 원문·Place ID·키를 결과 로그에 출력하지 않고, 테스트가 끝나면 자체 터널과 컨테이너를 정리한다.
+
+2026-10-09 위 Places 흐름을 실제 실행해 통과했다. Text Search 1회와 Details 2회가 요청 제한·예산 집계와 일치했으며, 최초 선택과 정기 갱신 모두 `READY` 및 지도·컬렉션 핀을 확인했다. 운영 DB 쓰기나 자동 호출 활성화는 하지 않았다.
 
 ## Redis session과 용량 결과
 
@@ -96,6 +110,14 @@ Java 21과 Docker가 필요하다. 일반 검증과 부하는 동시에 실행�
 ```
 
 테스트 전용 비교에는 `-PmapLoadConcurrentRequests=8`을 추가할 수 있지만 운영 기본값은 바뀌지 않는다. 결과는 `build/reports/map-load/`의 k6 summary, log, resource samples, recovery JSON에 기록한다. k6 threshold가 실패해도 TTL 정리·회복·auth sentinel을 확인한 뒤 최종 실패한다.
+
+### 단계별 시간 측정 후 실행
+
+2026-10-09, 단계별 지표가 포함된 코드 `c38601d3`에서 같은 크기의 합성 식당 620개와 서로 다른 호출자를 사용해 5→10→20 VU, 5분 부하를 실행했다. 요청 1,265건과 검증 2,783건이 실패 없이 통과했다. 추가 5분 뒤 TTL 정리, 별도 제한 초과 probe 후 복구와 인증용 테스트 키 보존도 확인했다.
+
+전체 요청 p95는 111.12ms였다. 단계별 평균은 새 조회 admission 4.88ms, 후보 조회 22.47ms, 세션 저장 5.94ms, 페이지 구성 41.97ms, TTL 갱신 3.64ms였다. 동시 요청 한도 4와 16MiB 예산은 그대로 유지했다.
+
+앞선 실패 실행과 호스트 부하를 통제한 A/B 비교가 아니다. 이 성공을 특정 수정의 인과적 성능 효과, 운영 처리량 또는 동시 사용자 20명 보장으로 해석하지 않는다. 현재 측정만으로 Redis List나 Sorted Set을 추가할 근거는 없다. 이후 Places 기능이 합쳐진 HEAD의 부하를 새로 측정한 결과도 아니다.
 
 ## 현재 데이터 확인과 남은 gate
 
