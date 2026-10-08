@@ -17,6 +17,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import java.math.BigDecimal;
 import java.time.Clock;
 import java.time.Duration;
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.Base64;
@@ -54,6 +55,8 @@ import org.sopt.hashi.restaurant.migration.LocationMaintenanceRunner;
 import org.sopt.hashi.restaurant.internal.map.LocationRetentionService;
 import org.sopt.hashi.restaurant.service.LocationJobTransactions.Outcome;
 import org.sopt.hashi.shared.storage.FileStorage;
+import org.sopt.hashi.user.domain.User;
+import org.sopt.hashi.user.domain.UserRepository;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -125,6 +128,7 @@ class RestaurantMapFlowIntegrationTest {
     @Autowired RestaurantPort port;
     @Autowired MapRegionRepository regions;
     @Autowired JdbcTemplate jdbc;
+    @Autowired UserRepository users;
     @Autowired RestaurantRepository restaurants;
     @Autowired TransactionTemplate transactionTemplate;
     @Autowired MapSessionProperties sessionProperties;
@@ -207,7 +211,10 @@ class RestaurantMapFlowIntegrationTest {
         assertThat(firstPage.path("content").get(0).path("location").path("latitude").decimalValue())
                 .isEqualByComparingTo("10.123457");
 
-        String userToken = jwt.createAccessToken(42L, "ROLE_USER");
+        User mapUser = users.saveAndFlush(User.onboard(
+                "지도통합회원", "HASHI", LocalDate.of(1998, 1, 1),
+                "01011110006", "map-flow@hashi.test", null));
+        String userToken = jwt.createAccessToken(mapUser.getId(), "ROLE_USER");
         long collectionId = body(mvc.perform(post("/api/v1/collections")
                         .header("Authorization", "Bearer " + userToken)
                         .contentType(MediaType.APPLICATION_JSON)
