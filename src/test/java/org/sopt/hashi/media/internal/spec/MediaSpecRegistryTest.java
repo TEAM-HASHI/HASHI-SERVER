@@ -234,4 +234,18 @@ class MediaSpecRegistryTest {
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining(messagePart);
     }
+    @Test
+    void 공지_v3의_원본비율과_이전버전_미지원_contract를_확인한다() {
+        MediaSpecRegistry registry = new MediaSpecRegistry(objectMapper);
+        assertThat(registry.findDefinition(1).orElseThrow().supportsPurpose(MediaPurpose.NOTICE)).isFalse();
+        assertThat(registry.findDefinition(2).orElseThrow().supportsPurpose(MediaPurpose.NOTICE)).isFalse();
+        var spec = registry.findDefinition(3).orElseThrow();
+        assertThat(spec.digest()).isEqualTo("ab130db4caea347d5945531e22c9f2b783a95ad1a9c9fa7b5741a6adcd16b97a");
+        assertThat(spec.expectedRenditions(MediaPurpose.NOTICE, 1000, 2000)).containsExactly(
+                expected(ImageRole.NOTICE_DETAIL, 216, 432),
+                expected(ImageRole.NOTICE_DETAIL, 432, 864),
+                expected(ImageRole.NOTICE_DETAIL, 648, 1296));
+        assertThat(spec.expectedRenditions(MediaPurpose.NOTICE, 100, 50))
+                .containsExactly(expected(ImageRole.NOTICE_DETAIL, 100, 50));
+    }
 }
