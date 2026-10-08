@@ -14,9 +14,12 @@ import java.math.BigDecimal;
 public record UpsertMapRegionRequest(
         @Schema(description = "클라이언트에 표시할 관광 지역명", example = "시부야")
         @NotBlank @Size(max = 100) String name,
-        @Schema(description = "지역 선택 시 지도의 대표 중심점. cameraBounds 안에 있어야 하며 식당 배정에는 사용하지 않음")
+        @Schema(description = "지역 선택 시 지도의 대표 중심점. cameraBounds 안에 있어야 하며 식당 배정에는 사용하지 않음. "
+                + "좌표는 소수 6자리로 정확히 표현되는 값이어야 하고 서버가 반올림하지 않음")
         @NotNull @Valid Position clusterPosition,
-        @Schema(description = "지역 필터·공개 집계에서 식당의 유효 좌표를 재검사하는 경계. 식당 소속을 자동 결정하지 않음")
+        @Schema(description = "지역 필터·공개 집계에서 식당의 유효 좌표를 재검사하는 경계. 식당 소속을 자동 결정하지 않음. "
+                + "모든 경계는 소수 6자리로 정확히 표현되어야 하며 서버가 반올림하지 않음. "
+                + "active=true이면 서버 지원 범위 안에 있고 위도·경도 폭이 각각 1도 이하여야 함")
         @NotNull @Valid Bounds cameraBounds,
         @Schema(description = "공개 지역 목록의 표시 순서. 같은 값이면 mapRegionId 순", example = "10")
         @NotNull @PositiveOrZero Integer displayOrder,

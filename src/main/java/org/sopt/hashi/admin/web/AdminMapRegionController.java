@@ -47,7 +47,7 @@ public class AdminMapRegionController {
     @ApiSuccess(value = CommonSuccessCode.class, codes = "OK")
     @ApiException(value = CommonErrorCode.class, codes = {"INVALID_INPUT", "UNAUTHORIZED", "FORBIDDEN"})
     public SuccessResponse<AdminMapRegionResponse.Page> getRegions(
-            @Parameter(description = "0부터 시작하는 페이지 번호", example = "0")
+            @Parameter(description = "0부터 시작하는 페이지 번호. page × size가 2147483647을 넘으면 400", example = "0")
             @RequestParam(defaultValue = "0") @Min(0) int page,
             @Parameter(description = "페이지 크기(1~100)", example = "20")
             @RequestParam(defaultValue = "20") @Min(1) @Max(100) int size, HttpServletResponse response) {
@@ -62,6 +62,11 @@ public class AdminMapRegionController {
                     + "유지한 채 name, clusterPosition, cameraBounds, displayOrder, active를 모두 교체합니다. "
                     + "clusterPosition은 클라이언트가 지역을 선택할 때 사용할 대표 중심점이며 cameraBounds 안에 있어야 합니다. "
                     + "cameraBounds는 지역 필터와 공개 집계에서 식당 좌표를 재검사하는 범위이고 식당 소속을 자동 배정하지 않습니다. "
+                    + "대표 좌표와 모든 경계는 소수 6자리로 정확히 표현되어야 합니다. 서버는 값을 반올림하지 않으며 "
+                    + "35.6595001처럼 추가 정밀도가 필요한 값은 400입니다. "
+                    + "active=true이면 cameraBounds가 서버 지원 범위 안에 있고 위도·경도 폭이 각각 1도 이하여야 합니다. "
+                    + "GET /api/v1/restaurants/map/regions의 queryLimits로 지원 범위를 확인하세요. "
+                    + "active=false는 지원 범위·1도 폭 검사를 적용하지 않지만 좌표 정밀도와 대표 좌표 포함 조건은 유지합니다. "
                     + "active=false로 바꾸면 공개 지역 목록에서 빠지고, 해당 지역을 참조하는 신규 조회와 기존 지도 세션의 "
                     + "다음 페이지가 RESTAURANT-012로 거절됩니다.")
     @ApiSuccess(value = CommonSuccessCode.class, codes = "OK")

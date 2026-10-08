@@ -136,6 +136,28 @@ class MapRegionAdminIntegrationTest {
                 .path("content").get(0).path("code").asText()).isEqualTo("AREA");
     }
 
+    @ParameterizedTest
+    @ValueSource(ints = {2, 100})
+    void 목록_offset이_JPA_정수_범위를_넘으면_400을_반환한다(int size) throws Exception {
+        int firstOverflowPage = Integer.MAX_VALUE / size + 1;
+        mvc.perform(admin(get(REGIONS).param("page", Integer.toString(firstOverflowPage))
+                .param("size", Integer.toString(size))))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("COMMON-400"));
+    }
+
+    @ParameterizedTest
+    @ValueSource(ints = {1, 100})
+    void 목록_offset의_JPA_정수_경계_안에서는_빈_페이지를_반환한다(int size) throws Exception {
+        upsert("AREA", body("지역", 0, false));
+        int lastValidPage = Integer.MAX_VALUE / size;
+        JsonNode result = success(admin(get(REGIONS).param("page", Integer.toString(lastValidPage))
+                .param("size", Integer.toString(size))));
+        assertThat(result.path("content").size()).isZero();
+        assertThat(result.path("page").asInt()).isEqualTo(lastValidPage);
+        assertThat(result.path("totalElements").asLong()).isEqualTo(1);
+    }
+
     @Test
     void 관리자_소속_입력은_공개_지역_집계에_반영되고_해제해도_좌표와_주소는_유지한다() throws Exception {
         long region = upsert("AREA", body("지역", 0, true)).path("mapRegionId").asLong();

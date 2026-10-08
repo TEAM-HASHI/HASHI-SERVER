@@ -37,7 +37,7 @@ public class MapRegionAdminService {
     }
 
     public AdminMapRegionInfo.Page getRegions(int page, int size) {
-        if (page < 0 || size < 1 || size > MAX_PAGE_SIZE) {
+        if (page < 0 || size < 1 || size > MAX_PAGE_SIZE || (long) page * size > Integer.MAX_VALUE) {
             throw new BusinessException(CommonErrorCode.INVALID_INPUT);
         }
         var result = regions.findAll(PageRequest.of(page, size, Sort.by("displayOrder", "id")));
