@@ -61,6 +61,7 @@ public class MapCapacityMetrics {
 
     public enum Stage {
         ADMIT("admit"),
+        LOAD_SESSION("load_session"),
         CANDIDATES("candidates"),
         SAVE("save"),
         READ_PAGE("read_page"),

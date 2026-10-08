@@ -50,18 +50,22 @@ DB 공개 조건이 바뀌면 같은 cursor의 표시 항목은 달라질 수 �
 ## 저장소와 한도
 
 조회 UUID별 `hashi:restaurant:map:{sessions-v2}:query:<UUID>` 키에 JSON 하나를 저장한다.
-최초 추천 순서와 별점·리뷰 수만 보관한다. 후보는 `[restaurantId, rating, reviewCount]` tuple 배열로
+최초 추천 순서와 별점·리뷰 수를 보관한다. 후보는 `[restaurantId, rating, reviewCount]` tuple 배열로
 직렬화해 세 값의 관계와 추천 순서를 함께 유지하면서 후보마다 반복되던 필드명을 제거한다.
 별도 정렬 자료구조나 payload 분할은 사용하지 않는다.
-검색 조건, `rankingAsOf`, 최대 보관 시각도 포함하며 좌표·이미지·Google 원문·개인 상태는 없다.
+검색 조건, `rankingAsOf`, 최대 보관 시각도 포함한다. keyword 조회는 전체 일치 건수와 모든 결과를 포함하는
+`searchResult.bounds`, 그 좌표 중 가장 이른 `validUntil`만 집계해 보관한다. 개별 식당 좌표·이미지·Google 원문·개인 상태는 없다.
 JSON을 Lua에서 변환하지 않으므로 큰 Long ID도 그대로 보존된다.
 
 저장 형식은 domain의 `schemaVersion`과 별도로 `formatVersion`을 검사한다. 이번 compact tuple 형식은
-`formatVersion=1`이며 누락·불일치·tuple 길이 오류는 부분 복원하지 않고 RESTAURANT-013 / 410으로 끝난다.
-이전 long-form JSON도 배포 뒤에는 410이므로 기존 cursor가 만료된다. 공개 기본 비활성 상태에서 전환하며,
+`formatVersion=2`, `schemaVersion=2`이며 누락·불일치·tuple 길이·검색 결과 집계 오류는 부분 복원하지 않고
+RESTAURANT-013 / 410으로 끝난다. 이전 v1과 long-form JSON도 배포 뒤에는 410이므로 기존 cursor가 만료된다.
+공개 기본 비활성 상태에서 전환하며,
 향후 활성화 뒤 형식을 바꿀 때는 rolling 배포의 양방향 읽기 호환을 별도로 설계해야 한다.
 
 세션은 **마지막 정상 조회부터 5분**, **첫 조회 admission부터 최대 30분** 유지한다.
+keyword 조회는 집계 경계에 포함된 좌표 중 가장 이른 `validUntil`을 절대 만료 상한으로 추가 적용한다.
+검색 결과가 0건이면 좌표 만료 상한은 없다.
 생성 시각과 TTL 판단은 Redis `TIME`으로 통일한다. 기존 admission 호출에서 받은 시각을 재사용하므로 추가 왕복은 없다.
 다음 페이지와 정렬 변경이 성공하면 그 시점부터 5분으로 TTL을 갱신한다. 기존 TTL에 5분을 더하지 않는다.
 조회만 시작했거나 잘못된 cursor, DB 실패인 경우 연장하지 않는다. Redis Lua에서 현재 TTL을 확인해
@@ -142,13 +146,14 @@ Tomcat이 신뢰하는 프록시 범위를 확인해야 한다. 이 경계가 �
 키 교체 때 기존 cursor는 검증 실패한다. 회전 기간 복수 키 지원은 이 변경에 포함하지 않는다.
 
 커서는 최대 512자 계약 안에서 72자 Base64url 토큰이며 version/UUID/sort/후보 위치에 HMAC-SHA256을
-검증한다. 전체 cursor·검색어·서명키를 오류나 로그에 넣지 않는다. Redis serializer/parser 예외의
+검증한다. 다음 페이지는 직전 정상 응답의 `nextCursor`를 그대로 사용하며 임의로 만들거나 수정하지 않는다.
+전체 cursor·검색어·서명키를 오류나 로그에 넣지 않는다. Redis serializer/parser 예외의
 payload 포함 가능성 때문에 cause도 외부 로그에 전달하지 않는다.
 
 - RESTAURANT-013 / 410: 만료·유실·UUID 불일치·구버전/손상 세션.
 - RESTAURANT-014 / 503: 지도 세션 비활성화·서명 설정 누락/오류·Redis 읽기/쓰기/연결 장애·메모리 보호 조건 미충족.
 - RESTAURANT-015 / 503: DB 조회/transaction 장애.
-- RESTAURANT-016 / 503: snapshot bytes·전체 예약·세션 수·전역 호출 한도 초과.
+- RESTAURANT-016 / 503: 인스턴스 동시 실행·후보 수·snapshot bytes·전체 예약·세션 수·호출자 cardinality·전역 호출 한도 초과.
 - RESTAURANT-022 / 429: 호출자별 신규/전체 요청 한도 초과. 분 단위로 회복하므로 최대 60초 기다린 뒤 재시도한다.
 - 기존 011/012/017/018은 #223 의미를 유지한다.
 

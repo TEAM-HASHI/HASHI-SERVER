@@ -21,8 +21,8 @@ import org.sopt.hashi.restaurant.dto.RestaurantStoreInformationResponse.PriceRan
 public record RestaurantMapPageResponse(
         @Schema(description = "현재 페이지의 식당 카드 겸 핀 데이터. 유효한 결과가 없어도 빈 배열이며 최대 10개")
         List<MapCardResponse> content,
-        @Schema(description = "다음 페이지 cursor. hasNext=false이면 응답에서 생략",
-                example = "AQEj5FZ-ibEtOkVkJmFBdAAAAAAQ")
+        @Schema(description = "다음 페이지에 그대로 전달할 72자 cursor. hasNext=false이면 응답에서 생략",
+                example = "AhI-RWfomxLTpFZCZhQXQAAAAAAACso6YZT4UYYs1U4g1RUyPn-6Z318IrJMCmUuvhgmPhvW")
         String nextCursor,
         @Schema(description = "다음 유효 후보 페이지 존재 여부", example = "true")
         boolean hasNext,

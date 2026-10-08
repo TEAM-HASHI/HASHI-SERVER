@@ -33,6 +33,7 @@ import org.sopt.hashi.shared.error.CommonErrorCode;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.dao.DataAccessException;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Isolation;
 import org.springframework.transaction.annotation.Transactional;
 
 @Slf4j
@@ -84,6 +85,7 @@ public class RestaurantMapService {
     }
 
     /** capacity는 후속 세션 담당자가 측정해 전달한다. 초과 후보 목록은 반환하지 않는다. */
+    @Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ)
     public CandidateSnapshot findCandidates(MapSearchCriteria criteria, int capacity) {
         if (capacity < 1 || capacity == Integer.MAX_VALUE) {
             throw new IllegalArgumentException("후보 상한은 1 이상이고 상한 + 1을 조회할 수 있어야 합니다");
