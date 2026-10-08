@@ -181,6 +181,51 @@ class LocationJobMySqlTest {
     }
 
     @Test
+    void 같은_명시base를_유지한_표시주소와_층수_수정은_좌표_revision과_진행중job을_보존한다() {
+        var created = restaurants.createByAdmin(createCommandWithGeocodingAddress());
+        Long id = created.restaurantId();
+        Claim inFlight = transactions.claim(target(id)).orElseThrow();
+        long jobCount = jobs.count();
+        String nextDisplayAddress = created.address().replace("1F", "2F");
+
+        var pending = restaurants.updateByAdmin(id,
+                addressAndGeocodingAddressCommand(nextDisplayAddress, LocationAdoptionPolicyTest.ADDRESS));
+
+        assertThat(pending.addressRevision()).isEqualTo(1);
+        assertThat(pending.address()).isEqualTo(nextDisplayAddress);
+        assertThat(pending.geocodingAddress()).isEqualTo(LocationAdoptionPolicyTest.ADDRESS);
+        assertThat(jobs.count()).isEqualTo(jobCount);
+        assertThat(transactions.complete(inFlight, ready())).isTrue();
+        var locationBefore = readLocation(id);
+
+        var ready = restaurants.updateByAdmin(id,
+                addressAndGeocodingAddressCommand(nextDisplayAddress.replace("2F", "3F"),
+                        LocationAdoptionPolicyTest.ADDRESS));
+
+        assertThat(ready.addressRevision()).isEqualTo(1);
+        assertThat(ready.locationStatus()).isEqualTo("READY");
+        assertThat(jobs.count()).isEqualTo(jobCount);
+        assertThat(readLocation(id).getCoordinates()).isEqualTo(locationBefore.getCoordinates());
+    }
+
+    @Test
+    void 명시base가_있던_legacy_표시주소수정은_base를_지우고_옛job을_막아_새입력으로_재확인한다() {
+        var created = restaurants.createByAdmin(createCommandWithGeocodingAddress());
+        Long id = created.restaurantId();
+        Claim old = transactions.claim(target(id)).orElseThrow();
+        String nextDisplayAddress = "東京都試験区別町4-5-6 架空ビル 2F";
+
+        var changed = restaurants.updateByAdmin(id, addressCommand(nextDisplayAddress));
+
+        assertThat(changed.addressRevision()).isEqualTo(2);
+        assertThat(changed.geocodingAddress()).isNull();
+        assertThat(transactions.complete(old, ready())).isFalse();
+        Claim current = transactions.claim(target(id)).orElseThrow();
+        assertThat(current.geocodingAddress()).isEqualTo(changed.address());
+        assertThat(current.addressRevision()).isEqualTo(2);
+    }
+
+    @Test
     void 같은_주소_갱신의_재시도와_실패도_기존_좌표와_만료를_보존한다() {
         Long id = restaurants.createByAdmin(createCommand()).restaurantId();
         transactions.complete(transactions.claim(target(id)).orElseThrow(), ready());
@@ -732,6 +777,11 @@ class LocationJobMySqlTest {
 
     private AdminRestaurantCommand geocodingAddressCommand(String geocodingAddress) {
         return new AdminRestaurantCommand(null, null, null, null, null, geocodingAddress,
+                null, null, null, null, null, null, null, null, null, null, null, null, null, null);
+    }
+
+    private AdminRestaurantCommand addressAndGeocodingAddressCommand(String address, String geocodingAddress) {
+        return new AdminRestaurantCommand(null, null, null, null, address, geocodingAddress,
                 null, null, null, null, null, null, null, null, null, null, null, null, null, null);
     }
 
