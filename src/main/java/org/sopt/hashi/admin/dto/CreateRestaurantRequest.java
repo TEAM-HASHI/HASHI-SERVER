@@ -39,6 +39,10 @@ public record CreateRestaurantRequest(
         @Schema(description = "주소", example = "도쿄도 도시마구 히가시이케부쿠로 1-1-1")
         @NotBlank(message = "주소는 필수입니다")
         @Size(max = 255, message = "주소는 255자 이내입니다") String address,
+        @Schema(description = "Google 위치 확인용 일본어 기본 주소(선택, 건물명·층·호실 제외)",
+                example = "東京都豊島区東池袋1-1-1")
+        @Pattern(regexp = "(?s).*[^\\s\\p{Z}].*", message = "위치 확인용 주소는 공백일 수 없습니다")
+        @Size(max = 255, message = "위치 확인용 주소는 255자 이내입니다") String geocodingAddress,
         @Schema(description = "지역", example = "이케부쿠로")
         @NotBlank(message = "지역은 필수입니다")
         @Size(max = 20, message = "지역은 20자 이내입니다") String area,
@@ -79,6 +83,18 @@ public record CreateRestaurantRequest(
         @NotNull(message = "영업시간은 필수입니다")
         @Size(min = 7, max = 7, message = "영업시간은 모든 요일(7개)을 포함해야 합니다")
         List<@NotNull(message = "영업시간 항목은 null일 수 없습니다") @Valid BusinessHourRequest> businessHours) {
+
+    /** geocodingAddress 도입 전 Java 호출부의 source compatibility를 유지한다. */
+    public CreateRestaurantRequest(
+            String name, String localName, String summary, String description, String address,
+            String area, String genre, String foodCategory, String placeType, String priceCurrency,
+            BigDecimal minPrice, BigDecimal maxPrice, List<String> imageKeys, List<UUID> imageAssetIds,
+            JsonNode unsupportedImages, List<MenuRequest> menus, List<String> hashtags,
+            List<String> curationTypes, List<BusinessHourRequest> businessHours) {
+        this(name, localName, summary, description, address, null, area, genre, foodCategory, placeType,
+                priceCurrency, minPrice, maxPrice, imageKeys, imageAssetIds, unsupportedImages, menus,
+                hashtags, curationTypes, businessHours);
+    }
 
     @AssertTrue(message = "식당 이미지는 imageKeys 또는 imageAssetIds 중 하나만 필요합니다")
     @JsonIgnore

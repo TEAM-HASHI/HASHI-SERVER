@@ -37,7 +37,7 @@ class RestaurantMapMigrationTest {
     }
 
     @Test
-    void 기존_활성_삭제_식당과_하위_데이터는_보존하고_위치와_지역을_자동_생성하지_않는다() {
+    void 기존_활성_삭제_식당과_하위_데이터를_보존하고_V39_1은_명시주소를_null로_추가한다() {
         jdbc.update("""
                 INSERT INTO restaurant (id, name, local_name, summary, description, address, area,
                     genre, food_category, place_type, price_currency, price_min, price_max,
@@ -75,11 +75,26 @@ class RestaurantMapMigrationTest {
         assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM restaurant_location", Integer.class)).isZero();
         assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM map_region", Integer.class)).isZero();
         assertThat(migration.validateWithResult().validationSuccessful).isTrue();
-        validateUpgradedSchema();
         jdbc.update("UPDATE restaurant SET map_region_id=123 WHERE id=1");
         assertThat(migration.migrate().migrationsExecuted).isZero();
         assertThat(jdbc.queryForObject("SELECT map_region_id FROM restaurant WHERE id=1", Long.class))
                 .isEqualTo(123L);
+
+        Flyway jobs = flyway("39");
+        assertThat(jobs.migrate().migrationsExecuted).isEqualTo(1);
+        Flyway geocodingAddress = flyway("39.1");
+        assertThat(geocodingAddress.migrate().migrationsExecuted).isEqualTo(1);
+        assertThat(jdbc.queryForList("SELECT address FROM restaurant ORDER BY id"))
+                .extracting(row -> row.get("address"))
+                .containsExactly("synthetic address", "old address");
+        assertThat(jdbc.queryForObject(
+                "SELECT COUNT(*) FROM restaurant WHERE geocoding_address IS NOT NULL", Integer.class)).isZero();
+        jdbc.update("UPDATE restaurant SET geocoding_address='東京都千代田区丸の内1-9-1' WHERE id=1");
+        assertThat(jdbc.queryForObject("SELECT geocoding_address FROM restaurant WHERE id=1", String.class))
+                .isEqualTo("東京都千代田区丸の内1-9-1");
+        assertThat(geocodingAddress.validateWithResult().validationSuccessful).isTrue();
+        assertThat(geocodingAddress.migrate().migrationsExecuted).isZero();
+        validateUpgradedSchema();
     }
 
     @Test
