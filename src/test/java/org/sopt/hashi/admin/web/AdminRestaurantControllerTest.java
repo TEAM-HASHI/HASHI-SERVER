@@ -1,5 +1,8 @@
 package org.sopt.hashi.admin.web;
 
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -8,6 +11,8 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
+import org.sopt.hashi.admin.dto.UpdateRestaurantRequest;
 import org.sopt.hashi.admin.service.AdminRestaurantService;
 import org.sopt.hashi.auth.internal.onboarding.OnboardingJwtIssuer;
 import org.sopt.hashi.auth.internal.security.JwtAuthenticationFilter;
@@ -95,5 +100,18 @@ class AdminRestaurantControllerTest {
                 .andExpect(jsonPath("$.code").value("COMMON-400"));
 
         verifyNoInteractions(adminRestaurantService);
+    }
+
+    @Test
+    void 수정의_공백_위치확인주소를_override_삭제_요청으로_전달한다() throws Exception {
+        mockMvc.perform(patch("/api/v1/admin/restaurants/{restaurantId}", 1L)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"geocodingAddress\":\" \\u3000 \"}"))
+                .andExpect(status().isOk());
+
+        ArgumentCaptor<UpdateRestaurantRequest> request =
+                ArgumentCaptor.forClass(UpdateRestaurantRequest.class);
+        verify(adminRestaurantService).update(eq(1L), request.capture());
+        assertThat(request.getValue().geocodingAddress()).isEqualTo(" \u3000 ");
     }
 }

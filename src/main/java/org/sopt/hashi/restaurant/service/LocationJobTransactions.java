@@ -104,7 +104,7 @@ public class LocationJobTransactions {
         restaurant.retryLocationWhenDue(at(now));
         job.claim(restaurant.getLocation().getRequestId(), now, now.plus(LocationJobProperties.LEASE));
         return Optional.of(new Claim(restaurant.getId(), job.getId(), job.getAddressRevision(), job.getRequestId(),
-                job.getLeaseToken(), job.getLeaseUntil(), now, restaurant.getAddress()));
+                job.getLeaseToken(), job.getLeaseUntil(), now, restaurant.geocodingAddressForResolution()));
     }
 
     @Transactional(propagation = Propagation.REQUIRES_NEW, isolation = Isolation.READ_COMMITTED)
@@ -177,7 +177,7 @@ public class LocationJobTransactions {
     }
 
     public record Claim(Long restaurantId, Long jobId, long addressRevision, UUID requestId, UUID leaseToken,
-                        LocalDateTime leaseUntil, LocalDateTime obtainedAt, String address) {
+                        LocalDateTime leaseUntil, LocalDateTime obtainedAt, String geocodingAddress) {
         @Override
         public String toString() {
             return "LocationClaim[restaurantId=" + restaurantId + ",jobId=" + jobId + "]";

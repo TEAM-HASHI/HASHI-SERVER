@@ -45,7 +45,7 @@ public class RestaurantLocationWorker {
         var claim = claimed.orElseThrow();
         GeocodingResult result;
         try {
-            result = provider.geocode(claim.address());
+            result = provider.geocode(claim.geocodingAddress());
         } catch (RuntimeException exception) {
             // No provider message/cause is logged or retained. Unknown transmission is not refunded.
             log.warn("Location worker failure operation=location-provider-call exceptionType={}",
@@ -54,7 +54,7 @@ public class RestaurantLocationWorker {
         }
         Outcome outcome = switch (result) {
             case Candidates candidates -> {
-                var decision = adoption.evaluate(claim.address(), candidates);
+                var decision = adoption.evaluate(claim.geocodingAddress(), candidates);
                 yield new Outcome(decision.coordinates(), null, decision.failureCode());
             }
             case GeocodingResult.NoResults ignored -> new Outcome(null, null, "NO_RESULTS");
