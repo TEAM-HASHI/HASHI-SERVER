@@ -10,10 +10,16 @@ import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
+import org.sopt.hashi.restaurant.domain.RestaurantLocationJob.Operation;
 
 public interface RestaurantLocationJobRepository extends JpaRepository<RestaurantLocationJob, Long> {
 
     Optional<RestaurantLocationJob> findByRestaurantIdAndRequestId(Long restaurantId, UUID requestId);
+
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("select j from RestaurantLocationJob j where j.restaurantId = :restaurantId and j.requestId = :requestId")
+    Optional<RestaurantLocationJob> findCurrentForUpdate(@Param("restaurantId") Long restaurantId,
+                                                         @Param("requestId") UUID requestId);
 
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("select j from RestaurantLocationJob j where j.id = :id")
@@ -28,18 +34,20 @@ public interface RestaurantLocationJobRepository extends JpaRepository<Restauran
 
     @Query("""
             select j from RestaurantLocationJob j
-            where (j.state = 'PENDING' and (j.reservedUntil is null or j.reservedUntil <= :now))
+            where j.operation = :operation and (
+               (j.state = 'PENDING' and (j.reservedUntil is null or j.reservedUntil <= :now))
                or (j.state = 'RETRY_WAIT' and j.nextAttemptAt <= :now
                     and (j.reservedUntil is null or j.reservedUntil <= :now))
-               or (j.state = 'LEASED' and j.leaseUntil <= :now)
+               or (j.state = 'LEASED' and j.leaseUntil <= :now))
             order by j.nextAttemptAt, j.id
             """)
-    List<RestaurantLocationJob> findDue(@Param("now") LocalDateTime now, Pageable pageable);
+    List<RestaurantLocationJob> findDue(@Param("now") LocalDateTime now,
+                                        @Param("operation") Operation operation, Pageable pageable);
 
     /** Budget pauses must not hide cleanup behind ordinary jobs that cannot make a call. */
     @Query("""
             select j from RestaurantLocationJob j
-            where j.attempt >= :maxAttempts and (
+            where j.operation = :operation and j.attempt >= :maxAttempts and (
                 (j.state = 'PENDING' and (j.reservedUntil is null or j.reservedUntil <= :now))
                 or (j.state = 'RETRY_WAIT' and j.nextAttemptAt <= :now
                     and (j.reservedUntil is null or j.reservedUntil <= :now))
@@ -47,8 +55,9 @@ public interface RestaurantLocationJobRepository extends JpaRepository<Restauran
             order by j.nextAttemptAt, j.id
             """)
     List<RestaurantLocationJob> findDueExhausted(@Param("now") LocalDateTime now,
-                                               @Param("maxAttempts") int maxAttempts, Pageable pageable);
+                                               @Param("maxAttempts") int maxAttempts,
+                                               @Param("operation") Operation operation, Pageable pageable);
 
-    @Query("select count(j) from RestaurantLocationJob j where j.reservedUntil > :now")
-    long countReservations(@Param("now") LocalDateTime now);
+    @Query("select count(j) from RestaurantLocationJob j where j.operation = :operation and j.reservedUntil > :now")
+    long countReservations(@Param("now") LocalDateTime now, @Param("operation") Operation operation);
 }

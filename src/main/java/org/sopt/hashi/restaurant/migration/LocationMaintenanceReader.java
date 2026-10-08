@@ -69,8 +69,12 @@ public class LocationMaintenanceReader {
             if (!validUntil.isAfter(asOf)) {
                 return "EXPIRED";
             }
-            return "GOOGLE_GEOCODING".equals(source) && !validUntil.isAfter(refreshBefore)
+            return isGoogleSource() && !validUntil.isAfter(refreshBefore)
                     ? "REFRESH_DUE" : "VALID";
+        }
+
+        boolean isGoogleSource() {
+            return "GOOGLE_GEOCODING".equals(source) || "GOOGLE_PLACES".equals(source);
         }
     }
 }

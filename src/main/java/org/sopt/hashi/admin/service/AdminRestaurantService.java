@@ -5,7 +5,11 @@ import org.sopt.hashi.admin.dto.AdminRestaurantResponse;
 import org.sopt.hashi.admin.dto.CreateRestaurantRequest;
 import org.sopt.hashi.admin.dto.UpdateRestaurantRequest;
 import org.sopt.hashi.admin.dto.RestaurantLocationResponse;
+import org.sopt.hashi.admin.dto.RestaurantLocationReviewListResponse;
 import org.sopt.hashi.admin.dto.RetryRestaurantLocationRequest;
+import org.sopt.hashi.admin.dto.RestaurantPlacesSearchResponse;
+import org.sopt.hashi.admin.dto.SearchRestaurantPlacesRequest;
+import org.sopt.hashi.admin.dto.SelectRestaurantPlaceRequest;
 import org.sopt.hashi.restaurant.AdminRestaurantCommand;
 import org.sopt.hashi.restaurant.AdminRestaurantCommand.BusinessHourCommand;
 import org.sopt.hashi.restaurant.AdminRestaurantCommand.ImageCommand;
@@ -45,6 +49,24 @@ public class AdminRestaurantService {
     public RestaurantLocationResponse retryLocation(Long restaurantId, RetryRestaurantLocationRequest request) {
         return RestaurantLocationResponse.from(
                 restaurantPort.retryLocationByAdmin(restaurantId, request.expectedAddressRevision()));
+    }
+
+    public RestaurantLocationReviewListResponse findLocationReviews(
+            String status, String source, Long cursor, int size) {
+        return RestaurantLocationReviewListResponse.from(
+                restaurantPort.findLocationReviewsByAdmin(status, source, cursor, size));
+    }
+
+    public RestaurantPlacesSearchResponse searchLocationPlaces(
+            Long restaurantId, SearchRestaurantPlacesRequest request) {
+        return RestaurantPlacesSearchResponse.from(restaurantPort.searchLocationPlacesByAdmin(
+                restaurantId, request.expectedAddressRevision()));
+    }
+
+    public RestaurantLocationResponse selectLocationPlace(
+            Long restaurantId, SelectRestaurantPlaceRequest request) {
+        return RestaurantLocationResponse.from(restaurantPort.selectLocationPlaceByAdmin(
+                restaurantId, request.expectedAddressRevision(), request.selectionToken()));
     }
 
     private AdminRestaurantCommand toCommand(CreateRestaurantRequest request) {

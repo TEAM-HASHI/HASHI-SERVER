@@ -117,6 +117,12 @@ CLOUDFRONT_DOMAIN
 CORS_ALLOWED_ORIGINS
 CORS_ALLOWED_ORIGIN_PATTERNS
 
+HASHI_MAP_GOOGLE_PLACES_ENABLED
+HASHI_MAP_GOOGLE_PLACES_API_KEY
+HASHI_MAP_PLACES_SELECTION_ENABLED
+HASHI_MAP_PLACES_SELECTION_SIGNING_KEY
+HASHI_MAP_PLACES_SELECTION_TOKEN_TTL
+
 GRAFANA_ADMIN_PASSWORD
 ```
 
@@ -162,6 +168,22 @@ CORS_ALLOWED_ORIGIN_PATTERNS=https://hashi-client-*-<vercel-team-slug>.vercel.ap
 
 크리덴셜을 포함한 요청을 허용하므로 `https://*.vercel.app`처럼 다른 프로젝트까지 포함하는
 넓은 패턴은 사용하지 않는다.
+
+Google Places 관리자 위치 검토 기능은 기본적으로 꺼져 있다. 활성화 준비 시 아래 값을 서버 환경 파일에
+설정하되, 애플리케이션 설정과 DB의 `SEARCH`, `DETAILS` 예산 행을 별도로 검토하고 활성화한다.
+
+```text
+HASHI_MAP_GOOGLE_PLACES_ENABLED=false
+HASHI_MAP_GOOGLE_PLACES_API_KEY=
+HASHI_MAP_PLACES_SELECTION_ENABLED=false
+HASHI_MAP_PLACES_SELECTION_SIGNING_KEY=
+HASHI_MAP_PLACES_SELECTION_TOKEN_TTL=10m
+```
+
+Google Cloud에서 같은 API key에 Geocoding API와 Places API (New)를 모두 허용한 경우에도
+`HASHI_MAP_GOOGLE_PLACES_API_KEY`에는 그 값을 별도로 주입한다. selection 서명키는 provider API key와
+다른 전용 비밀값이며, Base64 디코딩 후 32바이트 이상이어야 한다. 실제 key와 token은 repository,
+이슈, PR, 문서와 로그에 기록하지 않는다.
 
 다음 key는 `.env.dev`에 넣지 않는다.
 

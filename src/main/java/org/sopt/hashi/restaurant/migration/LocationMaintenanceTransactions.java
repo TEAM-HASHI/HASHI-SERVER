@@ -4,6 +4,7 @@ import java.time.Duration;
 import java.util.UUID;
 import org.sopt.hashi.restaurant.domain.Restaurant;
 import org.sopt.hashi.restaurant.domain.RestaurantLocation;
+import org.sopt.hashi.restaurant.domain.RestaurantLocationJob;
 import org.sopt.hashi.restaurant.domain.RestaurantLocationJobRepository;
 import org.sopt.hashi.restaurant.domain.RestaurantLocationSource;
 import org.sopt.hashi.restaurant.domain.RestaurantLocationStatus;
@@ -69,10 +70,17 @@ public class LocationMaintenanceTransactions {
         Long jobId = null;
         boolean eligible = restaurant != null && !restaurant.isDeleted() && eligible(restaurant.getLocation(), run);
         if (eligible && jobs.findActiveForUpdate(next).isEmpty()) {
-            if (restaurant.getLocation() != null) {
+            RestaurantLocation location = restaurant.getLocation();
+            RestaurantLocationSource source = location == null ? null : location.getSource();
+            String googlePlaceId = location == null ? null : location.getGooglePlaceId();
+            if (location != null) {
                 restaurant.refreshLocation();
             }
-            locations.enqueue(restaurant);
+            if (source == RestaurantLocationSource.GOOGLE_PLACES) {
+                jobs.save(RestaurantLocationJob.pendingDetails(restaurant, googlePlaceId, reader.now()));
+            } else {
+                locations.enqueue(restaurant);
+            }
             restaurants.flush();
             jobId = jobs.findByRestaurantIdAndRequestId(next, restaurant.getLocation().getRequestId())
                     .orElseThrow().getId();
@@ -108,7 +116,8 @@ public class LocationMaintenanceTransactions {
             return location == null;
         }
         return location != null && location.getStatus() == RestaurantLocationStatus.READY
-                && location.getSource() == RestaurantLocationSource.GOOGLE_GEOCODING
+                && (location.getSource() == RestaurantLocationSource.GOOGLE_GEOCODING
+                    || location.getSource() == RestaurantLocationSource.GOOGLE_PLACES)
                 && !location.getObtainedAt().isAfter(run.asOf())
                 && Duration.between(run.asOf(), run.refreshBefore())
                     .compareTo(Duration.between(location.getObtainedAt(), location.getValidUntil())) < 0

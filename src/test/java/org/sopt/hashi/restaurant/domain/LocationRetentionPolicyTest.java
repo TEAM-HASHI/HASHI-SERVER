@@ -7,6 +7,7 @@ import java.time.Clock;
 import java.time.Instant;
 import java.time.LocalDateTime;
 import java.time.ZoneOffset;
+import java.util.List;
 import org.junit.jupiter.api.Test;
 
 class LocationRetentionPolicyTest {
@@ -55,6 +56,26 @@ class LocationRetentionPolicyTest {
         assertThat(location.getStatus()).isEqualTo(RestaurantLocationStatus.RETRY_WAIT);
         assertThat(location.getRequestId()).isEqualTo(request);
         assertThat(location.getNextAttemptAt()).isEqualTo(next);
+    }
+
+    @Test
+    void Places_위치정리는_좌표와_Place_ID와_attribution을_함께지운다() {
+        var location = RestaurantLocation.pending();
+        var attribution = new RestaurantLocationAttribution("Google Maps", "https://maps.google.com/");
+        assertThat(location.complete(1, location.getRequestId(),
+                MapCoordinates.of(BigDecimal.TEN, BigDecimal.TEN), RestaurantLocationSource.GOOGLE_PLACES,
+                "place-retention", List.of(attribution), NOW.minusHours(1), NOW.plusHours(1), CLOCK)).isTrue();
+        var request = location.getRequestId();
+
+        assertThat(location.purgeGoogle(1, request, NOW.minusHours(1), NOW.plusHours(1),
+                NOW.plusHours(1))).isTrue();
+
+        assertThat(location.getStatus()).isEqualTo(RestaurantLocationStatus.REVIEW_REQUIRED);
+        assertThat(location.getCoordinates()).isNull();
+        assertThat(location.getSource()).isNull();
+        assertThat(location.getGooglePlaceId()).isNull();
+        assertThat(location.getPlacesAttributions()).isNull();
+        assertThat(location.getRequestId()).isEqualTo(request);
     }
 
     private RestaurantLocation ready(RestaurantLocationSource source) {

@@ -36,7 +36,7 @@ public class LocationMaintenanceInspection {
             var candidates = reader.page(cursor, upper, options.batchSize());
             for (var candidate : candidates) {
                 counts.merge(candidate.category(now, now.plus(options.refreshAhead())), 1L, Long::sum);
-                boolean google = "GOOGLE_GEOCODING".equals(candidate.source());
+                boolean google = candidate.isGoogleSource();
                 boolean eligibleRefresh = google && "READY".equals(candidate.status())
                         && !candidate.obtainedAt().isAfter(now)
                         && !candidate.validUntil().isAfter(now.plus(options.refreshAhead()))

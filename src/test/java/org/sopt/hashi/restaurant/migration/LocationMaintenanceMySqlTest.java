@@ -36,6 +36,8 @@ import org.sopt.hashi.restaurant.domain.MapCoordinates;
 import org.sopt.hashi.restaurant.domain.PriceCurrency;
 import org.sopt.hashi.restaurant.domain.Restaurant;
 import org.sopt.hashi.restaurant.domain.RestaurantGenre;
+import org.sopt.hashi.restaurant.domain.RestaurantLocationAttribution;
+import org.sopt.hashi.restaurant.domain.RestaurantLocationJob;
 import org.sopt.hashi.restaurant.domain.RestaurantLocationJobRepository;
 import org.sopt.hashi.restaurant.domain.RestaurantLocationSource;
 import org.sopt.hashi.restaurant.domain.RestaurantLocationStatus;
@@ -50,11 +52,16 @@ import org.sopt.hashi.restaurant.internal.map.LocationRetentionScheduler;
 import org.sopt.hashi.restaurant.internal.map.LocationRetentionService;
 import org.sopt.hashi.restaurant.internal.map.LocationRetentionTransactions;
 import org.sopt.hashi.restaurant.internal.map.RestaurantLocationWorker;
+import org.sopt.hashi.restaurant.internal.map.places.GooglePlacesProperties;
+import org.sopt.hashi.restaurant.internal.map.places.PlaceDetailsResult;
+import org.sopt.hashi.restaurant.internal.map.places.PlacesProvider;
+import org.sopt.hashi.restaurant.internal.map.places.PlacesSearchResult;
 import org.sopt.hashi.restaurant.migration.LocationMaintenanceProperties.Command;
 import org.sopt.hashi.restaurant.migration.LocationMaintenanceProperties.Mode;
 import org.sopt.hashi.restaurant.service.LocationAdoptionPolicy;
 import org.sopt.hashi.restaurant.service.LocationJobTransactions;
 import org.sopt.hashi.restaurant.service.LocationRetryPolicy;
+import org.sopt.hashi.restaurant.service.PlacesCandidatePolicy;
 import org.sopt.hashi.restaurant.service.RestaurantLocationService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.jdbc.AutoConfigureTestDatabase;
@@ -84,6 +91,7 @@ import org.testcontainers.junit.jupiter.Testcontainers;
         LocationMaintenanceInspection.class, LocationMaintenanceRunner.class, LocationRetentionService.class,
         LocationRetentionTransactions.class, RestaurantLocationService.class, LocationJobTransactions.class,
         RestaurantLocationWorker.class, LocationRetryPolicy.class, LocationAdoptionPolicy.class,
+        PlacesCandidatePolicy.class,
         TimeConfig.class, LocationMaintenanceMySqlTest.Fixtures.class})
 @TestPropertySource(properties = {"spring.jpa.hibernate.ddl-auto=validate", "spring.flyway.enabled=true",
         "spring.jpa.properties.hibernate.generate_statistics=true"})
@@ -139,10 +147,18 @@ class LocationMaintenanceMySqlTest {
         jdbc.update("DELETE FROM restaurant_location_maintenance_run");
         jdbc.update("DELETE FROM restaurant_location_job");
         // Keep prior parent/child fixture rows; make them ineligible for this case's retention scan.
-        jdbc.update("UPDATE restaurant_location SET source='ADMIN' WHERE source IS NOT NULL");
+        jdbc.update("""
+                UPDATE restaurant_location SET source='ADMIN', google_place_id=NULL, places_attributions=NULL
+                WHERE source IS NOT NULL
+                """);
         jdbc.update("""
                 UPDATE restaurant_geocoding_budget SET enabled=true, daily_limit=1000, max_concurrent=4,
                     reserved_calls=0, budget_day=NULL, blocked_until=NULL WHERE id=1
+                """);
+        jdbc.update("""
+                UPDATE restaurant_places_budget SET enabled=false, daily_limit=100, minute_limit=10,
+                    budget_day=NULL, daily_used=0, minute_window_start=NULL, minute_used=0,
+                    blocked_until=NULL
                 """);
         after = reader.upperId();
         provider.calls.set(0);
@@ -784,6 +800,79 @@ class LocationMaintenanceMySqlTest {
     }
 
     @Test
+    void Places_위치는_같은_Place_ID의_DETAILS로_갱신하고_출처와_attribution을_유지한다() {
+        long id = readyPlaces(Duration.ofHours(3), false);
+        var options = options(Command.START, Mode.REFRESH, true, UUID.randomUUID(), id, 10, 80);
+
+        runner.execute(options);
+        assertThat(maintenance.status(options.runId()).registration().enqueued()).isEqualTo(1);
+        RestaurantLocationJob job = currentJob(id);
+        assertThat(job.getOperation()).isEqualTo(RestaurantLocationJob.Operation.PLACE_DETAILS);
+        assertThat(job.getGooglePlaceId()).isEqualTo("place-" + id);
+        openDetailsBudget();
+        var claim = workerTransactions.claim(new LocationJobTransactions.Target(id, job.getId())).orElseThrow();
+        assertThat(workerTransactions.completePlaces(claim, new LocationJobTransactions.PlacesOutcome(
+                point(), "place-" + id, List.of(attribution()), null, null))).isTrue();
+
+        tx.executeWithoutResult(status -> {
+            var location = restaurants.findById(id).orElseThrow().getLocation();
+            assertThat(location.getStatus()).isEqualTo(RestaurantLocationStatus.READY);
+            assertThat(location.getSource()).isEqualTo(RestaurantLocationSource.GOOGLE_PLACES);
+            assertThat(location.getGooglePlaceId()).isEqualTo("place-" + id);
+            assertThat(location.getPlacesAttributions()).containsExactly(attribution());
+            assertThat(location.getCoordinates()).isEqualTo(point());
+        });
+    }
+
+    @Test
+    void 만료된_Places_accepted_tuple을_지워도_DETAILS작업과_Place_ID는_재시도에_보존한다() {
+        long id = readyPlaces(Duration.ofSeconds(-1), false);
+        jdbc.update("UPDATE restaurant_location l JOIN restaurant r ON r.location_id=l.id "
+                + "SET l.obtained_at=UTC_TIMESTAMP(6)-INTERVAL 10 DAY WHERE r.id=?", id);
+        var policy = new org.sopt.hashi.restaurant.internal.map.LocationRetentionProperties(
+                null, null, null, null, false, null);
+        assertThat(retention.refresh(policy)).isEqualTo(1);
+        RestaurantLocationJob original = currentJob(id);
+        openDetailsBudget();
+        var claim = workerTransactions.claim(new LocationJobTransactions.Target(id, original.getId())).orElseThrow();
+        assertThat(workerTransactions.completePlaces(claim,
+                LocationJobTransactions.PlacesOutcome.failure(GeocodingResult.FailureKind.TRANSIENT_ERROR))).isTrue();
+
+        assertThat(retention.purge(policy).purged()).isEqualTo(1);
+        assertCleared(id, "RETRY_WAIT");
+        RestaurantLocationJob preserved = jobs.findById(original.getId()).orElseThrow();
+        assertThat(preserved.getOperation()).isEqualTo(RestaurantLocationJob.Operation.PLACE_DETAILS);
+        assertThat(preserved.getGooglePlaceId()).isEqualTo("place-" + id);
+
+        locations.retry(id, locations.get(id).addressRevision());
+        RestaurantLocationJob retry = currentJob(id);
+        assertThat(retry.getId()).isNotEqualTo(original.getId());
+        assertThat(retry.getOperation()).isEqualTo(RestaurantLocationJob.Operation.PLACE_DETAILS);
+        assertThat(retry.getGooglePlaceId()).isEqualTo("place-" + id);
+    }
+
+    @Test
+    void BACKFILL은_선택된_Places_DETAILS작업을_geocoding으로_덮어쓰지않는다() {
+        long id = original();
+        tx.executeWithoutResult(status -> {
+            Restaurant restaurant = restaurants.findByIdForUpdate(id).orElseThrow();
+            restaurant.requestLocationResolution();
+            restaurant.selectPlaceForLocation();
+            jobs.save(RestaurantLocationJob.pendingDetails(restaurant, "selected-place", reader.now()));
+        });
+
+        var options = options(Command.START, Mode.BACKFILL, true, UUID.randomUUID(), id, 10, 80);
+        runner.execute(options);
+
+        assertThat(maintenance.status(options.runId()).registration().enqueued()).isZero();
+        assertThat(count("restaurant_location_job")).isEqualTo(1);
+        RestaurantLocationJob selected = currentJob(id);
+        assertThat(selected.getOperation()).isEqualTo(RestaurantLocationJob.Operation.PLACE_DETAILS);
+        assertThat(selected.getGooglePlaceId()).isEqualTo("selected-place");
+        assertThat(provider.calls.get()).isZero();
+    }
+
+    @Test
     void 알림집계는_현재작업만_세고_주소나식당ID를_label에_노출하지않는다() {
         long id = original();
         enqueue(id);
@@ -792,8 +881,9 @@ class LocationMaintenanceMySqlTest {
         worker.process(target);
         var registry = new io.micrometer.core.instrument.simple.SimpleMeterRegistry();
         var metrics = new org.sopt.hashi.restaurant.internal.map.LocationMaintenanceMetrics(jdbc, registry,
-                new Fixtures().jobs(), new org.sopt.hashi.restaurant.internal.map.LocationRetentionProperties(
-                        null, null, null, null, false, null));
+                new Fixtures().jobs(), new GooglePlacesProperties(true, "test-key", null, null, null),
+                new org.sopt.hashi.restaurant.internal.map.LocationRetentionProperties(
+                    null, null, null, null, false, null));
         metrics.refresh();
         assertThat(registry.get("hashi.map.maintenance.issues").tag("reason", "access_denied").gauge().value()).isEqualTo(1);
         locations.retry(id, locations.get(id).addressRevision());
@@ -810,6 +900,31 @@ class LocationMaintenanceMySqlTest {
         jdbc.update("UPDATE restaurant_geocoding_budget SET blocked_until=UTC_TIMESTAMP(6)+INTERVAL 1 HOUR WHERE id=1");
         metrics.refresh();
         assertThat(registry.get("hashi.map.maintenance.issues").tag("reason", "stalled").gauge().value()).isZero();
+        jdbc.update("UPDATE restaurant_location_job SET operation='PLACE_DETAILS', google_place_id='metric-place' "
+                + "WHERE id=?", target(id).jobId());
+        jdbc.update("""
+                UPDATE restaurant_places_budget SET enabled=true, daily_limit=100, minute_limit=10,
+                    budget_day=UTC_DATE(), daily_used=0,
+                    minute_window_start=DATE_FORMAT(UTC_TIMESTAMP(6), '%Y-%m-%d %H:%i:00'), minute_used=0,
+                    blocked_until=NULL WHERE operation='DETAILS'
+                """);
+        metrics.refresh();
+        assertThat(registry.get("hashi.map.maintenance.issues").tag("reason", "stalled").gauge().value()).isEqualTo(1);
+        jdbc.update("""
+                UPDATE restaurant_places_budget SET minute_used=minute_limit WHERE operation='DETAILS'
+                """);
+        metrics.refresh();
+        assertThat(registry.get("hashi.map.maintenance.issues").tag("reason", "stalled").gauge().value()).isZero();
+        var disabledRegistry = new io.micrometer.core.instrument.simple.SimpleMeterRegistry();
+        var disabledMetrics = new org.sopt.hashi.restaurant.internal.map.LocationMaintenanceMetrics(
+                jdbc, disabledRegistry, new Fixtures().jobs(),
+                new GooglePlacesProperties(false, null, null, null, null),
+                new org.sopt.hashi.restaurant.internal.map.LocationRetentionProperties(
+                    null, null, null, null, false, null));
+        jdbc.update("UPDATE restaurant_places_budget SET minute_used=0 WHERE operation='DETAILS'");
+        disabledMetrics.refresh();
+        assertThat(disabledRegistry.get("hashi.map.maintenance.issues").tag("reason", "stalled")
+                .gauge().value()).isZero();
         assertThat(registry.get("hashi.map.maintenance.issues").tag("reason", "refresh_window_invalid").gauge().value()).isEqualTo(1);
         jdbc.update("UPDATE restaurant_location_job SET state='FAILED', failure_code='CONFIGURATION_ERROR' WHERE id=?", target(id).jobId());
         metrics.refresh();
@@ -856,6 +971,25 @@ class LocationMaintenanceMySqlTest {
         return id;
     }
 
+    private long readyPlaces(Duration remaining, boolean deleted) {
+        long id = original();
+        tx.executeWithoutResult(status -> {
+            var restaurant = restaurants.findByIdForUpdate(id).orElseThrow();
+            restaurant.requestLocationResolution();
+            var now = reader.now();
+            var location = restaurant.getLocation();
+            restaurant.completePlacesLocation(location.getAddressRevision(), location.getRequestId(), point(),
+                    "place-" + id, List.of(attribution()), now.minusDays(1), now.plusDays(4), clock(now));
+            if (deleted) {
+                restaurant.softDelete();
+            }
+        });
+        jdbc.update("""
+                UPDATE restaurant_location l JOIN restaurant r ON r.location_id=l.id SET l.valid_until=? WHERE r.id=?
+                """, LocationMaintenanceReader.sqlTime(reader.now().plus(remaining)), id);
+        return id;
+    }
+
     private void enqueue(long id) {
         tx.executeWithoutResult(status -> locations.enqueue(restaurants.findByIdForUpdate(id).orElseThrow()));
     }
@@ -872,6 +1006,21 @@ class LocationMaintenanceMySqlTest {
         });
     }
 
+    private RestaurantLocationJob currentJob(long id) {
+        return tx.execute(status -> {
+            var location = restaurants.findById(id).orElseThrow().getLocation();
+            return jobs.findByRestaurantIdAndRequestId(id, location.getRequestId()).orElseThrow();
+        });
+    }
+
+    private void openDetailsBudget() {
+        jdbc.update("""
+                UPDATE restaurant_places_budget SET enabled=true, daily_limit=100, minute_limit=10,
+                    budget_day=NULL, daily_used=0, minute_window_start=NULL, minute_used=0,
+                    blocked_until=NULL WHERE operation='DETAILS'
+                """);
+    }
+
     private void makeDue(long id) {
         jdbc.update("UPDATE restaurant_location_job SET next_attempt_at=UTC_TIMESTAMP(6)-INTERVAL 1 SECOND WHERE restaurant_id=?", id);
         jdbc.update("""
@@ -882,11 +1031,13 @@ class LocationMaintenanceMySqlTest {
 
     private void assertCleared(long id, String state) {
         Map<String, Object> row = jdbc.queryForMap("""
-                SELECT l.status, l.latitude, l.longitude, l.source, l.obtained_at, l.valid_until
+                SELECT l.status, l.latitude, l.longitude, l.source, l.google_place_id,
+                    l.places_attributions, l.obtained_at, l.valid_until
                 FROM restaurant r JOIN restaurant_location l ON l.id=r.location_id WHERE r.id=?
                 """, id);
         assertThat(row.get("status")).isEqualTo(state);
-        for (String column : List.of("latitude", "longitude", "source", "obtained_at", "valid_until")) {
+        for (String column : List.of("latitude", "longitude", "source", "google_place_id",
+                "places_attributions", "obtained_at", "valid_until")) {
             assertThat(row.get(column)).as(column).isNull();
         }
     }
@@ -923,6 +1074,10 @@ class LocationMaintenanceMySqlTest {
     private static Clock clock(LocalDateTime now) { return Clock.fixed(now.toInstant(ZoneOffset.UTC), ZoneOffset.UTC); }
     private static MapCoordinates point() { return MapCoordinates.of(new BigDecimal("10.5"), new BigDecimal("20.5")); }
 
+    private static RestaurantLocationAttribution attribution() {
+        return new RestaurantLocationAttribution("Google Maps", "https://maps.google.com/");
+    }
+
     private static GeocodingCandidate candidate() {
         var components = List.of(component("日本", "JP", "country"),
                 component("東京都", "東京都", "administrative_area_level_1"), component("試験区", "試験区", "locality"),
@@ -952,5 +1107,18 @@ class LocationMaintenanceMySqlTest {
                     new BigDecimal("20"), new BigDecimal("21"), 8);
         }
         @Bean FakeProvider provider() { return new FakeProvider(); }
+        @Bean PlacesProvider placesProvider() {
+            return new PlacesProvider() {
+                @Override
+                public PlacesSearchResult search(String query) {
+                    return new PlacesSearchResult.Failure(GeocodingResult.FailureKind.DISABLED, null);
+                }
+
+                @Override
+                public PlaceDetailsResult details(String placeId) {
+                    return new PlaceDetailsResult.Failure(GeocodingResult.FailureKind.DISABLED, null);
+                }
+            };
+        }
     }
 }

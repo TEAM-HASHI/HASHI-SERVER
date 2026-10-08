@@ -22,7 +22,8 @@ Google의 위치 확인 성공을 뜻하지 않는다.
 - `POST /api/v1/admin/restaurants/{id}/location/retry`: body `{"expectedAddressRevision":1}`,
   200 `COMMON-200`. 누락/음수 revision은 400, 현재 revision 불일치/READY는 409 `RESTAURANT-019`.
 - 두 경로 모두 기존 SecurityFilterChain의 ADMIN 권한을 사용한다. 삭제/없는 식당은 `RESTAURANT-004`.
-- 상태 응답: `restaurantId`, `locationStatus`, `addressRevision`, `validUntil`, `attempt`,
+- 시설 후보 검색과 선택, Place ID 결합, 별도 SEARCH/DETAILS 예산은 [Places 후보 선택](place-selection.md)을 따른다.
+- 상태 응답: `restaurantId`, `locationStatus`, `addressRevision`, `source`, `verificationMode`, `validUntil`, `attempt`,
   `nextAttemptAt`, `failureCode`, `canRetry`. 시각은 UTC ISO-8601, Cache-Control은 no-store.
 - UNRESOLVED의 revision은 0, attempt는 0이다. PENDING 재처리는 기존 작업을 반환한다.
   READY는 갱신 API 범위이며 일반 재처리로 받지 않는다. 좌표/주소/provider 원문/lease는 반환하지 않는다.
@@ -109,7 +110,7 @@ worker를 켰으나 지원 범위/보관 기간이 없거나 유효하지 않으
   새 결과가 검증되면 교체하고, 주소가 바뀌면 즉시 제거한다. 재시도나 실패만으로 만료 시각을 늘리지 않는다.
 - 자동 시도 기본값을 4회에서 최초 요청 포함 8회로 바꿨다. 일정은 위 표를 따르며 오류가 영구적이면 즉시 중단한다.
 - 마지막 취소 응답도 재시도 대기에 남기지 않고 실패로 끝낸다. 전송 중인 요청의 실행 예약은 lease까지 남겨 중복 호출을 막는다.
-- 정기 갱신 스케줄과 Grafana 알림은 #235에서 연결한다. 위치 V38, 작업 V39 다음에
-  선택 위치 확인 주소 V39.1을 적용한다. develop에 병합된 V32·V36·V36.1·V37과 다른 담당자의 PR은 수정하지 않는다.
+- 정기 갱신 스케줄과 Grafana 알림은 #235에서 연결한다. 위치 V38, 작업 V39, 선택 위치 확인 주소 V39.1,
+  Places 결합 V39.2 순서로 적용한다. develop에 병합된 V32·V36·V36.1·V37과 다른 담당자의 PR은 수정하지 않는다.
 - 전역 호출 중단·일일 한도 소진·공유 대기·실행 슬롯 포화는 후보 조회 전에 읽기 전용으로 확인한다. 실제 예약 시에는 잠금 안에서 다시 검사한다.
   다만 이미 시도를 소진한 만료 작업과 설정 오류는 Google 호출 없이 실패로 정리한다. 호출 대기 작업이 많아도 소진 작업이 밀리지 않도록 별도로 조회한다.
