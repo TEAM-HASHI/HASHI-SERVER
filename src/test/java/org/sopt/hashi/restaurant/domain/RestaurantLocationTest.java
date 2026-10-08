@@ -107,6 +107,21 @@ class RestaurantLocationTest {
         assertThat(restaurant.getLocation().getAddressRevision()).isEqualTo(2);
     }
 
+    @Test
+    void 같은_위치확인주소를_유지한_표시주소_수정은_진행중요청을_보존한다() {
+        String base = "東京都試験区架空町1丁目2番3号";
+        Restaurant restaurant = restaurantWithGeocodingAddress(base);
+        restaurant.requestLocationResolution();
+        UUID currentRequest = request(restaurant);
+
+        restaurant.updateBasicInfo(null, null, null, null, "표시용 전체 주소 架空ビル2F", base,
+                null, null, null, null, null, null, null);
+
+        assertThat(restaurant.getLocation().getAddressRevision()).isEqualTo(1);
+        assertThat(request(restaurant)).isEqualTo(currentRequest);
+        assertThat(restaurant.geocodingAddressForResolution()).isEqualTo(base);
+    }
+
     @ParameterizedTest
     @EnumSource(value = RestaurantLocationStatus.class, names = {"REVIEW_REQUIRED", "FAILED"})
     void 실패_후_같은_주소의_재요청도_이전_요청을_구별한다(RestaurantLocationStatus outcome) {

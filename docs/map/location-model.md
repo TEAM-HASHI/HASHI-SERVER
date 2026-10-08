@@ -25,7 +25,8 @@ Google 보관 정책 승인은 별도로 확인해야 한다.
 - 기존 `area`는 표시 문자열, `placeType`은 음식점·카페·주점 분류다. 관광 지역 코드와 자동 변환하지
   않는다. Google address components도 지역을 자동 확정하지 않는다.
 - PR #225는 기존 Controller·Service·Port·요청/응답 DTO와 평점 통계 갱신 경로를 유지했다.
-  현재 미삭제 식당의 주소가 실제로 달라질 때만 이미 있는 위치를 무효화한다. 일반 정보 수정은 위치에 영향을 주지 않는다.
+  현재 미삭제 식당의 실제 provider 입력(`geocodingAddress`, 없으면 `address`)이 달라질 때만 이미 있는
+  위치를 무효화한다. 같은 명시 override를 유지한 표시 주소 수정과 일반 정보 수정은 위치에 영향을 주지 않는다.
 
 ## 값과 DB 제약
 
@@ -80,8 +81,9 @@ status는 현재 작업 상태다. 저장된 좌표의 사용 가능 여부는 �
 갱신 시작·재시도·실패만으로 출처·취득/만료 시각을 바꾸지 않는다. 새 결과의 검증이 모두 끝나야
 좌표와 출처·수명을 함께 교체한다. 실패한 갱신 때문에 기존 validUntil을 연장하지 않는다.
 
-첫 위치 요청의 addressRevision은 1이다. 위치가 있는 미삭제 식당의 주소 변경은 같은 transaction에서
+첫 위치 요청의 addressRevision은 1이다. 위치가 있는 미삭제 식당의 실제 provider 입력 변경은 같은 transaction에서
 revision을 증가시키고 새 requestId/PENDING으로 바꾸며 이전 좌표와 수명 정보를 제거한다.
+같은 명시 override를 유지한 표시 주소·건물·층 수정은 revision, 좌표와 진행 중 작업을 보존한다.
 삭제된 식당의 주소 편집은 위치와 job을 변경하지 않는다.
 관광 지역 ID는 그대로 둔다. 같은 주소의 PENDING 재요청은 기존 requestId를 유지한다.
 실패·확인 필요·재시도 대기에서 명시적 재요청하거나 READY를 갱신하면 새 requestId를 발급한다.
@@ -119,7 +121,7 @@ soft delete는 위치 행을 물리 삭제하지 않는다. 예약·리뷰의 �
 
 ## PR #233 통합 구현과 남은 경계
 
-1. 관리자 등록·미삭제 식당의 주소 변경 Service에서 식당 저장·위치 요청·durable job을 같은 transaction에 묶었다.
+1. 관리자 등록·미삭제 식당의 실제 provider 입력 변경 Service에서 식당 저장·위치 요청·durable job을 같은 transaction에 묶었다.
    관리자 신규 등록은 요청을 자동 생성하며 관리자 상세·위치 조회/재처리 응답에 상태 DTO를 추가했다.
 2. 기존 `RestaurantRepository.findByIdForUpdate`로 부모를 먼저 잠근 뒤 위치를 변경한다.
    완료/재시도/삭제/주소 변경이 이 순서를 공유해야 한다. detached Restaurant를 받아 저장하지 않는다.
