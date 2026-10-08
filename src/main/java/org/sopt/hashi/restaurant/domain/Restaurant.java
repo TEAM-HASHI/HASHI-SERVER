@@ -311,6 +311,15 @@ public class Restaurant extends BaseTimeEntity {
         location.beginRefresh();
     }
 
+    /** 관리자가 새 Places 후보를 선택하면 잘못된 기존 좌표를 즉시 제거하고 새 requestId를 발급한다. */
+    public void selectPlaceForLocation() {
+        requireActiveForLocation();
+        if (location == null) {
+            throw new IllegalStateException("선택할 위치가 없습니다");
+        }
+        location.selectPlaceForVerification();
+    }
+
     public boolean retryLocationWhenDue(Clock clock) {
         return !deleted && location != null && location.beginScheduledRetry(clock);
     }
@@ -321,6 +330,15 @@ public class Restaurant extends BaseTimeEntity {
                                     LocalDateTime validUntil, Clock clock) {
         return !deleted && location != null && location.complete(expectedRevision, expectedRequestId,
                 coordinates, source, obtainedAt, validUntil, clock);
+    }
+
+    public boolean completePlacesLocation(long expectedRevision, UUID expectedRequestId,
+                                          MapCoordinates coordinates, String googlePlaceId,
+                                          List<RestaurantLocationAttribution> placesAttributions,
+                                          LocalDateTime obtainedAt, LocalDateTime validUntil, Clock clock) {
+        return !deleted && location != null && location.complete(expectedRevision, expectedRequestId,
+                coordinates, RestaurantLocationSource.GOOGLE_PLACES, googlePlaceId, placesAttributions,
+                obtainedAt, validUntil, clock);
     }
 
     public boolean deferLocation(long expectedRevision, UUID expectedRequestId,

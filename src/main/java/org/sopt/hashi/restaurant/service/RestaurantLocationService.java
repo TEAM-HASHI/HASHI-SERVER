@@ -31,7 +31,7 @@ public class RestaurantLocationService {
     private static final int MAX_REVIEW_PAGE_SIZE = 100;
     private static final Set<String> REVIEW_STATUSES = Set.of(
             "UNRESOLVED", "PENDING", "READY", "RETRY_WAIT", "REVIEW_REQUIRED", "FAILED");
-    private static final Set<String> LOCATION_SOURCES = Set.of("GOOGLE_GEOCODING", "ADMIN");
+    private static final Set<String> LOCATION_SOURCES = Set.of("GOOGLE_GEOCODING", "GOOGLE_PLACES", "ADMIN");
     private final RestaurantRepository restaurants;
     private final RestaurantLocationJobRepository jobs;
     private final Clock clock;
@@ -88,8 +88,23 @@ public class RestaurantLocationService {
         if (revision != expectedRevision || (location != null && location.getStatus() == RestaurantLocationStatus.READY)) {
             throw new BusinessException(RestaurantErrorCode.LOCATION_RETRY_CONFLICT);
         }
-        if (location == null || location.getStatus() != RestaurantLocationStatus.PENDING) {
+        if (location == null) {
             enqueue(restaurant);
+            return info(restaurant);
+        }
+        RestaurantLocationJob current = jobs.findCurrentForUpdate(restaurantId, location.getRequestId())
+                .orElseThrow(() -> new BusinessException(RestaurantErrorCode.LOCATION_RETRY_CONFLICT));
+        if (!current.isCurrent(restaurant)) {
+            throw new BusinessException(RestaurantErrorCode.LOCATION_RETRY_CONFLICT);
+        }
+        if (location.getStatus() != RestaurantLocationStatus.PENDING) {
+            LocalDateTime now = LocalDateTime.ofInstant(clock.instant(), ZoneOffset.UTC);
+            supersede(restaurant.getId(), now);
+            restaurant.requestLocationResolution();
+            RestaurantLocationJob retry = current.getOperation() == RestaurantLocationJob.Operation.PLACE_DETAILS
+                    ? RestaurantLocationJob.pendingDetails(restaurant, requirePlaceId(current), now)
+                    : RestaurantLocationJob.pending(restaurant, now);
+            jobs.save(retry);
         }
         return info(restaurant);
     }
@@ -97,13 +112,16 @@ public class RestaurantLocationService {
     private RestaurantLocationInfo info(Restaurant restaurant) {
         RestaurantLocation location = restaurant.getLocation();
         if (location == null) {
-            return new RestaurantLocationInfo(restaurant.getId(), "UNRESOLVED", 0, null, 0, null, null, true);
+            return new RestaurantLocationInfo(restaurant.getId(), "UNRESOLVED", 0, null, null,
+                    null, 0, null, null, true);
         }
         RestaurantLocationJob job = jobs.findByRestaurantIdAndRequestId(restaurant.getId(), location.getRequestId())
                 .orElse(null);
         boolean canRetry = location.getStatus() != RestaurantLocationStatus.PENDING
                 && location.getStatus() != RestaurantLocationStatus.READY;
         return new RestaurantLocationInfo(restaurant.getId(), location.getStatus().name(), location.getAddressRevision(),
+                location.getSource() == null ? null : location.getSource().name(),
+                job == null ? null : job.getOperation().name(),
                 location.getValidUntil() == null ? null : location.getValidUntil().toInstant(ZoneOffset.UTC),
                 job == null ? 0 : job.getAttempt(),
                 location.getNextAttemptAt() == null ? null : location.getNextAttemptAt().toInstant(ZoneOffset.UTC),
@@ -119,6 +137,7 @@ public class RestaurantLocationService {
                 row.getGeocodingAddress(),
                 row.getLocationStatus(),
                 row.getLocationSource(),
+                row.getVerificationMode(),
                 row.getAddressRevision(),
                 parseUtc(row.getValidUntilUtc()),
                 row.getAttempt(),
@@ -142,5 +161,12 @@ public class RestaurantLocationService {
 
     private void supersede(Long restaurantId, LocalDateTime now) {
         jobs.findActiveForUpdate(restaurantId).forEach(job -> job.supersede(now));
+    }
+
+    private String requirePlaceId(RestaurantLocationJob job) {
+        if (job.getGooglePlaceId() == null) {
+            throw new BusinessException(RestaurantErrorCode.LOCATION_RETRY_CONFLICT);
+        }
+        return job.getGooglePlaceId();
     }
 }

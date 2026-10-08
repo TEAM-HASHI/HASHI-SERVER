@@ -94,8 +94,9 @@ revision을 증가시키고 새 requestId/PENDING으로 바꾸며 이전 좌표�
 Location의 낙관적 버전도 오래된 영속 객체의 덮어쓰기를 막는다.
 이 모델의 검사와 별도로 PR #233의 worker는 완료 시 job과 유효한 lease도 재검사한다.
 
-현재 모델의 출처는 GOOGLE_GEOCODING / ADMIN이며 둘 다 명시적 수명을 가진다. `@Enumerated(STRING)`으로
+현재 모델의 출처는 GOOGLE_GEOCODING / GOOGLE_PLACES / ADMIN이며 모두 명시적 수명을 가진다. `@Enumerated(STRING)`으로
 DB에도 같은 이름을 저장한다. 운영자가 Google 결과를 확인했다는 이유로 ADMIN으로 바꾸지 않는다.
+GOOGLE_PLACES는 좌표와 Place ID를 함께 저장하며 후보 선택 계약은 [Places 후보 선택](place-selection.md)을 따른다.
 출처를 포함한 새 결과는 새로운 요청으로만 저장한다.
 독립적으로 확보한 자체 좌표에 Google 보관 조건을 그대로 적용하지 않는 것이 후속 정책이다.
 ADMIN의 수명을 선택 사항으로 바꾸는 코드·DB·응답 변경은 이번 PR에 포함하지 않는다.

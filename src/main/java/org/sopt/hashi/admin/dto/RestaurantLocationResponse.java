@@ -16,6 +16,12 @@ public record RestaurantLocationResponse(
         @Schema(description = "현재 위치 확인 기준 주소의 revision. 주소 기준이 바뀔 때 증가하며 재시도 요청의 expectedAddressRevision으로 사용",
                 example = "1")
         long addressRevision,
+        @Schema(description = "마지막 승인 위치의 출처. 승인 위치가 없으면 null",
+                allowableValues = {"GOOGLE_GEOCODING", "GOOGLE_PLACES", "ADMIN"}, nullable = true)
+        String source,
+        @Schema(description = "현재 requestId 작업의 검증 방식. 작업이 없으면 null",
+                allowableValues = {"GEOCODING", "PLACE_DETAILS"}, nullable = true)
+        String verificationMode,
         @Schema(description = "마지막으로 승인된 좌표의 유효 기한(UTC). 현재 시각과 같거나 과거면 READY여도 지도에서 사용할 수 없으며, 승인 좌표가 없으면 null")
         Instant validUntil,
         @Schema(description = "현재 위치 작업의 provider 호출 시도 횟수. 아직 호출하지 않았거나 작업이 없으면 0",
@@ -31,6 +37,7 @@ public record RestaurantLocationResponse(
         boolean canRetry) {
     public static RestaurantLocationResponse from(RestaurantLocationInfo info) {
         return new RestaurantLocationResponse(info.restaurantId(), info.locationStatus(), info.addressRevision(),
-                info.validUntil(), info.attempt(), info.nextAttemptAt(), info.failureCode(), info.canRetry());
+                info.source(), info.verificationMode(), info.validUntil(), info.attempt(), info.nextAttemptAt(),
+                info.failureCode(), info.canRetry());
     }
 }

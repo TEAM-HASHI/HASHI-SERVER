@@ -43,6 +43,7 @@ public interface RestaurantRepository extends JpaRepository<Restaurant, Long>, J
                    r.geocoding_address as geocodingAddress,
                    case when l.id is null then 'UNRESOLVED' else l.status end as locationStatus,
                    l.source as locationSource,
+                   j.operation as verificationMode,
                    coalesce(l.address_revision, 0) as addressRevision,
                    date_format(l.valid_until, '%Y-%m-%dT%H:%i:%s.%f') as validUntilUtc,
                    coalesce(j.attempt, 0) as attempt,
@@ -79,6 +80,8 @@ public interface RestaurantRepository extends JpaRepository<Restaurant, Long>, J
         String getLocationStatus();
 
         String getLocationSource();
+
+        String getVerificationMode();
 
         Long getAddressRevision();
 

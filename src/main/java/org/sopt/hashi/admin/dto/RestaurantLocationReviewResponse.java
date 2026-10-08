@@ -20,8 +20,11 @@ public record RestaurantLocationReviewResponse(
                 example = "REVIEW_REQUIRED")
         String locationStatus,
         @Schema(description = "마지막 승인 위치의 출처. 승인 위치가 없으면 null",
-                allowableValues = {"GOOGLE_GEOCODING", "ADMIN"}, example = "GOOGLE_GEOCODING", nullable = true)
+                allowableValues = {"GOOGLE_GEOCODING", "GOOGLE_PLACES", "ADMIN"}, example = "GOOGLE_PLACES", nullable = true)
         String source,
+        @Schema(description = "현재 requestId 작업의 검증 방식",
+                allowableValues = {"GEOCODING", "PLACE_DETAILS"}, example = "PLACE_DETAILS", nullable = true)
+        String verificationMode,
         @Schema(description = "현재 위치 확인 기준 주소의 revision. 재시도 요청의 expectedAddressRevision으로 사용",
                 example = "2")
         long addressRevision,
@@ -40,7 +43,7 @@ public record RestaurantLocationReviewResponse(
     public static RestaurantLocationReviewResponse from(RestaurantLocationReviewInfo info) {
         return new RestaurantLocationReviewResponse(
                 info.restaurantId(), info.name(), info.address(), info.geocodingAddress(),
-                info.locationStatus(), info.source(), info.addressRevision(), info.validUntil(),
+                info.locationStatus(), info.source(), info.verificationMode(), info.addressRevision(), info.validUntil(),
                 info.attempt(), info.nextAttemptAt(), info.failureCode(), info.canRetry());
     }
 }
