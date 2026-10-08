@@ -115,7 +115,11 @@ Google 지도가 없는 후보 목록에는 Google Maps 표시가 필요하다. 
 
 Places를 쓰면 시설의 주소 위치와 특정 매장 위치를 구분할 수 있다는 확인이다.
 지도 핀의 정확한 출입구·층 또는 식당 영업 상태까지 현장 검증한 결과는 아니다.
-이 호출은 비교 실험이며 제품의 위치 저장·자동 갱신 흐름에 Places를 연결한 것은 아니다.
+위 9회 호출은 API 결과를 비교한 실험이다. 이후 별도 검증에서 Text Search 1회와 Details 2회로
+관리자 후보 검색 → 선택 → 좌표 저장 → 같은 매장 갱신 → 지도·컬렉션 핀 조회까지 통과했다.
+초기 `REVIEW_REQUIRED`를 만드는 Geocoding 응답만 mock으로 대체했고, Places는 개발 프로젝트의 실제 응답을 사용했다.
+애플리케이션과 DB는 로컬의 격리된 테스트 환경에서 실행했고 Google 통신만 개발 EC2 터널을 이용했다.
+상세 명령과 범위는 [통합 검증 기록](./map-integration-verification.md#places-매장-선택과-갱신)을 따른다.
 운영 DB와 Google 자동 처리 설정은 변경하지 않았고, 키·좌표 원문·응답 원문은 문서에 남기지 않는다.
 
 공식 참고: [Text Search](https://developers.google.com/maps/documentation/places/web-service/text-search),
