@@ -12,6 +12,7 @@ import jakarta.persistence.EntityManagerFactory;
 import java.math.BigDecimal;
 import java.time.Clock;
 import java.time.Instant;
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.ZoneOffset;
 import java.util.ArrayList;
@@ -51,6 +52,8 @@ import org.sopt.hashi.user.collection.dto.SaveRestaurantRequest;
 import org.sopt.hashi.user.collection.service.CollectionMapQueryService;
 import org.sopt.hashi.user.collection.service.RestaurantCollectionService;
 import org.sopt.hashi.user.collection.service.RestaurantSaveSummaryService;
+import org.sopt.hashi.user.domain.User;
+import org.sopt.hashi.user.domain.UserRepository;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.autoconfigure.orm.jpa.HibernatePropertiesCustomizer;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
@@ -117,6 +120,7 @@ class CollectionMapPortMySqlIntegrationTest {
     @Autowired RestaurantRepository restaurants;
     @Autowired RestaurantCollectionRepository collections;
     @Autowired SavedRestaurantRepository saved;
+    @Autowired UserRepository users;
     @Autowired EntityManagerFactory entityManagerFactory;
     @Autowired JdbcTemplate jdbc;
     @MockitoBean CurrentUserProvider currentUser;
@@ -125,11 +129,16 @@ class CollectionMapPortMySqlIntegrationTest {
     @MockitoBean MediaPort media;
     @MockitoBean FileStorage storage;
     @MockitoBean(name = "japanClock") Clock clock;
+    private Long userId;
 
     @BeforeEach
     void setUp() {
+        User active = users.saveAndFlush(User.onboard(
+                "지도Port회원", "HASHI", LocalDate.of(1998, 1, 1),
+                "01011110005", "map-port@hashi.test", null));
+        userId = active.getId();
         given(currentUser.isAuthenticatedUser()).willReturn(true);
-        given(currentUser.currentUserId()).willReturn(1L);
+        given(currentUser.currentUserId()).willReturn(userId);
         given(clock.instant()).willReturn(NOW);
         BATCHES.set(0);
         failSecondBatch = false;
@@ -140,6 +149,7 @@ class CollectionMapPortMySqlIntegrationTest {
         failSecondBatch = false;
         saved.deleteAllInBatch();
         collections.deleteAllInBatch();
+        users.deleteAllInBatch();
         jdbc.update("delete from restaurant");
         jdbc.update("delete from restaurant_location");
     }
@@ -279,7 +289,8 @@ class CollectionMapPortMySqlIntegrationTest {
     }
 
     private Long seedCollection(String name, List<Restaurant> rows) {
-        RestaurantCollection collection = RestaurantCollection.create(1L, name, CollectionColor.RED, null, CollectionVisibility.PUBLIC);
+        RestaurantCollection collection = RestaurantCollection.create(
+                userId, name, CollectionColor.RED, null, CollectionVisibility.PUBLIC);
         rows.forEach(restaurant -> collection.save(restaurant.getId()));
         return collections.saveAndFlush(collection).getId();
     }

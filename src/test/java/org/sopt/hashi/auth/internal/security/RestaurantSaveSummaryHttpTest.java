@@ -15,6 +15,7 @@ import org.sopt.hashi.auth.internal.jwt.AuthRoles;
 import org.sopt.hashi.auth.internal.jwt.JwtProvider;
 import org.sopt.hashi.auth.internal.onboarding.OnboardingJwtIssuer;
 import org.sopt.hashi.auth.internal.token.OnboardingTokenStore;
+import org.sopt.hashi.auth.internal.token.TokenBlacklist;
 import org.sopt.hashi.restaurant.RestaurantCardInfo;
 import org.sopt.hashi.restaurant.RestaurantPort;
 import org.sopt.hashi.user.collection.domain.SavedRestaurantRepository;
@@ -46,6 +47,7 @@ class RestaurantSaveSummaryHttpTest {
     @Autowired MockMvc mvc;
     @Autowired JwtProvider jwt;
     @MockitoBean OnboardingTokenStore onboardingTokenStore;
+    @MockitoBean TokenBlacklist tokenBlacklist;
     @MockitoBean RestaurantPort restaurants;
     @MockitoBean SavedRestaurantRepository saved;
 
