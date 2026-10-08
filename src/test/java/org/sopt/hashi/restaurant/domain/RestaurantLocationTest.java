@@ -73,6 +73,40 @@ class RestaurantLocationTest {
         assertThat(restaurant.getRating()).isEqualByComparingTo(BigDecimal.ZERO);
     }
 
+    @Test
+    void 위치확인주소_변경과_삭제는_revision을_올리고_이전_결과를_막는다() {
+        Restaurant restaurant = restaurantWithGeocodingAddress("  東京都試験区架空町1丁目2番3号  ");
+        restaurant.requestLocationResolution();
+        UUID firstRequest = request(restaurant);
+        assertThat(restaurant.geocodingAddressForResolution()).isEqualTo("東京都試験区架空町1丁目2番3号");
+
+        updateGeocodingAddress(restaurant, "  東京都試験区架空町1丁目2番4号  ");
+
+        assertThat(restaurant.getGeocodingAddress()).isEqualTo("東京都試験区架空町1丁目2番4号");
+        assertThat(restaurant.getLocation().getAddressRevision()).isEqualTo(2);
+        assertThat(complete(restaurant, 1, firstRequest)).isFalse();
+        UUID secondRequest = request(restaurant);
+
+        updateGeocodingAddress(restaurant, " \u3000 ");
+
+        assertThat(restaurant.getGeocodingAddress()).isNull();
+        assertThat(restaurant.geocodingAddressForResolution()).isEqualTo(restaurant.getAddress());
+        assertThat(restaurant.getLocation().getAddressRevision()).isEqualTo(3);
+        assertThat(complete(restaurant, 2, secondRequest)).isFalse();
+    }
+
+    @Test
+    void 표시주소를_바꾸며_위치확인주소를_생략하면_과거_override를_지운다() {
+        Restaurant restaurant = restaurantWithGeocodingAddress("東京都試験区架空町1丁目2番3号");
+        restaurant.requestLocationResolution();
+
+        updateAddress(restaurant, "東京都試験区別町4丁目5番6号 새 건물 2F");
+
+        assertThat(restaurant.getGeocodingAddress()).isNull();
+        assertThat(restaurant.geocodingAddressForResolution()).isEqualTo("東京都試験区別町4丁目5番6号 새 건물 2F");
+        assertThat(restaurant.getLocation().getAddressRevision()).isEqualTo(2);
+    }
+
     @ParameterizedTest
     @EnumSource(value = RestaurantLocationStatus.class, names = {"REVIEW_REQUIRED", "FAILED"})
     void 실패_후_같은_주소의_재요청도_이전_요청을_구별한다(RestaurantLocationStatus outcome) {
@@ -305,6 +339,12 @@ class RestaurantLocationTest {
                 PriceCurrency.JPY, BigDecimal.ONE, BigDecimal.TEN);
     }
 
+    private Restaurant restaurantWithGeocodingAddress(String geocodingAddress) {
+        return Restaurant.create("합성 식당", "fixture", "요약", "설명", "표시용 전체 주소 架空ビル1F",
+                geocodingAddress, "표시 지역", RestaurantGenre.SUSHI, "초밥",
+                RestaurantPlaceType.RESTAURANT, PriceCurrency.JPY, BigDecimal.ONE, BigDecimal.TEN);
+    }
+
     private Restaurant pending() {
         Restaurant restaurant = restaurant();
         restaurant.requestLocationResolution();
@@ -341,6 +381,11 @@ class RestaurantLocationTest {
 
     private void updateAddress(Restaurant restaurant, String address) {
         restaurant.updateBasicInfo(null, null, null, null, address, null, null, null, null, null, null, null);
+    }
+
+    private void updateGeocodingAddress(Restaurant restaurant, String geocodingAddress) {
+        restaurant.updateBasicInfo(null, null, null, null, null, geocodingAddress,
+                null, null, null, null, null, null, null);
     }
 
     private void assertPendingWithoutCoordinates(Restaurant restaurant) {

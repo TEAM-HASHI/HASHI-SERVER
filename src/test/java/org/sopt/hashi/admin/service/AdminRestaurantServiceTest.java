@@ -47,6 +47,7 @@ class AdminRestaurantServiceTest {
 
         var response = adminRestaurantService.update(1L, request);
         assertThat(response.restaurantId()).isEqualTo(1L);
+        assertThat(response.geocodingAddress()).isEqualTo("東京都千代田区丸の内1-9-1");
         assertThat(response.locationStatus()).isEqualTo("PENDING");
         assertThat(response.addressRevision()).isEqualTo(1);
 
@@ -59,6 +60,21 @@ class AdminRestaurantServiceTest {
                     assertThat(menu.menuId()).isEqualTo(10L);
                     assertThat(menu.name()).isEqualTo("시오라멘");
                 });
+    }
+
+    @Test
+    void 식당_수정은_명시한_위치확인주소를_restaurant_포트에_전달한다() {
+        UpdateRestaurantRequest request = geocodingAddressRequest("  東京都千代田区丸の内1-9-1  ");
+        given(restaurantPort.updateByAdmin(eq(1L), any(AdminRestaurantCommand.class)))
+                .willReturn(adminRestaurantInfo());
+
+        adminRestaurantService.update(1L, request);
+
+        ArgumentCaptor<AdminRestaurantCommand> commandCaptor =
+                ArgumentCaptor.forClass(AdminRestaurantCommand.class);
+        verify(restaurantPort).updateByAdmin(eq(1L), commandCaptor.capture());
+        assertThat(commandCaptor.getValue().geocodingAddress())
+                .isEqualTo("  東京都千代田区丸の内1-9-1  ");
     }
 
     private UpdateRestaurantRequest updateRequest(List<UpdateRestaurantRequest.MenuRequest> menus) {
@@ -85,6 +101,12 @@ class AdminRestaurantServiceTest {
         );
     }
 
+    private UpdateRestaurantRequest geocodingAddressRequest(String geocodingAddress) {
+        return new UpdateRestaurantRequest(
+                null, null, null, null, null, geocodingAddress, null, null, null, null,
+                null, null, null, null, null, null, null, null, null, null);
+    }
+
     private AdminRestaurantInfo adminRestaurantInfo() {
         return new AdminRestaurantInfo(
                 1L,
@@ -93,6 +115,7 @@ class AdminRestaurantServiceTest {
                 "식당 소개",
                 "상세 설명",
                 "도쿄도",
+                "東京都千代田区丸の内1-9-1",
                 "도쿄",
                 "sushi",
                 "sushi",

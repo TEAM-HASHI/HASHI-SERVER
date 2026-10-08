@@ -407,6 +407,7 @@ public class RestaurantService {
                 command.summary(),
                 command.description(),
                 command.address(),
+                command.geocodingAddress(),
                 command.area(),
                 toGenre(command.genre()),
                 command.foodCategory(),
@@ -447,6 +448,9 @@ public class RestaurantService {
         Restaurant restaurant = findRestaurantForAdminUpdate(restaurantId);
 
         boolean addressChanged = command.address() != null && !command.address().equals(restaurant.getAddress());
+        boolean geocodingAddressChanged = command.geocodingAddress() != null
+                && !Objects.equals(normalizeGeocodingAddress(command.geocodingAddress()),
+                restaurant.getGeocodingAddress());
 
         RestaurantGenre genre = command.genre() == null ? null : toGenre(command.genre());
         RestaurantPlaceType placeType = command.placeType() == null ? null : toPlaceType(command.placeType());
@@ -484,6 +488,7 @@ public class RestaurantService {
                 command.summary(),
                 command.description(),
                 command.address(),
+                command.geocodingAddress(),
                 command.area(),
                 genre,
                 command.foodCategory(),
@@ -492,7 +497,7 @@ public class RestaurantService {
                 command.minPrice(),
                 command.maxPrice());
 
-        if (addressChanged && !restaurant.isDeleted()) {
+        if ((addressChanged || geocodingAddressChanged) && !restaurant.isDeleted()) {
             locationService.enqueue(restaurant);
         }
 
@@ -844,9 +849,17 @@ public class RestaurantService {
                 || command.images() != null
                 || !hasExactlyOneCreateImageSource(command.imageKeys(), command.imageAssetIds())
                 || command.hashtags() == null || command.hashtags().isEmpty();
+        if (command.geocodingAddress() != null && command.geocodingAddress().isBlank()) {
+            missingRequired = true;
+        }
         if (missingRequired) {
             throw new BusinessException(CommonErrorCode.INVALID_INPUT);
         }
+    }
+
+    private String normalizeGeocodingAddress(String value) {
+        String normalized = value.strip();
+        return normalized.isEmpty() ? null : normalized;
     }
 
     /** 식당명 또는 주소가 삭제되지 않은 다른 식당과 같으면 거절한다(#230). 둘 다 겹치면 식당명 에러가 우선이다. */
@@ -1347,6 +1360,7 @@ public class RestaurantService {
                 restaurant.getSummary(),
                 restaurant.getDescription(),
                 restaurant.getAddress(),
+                restaurant.getGeocodingAddress(),
                 restaurant.getArea(),
                 restaurant.getGenre().value(),
                 restaurant.getFoodCategory(),
