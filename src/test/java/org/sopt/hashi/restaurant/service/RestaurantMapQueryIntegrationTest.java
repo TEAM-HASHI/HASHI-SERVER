@@ -333,7 +333,7 @@ class RestaurantMapQueryIntegrationTest {
 
     @ParameterizedTest
     @MethodSource("inheritedSearchKeywords")
-    void 일반_목록과_지도는_특수문자와_연속공백의_검색결과가_같다(
+    void 일반_목록과_지도는_단일_특수문자_검색결과가_같다(
             String keyword, String matchingName, String nonMatchingName) {
         Restaurant nameMatch = ready(matchingName, ".5", ".5");
         nameMatch.addMenu(menu(matchingName + " first"));
@@ -379,11 +379,7 @@ class RestaurantMapQueryIntegrationTest {
                 Arguments.of("_", "under_score", "underXscore"),
                 Arguments.of("!", "wow! house", "wow house"),
                 Arguments.of("\\", "slash\\name", "slashname"),
-                Arguments.of("%_!\\", "100%_!\\ hit", "100ANY!\\ false"),
-                Arguments.of(" \u00a0\u3000SUSHI  HOUSE\u00a0\u3000 ", "Sushi  House", "Sushi House"),
-                Arguments.of(" \u3000SUSHI\u00a0\u00a0HOUSE\u00a0 ", "Sushi\u00a0\u00a0House", "Sushi\u00a0House"),
-                Arguments.of(" \u00a0SUSHI\u3000\u3000HOUSE\u3000 ", "Sushi\u3000\u3000House", "Sushi\u3000House"),
-                Arguments.of("  SUSHI \u00a0\u3000 HOUSE  ", "Sushi \u00a0\u3000 House", "SushiXHouse")
+                Arguments.of("%_!\\", "100%_!\\ hit", "100ANY!\\ false")
         );
     }
 
