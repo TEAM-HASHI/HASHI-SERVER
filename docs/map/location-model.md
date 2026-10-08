@@ -40,19 +40,20 @@ BigDecimal에는 NaN/Infinity가 없으며 후속 HTTP 경계에서도 숫자 �
 displayOrder는 0 이상이다. 지역은 명시적으로 활성화하기 전까지 비활성이다.
 실제 코드·대표 위치·bounds를 migration에 넣지 않는다.
 
-`V32__add_restaurant_map_location.sql`은 새 두 테이블과 nullable 참조 두 개를 추가한다. 기존 데이터는 미분류/위치 없음으로 보존한다.
+`V38__add_restaurant_map_location.sql`은 새 두 테이블과 nullable 참조 두 개를 추가한다. 기존 데이터는 미분류/위치 없음으로 보존한다.
 마이그레이션에는 HTTP, job 생성, 업무 seed가 없다. 적용된 이전 migration은 수정하지 않는다.
 큰 restaurant 테이블의 DDL 소요·잠금 시간은 운영 대상 규모로 배포 전에 측정해야 한다.
 
-2026-10-07 기준 위치 migration은 아직 병합·배포되지 않았다. develop에 먼저 병합된
-`V31__link_magazine_card_news_to_media_assets.sql`을 유지하고, 지도 파일을 V32로 옮긴다.
-이 변경은 파일명만 바꾸며 SQL 본문과 제약의 의미는 유지한다. 개발·운영 DB의 이력과
-지도 테이블 미존재를 확인한 뒤 미적용 파일에만 적용한 번호 조정이다.
+2026-10-08 기준 위치 migration은 아직 병합·배포되지 않았다. develop에 병합된
+`V32__add_user_anonymous_nickname.sql`, 공지 V36·V36.1, 약관 V37은 그대로 유지하고
+지도 파일을 V38로 옮긴다. 이 변경은 파일명만 바꾸며 SQL 본문과 제약의 의미는 유지한다.
+운영 ledger 확인은 별도 배포 gate로 남기고, 기존 읽기 전용 증거상 지도 migration은 미적용이다.
 
 [DB 규칙](../conventions/database.md)에 따라 이미 적용된 migration은 수정하지 않는다.
 앞서 미병합 지도 모델에서 정한 좌표 쌍·출처·취득/만료 시각 제약도 그대로 유지한다.
 이 값들은 전부 있거나 전부 없어야 하며, READY에는 반드시 있어야 한다.
-개인 로컬 DB에 예전 `V31__add_restaurant_map_location.sql`을 적용했다면 새 V32를 바로
+개인 로컬 DB에 예전 `V31__add_restaurant_map_location.sql` 또는
+`V32__add_restaurant_map_location.sql`을 적용했다면 새 V38을 바로
 적용하거나 checksum만 repair하지 않는다. 데이터 폐기가 허용된 환경은 재생성하고,
 보존이 필요하면 해당 DB의 이력·기존 `OPERATOR` 값·CHECK를 확인해 전환 절차를 별도 결정한다.
 다른 담당자의 미병합 PR은 수정하지 않으며, 실제 병합 전에 최신 develop과 번호를 다시 비교한다.
