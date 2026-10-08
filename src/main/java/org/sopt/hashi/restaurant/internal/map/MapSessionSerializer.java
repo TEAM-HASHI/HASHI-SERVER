@@ -16,6 +16,7 @@ import java.util.List;
 import java.util.UUID;
 import org.sopt.hashi.restaurant.code.RestaurantErrorCode;
 import org.sopt.hashi.restaurant.domain.MapSearchCriteria;
+import org.sopt.hashi.restaurant.domain.MapSearchResultExtent;
 import org.sopt.hashi.restaurant.domain.RestaurantMapCandidate;
 import org.sopt.hashi.shared.error.BusinessException;
 import org.springframework.stereotype.Component;
@@ -23,7 +24,7 @@ import org.springframework.stereotype.Component;
 /** 기본 typing을 사용하지 않고 버전이 있는 구체 record로만 역직렬화한다. */
 @Component
 public class MapSessionSerializer {
-    private static final int FORMAT_VERSION = 1;
+    private static final int FORMAT_VERSION = 2;
     private final ObjectMapper mapper = new ObjectMapper(JsonFactory.builder().streamReadConstraints(
             StreamReadConstraints.builder().maxNumberLength(MapQuerySession.MAX_BYTES)
                     .maxStringLength(MapQuerySession.MAX_BYTES).maxNestingDepth(16).build()).build())
@@ -58,14 +59,16 @@ public class MapSessionSerializer {
         }
     }
 
-    @JsonPropertyOrder({"formatVersion", "schemaVersion", "id", "criteria", "candidates", "rankingAsOf", "expiresAt"})
+    @JsonPropertyOrder({"formatVersion", "schemaVersion", "id", "criteria", "candidates", "searchResult",
+            "rankingAsOf", "expiresAt"})
     private record SessionPayload(int formatVersion, int schemaVersion, UUID id, MapSearchCriteria criteria,
-                                  List<CandidateRow> candidates, Instant rankingAsOf, Instant expiresAt) {
+                                  List<CandidateRow> candidates, MapSearchResultExtent searchResult,
+                                  Instant rankingAsOf, Instant expiresAt) {
 
         private static SessionPayload from(MapQuerySession session) {
             return new SessionPayload(FORMAT_VERSION, session.schemaVersion(), session.id(), session.criteria(),
                     session.candidates().stream().map(CandidateRow::from).toList(),
-                    session.rankingAsOf(), session.expiresAt());
+                    session.searchResult(), session.rankingAsOf(), session.expiresAt());
         }
 
         private MapQuerySession toSession() {
@@ -73,7 +76,7 @@ public class MapSessionSerializer {
                 throw new IllegalArgumentException("Invalid map session payload");
             }
             return new MapQuerySession(schemaVersion, id, criteria,
-                    candidates.stream().map(CandidateRow::toCandidate).toList(), rankingAsOf, expiresAt);
+                    candidates.stream().map(CandidateRow::toCandidate).toList(), searchResult, rankingAsOf, expiresAt);
         }
     }
 

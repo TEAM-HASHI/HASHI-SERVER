@@ -1,5 +1,6 @@
 package org.sopt.hashi.restaurant.service;
 
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.UUID;
@@ -9,6 +10,7 @@ import org.sopt.hashi.restaurant.domain.RestaurantMapSort;
 import org.sopt.hashi.restaurant.dto.RestaurantMapPageRequest;
 import org.sopt.hashi.restaurant.dto.RestaurantMapPageResponse;
 import org.sopt.hashi.restaurant.dto.RestaurantMapPageResponse.QueryResponse;
+import org.sopt.hashi.restaurant.dto.RestaurantMapPageResponse.SearchResultResponse;
 import org.sopt.hashi.restaurant.internal.map.MapCursorCodec;
 import org.sopt.hashi.restaurant.internal.map.MapCapacityMetrics;
 import org.sopt.hashi.restaurant.internal.map.MapCapacityMetrics.Operation;
@@ -100,9 +102,14 @@ public class RestaurantMapPageService {
             }
             var recommendation = new ArrayList<>(snapshot.candidates());
             Collections.shuffle(recommendation);
+            Instant hardExpiresAt = startedAt.plus(limits.getMaxLifetime());
+            if (snapshot.resultExtent() != null && snapshot.resultExtent().earliestValidUntil() != null
+                    && snapshot.resultExtent().earliestValidUntil().isBefore(hardExpiresAt)) {
+                hardExpiresAt = snapshot.resultExtent().earliestValidUntil();
+            }
             var createdSession = new MapQuerySession(
                     MapQuerySession.SCHEMA_VERSION, UUID.randomUUID(), request.criteria(),
-                    recommendation, snapshot.rankingAsOf(), startedAt.plus(limits.getMaxLifetime()));
+                    recommendation, snapshot.resultExtent(), snapshot.rankingAsOf(), hardExpiresAt);
             session = createdSession;
             id = metrics.record(operation, Stage.SAVE, () -> store.save(createdSession));
         }
@@ -119,7 +126,8 @@ public class RestaurantMapPageService {
                 () -> store.touch(pageSessionId, pageSession));
         return new RestaurantMapPageResponse(page.content(),
                 page.hasNext() ? cursors.encode(id, sort, page.nextPosition()) : null, page.hasNext(),
-                id.value(), expiresAt, session.rankingAsOf(), QueryResponse.from(session.criteria(), sort));
+                id.value(), expiresAt, session.rankingAsOf(), SearchResultResponse.from(session.searchResult()),
+                QueryResponse.from(session.criteria(), sort));
     }
 
     private static Operation operation(RestaurantMapPageRequest request) {
