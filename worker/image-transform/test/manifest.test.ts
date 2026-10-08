@@ -77,3 +77,8 @@ test("rejects purpose and role sets outside the worker capability contract", () 
     rmSync(directory, { recursive: true, force: true });
   }
 });
+
+test("loads the v3 notice manifest with its exact digest", () => {
+  const spec = loadMediaSpec(3);
+  assert.equal(spec.digest, "ab130db4caea347d5945531e22c9f2b783a95ad1a9c9fa7b5741a6adcd16b97a");
+});

@@ -1,5 +1,6 @@
 package org.sopt.hashi.auth.internal.web;
 import org.sopt.hashi.auth.internal.token.OnboardingTokenStore;
+import org.sopt.hashi.auth.internal.token.TokenBlacklist;
 import org.sopt.hashi.auth.internal.security.SecurityConfig;
 import org.sopt.hashi.auth.internal.security.OriginValidator;
 import org.sopt.hashi.auth.internal.security.JwtAuthenticationFilter;
@@ -68,6 +69,10 @@ class AuthControllerTest {
     // JwtAuthenticationFilter 의존 — 로그아웃 요청은 Bearer 없이 오므로 온보딩 토큰 대조는 일어나지 않는다.
     @MockitoBean
     OnboardingTokenStore onboardingTokenStore;
+
+    // 탈퇴 블랙리스트 대조도 Redis라 모킹한다 — 기본값(false)이라 차단 없이 통과한다
+    @MockitoBean
+    TokenBlacklist tokenBlacklist;
 
     @Test
     @DisplayName("로그아웃 성공 시 세션을 폐기하고 리프레시 쿠키를 만료(Max-Age=0)시킨다")
