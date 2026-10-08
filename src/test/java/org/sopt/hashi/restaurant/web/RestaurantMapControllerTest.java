@@ -24,6 +24,7 @@ import org.sopt.hashi.auth.internal.security.JwtAuthenticationFilter;
 import org.sopt.hashi.auth.internal.security.OriginValidator;
 import org.sopt.hashi.auth.internal.security.SecurityConfig;
 import org.sopt.hashi.auth.internal.token.OnboardingTokenStore;
+import org.sopt.hashi.auth.internal.token.TokenBlacklist;
 import org.sopt.hashi.restaurant.RestaurantMapInfo;
 import org.sopt.hashi.restaurant.RestaurantMapInfo.LocationInfo;
 import org.sopt.hashi.restaurant.domain.MapQueryBounds;
@@ -71,6 +72,7 @@ class RestaurantMapControllerTest {
     @Autowired private MockMvc mvc;
     @MockitoBean private RestaurantMapQueryRepository repository;
     @MockitoBean private OnboardingTokenStore onboardingTokenStore;
+    @MockitoBean private TokenBlacklist tokenBlacklist;
 
     @Test
     void 익명_관광지역_응답은_실제_보안필터와_wrapper_직렬화_no_store를_지킨다() throws Exception {
