@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.SerializationFeature;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import java.math.BigDecimal;
 import java.nio.charset.StandardCharsets;
@@ -18,6 +19,8 @@ import org.junit.jupiter.api.Test;
 import org.sopt.hashi.restaurant.code.RestaurantErrorCode;
 import org.sopt.hashi.restaurant.domain.MapQueryBounds;
 import org.sopt.hashi.restaurant.domain.MapSearchCriteria;
+import org.sopt.hashi.restaurant.domain.MapSearchResultExtent;
+import org.sopt.hashi.restaurant.domain.MapSearchResultExtent.ResultBounds;
 import org.sopt.hashi.restaurant.domain.RestaurantMapCandidate;
 import org.sopt.hashi.restaurant.domain.RestaurantMapSort;
 import org.sopt.hashi.shared.error.BusinessException;
@@ -26,6 +29,10 @@ import org.springframework.boot.context.properties.bind.Binder;
 import org.springframework.boot.context.properties.source.MapConfigurationPropertySource;
 
 class MapQuerySessionTest {
+    private static final Instant RANKING_AS_OF = Instant.parse("2026-01-01T00:00:00Z");
+    private static final Instant COORDINATES_VALID_UNTIL = RANKING_AS_OF.plusSeconds(1800);
+    private static final Instant SESSION_EXPIRES_AT = RANKING_AS_OF.plusSeconds(900);
+
     @Test
     void 순위_동점은_각기다른_정렬에서도_최초추천순을_보존한다() {
         var session = session(List.of(candidate(3, "4.0", 2), candidate(1, "5.0", 1),
@@ -50,8 +57,57 @@ class MapQuerySessionTest {
                 .isInstanceOf(IllegalArgumentException.class);
         var criteria = MapSearchCriteria.of(MapQueryBounds.parse("0." + "1".repeat(2000), "1", "0", "1"),
                 null, null, null, null);
-        var session = new MapQuerySession(1, UUID.randomUUID(), criteria, List.of(), Instant.now(), Instant.now().plusSeconds(900));
+        var session = new MapQuerySession(MapQuerySession.SCHEMA_VERSION, UUID.randomUUID(), criteria, List.of(),
+                null, Instant.now(), Instant.now().plusSeconds(900));
         assertThat(serializer.deserialize(serializer.serialize(session))).isEqualTo(session);
+    }
+
+    @Test
+    void 검색결과요약은_개별좌표없이_왕복하고_빈결과와_단일좌표를_구분한다() throws Exception {
+        var serializer = new MapSessionSerializer();
+        var mapper = new ObjectMapper().registerModule(new JavaTimeModule());
+        var point = new ResultBounds(new BigDecimal("0.5"), new BigDecimal("0.5"),
+                new BigDecimal("0.5"), new BigDecimal("0.5"));
+        var one = searchSession(List.of(candidate(1, "4.0", 2)),
+                new MapSearchResultExtent(1, point, COORDINATES_VALID_UNTIL));
+
+        String oneJson = serializer.serialize(one);
+        assertThat(serializer.deserialize(oneJson)).isEqualTo(one);
+        assertThat(oneJson).contains("\"searchResult\":{\"totalCount\":1")
+                .doesNotContain("latitude", "longitude");
+
+        var empty = searchSession(List.of(), MapSearchResultExtent.empty());
+        var emptyPayload = mapper.readTree(serializer.serialize(empty));
+        assertThat(emptyPayload.at("/searchResult/totalCount").asLong()).isZero();
+        assertThat(emptyPayload.at("/searchResult/bounds").isNull()).isTrue();
+    }
+
+    @Test
+    void 검색결과요약의_잘못된경계와_후보수불일치_구버전은_410으로_거절한다() throws Exception {
+        var serializer = new MapSessionSerializer();
+        var mapper = new ObjectMapper().registerModule(new JavaTimeModule());
+        var point = new ResultBounds(new BigDecimal("0.5"), new BigDecimal("0.5"),
+                new BigDecimal("0.5"), new BigDecimal("0.5"));
+        String json = serializer.serialize(
+                searchSession(List.of(candidate(1, "4.0", 2)),
+                        new MapSearchResultExtent(1, point, COORDINATES_VALID_UNTIL)));
+
+        ObjectNode countMismatch = (ObjectNode) mapper.readTree(json);
+        ((ObjectNode) countMismatch.path("searchResult")).put("totalCount", 2);
+        ObjectNode invalidBounds = (ObjectNode) mapper.readTree(json);
+        ((ObjectNode) invalidBounds.at("/searchResult/bounds")).put("south", 2);
+        ObjectNode invalidExpiry = (ObjectNode) mapper.readTree(json);
+        invalidExpiry.put("expiresAt", COORDINATES_VALID_UNTIL.plusSeconds(1).toString());
+        ObjectNode legacy = (ObjectNode) mapper.readTree(json);
+        legacy.put("formatVersion", 1).put("schemaVersion", 1);
+
+        for (String corrupted : List.of(mapper.writeValueAsString(countMismatch),
+                mapper.writeValueAsString(invalidBounds), mapper.writeValueAsString(invalidExpiry),
+                mapper.writeValueAsString(legacy))) {
+            assertThatThrownBy(() -> serializer.deserialize(corrupted))
+                    .isInstanceOfSatisfying(BusinessException.class, exception ->
+                            assertThat(exception.getErrorCode()).isEqualTo(RestaurantErrorCode.MAP_SESSION_EXPIRED));
+        }
     }
 
     @Test
@@ -101,8 +157,15 @@ class MapQuerySessionTest {
     }
 
     private MapQuerySession session(List<RestaurantMapCandidate> candidates) {
-        return new MapQuerySession(1, UUID.randomUUID(), MapSearchCriteria.of(MapQueryBounds.parse("0", "1", "0", "1"),
-                null, null, null, null), candidates, Instant.now(), Instant.now().plusSeconds(900));
+        return new MapQuerySession(MapQuerySession.SCHEMA_VERSION, UUID.randomUUID(), MapSearchCriteria.of(
+                MapQueryBounds.parse("0", "1", "0", "1"), null, null, null, null), candidates, null,
+                Instant.now(), Instant.now().plusSeconds(900));
+    }
+
+    private MapQuerySession searchSession(List<RestaurantMapCandidate> candidates, MapSearchResultExtent searchResult) {
+        return new MapQuerySession(MapQuerySession.SCHEMA_VERSION, UUID.randomUUID(), MapSearchCriteria.of(
+                MapQueryBounds.parse("0", "1", "0", "1"), null, null, null, "fixture"), candidates, searchResult,
+                RANKING_AS_OF, SESSION_EXPIRES_AT);
     }
 
     private RestaurantMapCandidate candidate(long id, String rating, long reviews) {

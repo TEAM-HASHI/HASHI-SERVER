@@ -1,9 +1,14 @@
 package org.sopt.hashi.restaurant.service;
 
 import java.time.Clock;
+import java.time.Instant;
 import java.time.LocalDateTime;
 import java.time.ZoneOffset;
+import java.util.List;
+import java.util.Set;
 import org.sopt.hashi.restaurant.RestaurantLocationInfo;
+import org.sopt.hashi.restaurant.RestaurantLocationReviewInfo;
+import org.sopt.hashi.restaurant.RestaurantLocationReviewPage;
 import org.sopt.hashi.restaurant.code.RestaurantErrorCode;
 import org.sopt.hashi.restaurant.domain.Restaurant;
 import org.sopt.hashi.restaurant.domain.RestaurantLocation;
@@ -11,9 +16,11 @@ import org.sopt.hashi.restaurant.domain.RestaurantLocationJob;
 import org.sopt.hashi.restaurant.domain.RestaurantLocationJobRepository;
 import org.sopt.hashi.restaurant.domain.RestaurantLocationStatus;
 import org.sopt.hashi.restaurant.domain.RestaurantRepository;
+import org.sopt.hashi.restaurant.domain.RestaurantRepository.RestaurantLocationReviewProjection;
 import org.sopt.hashi.shared.error.BusinessException;
 import org.sopt.hashi.shared.error.CommonErrorCode;
 import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Isolation;
 import org.springframework.transaction.annotation.Propagation;
@@ -21,6 +28,10 @@ import org.springframework.transaction.annotation.Transactional;
 
 @Service
 public class RestaurantLocationService {
+    private static final int MAX_REVIEW_PAGE_SIZE = 100;
+    private static final Set<String> REVIEW_STATUSES = Set.of(
+            "UNRESOLVED", "PENDING", "READY", "RETRY_WAIT", "REVIEW_REQUIRED", "FAILED");
+    private static final Set<String> LOCATION_SOURCES = Set.of("GOOGLE_GEOCODING", "GOOGLE_PLACES", "ADMIN");
     private final RestaurantRepository restaurants;
     private final RestaurantLocationJobRepository jobs;
     private final Clock clock;
@@ -52,6 +63,18 @@ public class RestaurantLocationService {
                 .orElseThrow(() -> new BusinessException(RestaurantErrorCode.NOT_FOUND)));
     }
 
+    @Transactional(readOnly = true)
+    public RestaurantLocationReviewPage findReviews(String status, String source, Long cursor, int size) {
+        validateReviewQuery(status, source, cursor, size);
+        List<RestaurantLocationReviewProjection> rows = restaurants.findLocationReviews(
+                status, source, cursor, PageRequest.of(0, size + 1));
+        boolean hasNext = rows.size() > size;
+        List<RestaurantLocationReviewProjection> pageRows = hasNext ? rows.subList(0, size) : rows;
+        List<RestaurantLocationReviewInfo> content = pageRows.stream().map(this::toReviewInfo).toList();
+        Long nextCursor = hasNext ? content.getLast().restaurantId() : null;
+        return new RestaurantLocationReviewPage(content, nextCursor, hasNext);
+    }
+
     @Transactional(isolation = Isolation.READ_COMMITTED)
     public RestaurantLocationInfo retry(Long restaurantId, long expectedRevision) {
         if (expectedRevision < 0) {
@@ -65,8 +88,23 @@ public class RestaurantLocationService {
         if (revision != expectedRevision || (location != null && location.getStatus() == RestaurantLocationStatus.READY)) {
             throw new BusinessException(RestaurantErrorCode.LOCATION_RETRY_CONFLICT);
         }
-        if (location == null || location.getStatus() != RestaurantLocationStatus.PENDING) {
+        if (location == null) {
             enqueue(restaurant);
+            return info(restaurant);
+        }
+        RestaurantLocationJob current = jobs.findCurrentForUpdate(restaurantId, location.getRequestId())
+                .orElseThrow(() -> new BusinessException(RestaurantErrorCode.LOCATION_RETRY_CONFLICT));
+        if (!current.isCurrent(restaurant)) {
+            throw new BusinessException(RestaurantErrorCode.LOCATION_RETRY_CONFLICT);
+        }
+        if (location.getStatus() != RestaurantLocationStatus.PENDING) {
+            LocalDateTime now = LocalDateTime.ofInstant(clock.instant(), ZoneOffset.UTC);
+            supersede(restaurant.getId(), now);
+            restaurant.requestLocationResolution();
+            RestaurantLocationJob retry = current.getOperation() == RestaurantLocationJob.Operation.PLACE_DETAILS
+                    ? RestaurantLocationJob.pendingDetails(restaurant, requirePlaceId(current), now)
+                    : RestaurantLocationJob.pending(restaurant, now);
+            jobs.save(retry);
         }
         return info(restaurant);
     }
@@ -74,20 +112,61 @@ public class RestaurantLocationService {
     private RestaurantLocationInfo info(Restaurant restaurant) {
         RestaurantLocation location = restaurant.getLocation();
         if (location == null) {
-            return new RestaurantLocationInfo(restaurant.getId(), "UNRESOLVED", 0, null, 0, null, null, true);
+            return new RestaurantLocationInfo(restaurant.getId(), "UNRESOLVED", 0, null, null,
+                    null, 0, null, null, true);
         }
         RestaurantLocationJob job = jobs.findByRestaurantIdAndRequestId(restaurant.getId(), location.getRequestId())
                 .orElse(null);
         boolean canRetry = location.getStatus() != RestaurantLocationStatus.PENDING
                 && location.getStatus() != RestaurantLocationStatus.READY;
         return new RestaurantLocationInfo(restaurant.getId(), location.getStatus().name(), location.getAddressRevision(),
+                location.getSource() == null ? null : location.getSource().name(),
+                job == null ? null : job.getOperation().name(),
                 location.getValidUntil() == null ? null : location.getValidUntil().toInstant(ZoneOffset.UTC),
                 job == null ? 0 : job.getAttempt(),
                 location.getNextAttemptAt() == null ? null : location.getNextAttemptAt().toInstant(ZoneOffset.UTC),
                 job == null ? null : job.getFailureCode(), canRetry);
     }
 
+    private RestaurantLocationReviewInfo toReviewInfo(RestaurantLocationReviewProjection row) {
+        boolean canRetry = !"PENDING".equals(row.getLocationStatus()) && !"READY".equals(row.getLocationStatus());
+        return new RestaurantLocationReviewInfo(
+                row.getRestaurantId(),
+                row.getRestaurantName(),
+                row.getAddress(),
+                row.getGeocodingAddress(),
+                row.getLocationStatus(),
+                row.getLocationSource(),
+                row.getVerificationMode(),
+                row.getAddressRevision(),
+                parseUtc(row.getValidUntilUtc()),
+                row.getAttempt(),
+                parseUtc(row.getNextAttemptAtUtc()),
+                row.getFailureCode(),
+                canRetry);
+    }
+
+    private void validateReviewQuery(String status, String source, Long cursor, int size) {
+        if (status == null || !REVIEW_STATUSES.contains(status)
+                || (source != null && !LOCATION_SOURCES.contains(source))
+                || (cursor != null && cursor < 1)
+                || size < 1 || size > MAX_REVIEW_PAGE_SIZE) {
+            throw new BusinessException(CommonErrorCode.INVALID_INPUT);
+        }
+    }
+
+    private Instant parseUtc(String value) {
+        return value == null ? null : LocalDateTime.parse(value).toInstant(ZoneOffset.UTC);
+    }
+
     private void supersede(Long restaurantId, LocalDateTime now) {
         jobs.findActiveForUpdate(restaurantId).forEach(job -> job.supersede(now));
+    }
+
+    private String requirePlaceId(RestaurantLocationJob job) {
+        if (job.getGooglePlaceId() == null) {
+            throw new BusinessException(RestaurantErrorCode.LOCATION_RETRY_CONFLICT);
+        }
+        return job.getGooglePlaceId();
     }
 }

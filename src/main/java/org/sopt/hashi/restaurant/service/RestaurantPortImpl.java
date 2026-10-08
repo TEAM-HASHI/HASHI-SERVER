@@ -4,8 +4,8 @@ import java.util.Collection;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
-import java.util.Objects;
 import java.util.Optional;
+import java.util.Objects;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 import org.sopt.hashi.media.ImageReference;
@@ -19,12 +19,17 @@ import org.sopt.hashi.restaurant.RestaurantInfo;
 import org.sopt.hashi.restaurant.RestaurantMapInfo;
 import org.sopt.hashi.restaurant.RestaurantPort;
 import org.sopt.hashi.restaurant.RestaurantLocationInfo;
+import org.sopt.hashi.restaurant.RestaurantLocationReviewPage;
+import org.sopt.hashi.restaurant.RestaurantPlacesSearchInfo;
 import org.sopt.hashi.restaurant.domain.Restaurant;
 import org.sopt.hashi.restaurant.domain.RestaurantImage;
 import org.sopt.hashi.restaurant.domain.RestaurantRepository;
 import org.sopt.hashi.shared.storage.FileStorage;
 import org.springframework.stereotype.Component;
+import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.transaction.annotation.Isolation;
+import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
 /**
@@ -41,6 +46,7 @@ class RestaurantPortImpl implements RestaurantPort {
     private final RestaurantLocationService locationService;
     private final RestaurantMapService restaurantMapService;
     private final MapRegionAdminService mapRegionAdminService;
+    private final PlacesLocationService placesLocationService;
 
     RestaurantPortImpl(RestaurantRepository restaurantRepository, RestaurantService restaurantService,
                        FileStorage fileStorage, RestaurantLocationService locationService,
@@ -51,6 +57,26 @@ class RestaurantPortImpl implements RestaurantPort {
         this.locationService = locationService;
         this.restaurantMapService = restaurantMapService;
         this.mapRegionAdminService = mapRegionAdminService;
+        this.placesLocationService = null;
+    }
+
+    @Autowired
+    RestaurantPortImpl(RestaurantRepository restaurantRepository, RestaurantService restaurantService,
+                       FileStorage fileStorage, RestaurantLocationService locationService,
+                       RestaurantMapService restaurantMapService,
+                       MapRegionAdminService mapRegionAdminService,
+                       ObjectProvider<PlacesLocationService> placesLocationServices) {
+        this.restaurantRepository = restaurantRepository;
+        this.restaurantService = restaurantService;
+        this.fileStorage = fileStorage;
+        this.locationService = locationService;
+        this.restaurantMapService = restaurantMapService;
+        this.placesLocationService = placesLocationServices.getIfAvailable();
+        this.mapRegionAdminService = mapRegionAdminService;
+    }
+
+    private PlacesLocationService requirePlacesLocationService() {
+        return Objects.requireNonNull(placesLocationService, "PlacesLocationService is unavailable");
     }
 
     @Override
@@ -200,6 +226,25 @@ class RestaurantPortImpl implements RestaurantPort {
     @Transactional(isolation = Isolation.READ_COMMITTED)
     public Long assignMapRegionByAdmin(Long restaurantId, Long mapRegionId) {
         return mapRegionAdminService.assign(restaurantId, mapRegionId);
+    }
+
+    @Override
+    public RestaurantLocationReviewPage findLocationReviewsByAdmin(
+            String status, String source, Long cursor, int size) {
+        return locationService.findReviews(status, source, cursor, size);
+    }
+
+    @Override
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
+    public RestaurantPlacesSearchInfo searchLocationPlacesByAdmin(Long restaurantId, long expectedAddressRevision) {
+        return requirePlacesLocationService().search(restaurantId, expectedAddressRevision);
+    }
+
+    @Override
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
+    public RestaurantLocationInfo selectLocationPlaceByAdmin(
+            Long restaurantId, long expectedAddressRevision, String selectionToken) {
+        return requirePlacesLocationService().select(restaurantId, expectedAddressRevision, selectionToken);
     }
 
     private RestaurantInfo toInfo(Restaurant restaurant) {

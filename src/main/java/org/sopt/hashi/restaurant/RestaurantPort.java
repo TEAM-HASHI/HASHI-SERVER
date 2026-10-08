@@ -82,4 +82,14 @@ public interface RestaurantPort {
 
     /** 없는/삭제 식당은 거절하고, 존재하는 비활성 지역도 지정 가능하다. null은 소속 해제다. */
     Long assignMapRegionByAdmin(Long restaurantId, Long mapRegionId);
+    /** 관리자 위치 검토 목록. restaurantId 오름차순 커서로 활성 식당만 조회한다. */
+    RestaurantLocationReviewPage findLocationReviewsByAdmin(
+            String status, String source, Long cursor, int size);
+
+    /** 저장된 식당명과 위치 확인 주소로 Places 후보를 조회한다. */
+    RestaurantPlacesSearchInfo searchLocationPlacesByAdmin(Long restaurantId, long expectedAddressRevision);
+
+    /** 서명된 후보를 현재 위치 request에 적용하고 PLACE_DETAILS 작업을 등록한다. */
+    RestaurantLocationInfo selectLocationPlaceByAdmin(
+            Long restaurantId, long expectedAddressRevision, String selectionToken);
 }

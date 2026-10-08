@@ -1,5 +1,6 @@
 package org.sopt.hashi.restaurant.domain;
 
+import java.util.List;
 import org.sopt.hashi.restaurant.code.RestaurantErrorCode;
 import org.sopt.hashi.shared.error.BusinessException;
 import org.sopt.hashi.shared.error.CommonErrorCode;
@@ -24,9 +25,19 @@ public record MapSearchCriteria(MapQueryBounds bounds, Long mapRegionId, Restaur
         return new MapSearchCriteria(bounds, regionId, parsedGenre, parsedType, keyword);
     }
 
+    public boolean hashtagOnly() {
+        return keyword != null && keyword.startsWith("#");
+    }
+
     /** !를 명시적 LIKE escape 문자로 사용한다. 사용자 입력의 !, %, _ 모두 리터럴이다. */
-    public String keywordPattern() {
-        return RestaurantSearchKeyword.containsPattern(keyword);
+    public List<String> keywordPatterns() {
+        if (keyword == null) {
+            return List.of();
+        }
+        String searchText = hashtagOnly() ? keyword.substring(1) : keyword;
+        return RestaurantSearchKeyword.terms(searchText).stream()
+                .map(RestaurantSearchKeyword::containsPattern)
+                .toList();
     }
 
     private static String normalizeKeyword(String keyword) {
@@ -45,7 +56,11 @@ public record MapSearchCriteria(MapQueryBounds bounds, Long mapRegionId, Restaur
             throw new BusinessException(CommonErrorCode.INVALID_INPUT);
         }
         int length = normalized.codePointCount(0, normalized.length());
-        if (length > 100) {
+        if (length > 30) {
+            throw new BusinessException(CommonErrorCode.INVALID_INPUT);
+        }
+        if (normalized.startsWith("#")
+                && (normalized.length() == 1 || RestaurantSearchKeyword.terms(normalized).size() != 1)) {
             throw new BusinessException(CommonErrorCode.INVALID_INPUT);
         }
         return normalized;

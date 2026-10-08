@@ -61,7 +61,8 @@ public class CollectionMapQueryService {
                 .filter(info -> info.location() != null && now.isBefore(info.location().validUntil()))
                 .sorted(Comparator.comparing(RestaurantMapInfo::restaurantId))
                 .map(info -> new Marker(info.restaurantId(), info.name(), info.placeType(), info.genre(),
-                        new Position(info.location().latitude(), info.location().longitude(), info.location().validUntil())))
+                        new Position(info.location().latitude(), info.location().longitude(), info.location().validUntil(),
+                                info.location().attributions())))
                 .toList();
         return new CollectionMapMarkersResponse(collectionId, snapshot.version(), now, infos.size(),
                 infos.size() - markers.size(), markers);

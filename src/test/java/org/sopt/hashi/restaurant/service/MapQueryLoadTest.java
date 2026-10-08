@@ -160,6 +160,7 @@ class MapQueryLoadTest {
                 json.writeValue(output.resolve("resource-samples.json").toFile(), samples);
             }
             Map<String, Double> workloadRejections = capacityRejections();
+            Map<String, Object> workloadStages = stageDurations();
             assertThat(samples).isNotEmpty();
             assertThat(samples.stream().mapToInt(sample -> ((Number) sample.get("sessions")).intValue())
                     .max().orElseThrow()).isPositive();
@@ -192,6 +193,7 @@ class MapQueryLoadTest {
                     Map.entry("k6Exit", k6Exit), Map.entry("capacityRejected", true),
                     Map.entry("recoveredAfterExpiry", true), Map.entry("authSentinelPreserved", true),
                     Map.entry("workloadCapacityRejections", workloadRejections),
+                    Map.entry("workloadStageDurations", workloadStages),
                     Map.entry("finalCapacityRejections", capacityRejections())));
             json.writeValue(output.resolve("resource-samples.json").toFile(), samples);
             assertThat(k6Exit).as("Original k6 thresholds remain enforced; see rejection counters and k6.log").isZero();
@@ -240,6 +242,23 @@ class MapQueryLoadTest {
             counts.put(reason, counter == null ? 0 : counter.count());
         }
         return counts;
+    }
+
+    /** Includes the initial HTTP readiness request; captured before cleanup/recovery probes. */
+    private Map<String, Object> stageDurations() {
+        var durations = new LinkedHashMap<String, Object>();
+        for (String operation : List.of("new_query", "sort_change", "next_page")) {
+            for (String stage : List.of("admit", "candidates", "save", "load_session", "read_page", "touch")) {
+                var timer = meterRegistry.find("hashi.restaurant.map.stage.duration")
+                        .tags("operation", operation, "stage", stage).timer();
+                if (timer != null && timer.count() > 0) {
+                    durations.put(operation + ":" + stage, Map.of(
+                            "count", timer.count(), "meanMs", timer.mean(TimeUnit.MILLISECONDS),
+                            "totalMs", timer.totalTime(TimeUnit.MILLISECONDS)));
+                }
+            }
+        }
+        return durations;
     }
 
     private void awaitSessionCleanup(List<Map<String, Object>> samples) throws InterruptedException {

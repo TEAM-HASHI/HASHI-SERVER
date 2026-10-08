@@ -8,12 +8,14 @@
 - `GET /api/v1/restaurants/map/regions`: 초기 범위, 지원 범위와 1도 제한, 활성 관광 지역의 대표 좌표·화면·식당 수.
 - `GET /api/v1/restaurants/{restaurantId}/map-location`: 삭제되지 않은 식당의 현재 유효 위치.
 - `RestaurantMapService.findCandidates(criteria, capacity)`: 후보 ID·평점·리뷰 수와 UTC `rankingAsOf`.
+  검색어가 있으면 현재 화면 안의 전체 결과 수·좌표 경계·가장 이른 좌표 만료 시각도 함께 제공한다.
 - `RestaurantMapService.findMatchingCandidates(criteria, ids)`: 같은 조건을 현재 DB에 다시 적용한 후보 값.
 - `RestaurantPort.findActiveMapInfos(ids)`: 컬렉션에서 사용할 이름·분류·장르·선택적 위치.
 
 `GET /restaurants/map` 페이지 API, Redis 세션·추천 순서·정렬·cursor·10개 카드·이미지/가격대 조합은
 후속 [#227](https://github.com/TEAM-HASHI/HASHI-SERVER/issues/227)에서 구현한다.
-기존 일반 식당 목록의 정렬·cursor는 유지한다. 검색 입력 정규화와 리터럴 검색은 아래 공통 정책으로 맞춘다.
+기존 일반 식당 목록의 정렬·cursor와 검색 구현은 유지한다. 지도 검색은 최신 PLAN의 검색 입력 계약을
+별도로 적용하며, 두 API의 남은 차이는 아래에 명시한다.
 
 ## 조회 조건과 데이터
 
@@ -30,18 +32,17 @@ native SQL의 기준 시각은 UTC 문자열을 `DATETIME(6)`으로 명시 변�
 조회용 `MapQueryBounds`는 저장용 `MapBounds`와 별개다. SDK의 긴 소수점 입력을 반올림·절삭하지 않고
 MySQL DECIMAL 좌표와 비교한다. 경계는 포함하고 역전·날짜변경선 횡단·유효 범위·1도 초과·지원 영역을 검증한다.
 `MapSearchCriteria.of`는 wire 분류 값과 양의 지역 ID, 검색어를 검증한다. 지도 검색어가 있으면
-정규화 후 최대 100 코드포인트이며 개행·제어문자는 거절한다. 일반 식당 목록과 지도는
-`RestaurantSearchKeyword` 정책으로 Unicode 공백을 포함한 앞뒤 공백만 제거한다.
-식당명·메뉴명은 원문으로 저장하므로 검색어 내부의 반복 ASCII/Unicode 공백을 그대로 보존한다.
+Unicode 공백을 포함한 앞뒤 공백을 제거한 뒤 최대 30 코드포인트이며 개행·제어문자는 거절한다.
+일반 검색어는 내부 Unicode 공백으로 단어를 나누고, 각 단어 중 하나라도 식당명·메뉴명·해시태그에
+대소문자 구분 없이 부분 일치하면 포함한다. 메뉴와 해시태그는 `EXISTS`로 검사해 한 식당을 한 번만 반환한다.
+검색어가 `#`으로 시작하면 뒤의 공백 없는 단일 단어를 해시태그에서만 부분 검색한다. `#`만 있거나
+`#` 뒤에 공백 또는 여러 단어가 있는 입력은 400으로 거절한다.
 미지정(null)은 두 API 모두 필터를 생략한다. 명시적 빈 문자열·공백만 있는 입력은 일반 목록에서
 필터를 생략하지만, 지도에서는 기존 `MAP-03` 계약대로 400으로 거절한다.
-식당명·메뉴명 검색은 대소문자를 구분하지 않으며
 `!`를 SQL LIKE escape 문자로 지정해 `%`, `_`, `!`를 모두 리터럴로 검색한다.
-지도는 메뉴를 `EXISTS`로 검색하며, 일반 목록의 기존 메뉴 JOIN과 중복 제거 방식은 유지한다.
-이는 PLAN `MAP_MAIN` §4.2의 목록 검색 조건 승계를 위한 정합화다. 일반 식당 목록은 기존 와일드카드
-해석과 Unicode 앞뒤 공백 처리에서 변경된다. 지도도 내부 공백을 보존해 저장명 그대로 검색할 때
-누락되지 않게 한다. API별 입력 허용 차이를 유지하면서 유효 검색어의 결과를 맞춘다.
-지도 전용 blank·길이·제어문자 검증, 일반 목록의 정렬·cursor 및 별도 자동완성 API는 유지한다.
+현재 일반 `/restaurants` 목록은 앞뒤 공백을 제거한 전체 문구를 식당명·메뉴명에서만 검색한다.
+여러 단어 OR, 해시태그, `#` 전용 검색과 30자 제한은 아직 일반 목록에 적용되지 않았다. 따라서 이 변경은
+지도 검색 계약만 충족하며, 최신 공통 검색 계약을 일반 목록까지 맞추는 작업은 정렬·cursor와 함께 별도 범위다.
 
 후보 조회는 한 SQL에서 순위 값만 가져온다. `capacity + 1`개를 SQL 상한으로 사용하고 초과하면
 `RESTAURANT-016`으로 전체 실패한다. 최종 후보 수·bytes·동시 세션 수용 한도는 후속 Redis 담당자가 측정해 정한다.
@@ -49,6 +50,13 @@ MySQL DECIMAL 좌표와 비교한다. 경계는 포함하고 역전·날짜변�
 전체 결과를 자르는 제한이 아니다. #234는 기존 호출자의 500개 제한을 byte 예산 기반으로 바꾸고 조회 ID별 Redis 키,
 유휴 5분·최대 30분 만료, 메모리 예산과 호출 제한을 적용한다. 상세 계약은 [페이지 조회](map-pagination.md)를 따른다.
 `rankingAsOf`는 조회 직전에 캡처한 기준 시각이며 DB commit 시각을 뜻하지 않는다.
+
+검색어가 있는 새 조회는 후보 상한을 통과한 뒤 같은 read-only transaction과 `rankingAsOf`로 집계 SQL을 한 번 더
+실행한다. 후보 SQL과 집계 SQL은 삭제·좌표 수명·현재 화면 BBOX·지역·장르·음식점 분류·검색 predicate와
+parameter binding을 공유한다. 집계는 페이지 크기와 무관한 `totalCount`, 모든 결과 좌표의 min/max 경계,
+`earliestValidUntil`을 반환한다. 0건은 `totalCount=0`, `bounds=null`, `earliestValidUntil=null`이고,
+1건은 남북·동서가 같은 경계를 허용한다. 검색어가 없는 일반 탐색은 추가 집계 SQL을 실행하지 않는다.
+후속 Redis 세션은 집계 경계를 좌표 수명보다 오래 보관하지 않도록 hard expiry를 `earliestValidUntil`으로 제한해야 한다.
 
 지역 집계는 한 SQL에서 지역 ID와 그 지역의 cameraBounds를 함께 적용한다. 활성 지역 0건도 포함하고
 displayOrder·ID 순으로 반환한다. 유효 위치가 cameraBounds 밖에 매핑된 지역은 count에서 그 식당을 제외하며,
@@ -103,7 +111,7 @@ SecurityFilterChain과 기존 공개 경로 정책은 유지한다.
 DB 조회 실패와 Service 본문 밖 transaction 실패는 고정 operation `restaurant-map-query`와
 예외 클래스명만 WARN으로 남긴다. SQL·검색어·좌표·예외 메시지·cause·stack trace는 기록하지 않는다.
 
-- `RestaurantMapQueryIntegrationTest`: MySQL 8.4, Flyway 전체 migration 후 validate, 실제 후보·집계·Port 조회.
+- `RestaurantMapQueryIntegrationTest`: MySQL 8.4, Flyway 전체 migration 후 validate, 실제 후보·검색 결과 경계·Port 조회.
 - `RestaurantMapControllerTest`: 실제 SecurityFilterChain, HTTP wrapper·오류·UTC 직렬화·no-store.
 - `MapSearchCriteriaTest`, `MapQueryPropertiesTest`, `RestaurantMapServiceTest`: 입력·설정 격리·부분 실패.
 - 기존 식당/관리자 회귀와 `ModularityTests`를 함께 검증한다.

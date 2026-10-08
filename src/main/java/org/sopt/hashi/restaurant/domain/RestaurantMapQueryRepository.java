@@ -2,6 +2,8 @@ package org.sopt.hashi.restaurant.domain;
 
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.Query;
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import java.math.BigDecimal;
 import java.time.Instant;
 import java.time.LocalDateTime;
@@ -11,11 +13,16 @@ import java.util.List;
 import java.util.Optional;
 import org.sopt.hashi.restaurant.RestaurantMapInfo;
 import org.sopt.hashi.restaurant.RestaurantMapInfo.LocationInfo;
+import org.sopt.hashi.restaurant.domain.MapSearchResultExtent.ResultBounds;
+import org.sopt.hashi.restaurant.RestaurantMapInfo.AttributionInfo;
 import org.springframework.stereotype.Repository;
+import org.springframework.dao.DataRetrievalFailureException;
 
 /** 지도 전용 값 projection. 모든 SQL은 restaurant 모듈 안의 테이블만 사용한다. */
 @Repository
 public class RestaurantMapQueryRepository {
+
+    private static final ObjectMapper ATTRIBUTIONS_MAPPER = new ObjectMapper();
 
     private static final DateTimeFormatter UTC_DATETIME = DateTimeFormatter.ofPattern("uuuu-MM-dd HH:mm:ss.SSSSSS");
     private static final String USABLE_LOCATION = """
@@ -44,6 +51,22 @@ public class RestaurantMapQueryRepository {
         return ids.isEmpty() ? List.of() : candidateRows(criteria, now, ids, null);
     }
 
+    /** 페이지 크기와 무관하게 검색 조건에 맞는 모든 유효 좌표의 개수와 경계를 집계한다. */
+    public MapSearchResultExtent findResultExtent(MapSearchCriteria criteria, Instant now) {
+        StringBuilder sql = matchingRowsSql("""
+                select count(*), min(l.latitude), max(l.latitude), min(l.longitude), max(l.longitude),
+                       date_format(min(l.valid_until), '%Y-%m-%dT%H:%i:%s.%f')
+                """, criteria);
+        Object[] row = (Object[]) bindCriteria(entityManager.createNativeQuery(sql.toString()), criteria, now)
+                .getSingleResult();
+        long totalCount = number(row[0]);
+        if (totalCount == 0) {
+            return MapSearchResultExtent.empty();
+        }
+        return new MapSearchResultExtent(totalCount, new ResultBounds(
+                (BigDecimal) row[1], (BigDecimal) row[2], (BigDecimal) row[3], (BigDecimal) row[4]), instant(row[5]));
+    }
+
     public Optional<MapQueryBounds> findActiveRegionBounds(Long id) {
         List<Object[]> rows = rows(entityManager.createNativeQuery("""
                 select south, north, west, east from map_region where id = :id and active = true
@@ -58,14 +81,16 @@ public class RestaurantMapQueryRepository {
         }
         Query query = entityManager.createNativeQuery("""
                 select r.id, r.name, r.place_type, r.genre, l.latitude, l.longitude,
-                       date_format(l.valid_until, '%Y-%m-%dT%H:%i:%s.%f')
+                       date_format(l.valid_until, '%Y-%m-%dT%H:%i:%s.%f'),
+                       cast(l.places_attributions as char)
                 from restaurant r left join restaurant_location l on l.id = r.location_id and
                 """ + USABLE_LOCATION + " where r.deleted = false and r.id in (:ids)")
                 .setParameter("ids", ids).setParameter("now", utc(now));
         return rows(query).stream().map(row -> new RestaurantMapInfo(number(row[0]), (String) row[1],
                 RestaurantPlaceType.valueOf((String) row[2]).value(),
                 RestaurantGenre.valueOf((String) row[3]).value(),
-                row[4] == null ? null : new LocationInfo((BigDecimal) row[4], (BigDecimal) row[5], instant(row[6]))))
+                row[4] == null ? null : new LocationInfo((BigDecimal) row[4], (BigDecimal) row[5], instant(row[6]),
+                        attributions(row[7]))))
                 .toList();
     }
 
@@ -93,8 +118,26 @@ public class RestaurantMapQueryRepository {
 
     private List<RestaurantMapCandidate> candidateRows(MapSearchCriteria criteria, Instant now,
                                                       List<Long> ids, Integer maxResults) {
-        StringBuilder sql = new StringBuilder("""
+        StringBuilder sql = matchingRowsSql("""
                 select r.id, r.rating, r.review_count
+                """, criteria);
+        if (ids != null) {
+            sql.append(" and r.id in (:ids)");
+        }
+        sql.append(" order by r.id");
+        Query query = bindCriteria(entityManager.createNativeQuery(sql.toString()), criteria, now);
+        if (ids != null) {
+            query.setParameter("ids", ids);
+        }
+        if (maxResults != null) {
+            query.setMaxResults(maxResults);
+        }
+        return rows(query).stream().map(row -> new RestaurantMapCandidate(number(row[0]),
+                (BigDecimal) row[1], number(row[2]))).toList();
+    }
+
+    private static StringBuilder matchingRowsSql(String select, MapSearchCriteria criteria) {
+        StringBuilder sql = new StringBuilder(select).append("""
                 from restaurant r join restaurant_location l on l.id = r.location_id
                 where r.deleted = false and
                 """).append(USABLE_LOCATION).append("""
@@ -112,17 +155,13 @@ public class RestaurantMapQueryRepository {
             sql.append(" and r.place_type = :placeType");
         }
         if (criteria.keyword() != null) {
-            sql.append("""
-                     and (lower(r.name) like :keyword escape '!'
-                     or exists (select 1 from restaurant_menu m where m.restaurant_id = r.id
-                                and lower(m.name) like :keyword escape '!'))
-                    """);
+            appendKeywordPredicate(sql, criteria);
         }
-        if (ids != null) {
-            sql.append(" and r.id in (:ids)");
-        }
-        sql.append(" order by r.id");
-        Query query = entityManager.createNativeQuery(sql.toString()).setParameter("now", utc(now))
+        return sql;
+    }
+
+    private static Query bindCriteria(Query query, MapSearchCriteria criteria, Instant now) {
+        query.setParameter("now", utc(now))
                 .setParameter("south", criteria.bounds().south()).setParameter("north", criteria.bounds().north())
                 .setParameter("west", criteria.bounds().west()).setParameter("east", criteria.bounds().east());
         if (criteria.mapRegionId() != null) {
@@ -135,16 +174,38 @@ public class RestaurantMapQueryRepository {
             query.setParameter("placeType", criteria.placeType().name());
         }
         if (criteria.keyword() != null) {
-            query.setParameter("keyword", criteria.keywordPattern());
+            List<String> patterns = criteria.keywordPatterns();
+            for (int index = 0; index < patterns.size(); index++) {
+                query.setParameter("keyword" + index, patterns.get(index));
+            }
         }
-        if (ids != null) {
-            query.setParameter("ids", ids);
+        return query;
+    }
+
+    private static void appendKeywordPredicate(StringBuilder sql, MapSearchCriteria criteria) {
+        sql.append(" and (");
+        List<String> patterns = criteria.keywordPatterns();
+        for (int index = 0; index < patterns.size(); index++) {
+            if (index > 0) {
+                sql.append(" or ");
+            }
+            String parameter = ":keyword" + index;
+            if (criteria.hashtagOnly()) {
+                appendHashtagExists(sql, parameter);
+            } else {
+                sql.append("(lower(r.name) like ").append(parameter).append(" escape '!' or ")
+                        .append("exists (select 1 from restaurant_menu m where m.restaurant_id = r.id ")
+                        .append("and lower(m.name) like ").append(parameter).append(" escape '!') or ");
+                appendHashtagExists(sql, parameter);
+                sql.append(")");
+            }
         }
-        if (maxResults != null) {
-            query.setMaxResults(maxResults);
-        }
-        return rows(query).stream().map(row -> new RestaurantMapCandidate(number(row[0]),
-                (BigDecimal) row[1], number(row[2]))).toList();
+        sql.append(")");
+    }
+
+    private static void appendHashtagExists(StringBuilder sql, String parameter) {
+        sql.append("exists (select 1 from restaurant_hashtag h where h.restaurant_id = r.id ")
+                .append("and lower(h.hashtag) like ").append(parameter).append(" escape '!')");
     }
 
     @SuppressWarnings("unchecked")
@@ -168,5 +229,18 @@ public class RestaurantMapQueryRepository {
 
     private static Instant instant(Object value) {
         return LocalDateTime.parse((String) value).toInstant(ZoneOffset.UTC);
+    }
+
+    private static List<AttributionInfo> attributions(Object value) {
+        if (value == null) {
+            return List.of();
+        }
+        try {
+            return List.of(ATTRIBUTIONS_MAPPER.readValue((String) value, RestaurantLocationAttribution[].class))
+                    .stream().map(item -> new AttributionInfo(item.displayName(), item.uri())).toList();
+        } catch (JsonProcessingException | IllegalArgumentException | NullPointerException exception) {
+            // 출처가 손상된 좌표를 출처 없이 공개하지 않는다. 원문은 로그/예외에 포함하지 않는다.
+            throw new DataRetrievalFailureException("Stored location attribution is invalid");
+        }
     }
 }
