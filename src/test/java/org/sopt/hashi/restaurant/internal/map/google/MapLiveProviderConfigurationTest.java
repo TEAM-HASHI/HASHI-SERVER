@@ -21,7 +21,8 @@ class MapLiveProviderConfigurationTest {
         String previous = System.getProperty("map.live.enabled");
         try {
             System.clearProperty("map.live.enabled");
-            assertThatThrownBy(() -> new MapLiveProviderConfiguration().liveGeocodingProvider())
+            assertThatThrownBy(() -> new MapLiveProviderConfiguration().liveGeocodingProvider(
+                    new MapLiveProviderConfiguration.LiveRequestCounter(2)))
                     .isInstanceOf(IllegalStateException.class)
                     .hasMessage("Live provider requires explicit opt-in");
         } finally {
@@ -29,6 +30,19 @@ class MapLiveProviderConfigurationTest {
             else System.setProperty("map.live.enabled", previous);
         }
     }
+
+    @Test
+    void 실제_provider_호출은_두번만_허용한다() {
+        var requests = new MapLiveProviderConfiguration.LiveRequestCounter(2);
+
+        assertThat(requests.acquire()).isEqualTo(1);
+        assertThat(requests.acquire()).isEqualTo(2);
+        assertThatThrownBy(requests::acquire)
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessage("Only two live provider requests are allowed");
+        assertThat(requests.count()).isEqualTo(2);
+    }
+
     @Test
     void 테스트_DNS는_Google호스트만_loopback으로_연결한다() throws Exception {
         var resolver = new MapLiveProviderConfiguration.TunnelDnsResolver();

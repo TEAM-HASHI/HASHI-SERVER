@@ -18,7 +18,7 @@ import org.springframework.context.annotation.Primary;
 @TestConfiguration(proxyBeanMethods = false)
 class MapLiveProviderConfiguration {
     @Bean @Primary
-    GeocodingProvider liveGeocodingProvider() {
+    GeocodingProvider liveGeocodingProvider(LiveRequestCounter requests) {
         if (!Boolean.getBoolean("map.live.enabled")) {
             throw new IllegalStateException("Live provider requires explicit opt-in");
         }
@@ -26,11 +26,8 @@ class MapLiveProviderConfiguration {
                 System.getenv("HASHI_MAP_GOOGLEGEOCODING_APIKEY"),
                 Duration.ofSeconds(5), Duration.ofSeconds(15), 65536);
         var delegate = new GoogleGeocodingProvider(properties, UnaryOperator.identity(), new TunnelDnsResolver());
-        AtomicInteger requests = new AtomicInteger();
         return address -> {
-            if (requests.incrementAndGet() != 1) {
-                throw new IllegalStateException("Only one live provider request is allowed");
-            }
+            requests.acquire();
             var result = delegate.geocode(address);
             if (result instanceof Candidates candidates) {
                 for (int index = 0; index < candidates.candidates().size(); index++) {
@@ -41,6 +38,11 @@ class MapLiveProviderConfiguration {
             }
             return result;
         };
+    }
+
+    @Bean
+    LiveRequestCounter liveRequestCounter() {
+        return new LiveRequestCounter(2);
     }
 
     // Never print provider strings, except names in this fixed type allowlist.
@@ -54,6 +56,32 @@ class MapLiveProviderConfiguration {
                 + " empty=" + text.isBlank() + " digitsOnly=" + text.matches("[0-9０-９]+")
                 + " containsKanjiNumeral=" + text.matches(".*[〇零一二三四五六七八九十百千万壱弐参].*");
     }
+
+    static final class LiveRequestCounter {
+        private final int maximum;
+        private final AtomicInteger requests = new AtomicInteger();
+
+        LiveRequestCounter(int maximum) {
+            this.maximum = maximum;
+        }
+
+        int acquire() {
+            while (true) {
+                int current = requests.get();
+                if (current >= maximum) {
+                    throw new IllegalStateException("Only two live provider requests are allowed");
+                }
+                if (requests.compareAndSet(current, current + 1)) {
+                    return current + 1;
+                }
+            }
+        }
+
+        int count() {
+            return requests.get();
+        }
+    }
+
     static final class TunnelDnsResolver implements DnsResolver {
         private void checkHost(String host) throws UnknownHostException {
             if (!"geocode.googleapis.com".equals(host)) {

@@ -9,12 +9,17 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import java.math.BigDecimal;
+import java.time.Duration;
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.util.Base64;
 import org.junit.jupiter.api.Test;
 import org.sopt.hashi.auth.internal.jwt.JwtProvider;
 import org.sopt.hashi.media.MediaPort;
 import org.sopt.hashi.restaurant.internal.map.LocationJobScheduler;
+import org.sopt.hashi.restaurant.internal.map.LocationRetentionProperties;
+import org.sopt.hashi.restaurant.internal.map.LocationRetentionService;
 import org.sopt.hashi.restaurant.internal.map.MapSessionProperties;
 import org.sopt.hashi.restaurant.internal.map.RestaurantLocationWorker;
 import org.sopt.hashi.shared.storage.FileStorage;
@@ -43,7 +48,8 @@ import org.testcontainers.utility.DockerImageName;
         "kakao.client-id=test-client-id", "kakao.redirect-uri=https://app.hashi.test/callback",
         "hashi.storage.cloudfront-domain=https://cdn.hashi.test",
         "hashi.map.google-geocoding.enabled=false", "hashi.map.maintenance.retention-enabled=false",
-        "hashi.map.location-job.max-attempts=1", "hashi.map.location-job.enabled=true", "hashi.map.location-job.retention=1d",
+        "hashi.map.maintenance.refresh-ahead=3d",
+        "hashi.map.location-job.max-attempts=1", "hashi.map.location-job.enabled=true", "hashi.map.location-job.retention=30d",
         "hashi.map.location-job.south=35", "hashi.map.location-job.north=36",
         "hashi.map.location-job.west=139", "hashi.map.location-job.east=140",
         "hashi.restaurant.map.initial-bounds.south=35", "hashi.restaurant.map.initial-bounds.north=36",
@@ -78,17 +84,20 @@ class MapGoogleLiveFlowTest {
     @Autowired JdbcTemplate jdbc;
     @Autowired UserRepository users;
     @Autowired RestaurantLocationWorker worker;
+    @Autowired LocationRetentionService retention;
+    @Autowired LocationRetentionProperties retentionOptions;
     @Autowired MapSessionProperties sessionProperties;
+    @Autowired MapLiveProviderConfiguration.LiveRequestCounter liveRequests;
     @MockitoBean LocationJobScheduler scheduler;
     @MockitoBean MediaPort mediaPort;
     @MockitoBean FileStorage fileStorage;
     @Test
-    void 관리자_저장에서_실제_Google과_지도와_컬렉션핀까지_확인한다() throws Exception {
+    void 관리자_저장과_실제_Google_갱신후에도_지도와_컬렉션핀을_유지한다() throws Exception {
         mvc.perform(post("/api/v1/admin/restaurants")
                         .contentType(MediaType.APPLICATION_JSON).content(createBody()))
                 .andExpect(status().isUnauthorized());
         sessionProperties.setEnabled(true);
-        jdbc.update("update restaurant_geocoding_budget set enabled=true,daily_limit=1,max_concurrent=1,reserved_calls=0,budget_day=null,blocked_until=null where id=1");
+        jdbc.update("update restaurant_geocoding_budget set enabled=true,daily_limit=2,max_concurrent=1,reserved_calls=0,budget_day=null,blocked_until=null where id=1");
         String token = jwt.createAccessToken(1L, "ROLE_ADMIN");
         JsonNode saved = body(mvc.perform(post("/api/v1/admin/restaurants")
                         .header("Authorization", "Bearer " + token)
@@ -151,8 +160,64 @@ class MapGoogleLiveFlowTest {
 
         assertThat(jdbc.queryForObject("select reserved_calls from restaurant_geocoding_budget where id=1", Integer.class)).isEqualTo(1);
         assertThat(jdbc.queryForObject("select count(*) from restaurant_location_job where restaurant_id=? and state='SUCCEEDED'", Integer.class, id)).isEqualTo(1);
-        System.out.println("Map live flow: singleRequest=true ready=true bbox=true collectionPin=true");
+
+        LocationSnapshot initial = location(id);
+        assertThat(Duration.between(initial.obtainedAt(), initial.validUntil())).isEqualTo(Duration.ofDays(30));
+        jdbc.update("""
+                UPDATE restaurant_location l JOIN restaurant r ON r.location_id=l.id
+                SET l.obtained_at=UTC_TIMESTAMP(6)-INTERVAL 29 DAY,
+                    l.valid_until=UTC_TIMESTAMP(6)+INTERVAL 1 DAY
+                WHERE r.id=?
+                """, id);
+        LocationSnapshot aged = location(id);
+        assertThat(Duration.between(aged.obtainedAt(), aged.validUntil())).isEqualTo(Duration.ofDays(30));
+
+        assertThat(retentionOptions.retentionEnabled()).isFalse();
+        assertThat(retention.refresh(retentionOptions)).isEqualTo(1);
+        LocationSnapshot pending = location(id);
+        assertThat(pending.status()).isEqualTo("PENDING");
+        assertThat(pending.latitude()).isEqualByComparingTo(aged.latitude());
+        assertThat(pending.longitude()).isEqualByComparingTo(aged.longitude());
+        assertThat(pending.obtainedAt()).isEqualTo(aged.obtainedAt());
+        assertThat(pending.validUntil()).isEqualTo(aged.validUntil());
+        mvc.perform(get("/api/v1/restaurants/{id}/map-location", id))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.data.restaurantId").value(id));
+        mvc.perform(get("/api/v1/collections/{collectionId}/map-markers", collectionId))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.data.visibleRestaurantCount").value(1))
+                .andExpect(jsonPath("$.data.content[0].restaurantId").value(id));
+
+        worker.runOnce();
+        LocationSnapshot refreshed = location(id);
+        assertThat(refreshed.status()).isEqualTo("READY");
+        assertThat(refreshed.latitude()).isNotNull();
+        assertThat(refreshed.longitude()).isNotNull();
+        assertThat(refreshed.obtainedAt()).isAfter(aged.obtainedAt());
+        assertThat(refreshed.validUntil()).isAfter(aged.validUntil());
+        assertThat(Duration.between(refreshed.obtainedAt(), refreshed.validUntil()))
+                .isEqualTo(Duration.ofDays(30));
+        mvc.perform(get("/api/v1/restaurants/map")
+                        .param("south", "35").param("north", "36").param("west", "139").param("east", "140"))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.data.content[0].restaurantId").value(id));
+        mvc.perform(get("/api/v1/collections/{collectionId}/map-markers", collectionId))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.data.visibleRestaurantCount").value(1))
+                .andExpect(jsonPath("$.data.locationUnavailableCount").value(0))
+                .andExpect(jsonPath("$.data.content[0].restaurantId").value(id));
+        assertThat(liveRequests.count()).isEqualTo(2);
+        assertThat(jdbc.queryForObject("select reserved_calls from restaurant_geocoding_budget where id=1", Integer.class)).isEqualTo(2);
+        assertThat(jdbc.queryForObject("select count(*) from restaurant_location_job where restaurant_id=? and state='SUCCEEDED'", Integer.class, id)).isEqualTo(2);
+        System.out.println("Map live flow: providerRequests=2 refreshRegistered=true refreshed=true readPins=true");
     }
+    private LocationSnapshot location(long restaurantId) {
+        return jdbc.queryForObject("""
+                SELECT l.status, l.latitude, l.longitude, l.obtained_at, l.valid_until
+                FROM restaurant r JOIN restaurant_location l ON l.id=r.location_id
+                WHERE r.id=?
+                """, (rs, row) -> new LocationSnapshot(rs.getString("status"), rs.getBigDecimal("latitude"),
+                rs.getBigDecimal("longitude"), rs.getObject("obtained_at", LocalDateTime.class),
+                rs.getObject("valid_until", LocalDateTime.class)), restaurantId);
+    }
+    private record LocationSnapshot(String status, BigDecimal latitude, BigDecimal longitude,
+                                    LocalDateTime obtainedAt, LocalDateTime validUntil) { }
     private JsonNode body(String value) throws Exception { return json.readTree(value); }
     private String createBody() {
         return """
