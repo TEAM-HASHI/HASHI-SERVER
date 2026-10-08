@@ -39,7 +39,8 @@ public class RestaurantMapPageController {
     @Operation(summary = "지도 식당 목록 조회", description = """
             요청은 세 모드 중 하나만 사용한다. 새 조회는 south/north/west/east와 선택 필터를 보내고,
             정렬 변경은 querySessionId와 sort만, 다음 페이지는 cursor만 보낸다. 전체 음식점 분류는
-            placeType을 생략하며 keyword는 앞뒤 공백을 제거한 뒤 식당명/메뉴명에서 리터럴 부분 검색한다.
+            placeType을 생략한다. keyword 일반 검색은 공백으로 나눈 토큰 중 하나라도 식당명·메뉴명·해시태그에
+            포함되면 일치하고, #으로 시작하면 공백 없는 단일 해시태그를 검색한다.
             응답 content는 최대 10개이고 같은 항목이 목록과 핀의 기준이다. 조건에 맞는 식당이 없으면
             오류 대신 content=[]인 200을 반환한다. 410이면 마지막 성공 조회 조건으로 새 조회를 시작하고,
             429는 최대 60초 뒤, 503은 기존 결과를 유지한 채 같은 요청을 재시도한다.
@@ -62,9 +63,9 @@ public class RestaurantMapPageController {
             @Parameter(name = "mapRegionId", in = ParameterIn.QUERY,
                     description = "새 조회 선택. 활성 관광 지역 ID",
                     schema = @Schema(type = "integer", format = "int64", example = "1")),
-            @Parameter(name = "keyword", in = ParameterIn.QUERY,
-                    description = "새 조회 선택. 앞뒤 공백 제거, 내부 공백 보존, 최대 100자. "
-                    + "%, _, !도 와일드카드가 아닌 글자 그대로 식당명/메뉴명에서 부분 검색",
+            @Parameter(name = "keyword", in = ParameterIn.QUERY, description = "새 조회 선택, 최대 30자. "
+                    + "일반 검색은 공백 구분 OR 토큰으로 식당명·메뉴명·해시태그를 찾는다. "
+                    + "#단일태그는 해시태그 하나를 정확히 지정하며 # 뒤가 비거나 공백을 포함하면 400",
                     schema = @Schema(type = "string", example = "sushi")),
             @Parameter(name = "genre", in = ParameterIn.QUERY, description = "새 조회 선택. 음식 장르",
                     schema = @Schema(type = "string", allowableValues = {"sushi", "noodle", "rice-bowl",
