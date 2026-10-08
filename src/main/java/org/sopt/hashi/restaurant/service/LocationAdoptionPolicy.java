@@ -159,14 +159,38 @@ public class LocationAdoptionPolicy {
             if (component.types().contains("subpremise")) {
                 continue;
             }
-            for (String value : new String[]{component.longText(), component.shortText()}) {
-                if (value == null || value.isBlank()) {
+            List<String> values = java.util.stream.Stream.of(component.longText(), component.shortText())
+                    .filter(value -> value != null && !value.isBlank())
+                    .map(LocationAdoptionPolicy::normalize)
+                    .toList();
+            Set<BigInteger> componentChome = matchedNumbers(values, CHOME);
+            Set<BigInteger> componentBlock = matchedNumbers(values, BLOCK);
+            Set<BigInteger> componentBuilding = matchedNumbers(values, BUILDING);
+            long explicitRoles = java.util.stream.Stream.of(componentChome, componentBlock, componentBuilding)
+                    .filter(valuesForRole -> !valuesForRole.isEmpty())
+                    .count();
+            if (explicitRoles > 1 || componentChome.size() > 1 || componentBlock.size() > 1
+                    || componentBuilding.size() > 1) {
+                return ProviderNumber.conflictingNumber();
+            }
+            Set<BigInteger> componentExplicitNumbers = new LinkedHashSet<>();
+            componentExplicitNumbers.addAll(componentChome);
+            componentExplicitNumbers.addAll(componentBlock);
+            componentExplicitNumbers.addAll(componentBuilding);
+            chome.addAll(componentChome);
+            block.addAll(componentBlock);
+            building.addAll(componentBuilding);
+            for (String normalized : values) {
+                if (CHOME.matcher(normalized).matches() || BLOCK.matcher(normalized).matches()
+                        || BUILDING.matcher(normalized).matches()) {
                     continue;
                 }
-                String normalized = normalize(value);
-                addMatchedNumber(normalized, CHOME, chome);
-                addMatchedNumber(normalized, BLOCK, block);
-                addMatchedNumber(normalized, BUILDING, building);
+                if (POSITIVE_NUMBER.matcher(normalized).matches() && !componentExplicitNumbers.isEmpty()) {
+                    if (!componentExplicitNumbers.contains(new BigInteger(normalized))) {
+                        return ProviderNumber.conflictingNumber();
+                    }
+                    continue;
+                }
                 if (component.types().contains("sublocality_level_4")
                         && POSITIVE_NUMBER.matcher(normalized).matches()) {
                     block.add(new BigInteger(normalized));
@@ -230,6 +254,12 @@ public class LocationAdoptionPolicy {
         if (matcher.matches()) {
             target.add(new BigInteger(matcher.group(1)));
         }
+    }
+
+    private static Set<BigInteger> matchedNumbers(List<String> values, Pattern pattern) {
+        Set<BigInteger> matches = new LinkedHashSet<>();
+        values.forEach(value -> addMatchedNumber(value, pattern, matches));
+        return matches;
     }
 
     private static Set<List<BigInteger>> numberSequences(String value) {
