@@ -27,6 +27,7 @@ import org.springframework.stereotype.Component;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.transaction.annotation.Isolation;
+import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
 /**
@@ -211,11 +212,13 @@ class RestaurantPortImpl implements RestaurantPort {
     }
 
     @Override
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
     public RestaurantPlacesSearchInfo searchLocationPlacesByAdmin(Long restaurantId, long expectedAddressRevision) {
         return requirePlacesLocationService().search(restaurantId, expectedAddressRevision);
     }
 
     @Override
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
     public RestaurantLocationInfo selectLocationPlaceByAdmin(
             Long restaurantId, long expectedAddressRevision, String selectionToken) {
         return requirePlacesLocationService().select(restaurantId, expectedAddressRevision, selectionToken);

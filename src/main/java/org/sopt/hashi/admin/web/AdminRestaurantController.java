@@ -322,10 +322,10 @@ public class AdminRestaurantController {
     @ApiSuccess(value = CommonSuccessCode.class, codes = {"OK"})
     @ApiException(value = CommonErrorCode.class, codes = {"INVALID_INPUT", "UNAUTHORIZED", "FORBIDDEN"})
     @ApiErrorResponse(status = HttpStatus.NOT_FOUND, code = "RESTAURANT-004", message = "식당을 찾을 수 없습니다.")
-    @ApiErrorResponse(status = HttpStatus.SERVICE_UNAVAILABLE, code = "RESTAURANT-022", message = "Places 위치 확인을 사용할 수 없습니다")
-    @ApiErrorResponse(status = HttpStatus.TOO_MANY_REQUESTS, code = "RESTAURANT-023", message = "Places 호출 한도를 확인해주세요")
-    @ApiErrorResponse(status = HttpStatus.BAD_GATEWAY, code = "RESTAURANT-024", message = "Places 응답을 확인할 수 없습니다")
-    @ApiErrorResponse(status = HttpStatus.CONFLICT, code = "RESTAURANT-026", message = "현재 위치 상태를 다시 확인해주세요")
+    @ApiErrorResponse(status = HttpStatus.SERVICE_UNAVAILABLE, code = "RESTAURANT-024", message = "Places 위치 확인을 사용할 수 없습니다")
+    @ApiErrorResponse(status = HttpStatus.TOO_MANY_REQUESTS, code = "RESTAURANT-025", message = "Places 호출 한도를 확인해주세요")
+    @ApiErrorResponse(status = HttpStatus.BAD_GATEWAY, code = "RESTAURANT-026", message = "Places 응답을 확인할 수 없습니다")
+    @ApiErrorResponse(status = HttpStatus.CONFLICT, code = "RESTAURANT-028", message = "현재 위치 상태를 다시 확인해주세요")
     public SuccessResponse<RestaurantPlacesSearchResponse> searchLocationPlaces(
             @PathVariable Long restaurantId,
             @Valid @RequestBody SearchRestaurantPlacesRequest request,
@@ -352,10 +352,10 @@ public class AdminRestaurantController {
             """)))
     @ApiSuccess(value = CommonSuccessCode.class, codes = {"OK"})
     @ApiException(value = CommonErrorCode.class, codes = {"INVALID_INPUT", "UNAUTHORIZED", "FORBIDDEN"})
-    @ApiErrorResponse(status = HttpStatus.BAD_REQUEST, code = "RESTAURANT-025", message = "Places 선택 정보가 올바르지 않습니다")
+    @ApiErrorResponse(status = HttpStatus.BAD_REQUEST, code = "RESTAURANT-027", message = "Places 선택 정보가 올바르지 않습니다")
     @ApiErrorResponse(status = HttpStatus.NOT_FOUND, code = "RESTAURANT-004", message = "식당을 찾을 수 없습니다.")
-    @ApiErrorResponse(status = HttpStatus.SERVICE_UNAVAILABLE, code = "RESTAURANT-022", message = "Places 위치 확인을 사용할 수 없습니다")
-    @ApiErrorResponse(status = HttpStatus.CONFLICT, code = "RESTAURANT-026", message = "현재 위치 상태를 다시 확인해주세요")
+    @ApiErrorResponse(status = HttpStatus.SERVICE_UNAVAILABLE, code = "RESTAURANT-024", message = "Places 위치 확인을 사용할 수 없습니다")
+    @ApiErrorResponse(status = HttpStatus.CONFLICT, code = "RESTAURANT-028", message = "현재 위치 상태를 다시 확인해주세요")
     public SuccessResponse<RestaurantLocationResponse> selectLocationPlace(
             @PathVariable Long restaurantId,
             @Valid @RequestBody SelectRestaurantPlaceRequest request,

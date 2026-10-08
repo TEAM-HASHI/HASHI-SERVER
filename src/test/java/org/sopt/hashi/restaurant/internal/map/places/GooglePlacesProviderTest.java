@@ -86,11 +86,18 @@ class GooglePlacesProviderTest {
     @Test
     void 너무_긴_검색어와_placeId는_HTTP_호출전에_거부한다() {
         GooglePlacesProvider provider = provider(json("{}", 200));
-        assertThat(provider.search("a".repeat(256)))
+        assertThat(provider.search("a".repeat(PlacesProvider.MAX_SEARCH_QUERY_LENGTH + 1)))
                 .isEqualTo(new PlacesSearchResult.Failure(FailureKind.INVALID_REQUEST, null));
         assertThat(provider.details("a".repeat(256)))
                 .isEqualTo(new PlaceDetailsResult.Failure(FailureKind.INVALID_REQUEST, null));
         assertThat(attempts).hasValue(0);
+    }
+
+    @Test
+    void 관리자_현지명과_주소의_최대_길이를_합친_검색어도_전송한다() {
+        String query = "가".repeat(100) + " " + "東".repeat(255);
+        assertThat(provider(json("{}", 200)).search(query)).isInstanceOf(PlacesSearchResult.NoResults.class);
+        assertThat(attempts).hasValue(1);
     }
 
     @Test
