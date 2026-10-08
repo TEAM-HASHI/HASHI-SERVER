@@ -425,7 +425,7 @@ public class RestaurantService {
 
         boolean addressChanged = command.address() != null && !command.address().equals(restaurant.getAddress());
         boolean geocodingAddressChanged = command.geocodingAddress() != null
-                && !Objects.equals(normalizeGeocodingAddress(command.geocodingAddress()),
+                && !Objects.equals(Restaurant.normalizeGeocodingAddress(command.geocodingAddress()),
                 restaurant.getGeocodingAddress());
 
         RestaurantGenre genre = command.genre() == null ? null : toGenre(command.genre());
@@ -825,17 +825,13 @@ public class RestaurantService {
                 || command.images() != null
                 || !hasExactlyOneCreateImageSource(command.imageKeys(), command.imageAssetIds())
                 || command.hashtags() == null || command.hashtags().isEmpty();
-        if (command.geocodingAddress() != null && command.geocodingAddress().isBlank()) {
+        if (command.geocodingAddress() != null
+                && Restaurant.normalizeGeocodingAddress(command.geocodingAddress()) == null) {
             missingRequired = true;
         }
         if (missingRequired) {
             throw new BusinessException(CommonErrorCode.INVALID_INPUT);
         }
-    }
-
-    private String normalizeGeocodingAddress(String value) {
-        String normalized = value.strip();
-        return normalized.isEmpty() ? null : normalized;
     }
 
     /** 식당명 또는 주소가 삭제되지 않은 다른 식당과 같으면 거절한다(#230). 둘 다 겹치면 식당명 에러가 우선이다. */

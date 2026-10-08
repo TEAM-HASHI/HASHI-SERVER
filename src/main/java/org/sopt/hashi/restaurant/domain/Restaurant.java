@@ -254,12 +254,31 @@ public class Restaurant extends BaseTimeEntity {
         return geocodingAddress == null ? address : geocodingAddress;
     }
 
-    private static String normalizeGeocodingAddress(String value) {
+    public static String normalizeGeocodingAddress(String value) {
         if (value == null) {
             return null;
         }
-        String normalized = value.strip();
-        return normalized.isEmpty() ? null : normalized;
+        int start = 0;
+        int end = value.length();
+        while (start < end) {
+            int codePoint = value.codePointAt(start);
+            if (!isAddressWhitespace(codePoint)) {
+                break;
+            }
+            start += Character.charCount(codePoint);
+        }
+        while (start < end) {
+            int codePoint = value.codePointBefore(end);
+            if (!isAddressWhitespace(codePoint)) {
+                break;
+            }
+            end -= Character.charCount(codePoint);
+        }
+        return start == end ? null : value.substring(start, end);
+    }
+
+    private static boolean isAddressWhitespace(int codePoint) {
+        return Character.isWhitespace(codePoint) || Character.isSpaceChar(codePoint);
     }
 
     /** 어드민 삭제(soft delete) — 사용자 노출만 차단하고 예약·리뷰가 참조하는 데이터는 보존한다. */
