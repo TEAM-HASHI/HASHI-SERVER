@@ -24,12 +24,44 @@ import org.sopt.hashi.restaurant.dto.RestaurantMapPageRequest;
 import org.sopt.hashi.restaurant.internal.map.MapCursorCodec;
 import org.sopt.hashi.restaurant.internal.map.MapCapacityMetrics;
 import org.sopt.hashi.restaurant.internal.map.MapQuerySession;
+import org.sopt.hashi.restaurant.internal.map.MapSessionId;
 import org.sopt.hashi.restaurant.internal.map.MapSessionLimits;
 import org.sopt.hashi.restaurant.internal.map.MapSessionProperties;
 import org.sopt.hashi.restaurant.internal.map.RedisMapSessionStore;
 import org.sopt.hashi.shared.error.BusinessException;
 
 class RestaurantMapPageServiceTest {
+    @Test
+    void 신규조회_성공은_다섯_처리단계를_같은_operation으로_기록한다() {
+        var mapService = mock(RestaurantMapService.class);
+        var reader = mock(RestaurantMapPageReader.class);
+        var store = mock(RedisMapSessionStore.class);
+        var properties = enabledProperties();
+        var registry = new SimpleMeterRegistry();
+        Instant startedAt = Instant.parse("2026-01-01T00:00:00Z");
+        Instant rankingAsOf = startedAt.plusSeconds(1);
+        Instant expiresAt = startedAt.plusSeconds(300);
+        var sessionId = new MapSessionId(UUID.randomUUID());
+        when(store.admit(any(), org.mockito.ArgumentMatchers.eq(true))).thenReturn(startedAt);
+        when(mapService.findCandidates(any(), anyInt()))
+                .thenReturn(new RestaurantMapService.CandidateSnapshot(List.of(), rankingAsOf));
+        when(store.save(any())).thenReturn(sessionId);
+        when(reader.read(any(), any(), anyInt()))
+                .thenReturn(new RestaurantMapPageReader.Page(List.of(), false, 0));
+        when(store.touch(any(), any())).thenReturn(expiresAt);
+        var service = new RestaurantMapPageService(mapService, reader, store,
+                new MapCursorCodec(properties), new MapSessionLimits(), new MapCapacityMetrics(registry));
+        var request = new RestaurantMapPageRequest(MapSearchCriteria.of(
+                MapQueryBounds.parse("0", "1", "0", "1"), null, null, null, null),
+                RestaurantMapSort.RECOMMEND, null, null);
+
+        assertThat(service.getPage(request, "caller").querySessionId()).isEqualTo(sessionId.value());
+
+        assertThat(List.of("admit", "candidates", "save", "read_page", "touch"))
+                .allSatisfy(stage -> assertThat(registry.get("hashi.restaurant.map.stage.duration")
+                        .tags("operation", "new_query", "stage", stage).timer().count()).isEqualTo(1));
+    }
+
     @Test
     void 후보수_상한거절은_별도_내부사유로_집계한다() {
         var mapService = mock(RestaurantMapService.class);
@@ -50,6 +82,12 @@ class RestaurantMapPageServiceTest {
                         assertThat(exception.getErrorCode()).isEqualTo(RestaurantErrorCode.MAP_CAPACITY_EXCEEDED));
         assertThat(registry.get("hashi.restaurant.map.capacity.rejected")
                 .tag("reason", "candidate_count").counter().count()).isEqualTo(1);
+        assertThat(registry.get("hashi.restaurant.map.stage.duration")
+                .tags("operation", "new_query", "stage", "admit").timer().count()).isEqualTo(1);
+        assertThat(registry.get("hashi.restaurant.map.stage.duration")
+                .tags("operation", "new_query", "stage", "candidates").timer().count()).isEqualTo(1);
+        assertThat(registry.find("hashi.restaurant.map.stage.duration")
+                .tags("operation", "new_query", "stage", "save").timer()).isNull();
     }
 
     @Test

@@ -11,7 +11,9 @@ import org.sopt.hashi.restaurant.dto.RestaurantMapPageResponse;
 import org.sopt.hashi.restaurant.dto.RestaurantMapPageResponse.QueryResponse;
 import org.sopt.hashi.restaurant.internal.map.MapCursorCodec;
 import org.sopt.hashi.restaurant.internal.map.MapCapacityMetrics;
+import org.sopt.hashi.restaurant.internal.map.MapCapacityMetrics.Operation;
 import org.sopt.hashi.restaurant.internal.map.MapCapacityMetrics.Reason;
+import org.sopt.hashi.restaurant.internal.map.MapCapacityMetrics.Stage;
 import org.sopt.hashi.restaurant.internal.map.MapQuerySession;
 import org.sopt.hashi.restaurant.internal.map.MapSessionId;
 import org.sopt.hashi.restaurant.internal.map.MapSessionLimits;
@@ -65,6 +67,7 @@ public class RestaurantMapPageService {
     }
 
     private RestaurantMapPageResponse readPage(RestaurantMapPageRequest request, String remoteAddress) {
+        Operation operation = operation(request);
         MapSessionId id;
         MapQuerySession session;
         RestaurantMapSort sort = request.sort();
@@ -74,17 +77,21 @@ public class RestaurantMapPageService {
             id = cursor.session();
             sort = cursor.sort();
             start = cursor.position();
-            store.admit(cursors.callerKey(remoteAddress), false);
+            metrics.record(operation, Stage.ADMIT,
+                    () -> store.admit(cursors.callerKey(remoteAddress), false));
             session = store.find(id);
         } else if (request.querySessionId() != null) {
             id = MapSessionId.parse(request.querySessionId());
-            store.admit(cursors.callerKey(remoteAddress), false);
+            metrics.record(operation, Stage.ADMIT,
+                    () -> store.admit(cursors.callerKey(remoteAddress), false));
             session = store.find(id);
         } else {
-            var startedAt = store.admit(cursors.callerKey(remoteAddress), true);
+            var startedAt = metrics.record(operation, Stage.ADMIT,
+                    () -> store.admit(cursors.callerKey(remoteAddress), true));
             RestaurantMapService.CandidateSnapshot snapshot;
             try {
-                snapshot = mapService.findCandidates(request.criteria(), limits.candidateCapacity());
+                snapshot = metrics.record(operation, Stage.CANDIDATES,
+                        () -> mapService.findCandidates(request.criteria(), limits.candidateCapacity()));
             } catch (BusinessException exception) {
                 if (exception.getErrorCode() == RestaurantErrorCode.MAP_CAPACITY_EXCEEDED) {
                     metrics.rejected(Reason.CANDIDATE_COUNT);
@@ -93,17 +100,32 @@ public class RestaurantMapPageService {
             }
             var recommendation = new ArrayList<>(snapshot.candidates());
             Collections.shuffle(recommendation);
-            session = new MapQuerySession(MapQuerySession.SCHEMA_VERSION, UUID.randomUUID(), request.criteria(),
+            var createdSession = new MapQuerySession(
+                    MapQuerySession.SCHEMA_VERSION, UUID.randomUUID(), request.criteria(),
                     recommendation, snapshot.rankingAsOf(), startedAt.plus(limits.getMaxLifetime()));
-            id = store.save(session);
+            session = createdSession;
+            id = metrics.record(operation, Stage.SAVE, () -> store.save(createdSession));
         }
         if (start > session.candidates().size()) {
             throw new BusinessException(CommonErrorCode.INVALID_INPUT);
         }
-        var page = reader.read(session, sort, start);
-        var expiresAt = store.touch(id, session);
+        MapQuerySession pageSession = session;
+        MapSessionId pageSessionId = id;
+        RestaurantMapSort pageSort = sort;
+        int pageStart = start;
+        var page = metrics.record(operation, Stage.READ_PAGE,
+                () -> reader.read(pageSession, pageSort, pageStart));
+        var expiresAt = metrics.record(operation, Stage.TOUCH,
+                () -> store.touch(pageSessionId, pageSession));
         return new RestaurantMapPageResponse(page.content(),
                 page.hasNext() ? cursors.encode(id, sort, page.nextPosition()) : null, page.hasNext(),
                 id.value(), expiresAt, session.rankingAsOf(), QueryResponse.from(session.criteria(), sort));
+    }
+
+    private static Operation operation(RestaurantMapPageRequest request) {
+        if (request.cursor() != null) {
+            return Operation.NEXT_PAGE;
+        }
+        return request.querySessionId() != null ? Operation.SORT_CHANGE : Operation.NEW_QUERY;
     }
 }
