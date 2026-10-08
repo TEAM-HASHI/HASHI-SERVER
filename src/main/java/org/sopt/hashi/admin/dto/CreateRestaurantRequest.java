@@ -41,7 +41,8 @@ public record CreateRestaurantRequest(
         @Size(max = 255, message = "주소는 255자 이내입니다") String address,
         @Schema(description = "Google 위치 확인용 일본어 기본 주소(선택, 건물명·층·호실 제외)",
                 example = "東京都豊島区東池袋1-1-1")
-        @Pattern(regexp = "(?s).*[^\\s\\p{Z}].*", message = "위치 확인용 주소는 공백일 수 없습니다")
+        @Pattern(regexp = "(?s).*[^\\p{javaWhitespace}\\p{Z}].*",
+                message = "위치 확인용 주소는 공백일 수 없습니다")
         @Size(max = 255, message = "위치 확인용 주소는 255자 이내입니다") String geocodingAddress,
         @Schema(description = "지역", example = "이케부쿠로")
         @NotBlank(message = "지역은 필수입니다")
