@@ -54,7 +54,6 @@ final class GooglePlacesProvider implements PlacesProvider {
             + "businessStatus,attributions,googleMapsUri";
     static final int MAX_CONCURRENT_CALLS = 4;
 
-    private static final int MAX_QUERY_LENGTH = 255;
     private static final int MAX_PLACE_ID_LENGTH = 255;
     private static final int MAX_ERROR_STATUS_BYTES = 8192;
     private static final Pattern PLACE_ID = Pattern.compile("[A-Za-z0-9._~-]{1," + MAX_PLACE_ID_LENGTH + "}");
@@ -91,7 +90,7 @@ final class GooglePlacesProvider implements PlacesProvider {
             return searchFailure(FailureKind.DISABLED, null);
         }
         String normalized = query == null ? "" : query.strip();
-        if (normalized.isEmpty() || normalized.length() > MAX_QUERY_LENGTH) {
+        if (normalized.isEmpty() || normalized.codePointCount(0, normalized.length()) > MAX_SEARCH_QUERY_LENGTH) {
             return searchFailure(FailureKind.INVALID_REQUEST, null);
         }
         byte[] body;
