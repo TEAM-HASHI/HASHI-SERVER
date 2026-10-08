@@ -336,7 +336,8 @@ public class AdminRestaurantController {
 
     @PostMapping("/{restaurantId}/location/place-selection")
     @Operation(summary = "식당 Places 후보 선택", description = """
-            직전 후보 검색 응답의 expectedAddressRevision과 selectionToken으로 한 후보를 선택합니다.
+            직전 후보 검색 응답의 addressRevision을 요청의 expectedAddressRevision으로 전달하고,
+            선택한 후보의 selectionToken으로 한 후보를 선택합니다.
             토큰을 수정했거나 만료됐으면 400, 주소·현재 작업·상태가 달라졌거나 PENDING이면 409입니다.
             선택 즉시 기존 승인 좌표를 제거하고 새 PLACE_DETAILS 작업을 PENDING으로 등록합니다.
             200 응답은 선택 저장과 작업 등록 성공을 뜻하며 Places 상세 확인 완료를 뜻하지 않습니다.
