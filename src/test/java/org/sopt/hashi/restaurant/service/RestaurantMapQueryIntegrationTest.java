@@ -135,6 +135,7 @@ class RestaurantMapQueryIntegrationTest {
         var snapshot = service.findCandidates(criteria(null), 20);
         assertThat(snapshot.candidates()).extracting(RestaurantMapCandidate::restaurantId).containsExactlyElementsOf(expected);
         assertThat(snapshot.rankingAsOf()).isEqualTo(NOW);
+        assertThat(snapshot.resultExtent()).isNull();
         assertThat(statistics().getPrepareStatementCount()).isEqualTo(1);
         assertThat(statistics().getEntityLoadCount()).isZero();
         verifyNoInteractions(mediaPort, fileStorage);
@@ -282,7 +283,7 @@ class RestaurantMapQueryIntegrationTest {
         flushAndReset();
         assertThat(service.findCandidates(criteria("  sUsHi  "), 2).candidates())
                 .extracting(RestaurantMapCandidate::restaurantId).containsExactly(match.getId(), menuOnly.getId());
-        assertThat(statistics().getPrepareStatementCount()).isEqualTo(1);
+        assertThat(statistics().getPrepareStatementCount()).isEqualTo(2);
         assertThat(statistics().getEntityLoadCount()).isZero();
     }
 
@@ -302,7 +303,7 @@ class RestaurantMapQueryIntegrationTest {
         assertThat(service.findCandidates(criteria("SuShI ramen NIGHT"), 10).candidates())
                 .extracting(RestaurantMapCandidate::restaurantId)
                 .containsExactly(everyField.getId(), nameOnly.getId(), menuOnly.getId(), hashtagOnly.getId());
-        assertThat(statistics().getPrepareStatementCount()).isEqualTo(1);
+        assertThat(statistics().getPrepareStatementCount()).isEqualTo(2);
         assertThat(statistics().getEntityLoadCount()).isZero();
     }
 
@@ -318,6 +319,58 @@ class RestaurantMapQueryIntegrationTest {
         assertThat(service.findCandidates(criteria("#nIgHt%"), 10).candidates())
                 .extracting(RestaurantMapCandidate::restaurantId)
                 .containsExactly(hashtag.getId());
+    }
+
+    @Test
+    void 검색결과가_없으면_전체개수는_0이고_결과경계는_없다() {
+        ready("unrelated", ".5", ".5");
+        flushAndReset();
+
+        var snapshot = service.findCandidates(criteria("missing"), 10);
+
+        assertThat(snapshot.candidates()).isEmpty();
+        assertThat(snapshot.resultExtent().totalCount()).isZero();
+        assertThat(snapshot.resultExtent().bounds()).isNull();
+    }
+
+    @Test
+    void 검색결과가_하나면_같은_남북동서_좌표를_결과경계로_반환한다() {
+        Restaurant match = ready("single match", ".25", ".75");
+        ready("unrelated", ".1", ".9");
+        flushAndReset();
+
+        var snapshot = service.findCandidates(criteria("match"), 10);
+
+        assertThat(snapshot.candidates()).extracting(RestaurantMapCandidate::restaurantId)
+                .containsExactly(match.getId());
+        assertThat(snapshot.resultExtent().totalCount()).isOne();
+        assertThat(snapshot.resultExtent().bounds().south()).isEqualByComparingTo(".25");
+        assertThat(snapshot.resultExtent().bounds().north()).isEqualByComparingTo(".25");
+        assertThat(snapshot.resultExtent().bounds().west()).isEqualByComparingTo(".75");
+        assertThat(snapshot.resultExtent().bounds().east()).isEqualByComparingTo(".75");
+    }
+
+    @Test
+    void 결과경계는_첫_10개를_넘는_현재영역_카테고리_키워드_전체결과를_포함한다() {
+        List<Long> expected = new ArrayList<>();
+        for (int index = 0; index < 11; index++) {
+            expected.add(ready("match cafe " + index, ".2", ".2", RestaurantPlaceType.CAFE).getId());
+        }
+        expected.add(ready("match cafe edge", ".9", ".8", RestaurantPlaceType.CAFE).getId());
+        ready("match wrong category", ".05", ".95", RestaurantPlaceType.BAR);
+        ready("unrelated cafe", ".01", ".99", RestaurantPlaceType.CAFE);
+        flushAndReset();
+
+        MapSearchCriteria filter = MapSearchCriteria.of(BOUNDS, null, null, "cafe", "match");
+        var snapshot = service.findCandidates(filter, 20);
+
+        assertThat(snapshot.candidates()).extracting(RestaurantMapCandidate::restaurantId)
+                .containsExactlyElementsOf(expected);
+        assertThat(snapshot.resultExtent().totalCount()).isEqualTo(12);
+        assertThat(snapshot.resultExtent().bounds().south()).isEqualByComparingTo(".2");
+        assertThat(snapshot.resultExtent().bounds().north()).isEqualByComparingTo(".9");
+        assertThat(snapshot.resultExtent().bounds().west()).isEqualByComparingTo(".2");
+        assertThat(snapshot.resultExtent().bounds().east()).isEqualByComparingTo(".8");
     }
 
     @Test
@@ -597,7 +650,11 @@ class RestaurantMapQueryIntegrationTest {
     }
 
     private Restaurant ready(String name, String latitude, String longitude) {
-        Restaurant restaurant = restaurant(name, RestaurantGenre.SUSHI, RestaurantPlaceType.RESTAURANT);
+        return ready(name, latitude, longitude, RestaurantPlaceType.RESTAURANT);
+    }
+
+    private Restaurant ready(String name, String latitude, String longitude, RestaurantPlaceType type) {
+        Restaurant restaurant = restaurant(name, RestaurantGenre.SUSHI, type);
         restaurant.requestLocationResolution();
         restaurant.completeLocation(1, restaurant.getLocation().getRequestId(), point(latitude, longitude),
                 RestaurantLocationSource.ADMIN, UTC_NOW.minusHours(1), UTC_NOW.plusHours(1), CLOCK);
