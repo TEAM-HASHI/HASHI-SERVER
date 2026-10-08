@@ -4,19 +4,25 @@ import io.swagger.v3.oas.annotations.media.Schema;
 import java.util.List;
 import org.sopt.hashi.restaurant.RestaurantLocationReviewPage;
 
-@Schema(description = "식당 ID 오름차순 위치 검토 목록. 다음 요청에는 nextCursor를 그대로 전달")
+@Schema(description = "식당 ID 오름차순 관리자 위치 검토 목록. page는 0부터 시작")
 public record RestaurantLocationReviewListResponse(
         @Schema(description = "위치 검토 대상 식당")
         List<RestaurantLocationReviewResponse> restaurants,
-        @Schema(description = "다음 페이지 커서. hasNext가 false면 null", example = "1020", nullable = true)
-        Long nextCursor,
-        @Schema(description = "다음 페이지 존재 여부", example = "true")
-        boolean hasNext) {
+        @Schema(description = "현재 페이지 번호(0부터 시작)", example = "0")
+        int page,
+        @Schema(description = "요청한 페이지 크기", example = "20")
+        int size,
+        @Schema(description = "필터에 맞는 전체 식당 수", example = "42")
+        long totalCount,
+        @Schema(description = "전체 페이지 수", example = "3")
+        int totalPages) {
 
     public static RestaurantLocationReviewListResponse from(RestaurantLocationReviewPage page) {
         return new RestaurantLocationReviewListResponse(
                 page.restaurants().stream().map(RestaurantLocationReviewResponse::from).toList(),
-                page.nextCursor(),
-                page.hasNext());
+                page.page(),
+                page.size(),
+                page.totalCount(),
+                page.totalPages());
     }
 }

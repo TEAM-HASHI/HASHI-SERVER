@@ -5,6 +5,7 @@ import java.time.DayOfWeek;
 import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
+import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.EntityGraph;
 import org.springframework.data.jpa.repository.JpaRepository;
@@ -54,16 +55,22 @@ public interface RestaurantRepository extends JpaRepository<Restaurant, Long>, J
             left join restaurant_location_job j
                    on j.restaurant_id = r.id and j.request_id = l.request_id
             where r.deleted = false
-              and (:cursor is null or r.id > :cursor)
               and ((:status = 'UNRESOLVED' and l.id is null)
                    or (:status <> 'UNRESOLVED' and l.status = :status))
               and (:source is null or l.source = :source)
             order by r.id asc
+            """, countQuery = """
+            select count(*)
+            from restaurant r
+            left join restaurant_location l on l.id = r.location_id
+            where r.deleted = false
+              and ((:status = 'UNRESOLVED' and l.id is null)
+                   or (:status <> 'UNRESOLVED' and l.status = :status))
+              and (:source is null or l.source = :source)
             """, nativeQuery = true)
-    List<RestaurantLocationReviewProjection> findLocationReviews(
+    Page<RestaurantLocationReviewProjection> findLocationReviews(
             @Param("status") String status,
             @Param("source") String source,
-            @Param("cursor") Long cursor,
             Pageable pageable
     );
 
