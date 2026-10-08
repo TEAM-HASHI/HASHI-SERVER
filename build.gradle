@@ -135,6 +135,7 @@ tasks.register('mapLoadTest', Test) {
     systemProperty 'map.k6.script', file('scripts/load/map-query.js').absolutePath
     systemProperty 'map.k6.output', layout.buildDirectory.dir('reports/map-load').get().asFile.absolutePath
     systemProperty 'map.k6.profile', providers.gradleProperty('mapLoadProfile').getOrElse('smoke')
+    systemProperty 'map.k6.traffic', providers.gradleProperty('mapLoadTraffic').getOrElse('shared')
     systemProperty 'map.k6.restaurants', providers.gradleProperty('mapLoadRestaurants').getOrElse('620')
     outputs.upToDateWhen { false }
     maxParallelForks = 1
