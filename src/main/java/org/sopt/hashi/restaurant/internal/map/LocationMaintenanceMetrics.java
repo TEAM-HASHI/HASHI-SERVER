@@ -5,6 +5,7 @@ import io.micrometer.core.instrument.MeterRegistry;
 import java.util.Map;
 import java.util.LinkedHashMap;
 import java.util.concurrent.atomic.AtomicLong;
+import org.sopt.hashi.restaurant.internal.map.places.GooglePlacesProperties;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Component;
@@ -15,14 +16,17 @@ import org.springframework.stereotype.Component;
 public class LocationMaintenanceMetrics {
     private final JdbcTemplate jdbc;
     private final LocationJobProperties jobOptions;
+    private final GooglePlacesProperties placesOptions;
     private final LocationRetentionProperties retentionOptions;
     private final Map<String, AtomicLong> counts = new LinkedHashMap<>();
     private final AtomicLong observedAt = new AtomicLong();
 
     public LocationMaintenanceMetrics(JdbcTemplate jdbc, MeterRegistry registry, LocationJobProperties jobOptions,
+                                      GooglePlacesProperties placesOptions,
                                       LocationRetentionProperties retentionOptions) {
         this.jdbc = jdbc;
         this.jobOptions = jobOptions;
+        this.placesOptions = placesOptions;
         this.retentionOptions = retentionOptions;
         for (String reason : new String[]{"access_denied", "configuration_error", "retrying",
                 "attempts_exhausted", "expiry_soon", "stalled", "refresh_window_invalid"}) {
@@ -49,7 +53,7 @@ public class LocationMaintenanceMetrics {
                             AND (b.blocked_until IS NULL OR b.blocked_until <= UTC_TIMESTAMP(6))
                             AND (b.budget_day IS NULL OR b.budget_day < UTC_DATE()
                                 OR (b.budget_day = UTC_DATE() AND b.reserved_calls < b.daily_limit))))
-                        OR (j.operation='PLACE_DETAILS' AND EXISTS (
+                        OR (j.operation='PLACE_DETAILS' AND ? AND EXISTS (
                             SELECT 1 FROM restaurant_places_budget b
                             WHERE b.operation='DETAILS' AND b.enabled=true
                                 AND b.daily_limit>0 AND b.minute_limit>0
@@ -67,7 +71,7 @@ public class LocationMaintenanceMetrics {
                 FROM restaurant_location_job j JOIN restaurant r ON r.id=j.restaurant_id
                 JOIN restaurant_location l ON l.id=r.location_id
                 WHERE r.deleted=false AND l.address_revision=j.address_revision AND l.request_id=j.request_id
-                """, jobOptions.enabled() && jobOptions.isConfigured());
+                """, jobOptions.enabled() && jobOptions.isConfigured(), placesOptions.enabled());
         long expiry = jdbc.queryForObject("""
                 SELECT COUNT(*) FROM restaurant_location
                 WHERE source IN ('GOOGLE_GEOCODING', 'GOOGLE_PLACES')

@@ -205,7 +205,8 @@ public class RestaurantLocation extends BaseTimeEntity {
     /** Snapshot identity and lifetime protect a newer result from an old retention scan. */
     boolean purgeGoogle(long revision, UUID request, LocalDateTime obtained, LocalDateTime until,
                         LocalDateTime purgeBefore) {
-        boolean matches = source == RestaurantLocationSource.GOOGLE_GEOCODING
+        boolean matches = (source == RestaurantLocationSource.GOOGLE_GEOCODING
+                || source == RestaurantLocationSource.GOOGLE_PLACES)
                 && addressRevision == revision && requestId.equals(request)
                 && Objects.equals(obtainedAt, obtained) && Objects.equals(validUntil, until)
                 && !validUntil.isAfter(purgeBefore);

@@ -2,6 +2,7 @@ package org.sopt.hashi.restaurant.internal.map;
 
 import java.time.Duration;
 import org.sopt.hashi.restaurant.domain.Restaurant;
+import org.sopt.hashi.restaurant.domain.RestaurantLocationJob;
 import org.sopt.hashi.restaurant.domain.RestaurantRepository;
 import org.sopt.hashi.restaurant.domain.RestaurantLocationJobRepository;
 import org.sopt.hashi.restaurant.domain.RestaurantLocationSource;
@@ -37,8 +38,10 @@ public class LocationRetentionTransactions {
         }
         var location = restaurant.getLocation();
         var now = reader.now();
+        RestaurantLocationSource source = location.getSource();
         boolean current = location.getStatus() == RestaurantLocationStatus.READY
-                && location.getSource() == RestaurantLocationSource.GOOGLE_GEOCODING
+                && (source == RestaurantLocationSource.GOOGLE_GEOCODING
+                    || source == RestaurantLocationSource.GOOGLE_PLACES)
                 && location.getAddressRevision() == candidate.revision()
                 && location.getRequestId().equals(candidate.requestId())
                 && !location.getValidUntil().isAfter(now.plus(ahead))
@@ -46,8 +49,13 @@ public class LocationRetentionTransactions {
         if (!current || !jobs.findActiveForUpdate(restaurant.getId()).isEmpty()) {
             return false;
         }
+        String googlePlaceId = location.getGooglePlaceId();
         restaurant.refreshLocation();
-        locations.enqueue(restaurant);
+        if (source == RestaurantLocationSource.GOOGLE_PLACES) {
+            jobs.save(RestaurantLocationJob.pendingDetails(restaurant, googlePlaceId, now));
+        } else {
+            locations.enqueue(restaurant);
+        }
         return true;
     }
 
