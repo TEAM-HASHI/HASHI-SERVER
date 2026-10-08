@@ -8,15 +8,15 @@
 Google의 위치 확인 성공을 뜻하지 않는다.
 
 - `address`는 사용자에게 보여 줄 전체 주소를 원문 그대로 보존한다.
-- 등록의 `geocodingAddress`는 선택이다. 지정할 때는 건물명·층·호실을 제외한 일본어 기본 주소를 보낸다.
-  서버는 이 문자열에서 건물명이나 층을 추측해 제거하지 않는다.
+- 등록의 `geocodingAddress`는 선택이다. 표시 주소와 다른 provider 입력이 필요할 때 명시하며,
+  서버는 저장 문자열에서 건물명이나 층을 추측해 제거하거나 일본어로 번역하지 않는다.
 - 수정에서 `geocodingAddress` 미전송 또는 null은 유지, 공백 문자열은 명시 값 삭제다.
   명시 값은 앞뒤 공백을 제거해 저장한다.
 - 표시 주소를 바꾸면서 `geocodingAddress`를 생략하면 과거 기본 주소를 자동으로 신뢰하지 않고 삭제한다.
   새 표시 주소가 fallback 입력이 되며, 이전 위치 작업과 결과는 새 revision에 적용되지 않는다.
 - 표시 주소를 바꿔도 같은 기본 주소를 유지하려면 응답의 `geocodingAddress`를 수정 요청에 함께 보낸다.
-- 표시 주소 또는 위치 확인용 주소가 실질적으로 바뀌면 `addressRevision`이 증가하고 위치 확인을 다시 시작한다.
-  형식 정규식으로 도쿄·번지 개수를 제한하지 않으며, 불완전하거나 불일치하는 주소는 기존 정책대로 확인 필요가 된다.
+- 변경 전후 실제 provider 입력(`geocodingAddress`, 없으면 `address`)이 달라질 때만 `addressRevision`이 증가하고
+  위치 확인을 다시 시작한다. 같은 명시 base를 유지한 건물명·층수 표시 수정은 기존 좌표와 진행 중 작업을 보존한다.
 
 - `GET /api/v1/admin/restaurants/{id}/location`: 200 `COMMON-200`.
 - `POST /api/v1/admin/restaurants/{id}/location/retry`: body `{"expectedAddressRevision":1}`,
@@ -29,28 +29,29 @@ Google의 위치 확인 성공을 뜻하지 않는다.
 
 ## 자동 채택 범위
 
-v1은 **일본어로 행정구역과 동·번지가 완전하게 입력된 도쿄 주소**를 자동 채택한다.
-합성 주소 fixture는 `東京都試験区架空町1丁目2番3号`와 같은 모양이며 실제 식당 주소가 아니다.
+v1은 언어·건물명·층수와 Google result type 이름으로 주소를 제한하지 않고, 다음 안전 조건을 모두 통과한
+**유일한 도쿄 rooftop 후보**를 자동 채택한다. 합성 fixture는 실제 식당 주소가 아니다.
 
-1. 후보가 정확히 하나, countryCode와 country component가 JP, administrativeArea와
-   administrative_area_level_1이 東京都여야 한다. 별도 설정된 지원 BBOX에도 원본 좌표가 포함돼야 한다.
-2. ROOFTOP과 street_address/premise 유형을 모두 요구한다.
-3. administrative_area_level_1 → locality → sublocality_level_1~4 → route → street_number 순서의
-   구성 요소를 합친다. 필수 행정구역 누락, 같은 유형 중복, 알 수 없는 구성 요소는 확인 필요다.
-   street_number가 없을 때만 숫자로만 구성된 단일 premise를 마지막 번지로 비교한다.
-   반각·전각 숫자만 허용하며 건물명, 영숫자 혼합, street_number와 동시 존재는 확인 필요다.
-   이는 Google 응답 형태를 지원하는 Hashi 정책이며, 아래의 전체 주소 일치 조건은 그대로 적용한다.
-4. NFKC 전각 숫자, 공백, 명시된 하이픈, 숫자 뒤 丁目/番/番地/号만 정규화한다. 결과는 행정구역 뒤
-   세 숫자(정/번/호)인 완전 주소여야 하며 원래 주소와 **전체가 정확히 일치**해야 한다.
-   선택적인 日本 접두사와 응답 postal_code와 정확히 같은 〒 접두사만 허용한다.
-5. 일본어↔로마자/한국어 번역, 편집 거리/유사도, 부분 포함 비교, 첫 후보 선택은 하지 않는다.
-   건물명/층수나 다른 표기가 남아 확신할 수 없으면 REVIEW_REQUIRED다. 관광 지역 ID는 추론하지 않는다.
-6. 원본 위도/경도 범위를 먼저 검사한 후 HALF_UP으로 소수점 6자리까지 반올림한다.
+1. 위도·경도가 원본 상태에서 유효하고, `countryCode`가 존재하며 `JP`, 고정된 응답 언어에 따른
+   `administrativeArea`가 `Tokyo` 또는 `東京都`이고 별도 설정된 지원 BBOX 안이어야 한다.
+   countryCode 누락은 다른 국가와 구분해 운영 코드로 남긴다.
+2. `granularity=ROOFTOP`을 요구한다. `street_address`, `premise`, 쇼핑몰·POI 같은 result type과
+   component allowlist는 채택 조건으로 사용하지 않는다.
+3. 입력과 provider component 양쪽에서 우편번호 또는 본번을 하나로 확실히 추출할 수 있을 때만 충돌을
+   거절한다. 丁目/Chome/chōme, 番/番地, 号와 2~3구간 하이픈 표기를 비교하며 provider가 마지막 숫자만 확실히
+   준 경우에는 그 suffix만 비교한다. 같은 의미의 component에 서로 다른 값이 여러 개면 충돌로 거절한다.
+   건물 층 표기와 `subpremise`는 비교에서 제외하되 저장 입력은 바꾸지 않는다.
+4. 우편번호·본번이 없거나 애매하면 이를 일치한다고 단정하지 않고 conflict veto만 생략한다. 전체 주소 문자열
+   동등성, 세 숫자 강제, 번역·유사도·부분 포함 비교는 하지 않는다.
+5. 위 조건을 통과한 후보가 하나면 채택한다. 반올림 전 위도·경도가 숫자로 정확히 같은 중복 응답만
+   하나의 위치로 취급하고, 서로 다른 좌표가 둘 이상이면 `AMBIGUOUS_RESULTS`다. 근접 좌표를 합치거나 첫 후보를
+   임의 선택하지 않는다.
+6. 채택 후 HALF_UP으로 소수점 6자리까지 반올림한다.
 
 이는 [Google v4 결과 필드](https://developers.google.com/maps/documentation/geocoding/reference/rest/v4/GeocodeResult)를
 이용한 Hashi의 채택 정책이다. [v4 이전 문서](https://developers.google.com/maps/documentation/geocoding/geocoding-v4-migrate)의
-partial_match 제거와 국가/지역 입력의 편향 의미를 반영한다. ROOFTOP만으로 주소 일치를 보장하지 않는다.
-지원하지 않는 표기를 실제 운영에서 자동화하려면 대표 주소로 별도 정책/회귀 테스트를 확장한다.
+partial_match 제거와 국가/지역 입력의 편향 의미를 반영한다. ROOFTOP과 제한된 충돌 검사는 식당 POI 동일성을
+보장하지 않는다. 실제 운영 검증은 대표 주소와 독립적인 지도 POI 비교를 함께 본다.
 
 ## 호출과 재시도 제한
 
@@ -72,8 +73,8 @@ partial_match 제거와 국가/지역 입력의 편향 의미를 반영한다. R
 
 | 결과 | 관리자 상태/안전한 코드 |
 |---|---|
-| 일치하는 완전 주소 | READY, failureCode null |
-| 결과 없음/복수/다른 국가/영역/정확도/주소 불일치 | REVIEW_REQUIRED, NO_RESULTS / AMBIGUOUS_RESULTS / COUNTRY_MISMATCH / OUTSIDE_SUPPORTED_AREA / INSUFFICIENT_PRECISION / ADDRESS_MISMATCH |
+| 유일한 도쿄 rooftop 후보이며 확실한 우편번호·본번 충돌 없음 | READY, failureCode null |
+| 결과 없음/복수/국가 누락·다른 국가/영역/정확도/확실한 번호 충돌 | REVIEW_REQUIRED, NO_RESULTS / AMBIGUOUS_RESULTS / COUNTRY_MISSING / COUNTRY_MISMATCH / OUTSIDE_SUPPORTED_AREA / INSUFFICIENT_PRECISION / ADDRESS_MISMATCH |
 | timeout/연결/5xx | RETRY_WAIT; TIMEOUT / CONNECTION_ERROR / TRANSIENT_ERROR |
 | Google 429 | RETRY_WAIT / QUOTA_EXCEEDED, 공유 대기; 마지막 시도도 공유 대기를 기록하고 FAILED / ATTEMPTS_EXHAUSTED |
 | 로컬 실행 슬롯 부족 | RETRY_WAIT / CAPACITY_EXCEEDED, Google quota와 구별 |
