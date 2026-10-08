@@ -75,6 +75,8 @@ class MapQueryLoadTest {
     private static final String TRAFFIC = System.getProperty("map.k6.traffic", "shared");
     private static final int RESTAURANTS = Integer.parseInt(System.getProperty("map.k6.restaurants", "620"));
     private static final int BUDGET_MIB = Integer.parseInt(System.getProperty("map.k6.budget-mib", "16"));
+    private static final int CONCURRENT_REQUESTS = Integer.parseInt(System.getProperty(
+            "hashi.restaurant.map.session.limits.concurrent-requests", "4"));
     private static final int IDLE_SECONDS = "ttl".equals(PROFILE) ? 300 : 10;
     private static final int WORKLOAD_SECONDS = "smoke".equals(PROFILE) ? 90 : 300;
     private static final String QUERIES = "hashi:restaurant:map:{sessions-v2}:query:*";
@@ -110,6 +112,8 @@ class MapQueryLoadTest {
         assertThat(TRAFFIC).isIn("shared", "distinct");
         assertThat(RESTAURANTS).isBetween(620, 5000);
         assertThat(BUDGET_MIB).isIn(16, 32);
+        assertThat(CONCURRENT_REQUESTS).isIn(4, 8);
+        assertThat(limits.getConcurrentRequests()).isEqualTo(CONCURRENT_REQUESTS);
         limits.setTotalBytes(BUDGET_MIB * 1_048_576L);
         if ("normal".equals(PROFILE) || "ttl".equals(PROFILE)) {
             assertThat(TRAFFIC).as("paced profiles model distinct callers").isEqualTo("distinct");
@@ -203,7 +207,8 @@ class MapQueryLoadTest {
     private Map<String, Object> sample() {
         try (var connection = redis.getConnectionFactory().getConnection()) {
             var memory = connection.serverCommands().info("memory");
-            var pool = ((HikariDataSource) dataSource).getHikariPoolMXBean();
+            var hikari = (HikariDataSource) dataSource;
+            var pool = hikari.getHikariPoolMXBean();
             var ledger = redis.opsForHash().values("hashi:restaurant:map:{sessions-v2}:admission");
             var requestLedger = "hashi:restaurant:map:{sessions-v2}:requests";
             Object requestTotal = redis.opsForHash().get(requestLedger, "total");
@@ -216,6 +221,7 @@ class MapQueryLoadTest {
                     Map.entry("redisUsedBytes", Long.parseLong(memory.getProperty("used_memory"))),
                     Map.entry("dbActive", pool.getActiveConnections()),
                     Map.entry("dbWaiting", pool.getThreadsAwaitingConnection()),
+                    Map.entry("dbMaximumPoolSize", hikari.getMaximumPoolSize()),
                     Map.entry("ledgerRecordedBytes", recordedBytes),
                     Map.entry("ledgerEntries", ledger.size()),
                     Map.entry("requestWindowTotal", requestTotal == null ? 0 : Long.parseLong(requestTotal.toString())),

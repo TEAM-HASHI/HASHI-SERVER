@@ -19,6 +19,10 @@ const errorCodes = Object.fromEntries(['013', '014', '015', '016', '017', '022']
 const unknownErrors = new Counter('map_error_unknown');
 const newQueryMs = new Trend('map_new_query_ms', true);
 const nextPageMs = new Trend('map_next_page_ms', true);
+const successfulOperationMs = {
+    new: new Trend('map_success_new_query_ms', true),
+    next: new Trend('map_success_next_page_ms', true),
+};
 const sortMs = new Trend('map_sort_ms', true);
 const filterMs = new Trend('map_filter_ms', true);
 const semanticFailures = new Rate('map_semantic_failures');
@@ -38,6 +42,7 @@ export const options = {
         http_req_failed: ['rate<0.01'], checks: ['rate>0.99'],
         map_semantic_failures: ['rate==0'],
         map_new_query_ms: ['p(95)<3000'], map_next_page_ms: ['p(95)<3000'],
+        map_success_new_query_ms: ['p(95)<3000'], map_success_next_page_ms: ['p(95)<3000'],
         map_sort_ms: ['p(95)<3000'], map_filter_ms: ['p(95)<3000'],
     },
 };
@@ -65,6 +70,7 @@ function page(query, operation, metric) {
         semanticFailures.add(true);
         return null;
     }
+    successfulOperationMs[operation]?.add(response.timings.duration);
     let data;
     try {
         data = response.json('data');
