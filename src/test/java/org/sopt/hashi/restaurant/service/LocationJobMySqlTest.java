@@ -173,7 +173,7 @@ class LocationJobMySqlTest {
         Claim second = transactions.claim(target(id)).orElseThrow();
         assertThat(second.geocodingAddress()).isEqualTo("東京都試験区架空町1丁目2番4号");
 
-        var cleared = restaurants.updateByAdmin(id, geocodingAddressCommand(" \u3000 "));
+        var cleared = restaurants.updateByAdmin(id, geocodingAddressCommand("\u00A0\u2007\u202F"));
 
         assertThat(cleared.addressRevision()).isEqualTo(3);
         assertThat(cleared.geocodingAddress()).isNull();

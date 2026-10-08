@@ -75,19 +75,19 @@ class RestaurantLocationTest {
 
     @Test
     void 위치확인주소_변경과_삭제는_revision을_올리고_이전_결과를_막는다() {
-        Restaurant restaurant = restaurantWithGeocodingAddress("  東京都試験区架空町1丁目2番3号  ");
+        Restaurant restaurant = restaurantWithGeocodingAddress("\u00A0東京都試験区架空町1丁目2番3号\u202F");
         restaurant.requestLocationResolution();
         UUID firstRequest = request(restaurant);
         assertThat(restaurant.geocodingAddressForResolution()).isEqualTo("東京都試験区架空町1丁目2番3号");
 
-        updateGeocodingAddress(restaurant, "  東京都試験区架空町1丁目2番4号  ");
+        updateGeocodingAddress(restaurant, "\u2007東京都試験区架空町1丁目2番4号\u00A0");
 
         assertThat(restaurant.getGeocodingAddress()).isEqualTo("東京都試験区架空町1丁目2番4号");
         assertThat(restaurant.getLocation().getAddressRevision()).isEqualTo(2);
         assertThat(complete(restaurant, 1, firstRequest)).isFalse();
         UUID secondRequest = request(restaurant);
 
-        updateGeocodingAddress(restaurant, " \u3000 ");
+        updateGeocodingAddress(restaurant, "\u00A0\u2007\u202F");
 
         assertThat(restaurant.getGeocodingAddress()).isNull();
         assertThat(restaurant.geocodingAddressForResolution()).isEqualTo(restaurant.getAddress());

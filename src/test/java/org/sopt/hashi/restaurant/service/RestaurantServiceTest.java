@@ -148,6 +148,17 @@ class RestaurantServiceTest {
     }
 
     @Test
+    void 어드민_식당_등록에서_위치확인주소가_Unicode공백뿐이면_거부한다() {
+        RestaurantService restaurantService = createRestaurantService();
+        AdminRestaurantCommand command = createAdminCommandWithGeocodingAddress("\u00A0\u2007\u202F");
+
+        assertThatThrownBy(() -> restaurantService.createByAdmin(command))
+                .isInstanceOfSatisfying(BusinessException.class, exception ->
+                        assertThat(exception.getErrorCode()).isEqualTo(CommonErrorCode.INVALID_INPUT));
+        verifyNoInteractions(restaurantRepository);
+    }
+
+    @Test
     void 어드민_식당_수정에서_해시태그를_빈_목록으로_교체할_수_없다() {
         RestaurantService restaurantService = createRestaurantService();
         AdminRestaurantCommand command = new AdminRestaurantCommand(
@@ -1529,6 +1540,16 @@ class RestaurantServiceTest {
             List<String> hashtags
     ) {
         return createAdminCommand("restaurant", imageKeys, hashtags);
+    }
+
+    private AdminRestaurantCommand createAdminCommandWithGeocodingAddress(String geocodingAddress) {
+        AdminRestaurantCommand command = createAdminCommand("restaurant");
+        return new AdminRestaurantCommand(
+                command.name(), command.localName(), command.summary(), command.description(), command.address(),
+                geocodingAddress, command.area(), command.genre(), command.foodCategory(), command.placeType(),
+                command.priceCurrency(), command.minPrice(), command.maxPrice(), command.imageKeys(),
+                command.imageAssetIds(), command.images(), command.menus(), command.hashtags(),
+                command.curationTypes(), command.businessHours());
     }
 
     /** 등록 검증(RESTAURANT-006)을 통과하는 완전한 등록 커맨드 — 음식점 분류만 바꿔 쓴다. */
