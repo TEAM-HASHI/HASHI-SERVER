@@ -131,12 +131,12 @@ class AdminLocationAuthorizationTest {
     }
 
     @Test
-    void ADMIN은_기본_REVIEW_REQUIRED_필터와_커서_응답을_사용한다() throws Exception {
+    void ADMIN은_기본_REVIEW_REQUIRED_필터와_offset_응답을_사용한다() throws Exception {
         var item = new RestaurantLocationReviewInfo(
                 10L, "검토 식당", "東京都豊島区1-1", null, "REVIEW_REQUIRED", null,
-                "GEOCODING", 2, null, 1, null, "ZERO_RESULTS", true);
-        given(restaurants.findLocationReviewsByAdmin("REVIEW_REQUIRED", null, null, 20))
-                .willReturn(new RestaurantLocationReviewPage(List.of(item), null, false));
+                "GEOCODING", 2, null, 1, null, "NO_RESULTS", true);
+        given(restaurants.findLocationReviewsByAdmin("REVIEW_REQUIRED", null, 0, 20))
+                .willReturn(new RestaurantLocationReviewPage(List.of(item), 0, 20, 1, 1));
 
         mvc.perform(get(LIST_PATH).header("Authorization", admin()))
                 .andExpect(status().isOk())
@@ -144,9 +144,29 @@ class AdminLocationAuthorizationTest {
                 .andExpect(jsonPath("$.code").value("COMMON-200"))
                 .andExpect(jsonPath("$.data.restaurants[0].restaurantId").value(10))
                 .andExpect(jsonPath("$.data.restaurants[0].locationStatus").value("REVIEW_REQUIRED"))
-                .andExpect(jsonPath("$.data.restaurants[0].failureCode").value("ZERO_RESULTS"))
-                .andExpect(jsonPath("$.data.hasNext").value(false));
-        verify(restaurants).findLocationReviewsByAdmin("REVIEW_REQUIRED", null, null, 20);
+                .andExpect(jsonPath("$.data.restaurants[0].failureCode").value("NO_RESULTS"))
+                .andExpect(jsonPath("$.data.page").value(0))
+                .andExpect(jsonPath("$.data.size").value(20))
+                .andExpect(jsonPath("$.data.totalCount").value(1))
+                .andExpect(jsonPath("$.data.totalPages").value(1));
+        verify(restaurants).findLocationReviewsByAdmin("REVIEW_REQUIRED", null, 0, 20);
+    }
+
+    @Test
+    void ADMIN은_page_size_status_source를_port에_전달한다() throws Exception {
+        given(restaurants.findLocationReviewsByAdmin("READY", "GOOGLE_PLACES", 1, 10))
+                .willReturn(new RestaurantLocationReviewPage(List.of(), 1, 10, 15, 2));
+
+        mvc.perform(get(LIST_PATH + "?status=READY&source=GOOGLE_PLACES&page=1&size=10")
+                        .header("Authorization", admin()))
+                .andExpect(status().isOk())
+                .andExpect(header().string("Cache-Control", "no-store"))
+                .andExpect(jsonPath("$.data.restaurants.length()").value(0))
+                .andExpect(jsonPath("$.data.page").value(1))
+                .andExpect(jsonPath("$.data.size").value(10))
+                .andExpect(jsonPath("$.data.totalCount").value(15))
+                .andExpect(jsonPath("$.data.totalPages").value(2));
+        verify(restaurants).findLocationReviewsByAdmin("READY", "GOOGLE_PLACES", 1, 10);
     }
 
     @ParameterizedTest
@@ -166,7 +186,9 @@ class AdminLocationAuthorizationTest {
     @ValueSource(strings = {
             "?status=UNKNOWN",
             "?source=PLACES",
-            "?cursor=0",
+            "?page=-1",
+            "?page=2147483647",
+            "?page=2147483648",
             "?size=0",
             "?size=101"
     })
