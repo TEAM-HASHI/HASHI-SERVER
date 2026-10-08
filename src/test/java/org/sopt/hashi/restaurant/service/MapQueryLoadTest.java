@@ -248,7 +248,7 @@ class MapQueryLoadTest {
     private Map<String, Object> stageDurations() {
         var durations = new LinkedHashMap<String, Object>();
         for (String operation : List.of("new_query", "sort_change", "next_page")) {
-            for (String stage : List.of("admit", "candidates", "save", "read_page", "touch")) {
+            for (String stage : List.of("admit", "candidates", "save", "load_session", "read_page", "touch")) {
                 var timer = meterRegistry.find("hashi.restaurant.map.stage.duration")
                         .tags("operation", operation, "stage", stage).timer();
                 if (timer != null && timer.count() > 0) {

@@ -63,10 +63,18 @@
 | 다시 확인 버튼 | `canRetry=true`일 때 현재 `addressRevision`을 `expectedAddressRevision`으로 전달. 409면 최신 상태를 다시 읽음 |
 | 유효기간 | `validUntil`. 갱신 중에도 아직 유효한 기존 좌표가 남을 수 있으므로 처리 상태만으로 핀 노출을 판단하지 않음 |
 
-현재 API는 관리자 등록·수정, `GET /api/v1/admin/restaurants/{id}/location`,
-`POST /api/v1/admin/restaurants/{id}/location/retry`를 제공한다.
-확인 대상 전체를 상태별로 조회하는 관리자 목록 API, 지도에서 후보를 고르고 확정하는 API는 아직 없다.
-공개 식당 목록은 관리자 작업 목록을 대신하지 않는다. 화면 범위를 확정한 뒤 상태 필터·커서 조회를 추가한다.
+관리자 등록·수정 외에 다음 API를 제공한다.
+
+| API | 사용 방법 |
+|---|---|
+| `GET /api/v1/admin/restaurants/locations` | 기본으로 `REVIEW_REQUIRED` 식당을 ID 오름차순으로 조회. `status`, 선택 `source`, 이전 응답의 `nextCursor`, `size`(기본 20, 최대 100)를 사용 |
+| `GET /api/v1/admin/restaurants/{id}/location` | 수정 화면에서 해당 식당의 최신 상태와 주소 변경 번호를 확인 |
+| `POST /api/v1/admin/restaurants/{id}/location/retry` | `canRetry`와 최신 `addressRevision`을 확인한 뒤 재처리 |
+
+목록은 `restaurants`, `nextCursor`, `hasNext`를 반환한다. 상태가 바뀌는 작업 목록이므로 페이지 전체를 고정한 스냅샷은 아니다.
+조회 도중 처리 상태가 바뀐 항목을 다시 확인하려면 첫 페이지부터 새로 읽는다. ADMIN 권한이 필요하고 응답은 캐시하지 않는다.
+시설 내부 매장은 `READY`여도 실제 매장 위치와 다를 수 있으므로 `status=READY&source=GOOGLE_GEOCODING`으로도 점검할 수 있다.
+지도에서 Places 후보를 고르고 확정하는 API는 아직 없다. 후속 계약은 `place-review-proposal.md`에 구분했다.
 
 `REVIEW_REQUIRED`는 같은 주소를 자동으로 반복 호출하지 않는다. 관리자가 실제 지점과 주소를 확인해
 위치 확인용 주소를 보완하거나 재처리를 요청한다. 식당이나 컬렉션 저장 관계를 삭제하지 않는다.
