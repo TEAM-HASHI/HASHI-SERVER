@@ -34,9 +34,12 @@ public record UpdateRestaurantRequest(
         @Size(max = 100, message = "한 줄 소개는 100자 이내입니다") String summary,
         @Schema(description = "매장 상세 설명(선택)", example = "엄선된 고기와 다양한 코스를 제공합니다.")
         @Size(max = 500, message = "상세 설명은 500자 이내입니다") String description,
-        @Schema(description = "주소(선택)", example = "도쿄도 도시마구 히가시이케부쿠로 1-1-1")
+        @Schema(description = "사용자 화면에 표시할 전체 주소(PATCH 선택). 건물명·층 정보를 보존. 이 값만 바꾸면 기존 geocodingAddress를 삭제하고 새 address를 위치 확인 기준으로 사용하며, 유효 입력까지 달라질 때만 위치 확인을 다시 요청",
+                example = "도쿄도 도시마구 히가시이케부쿠로 1-1-1")
         @Size(max = 255, message = "주소는 255자 이내입니다") String address,
-        @Schema(description = "Google 위치 확인용 주소 override. null은 유지, 공백은 override 삭제",
+        @Schema(description = "Google 위치 확인용 별도 지정 주소(PATCH). 생략/null은 address가 그대로일 때 기존 값을 유지하고, "
+                + "address 변경 시 기존 별도 지정 주소를 삭제함. 공백은 별도 지정 주소를 명시적으로 삭제하고 현재 address를 사용. "
+                + "표시 주소를 바꿔도 기존과 같은 위치 확인 기준을 함께 보내면 좌표·상태를 유지",
                 example = "東京都豊島区東池袋1-1-1")
         @Size(max = 255, message = "위치 확인용 주소는 255자 이내입니다") String geocodingAddress,
         @Schema(description = "지역(선택)", example = "이케부쿠로")
