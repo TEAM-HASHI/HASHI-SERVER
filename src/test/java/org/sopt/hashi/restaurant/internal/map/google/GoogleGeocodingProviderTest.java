@@ -182,7 +182,7 @@ class GoogleGeocodingProviderTest {
             assertThat(uri.getPath()).isEqualTo("/v4/geocode/address");
             assertThat(uri.getRawFragment()).isNull();
             assertThat(uri.getRawQuery()).doesNotContain("key=", GeocodingFixtures.API_KEY);
-            assertThat(uri.getRawQuery().split("&")).hasSize(3);
+            assertThat(uri.getRawQuery().split("&")).hasSize(4);
             return request(uri, json("{}", 200));
         });
         provider.geocode(hostile);
