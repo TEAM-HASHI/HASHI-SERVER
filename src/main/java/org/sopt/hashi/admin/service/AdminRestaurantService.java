@@ -15,6 +15,8 @@ import org.sopt.hashi.restaurant.AdminRestaurantCommand.BusinessHourCommand;
 import org.sopt.hashi.restaurant.AdminRestaurantCommand.ImageCommand;
 import org.sopt.hashi.restaurant.AdminRestaurantCommand.MenuCommand;
 import org.sopt.hashi.restaurant.RestaurantPort;
+import org.sopt.hashi.shared.error.BusinessException;
+import org.sopt.hashi.shared.error.CommonErrorCode;
 import org.springframework.stereotype.Service;
 
 /**
@@ -52,9 +54,12 @@ public class AdminRestaurantService {
     }
 
     public RestaurantLocationReviewListResponse findLocationReviews(
-            String status, String source, Long cursor, int size) {
+            String status, String source, int page, int size) {
+        if ((long) page * size > Integer.MAX_VALUE) {
+            throw new BusinessException(CommonErrorCode.INVALID_INPUT);
+        }
         return RestaurantLocationReviewListResponse.from(
-                restaurantPort.findLocationReviewsByAdmin(status, source, cursor, size));
+                restaurantPort.findLocationReviewsByAdmin(status, source, page, size));
     }
 
     public RestaurantPlacesSearchResponse searchLocationPlaces(

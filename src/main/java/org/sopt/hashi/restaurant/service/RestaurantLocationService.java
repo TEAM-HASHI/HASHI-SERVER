@@ -4,7 +4,6 @@ import java.time.Clock;
 import java.time.Instant;
 import java.time.LocalDateTime;
 import java.time.ZoneOffset;
-import java.util.List;
 import java.util.Set;
 import org.sopt.hashi.restaurant.RestaurantLocationInfo;
 import org.sopt.hashi.restaurant.RestaurantLocationReviewInfo;
@@ -21,6 +20,7 @@ import org.sopt.hashi.shared.error.BusinessException;
 import org.sopt.hashi.shared.error.CommonErrorCode;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Page;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Isolation;
 import org.springframework.transaction.annotation.Propagation;
@@ -63,16 +63,17 @@ public class RestaurantLocationService {
                 .orElseThrow(() -> new BusinessException(RestaurantErrorCode.NOT_FOUND)));
     }
 
-    @Transactional(readOnly = true)
-    public RestaurantLocationReviewPage findReviews(String status, String source, Long cursor, int size) {
-        validateReviewQuery(status, source, cursor, size);
-        List<RestaurantLocationReviewProjection> rows = restaurants.findLocationReviews(
-                status, source, cursor, PageRequest.of(0, size + 1));
-        boolean hasNext = rows.size() > size;
-        List<RestaurantLocationReviewProjection> pageRows = hasNext ? rows.subList(0, size) : rows;
-        List<RestaurantLocationReviewInfo> content = pageRows.stream().map(this::toReviewInfo).toList();
-        Long nextCursor = hasNext ? content.getLast().restaurantId() : null;
-        return new RestaurantLocationReviewPage(content, nextCursor, hasNext);
+    @Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ)
+    public RestaurantLocationReviewPage findReviews(String status, String source, int page, int size) {
+        validateReviewQuery(status, source, page, size);
+        Page<RestaurantLocationReviewProjection> rows = restaurants.findLocationReviews(
+                status, source, PageRequest.of(page, size));
+        return new RestaurantLocationReviewPage(
+                rows.getContent().stream().map(this::toReviewInfo).toList(),
+                rows.getNumber(),
+                rows.getSize(),
+                rows.getTotalElements(),
+                rows.getTotalPages());
     }
 
     @Transactional(isolation = Isolation.READ_COMMITTED)
@@ -146,10 +147,11 @@ public class RestaurantLocationService {
                 canRetry);
     }
 
-    private void validateReviewQuery(String status, String source, Long cursor, int size) {
+    private void validateReviewQuery(String status, String source, int page, int size) {
         if (status == null || !REVIEW_STATUSES.contains(status)
                 || (source != null && !LOCATION_SOURCES.contains(source))
-                || (cursor != null && cursor < 1)
+                || page < 0
+                || (long) page * size > Integer.MAX_VALUE
                 || size < 1 || size > MAX_REVIEW_PAGE_SIZE) {
             throw new BusinessException(CommonErrorCode.INVALID_INPUT);
         }

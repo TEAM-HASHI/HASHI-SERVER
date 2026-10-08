@@ -35,7 +35,7 @@ public record RestaurantLocationReviewResponse(
         @Schema(description = "다음 자동 재시도 예정 시각(UTC). 해당하지 않으면 null", nullable = true)
         Instant nextAttemptAt,
         @Schema(description = "현재 requestId 작업의 최근 실패 사유 코드. 없으면 null",
-                example = "ZERO_RESULTS", nullable = true)
+                example = "NO_RESULTS", nullable = true)
         String failureCode,
         @Schema(description = "관리자 재시도 가능 여부", example = "true")
         boolean canRetry) {
