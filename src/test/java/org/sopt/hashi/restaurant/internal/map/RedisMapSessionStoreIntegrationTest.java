@@ -28,6 +28,8 @@ import org.junit.jupiter.api.Test;
 import org.sopt.hashi.restaurant.code.RestaurantErrorCode;
 import org.sopt.hashi.restaurant.domain.MapQueryBounds;
 import org.sopt.hashi.restaurant.domain.MapSearchCriteria;
+import org.sopt.hashi.restaurant.domain.MapSearchResultExtent;
+import org.sopt.hashi.restaurant.domain.MapSearchResultExtent.ResultBounds;
 import org.sopt.hashi.restaurant.domain.RestaurantMapCandidate;
 import org.sopt.hashi.restaurant.domain.RestaurantMapSort;
 import org.sopt.hashi.restaurant.dto.RestaurantMapPageRequest;
@@ -135,9 +137,15 @@ class RedisMapSessionStoreIntegrationTest {
         var candidates = IntStream.range(0, 500).mapToObj(index -> new RestaurantMapCandidate(
                 Long.MAX_VALUE - index, new BigDecimal("5.0"), Long.MAX_VALUE)).toList();
         var criteria = MapSearchCriteria.of(MapQueryBounds.parse("0." + "1".repeat(126), "0." + "9".repeat(126),
-                "0." + "1".repeat(126), "0." + "9".repeat(126)), Long.MAX_VALUE, "rice-bowl", "restaurant", "😀".repeat(100));
-        var session = new MapQuerySession(1, UUID.randomUUID(), criteria, candidates,
-                Instant.now(), Instant.now().plusSeconds(900));
+                "0." + "1".repeat(126), "0." + "9".repeat(126)), Long.MAX_VALUE,
+                "rice-bowl", "restaurant", "😀".repeat(30));
+        Instant rankingAsOf = Instant.now();
+        Instant expiresAt = rankingAsOf.plusSeconds(900);
+        var result = new MapSearchResultExtent(candidates.size(),
+                new ResultBounds(criteria.bounds().south(), criteria.bounds().north(),
+                        criteria.bounds().west(), criteria.bounds().east()), expiresAt);
+        var session = new MapQuerySession(MapQuerySession.SCHEMA_VERSION, UUID.randomUUID(), criteria, candidates,
+                result, rankingAsOf, expiresAt);
         String json = SERIALIZER.serialize(session);
         int bytes = json.getBytes(StandardCharsets.UTF_8).length;
         assertThat(bytes).isLessThanOrEqualTo(MapQuerySession.MAX_BYTES);
@@ -282,11 +290,11 @@ class RedisMapSessionStoreIntegrationTest {
         var candidates = IntStream.range(0, 500).mapToObj(index -> new RestaurantMapCandidate(
                 Long.MAX_VALUE - index, new BigDecimal("5.0"), Long.MAX_VALUE)).toList();
         var base = session(Duration.ofMinutes(30));
-        var first = new MapQuerySession(1, UUID.randomUUID(), base.criteria(), candidates,
-                base.rankingAsOf(), base.expiresAt());
+        var first = new MapQuerySession(MapQuerySession.SCHEMA_VERSION, UUID.randomUUID(), base.criteria(), candidates,
+                base.searchResult(), base.rankingAsOf(), base.expiresAt());
         store.save(first);
-        var second = new MapQuerySession(1, UUID.randomUUID(), base.criteria(), candidates,
-                base.rankingAsOf(), base.expiresAt());
+        var second = new MapQuerySession(MapQuerySession.SCHEMA_VERSION, UUID.randomUUID(), base.criteria(), candidates,
+                base.searchResult(), base.rankingAsOf(), base.expiresAt());
         assertCode(() -> store.save(second), RestaurantErrorCode.MAP_CAPACITY_EXCEEDED);
         assertThat(rejections("total_bytes")).isEqualTo(1);
         assertThat(redis.keys(PREFIX + "*")).hasSize(1);
@@ -318,8 +326,8 @@ class RedisMapSessionStoreIntegrationTest {
         var criteria = MapSearchCriteria.of(new MapQueryBounds(new BigDecimal("0." + "1".repeat(70_000)),
                 BigDecimal.ONE, BigDecimal.ZERO, BigDecimal.ONE), null, null, null, null);
         limits.setSnapshotBytes(65_536);
-        var oversized = new MapQuerySession(1, UUID.randomUUID(), criteria, List.of(),
-                Instant.now(), Instant.now().plusSeconds(900));
+        var oversized = new MapQuerySession(MapQuerySession.SCHEMA_VERSION, UUID.randomUUID(), criteria, List.of(),
+                null, Instant.now(), Instant.now().plusSeconds(900));
         assertCode(() -> store.save(oversized), RestaurantErrorCode.MAP_CAPACITY_EXCEEDED);
         assertThat(rejections("snapshot_bytes")).isEqualTo(1);
         assertThat(redis.keys(PREFIX + "*")).isEmpty();
@@ -361,8 +369,9 @@ class RedisMapSessionStoreIntegrationTest {
 
     private MapQuerySession session(Duration ttl) {
         Instant now = redisNow();
-        return new MapQuerySession(1, UUID.randomUUID(), MapSearchCriteria.of(
-                MapQueryBounds.parse("0", "1", "0", "1"), null, null, null, null), List.of(), now, now.plus(ttl));
+        return new MapQuerySession(MapQuerySession.SCHEMA_VERSION, UUID.randomUUID(), MapSearchCriteria.of(
+                MapQueryBounds.parse("0", "1", "0", "1"), null, null, null, null), List.of(), null,
+                now, now.plus(ttl));
     }
 
     private Instant redisNow() {

@@ -41,8 +41,8 @@ class RestaurantMapPageReaderTest {
         var candidates = IntStream.rangeClosed(1, 620).mapToObj(id ->
                 new RestaurantMapCandidate((long) id, BigDecimal.ZERO, 0)).toList();
         var criteria = MapSearchCriteria.of(MapQueryBounds.parse("0", "1", "0", "1"), null, null, null, null);
-        var session = new MapQuerySession(1, UUID.randomUUID(), criteria, candidates,
-                Instant.now(), Instant.now().plusSeconds(1800));
+        var session = new MapQuerySession(MapQuerySession.SCHEMA_VERSION, UUID.randomUUID(), criteria, candidates,
+                null, Instant.now(), Instant.now().plusSeconds(1800));
         when(maps.findMatchingCandidates(any(), any())).thenAnswer(invocation -> {
             Collection<Long> ids = invocation.getArgument(1);
             assertThat(ids).hasSizeLessThanOrEqualTo(32);

@@ -219,6 +219,38 @@ class RestaurantMapPageIntegrationTest {
         assertThat(Instant.parse(data.get("expiresAt").asText()))
                 .isAfter(Instant.parse(data.get("rankingAsOf").asText()));
         assertThat(data.get("query").get("sort").asText()).isEqualTo("recommend");
+        assertThat(data.has("searchResult")).isFalse();
+    }
+
+    @Test
+    void 검색결과요약은_첫페이지밖_좌표까지_포함하고_페이지중_삭제되어도_최초값을_유지한다() throws Exception {
+        List<Long> restaurantIds = fixtures(12, false);
+        Long outlierId = restaurantIds.getLast();
+        jdbc.update("update restaurant set rating=5 where deleted=false and id<>?", outlierId);
+        jdbc.update("update restaurant_location set latitude=0.9, longitude=0.8 "
+                + "where id=(select location_id from restaurant where id=?)", outlierId);
+
+        JsonNode first = page(newQuery().param("keyword", "fixture").param("sort", "rating"));
+        assertThat(first.get("content")).hasSize(10);
+        assertThat(ids(first)).doesNotContain(outlierId);
+        JsonNode searchResult = first.get("searchResult");
+        assertThat(searchResult.get("totalCount").asLong()).isEqualTo(12);
+        assertThat(searchResult.has("earliestValidUntil")).isFalse();
+        assertThat(searchResult.at("/bounds/south").decimalValue()).isEqualByComparingTo("0.5");
+        assertThat(searchResult.at("/bounds/north").decimalValue()).isEqualByComparingTo("0.9");
+        assertThat(searchResult.at("/bounds/west").decimalValue()).isEqualByComparingTo("0.5");
+        assertThat(searchResult.at("/bounds/east").decimalValue()).isEqualByComparingTo("0.8");
+
+        jdbc.update("update restaurant set deleted=true where id=?", outlierId);
+        JsonNode next = page(get(PATH).param("cursor", first.get("nextCursor").asText()));
+        assertThat(next.get("content")).hasSize(1);
+        assertThat(ids(next)).doesNotContain(outlierId);
+        assertThat(next.get("searchResult")).isEqualTo(searchResult);
+        assertThat(next.get("rankingAsOf")).isEqualTo(first.get("rankingAsOf"));
+
+        JsonNode empty = page(newQuery().param("keyword", "no-such-restaurant"));
+        assertThat(empty.at("/searchResult/totalCount").asLong()).isZero();
+        assertThat(empty.at("/searchResult/bounds").isNull()).isTrue();
     }
 
     @Test
@@ -413,8 +445,9 @@ class RestaurantMapPageIntegrationTest {
         jdbc.update("update restaurant set map_region_id=? where deleted=false", region);
         var query = MapSearchCriteria.of(CRITERIA.bounds(), region, "sushi", "restaurant", "fixture");
         var snapshot = mapService.findCandidates(query, 500);
-        var id = store.save(new MapQuerySession(1, UUID.randomUUID(), query, snapshot.candidates(),
-                snapshot.rankingAsOf(), Instant.now().plusSeconds(900)));
+        var id = store.save(new MapQuerySession(MapQuerySession.SCHEMA_VERSION, UUID.randomUUID(), query,
+                snapshot.candidates(), snapshot.resultExtent(), snapshot.rankingAsOf(),
+                Instant.now().plusSeconds(900)));
         jdbc.update("update restaurant set map_region_id=null where id=?", ids.get(0));
         jdbc.update("update restaurant_location set latitude=1.5 where id=(select location_id from restaurant where id=?)", ids.get(1));
         var result = page(get(PATH).param("querySessionId", id.value()).param("sort", "recommend"));
@@ -501,8 +534,8 @@ class RestaurantMapPageIntegrationTest {
     private MapSessionId orderedSession(Duration ttl) {
         Instant startedAt = store.admit("synthetic-fixture", true);
         var snapshot = mapService.findCandidates(CRITERIA, 500);
-        return store.save(new MapQuerySession(1, UUID.randomUUID(), CRITERIA, snapshot.candidates(),
-                snapshot.rankingAsOf(), startedAt.plus(ttl)));
+        return store.save(new MapQuerySession(MapQuerySession.SCHEMA_VERSION, UUID.randomUUID(), CRITERIA,
+                snapshot.candidates(), snapshot.resultExtent(), snapshot.rankingAsOf(), startedAt.plus(ttl)));
     }
 
     /** DB와 JVM 벽시계 차이에도 테스트의 조회 Clock보다 확실히 과거인 만료값을 저장한다. */

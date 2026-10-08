@@ -1,8 +1,9 @@
 package org.sopt.hashi.restaurant.domain;
 
+import java.util.List;
 import java.util.Locale;
 
-/** 일반 목록에서 선택한 검색 조건을 지도에서도 같은 리터럴 부분 검색으로 적용한다. */
+/** 검색어의 Unicode 앞뒤 공백 제거와 SQL LIKE 리터럴 이스케이프를 한 곳에서 관리한다. */
 final class RestaurantSearchKeyword {
 
     static final char LIKE_ESCAPE = '!';
@@ -21,5 +22,9 @@ final class RestaurantSearchKeyword {
     static String containsPattern(String normalizedKeyword) {
         return normalizedKeyword == null ? null : "%" + normalizedKeyword.toLowerCase(Locale.ROOT)
                 .replace("!", "!!").replace("%", "!%").replace("_", "!_") + "%";
+    }
+
+    static List<String> terms(String normalizedKeyword) {
+        return normalizedKeyword == null ? List.of() : List.of(normalizedKeyword.split("(?U)\\s+"));
     }
 }
