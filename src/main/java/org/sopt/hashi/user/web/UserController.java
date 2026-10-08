@@ -9,32 +9,41 @@ import org.sopt.hashi.shared.swagger.ApiException;
 import org.sopt.hashi.shared.swagger.ApiSuccess;
 import org.sopt.hashi.user.code.UserErrorCode;
 import org.sopt.hashi.user.code.UserSuccessCode;
+import org.sopt.hashi.user.dto.CheckProfileAvailabilityRequest;
 import org.sopt.hashi.user.dto.CompleteOnboardingRequest;
 import org.sopt.hashi.user.dto.MyInfoResponse;
 import org.sopt.hashi.user.dto.OnboardingResponse;
+import org.sopt.hashi.user.dto.ProfileAvailabilityResponse;
 import org.sopt.hashi.user.dto.ProfileSummaryResponse;
+import org.sopt.hashi.user.dto.UpdateMyInfoRequest;
 import org.sopt.hashi.user.service.OnboardingService;
 import org.sopt.hashi.user.service.UserProfileService;
+import org.sopt.hashi.user.service.UserWithdrawalService;
 import org.springframework.http.HttpStatus;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 
-/** 회원 온보딩·프로필 API. */
+/** 회원 온보딩·프로필·탈퇴 API. */
 @RestController
 @RequestMapping("/api/v1/users")
 public class UserController {
 
     private final OnboardingService onboardingService;
     private final UserProfileService userProfileService;
+    private final UserWithdrawalService userWithdrawalService;
 
     public UserController(OnboardingService onboardingService,
-                          UserProfileService userProfileService) {
+                          UserProfileService userProfileService,
+                          UserWithdrawalService userWithdrawalService) {
         this.onboardingService = onboardingService;
         this.userProfileService = userProfileService;
+        this.userWithdrawalService = userWithdrawalService;
     }
 
     /** 온보딩(가입 완료) — 로그인 시 받은 signup_token 쿠키(또는 온보딩 토큰)로 인증. 성공 시 정식 JWT가 응답에 실려 즉시 로그인 상태가 된다. */
@@ -58,6 +67,17 @@ public class UserController {
                 onboardingService.completeOnboarding(request));
     }
 
+    /**
+     * 닉네임·연락처·이메일 사용 가능 여부 — 온보딩(임시 토큰)·내 정보 수정 화면이 필드별 입력 시점에 전달한 필드만 검사한다.
+     * 중복이어도 200이며 필드별 available·message로 구분한다. 회원이 호출하면 본인 값은 사용 가능으로 본다.
+     */
+    @ApiException(value = CommonErrorCode.class, codes = {"INVALID_INPUT", "UNAUTHORIZED", "FORBIDDEN"})
+    @PostMapping("/availability")
+    public SuccessResponse<ProfileAvailabilityResponse> checkAvailability(
+            @Valid @RequestBody CheckProfileAvailabilityRequest request) {
+        return SuccessResponse.of(CommonSuccessCode.OK, userProfileService.checkAvailability(request));
+    }
+
     /** 내 정보 조회 — 프로필 사진 미등록이면 profileImageUrl은 null. */
     @ApiException(value = CommonErrorCode.class, codes = {"UNAUTHORIZED", "FORBIDDEN"})
     @ApiException(value = UserErrorCode.class, codes = {"NOT_FOUND"})
@@ -72,5 +92,54 @@ public class UserController {
     @GetMapping("/me/profile-summary")
     public SuccessResponse<ProfileSummaryResponse> getMyProfileSummary() {
         return SuccessResponse.of(CommonSuccessCode.OK, userProfileService.getMyProfileSummary());
+    }
+
+    /** 내 정보 부분 수정 — null 필드는 유지한다. 중복이면 필드별 409(USER-001·002·003), 저장 경합은 USER-004. */
+    @ApiException(value = CommonErrorCode.class, codes = {"INVALID_INPUT", "UNAUTHORIZED", "FORBIDDEN"})
+    @ApiException(value = UserErrorCode.class,
+            codes = {"NOT_FOUND", "DUPLICATE_NICKNAME", "DUPLICATE_EMAIL", "DUPLICATE_PHONE", "DUPLICATE_USER_INFO"})
+    @ApiErrorResponse(status = HttpStatus.NOT_FOUND, code = "MEDIA-001",
+            message = "이미지 자산을 찾을 수 없습니다")
+    @ApiErrorResponse(status = HttpStatus.FORBIDDEN, code = "MEDIA-002",
+            message = "해당 용도의 이미지를 업로드할 권한이 없습니다")
+    @ApiErrorResponse(status = HttpStatus.CONFLICT, code = "MEDIA-006",
+            message = "현재 이미지 상태에서는 요청을 처리할 수 없습니다")
+    @ApiErrorResponse(status = HttpStatus.CONFLICT, code = "MEDIA-007",
+            message = "이미 사용 중이거나 사용이 끝난 이미지입니다")
+    @ApiSuccess(value = UserSuccessCode.class, codes = {"PROFILE_UPDATED"})
+    @PatchMapping("/me")
+    public SuccessResponse<MyInfoResponse> updateMyInfo(@Valid @RequestBody UpdateMyInfoRequest request) {
+        return SuccessResponse.of(UserSuccessCode.PROFILE_UPDATED, userProfileService.updateMyInfo(request));
+    }
+
+    /** 프로필 사진 삭제 — 기본 프로필로 되돌린다. 사진이 없어도 성공한다(멱등). */
+    @ApiException(value = CommonErrorCode.class, codes = {"UNAUTHORIZED", "FORBIDDEN"})
+    @ApiException(value = UserErrorCode.class, codes = {"NOT_FOUND"})
+    @ApiErrorResponse(status = HttpStatus.NOT_FOUND, code = "MEDIA-001",
+            message = "이미지 자산을 찾을 수 없습니다")
+    @ApiErrorResponse(status = HttpStatus.CONFLICT, code = "MEDIA-006",
+            message = "현재 이미지 상태에서는 요청을 처리할 수 없습니다")
+    @ApiSuccess(value = UserSuccessCode.class, codes = {"PROFILE_IMAGE_DELETED"})
+    @DeleteMapping("/me/profile-image")
+    public SuccessResponse<Void> deleteProfileImage() {
+        userProfileService.deleteProfileImage();
+        return SuccessResponse.of(UserSuccessCode.PROFILE_IMAGE_DELETED, null);
+    }
+
+    /**
+     * 회원 탈퇴 — 방문 완료·취소가 아닌 예약이 있으면 거절한다(RESERVATION-008). 성공 즉시 토큰이 차단되므로 클라이언트는
+     * 보관한 토큰을 버리고 로그인 화면으로 보낸다. 리뷰는 남고 작성자는 익명 닉네임으로 보인다.
+     */
+    @ApiException(value = CommonErrorCode.class, codes = {"UNAUTHORIZED", "FORBIDDEN"})
+    @ApiException(value = UserErrorCode.class, codes = {"NOT_FOUND"})
+    @ApiErrorResponse(status = HttpStatus.CONFLICT, code = "RESERVATION-008",
+            message = "방문 완료나 취소되지 않은 예약이 있어 탈퇴할 수 없습니다")
+    @ApiErrorResponse(status = HttpStatus.CONFLICT, code = "MEDIA-006",
+            message = "현재 이미지 상태에서는 요청을 처리할 수 없습니다")
+    @ApiSuccess(value = UserSuccessCode.class, codes = {"WITHDRAWN"})
+    @DeleteMapping("/me")
+    public SuccessResponse<Void> withdraw() {
+        userWithdrawalService.withdraw();
+        return SuccessResponse.of(UserSuccessCode.WITHDRAWN);
     }
 }
