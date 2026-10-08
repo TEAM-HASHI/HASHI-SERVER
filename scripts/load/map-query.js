@@ -8,7 +8,7 @@ if (!/^http:\/\/127\.0\.0\.1:\d+$/.test(base || '')) {
     throw new Error('BASE_URL must identify the local test server');
 }
 const profile = __ENV.MAP_LOAD_PROFILE || 'smoke';
-if (!['smoke', 'staged', 'ttl'].includes(profile)) throw new Error('Invalid load profile');
+if (!['smoke', 'normal', 'staged', 'ttl'].includes(profile)) throw new Error('Invalid load profile');
 const traffic = __ENV.MAP_LOAD_TRAFFIC || 'shared';
 if (!['shared', 'distinct'].includes(traffic)) throw new Error('Invalid load traffic');
 const rejected429 = new Counter('map_rejected_429');
@@ -110,6 +110,8 @@ export default function () {
         // k6 does not fail its process for an iteration exception unless a threshold records it.
         recordFailure('map iteration completes without an unexpected exception');
     } finally {
-        sleep(2);
+        // 5 requests and 2 new queries per iteration: paced callers stay below production budgets.
+        const pacing = 12 + (__VU % 5) * 0.25;
+        sleep(profile === 'normal' || profile === 'ttl' ? pacing : 2);
     }
 }

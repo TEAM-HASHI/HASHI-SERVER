@@ -98,9 +98,15 @@ class MapQueryLoadTest {
 
     @Test
     void 실제_HTTP_혼합부하_후_유휴세션이_정리되고_제한해제후_복구된다() throws Exception {
-        assertThat(PROFILE).isIn("smoke", "staged", "ttl");
+        assertThat(PROFILE).isIn("smoke", "normal", "staged", "ttl");
         assertThat(TRAFFIC).isIn("shared", "distinct");
         assertThat(RESTAURANTS).isBetween(620, 5000);
+        if ("normal".equals(PROFILE) || "ttl".equals(PROFILE)) {
+            assertThat(TRAFFIC).as("paced profiles model distinct callers").isEqualTo("distinct");
+            limits.setRequestsPerCaller(120);
+            limits.setNewQueriesPerCaller(12);
+            limits.setRequestsPerMinute(600);
+        }
         limits.setIdleTimeout(Duration.ofSeconds(IDLE_SECONDS));
         limits.setMaxLifetime(Duration.ofSeconds("ttl".equals(PROFILE) ? 1800 : 30));
         Path output = Path.of(System.getProperty("map.k6.output"));
@@ -146,7 +152,7 @@ class MapQueryLoadTest {
             limits.setIdleTimeout(Duration.ofSeconds(10));
             limits.setMaxLifetime(Duration.ofSeconds(30));
             limits.setSessions(2);
-            if (!"smoke".equals(PROFILE)) {
+            if ("shared".equals(TRAFFIC) && !"smoke".equals(PROFILE)) {
                 // A saturated caller window lasts up to one minute. Do not erase admission Redis data.
                 for (int second = 0; second < 65; second++) {
                     samples.add(sample());
