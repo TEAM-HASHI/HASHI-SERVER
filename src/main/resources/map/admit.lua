@@ -4,9 +4,9 @@ local max = tonumber(string.match(memory, 'maxmemory:(%d+)'))
 local policy = string.match(memory, 'maxmemory_policy:([^%s]+)')
 local ceiling = tonumber(ARGV[1])
 local headroom = tonumber(ARGV[2])
-if not used or not max or policy ~= 'noeviction' then return -2 end
+if not used or not max or policy ~= 'noeviction' then return -5 end
 if max > 0 then ceiling = math.min(ceiling, max) end
-if used + headroom >= ceiling then return -2 end
+if used + headroom >= ceiling then return -5 end
 local time = redis.call('TIME')
 local now = tonumber(time[1])
 local window = math.floor(now / 60)
@@ -23,7 +23,7 @@ local calls, queries = 0, 0
 if caller then calls, queries = string.match(caller, '(%d+):(%d+)') end
 calls, queries = tonumber(calls), tonumber(queries)
 local isNew = tonumber(ARGV[8])
-if total >= tonumber(ARGV[5]) then return -1 end
+if total >= tonumber(ARGV[5]) then return -4 end
 if calls >= tonumber(ARGV[6]) or (isNew == 1 and queries >= tonumber(ARGV[7])) then return -3 end
 redis.call('HSET', KEYS[1], 'total', total + 1, ARGV[3], (calls + 1) .. ':' .. (queries + isNew))
 return now * 1000 + math.floor(tonumber(time[2]) / 1000)

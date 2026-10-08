@@ -3,12 +3,17 @@ package org.sopt.hashi.restaurant.internal.map;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.SerializationFeature;
+import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import java.math.BigDecimal;
+import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.util.Base64;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.stream.IntStream;
 import org.junit.jupiter.api.Test;
 import org.sopt.hashi.restaurant.domain.MapQueryBounds;
 import org.sopt.hashi.restaurant.domain.MapSearchCriteria;
@@ -36,7 +41,8 @@ class MapQuerySessionTest {
     @Test
     void 손상세션과_중복후보는_복원하지_않고_허용한_정밀도는_그대로_왕복한다() {
         var serializer = new MapSessionSerializer();
-        for (String json : List.of("null", "{}", "{\"schemaVersion\":2}", "[\"java.lang.Runtime\",{}]")) {
+        for (String json : List.of("null", "{}", "{\"formatVersion\":2}", "{\"schemaVersion\":1}",
+                "[\"java.lang.Runtime\",{}]")) {
             assertThatThrownBy(() -> serializer.deserialize(json)).isInstanceOf(BusinessException.class);
         }
         assertThatThrownBy(() -> session(List.of(candidate(1, "4.0", 1), candidate(1, "4.0", 1))))
@@ -45,6 +51,38 @@ class MapQuerySessionTest {
                 null, null, null, null);
         var session = new MapQuerySession(1, UUID.randomUUID(), criteria, List.of(), Instant.now(), Instant.now().plusSeconds(900));
         assertThat(serializer.deserialize(serializer.serialize(session))).isEqualTo(session);
+    }
+
+    @Test
+    void 후보_tuple은_세값을_함께_보존하고_620개_payload를_기존객체형식보다_줄인다() throws Exception {
+        var candidates = IntStream.rangeClosed(1, 620)
+                .mapToObj(id -> candidate(id, "0.0", 0)).toList();
+        var session = session(candidates);
+        var serializer = new MapSessionSerializer();
+
+        String compact = serializer.serialize(session);
+        var legacyMapper = new ObjectMapper().registerModule(new JavaTimeModule())
+                .disable(SerializationFeature.WRITE_DATES_AS_TIMESTAMPS);
+        int legacyBytes = legacyMapper.writeValueAsString(session).getBytes(StandardCharsets.UTF_8).length;
+        int compactBytes = compact.getBytes(StandardCharsets.UTF_8).length;
+        System.out.printf("MAP_SESSION_SERIALIZATION candidates=620 legacyBytes=%d compactBytes=%d%n",
+                legacyBytes, compactBytes);
+
+        assertThat(serializer.deserialize(compact)).isEqualTo(session);
+        assertThat(compact).contains("\"candidates\":[[1,0.0,0],[2,0.0,0]")
+                .doesNotContain("restaurantId", "reviewCount");
+        assertThat(compactBytes).isLessThan(legacyBytes / 3);
+    }
+
+    @Test
+    void 후보_tuple의_누락_추가_필드는_손상세션으로_거절한다() {
+        var serializer = new MapSessionSerializer();
+        String json = serializer.serialize(session(List.of(candidate(1, "4.0", 2))));
+
+        assertThatThrownBy(() -> serializer.deserialize(json.replace("[1,4.0,2]", "[1,4.0]")))
+                .isInstanceOf(BusinessException.class);
+        assertThatThrownBy(() -> serializer.deserialize(json.replace("[1,4.0,2]", "[1,4.0,2,3]")))
+                .isInstanceOf(BusinessException.class);
     }
 
     @Test
