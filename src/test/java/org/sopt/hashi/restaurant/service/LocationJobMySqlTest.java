@@ -720,8 +720,8 @@ class LocationJobMySqlTest {
     }
 
     @Test
-    void 관리자_위치검토_목록은_현재작업을_조인하고_ID_ASC_커서로_다음페이지를_읽는다() {
-        Long startCursor = restaurants.createByAdmin(createCommand()).restaurantId();
+    void 관리자_위치검토_목록은_현재작업을_조인하고_ID_ASC_offset과_총건수를_반환한다() {
+        hideExistingRestaurantsFromAdminList();
         Long first = createReviewRequired("OLD_RESULT");
         locations.retry(first, 1);
         Claim current = transactions.claim(target(first)).orElseThrow();
@@ -730,23 +730,45 @@ class LocationJobMySqlTest {
         Long third = createReviewRequired("THIRD_RESULT");
 
         var firstPage = restaurantPort.findLocationReviewsByAdmin(
-                "REVIEW_REQUIRED", null, startCursor, 2);
+                "REVIEW_REQUIRED", null, 0, 2);
         assertThat(firstPage.restaurants()).extracting("restaurantId").containsExactly(first, second);
         assertThat(firstPage.restaurants().getFirst().failureCode()).isEqualTo("CURRENT_RESULT");
         assertThat(firstPage.restaurants().getFirst().attempt()).isEqualTo(1);
-        assertThat(firstPage.nextCursor()).isEqualTo(second);
-        assertThat(firstPage.hasNext()).isTrue();
+        assertThat(firstPage.page()).isZero();
+        assertThat(firstPage.size()).isEqualTo(2);
+        assertThat(firstPage.totalCount()).isEqualTo(3);
+        assertThat(firstPage.totalPages()).isEqualTo(2);
 
         var secondPage = restaurantPort.findLocationReviewsByAdmin(
-                "REVIEW_REQUIRED", null, firstPage.nextCursor(), 2);
+                "REVIEW_REQUIRED", null, 1, 2);
         assertThat(secondPage.restaurants()).extracting("restaurantId").containsExactly(third);
-        assertThat(secondPage.nextCursor()).isNull();
-        assertThat(secondPage.hasNext()).isFalse();
+        assertThat(secondPage.page()).isEqualTo(1);
+        assertThat(secondPage.totalCount()).isEqualTo(3);
+        assertThat(secondPage.totalPages()).isEqualTo(2);
+
+        var missingPage = restaurantPort.findLocationReviewsByAdmin(
+                "REVIEW_REQUIRED", null, 2, 2);
+        assertThat(missingPage.restaurants()).isEmpty();
+        assertThat(missingPage.page()).isEqualTo(2);
+        assertThat(missingPage.totalCount()).isEqualTo(3);
+        assertThat(missingPage.totalPages()).isEqualTo(2);
+
+        var hugePage = restaurantPort.findLocationReviewsByAdmin(
+                "REVIEW_REQUIRED", null, 1_000_000, 100);
+        assertThat(hugePage.restaurants()).isEmpty();
+        assertThat(hugePage.page()).isEqualTo(1_000_000);
+        assertThat(hugePage.totalCount()).isEqualTo(3);
+        assertThat(hugePage.totalPages()).isEqualTo(1);
+
+        assertThatThrownBy(() -> restaurantPort.findLocationReviewsByAdmin(
+                "REVIEW_REQUIRED", null, -1, 20)).isInstanceOf(BusinessException.class);
+        assertThatThrownBy(() -> restaurantPort.findLocationReviewsByAdmin(
+                "REVIEW_REQUIRED", null, Integer.MAX_VALUE, 100)).isInstanceOf(BusinessException.class);
     }
 
     @Test
     void 관리자_위치검토_목록은_상태와_source를_필터하고_미해결과_삭제식당을_구분한다() {
-        Long startCursor = restaurants.createByAdmin(createCommand()).restaurantId();
+        hideExistingRestaurantsFromAdminList();
         Long pending = restaurants.createByAdmin(createCommand()).restaurantId();
 
         Long ready = restaurants.createByAdmin(createCommand()).restaurantId();
@@ -767,10 +789,13 @@ class LocationJobMySqlTest {
         Long deleted = createReviewRequired("DELETED_RESULT");
         restaurantPort.deleteByAdmin(deleted);
 
-        assertThat(restaurantPort.findLocationReviewsByAdmin("PENDING", null, startCursor, 20).restaurants())
+        var pendingPage = restaurantPort.findLocationReviewsByAdmin("PENDING", null, 0, 20);
+        assertThat(pendingPage.restaurants())
                 .extracting("restaurantId").containsExactly(pending);
-        assertThat(restaurantPort.findLocationReviewsByAdmin(
-                "READY", "GOOGLE_GEOCODING", startCursor, 20).restaurants())
+        assertThat(pendingPage.totalCount()).isEqualTo(1);
+        var readyPage = restaurantPort.findLocationReviewsByAdmin(
+                "READY", "GOOGLE_GEOCODING", 0, 20);
+        assertThat(readyPage.restaurants())
                 .singleElement()
                 .satisfies(item -> {
                     assertThat(item.restaurantId()).isEqualTo(ready);
@@ -779,13 +804,15 @@ class LocationJobMySqlTest {
                             .isEqualTo(readyClaim.obtainedAt().plusDays(1).toInstant(ZoneOffset.UTC));
                     assertThat(item.canRetry()).isFalse();
                 });
-        assertThat(restaurantPort.findLocationReviewsByAdmin("READY", "ADMIN", startCursor, 20).restaurants())
-                .isEmpty();
-        assertThat(restaurantPort.findLocationReviewsByAdmin("RETRY_WAIT", null, startCursor, 20).restaurants())
+        assertThat(readyPage.totalCount()).isEqualTo(1);
+        var excludedSourcePage = restaurantPort.findLocationReviewsByAdmin("READY", "ADMIN", 0, 20);
+        assertThat(excludedSourcePage.restaurants()).isEmpty();
+        assertThat(excludedSourcePage.totalCount()).isZero();
+        assertThat(restaurantPort.findLocationReviewsByAdmin("RETRY_WAIT", null, 0, 20).restaurants())
                 .extracting("restaurantId").containsExactly(retryWait);
-        assertThat(restaurantPort.findLocationReviewsByAdmin("FAILED", null, startCursor, 20).restaurants())
+        assertThat(restaurantPort.findLocationReviewsByAdmin("FAILED", null, 0, 20).restaurants())
                 .extracting("restaurantId").containsExactly(failed);
-        assertThat(restaurantPort.findLocationReviewsByAdmin("UNRESOLVED", null, startCursor, 20).restaurants())
+        assertThat(restaurantPort.findLocationReviewsByAdmin("UNRESOLVED", null, 0, 20).restaurants())
                 .singleElement()
                 .satisfies(item -> {
                     assertThat(item.restaurantId()).isEqualTo(unresolved);
@@ -794,12 +821,13 @@ class LocationJobMySqlTest {
                     assertThat(item.canRetry()).isTrue();
                 });
         assertThat(restaurantPort.findLocationReviewsByAdmin(
-                "REVIEW_REQUIRED", null, startCursor, 20).restaurants())
+                "REVIEW_REQUIRED", null, 0, 20).restaurants())
                 .isEmpty();
     }
 
     @Test
     void 관리자_위치목록은_JVM_UTC와_JDBC_서울에서도_DATETIME을_UTC로_반환한다() {
+        hideExistingRestaurantsFromAdminList();
         TimeZone originalTimezone = TimeZone.getDefault();
         try {
             TimeZone.setDefault(TimeZone.getTimeZone("UTC"));
@@ -807,7 +835,6 @@ class LocationJobMySqlTest {
             assertThat(jdbc.queryForObject("SELECT TIMESTAMPDIFF(SECOND, UTC_TIMESTAMP(), NOW())", Integer.class))
                     .isEqualTo(9 * 60 * 60);
 
-            Long startCursor = restaurants.createByAdmin(createCommand()).restaurantId();
             Long ready = restaurants.createByAdmin(createCommand()).restaurantId();
             transactions.complete(transactions.claim(target(ready)).orElseThrow(), ready());
             Long retryWait = restaurants.createByAdmin(createCommand()).restaurantId();
@@ -826,12 +853,12 @@ class LocationJobMySqlTest {
                     """, nextAttemptAt.format(DATABASE_TIME), retryWait);
 
             assertThat(restaurantPort.findLocationReviewsByAdmin(
-                    "READY", null, startCursor, 20).restaurants())
+                    "READY", null, 0, 20).restaurants())
                     .singleElement()
                     .satisfies(item -> assertThat(item.validUntil())
                             .isEqualTo(validUntil.toInstant(ZoneOffset.UTC)));
             assertThat(restaurantPort.findLocationReviewsByAdmin(
-                    "RETRY_WAIT", null, startCursor, 20).restaurants())
+                    "RETRY_WAIT", null, 0, 20).restaurants())
                     .singleElement()
                     .satisfies(item -> assertThat(item.nextAttemptAt())
                             .isEqualTo(nextAttemptAt.toInstant(ZoneOffset.UTC)));
@@ -842,6 +869,7 @@ class LocationJobMySqlTest {
 
     @Test
     void Places_검색선택은_기존좌표를_지우고_DETAILS성공만_30일좌표로_저장한다() {
+        hideExistingRestaurantsFromAdminList();
         Long id = restaurants.createByAdmin(createCommandWithGeocodingAddress()).restaurantId();
         provider.answer.set(address -> new GeocodingResult.NoResults());
         worker.process(target(id));
@@ -889,7 +917,7 @@ class LocationJobMySqlTest {
                 SELECT TIMESTAMPDIFF(DAY, l.obtained_at, l.valid_until) FROM restaurant r
                 JOIN restaurant_location l ON l.id=r.location_id WHERE r.id=?
                 """, Integer.class, id)).isEqualTo(30);
-        assertThat(restaurantPort.findLocationReviewsByAdmin("READY", "GOOGLE_PLACES", id - 1, 20).restaurants())
+        assertThat(restaurantPort.findLocationReviewsByAdmin("READY", "GOOGLE_PLACES", 0, 20).restaurants())
                 .extracting("restaurantId").contains(id);
     }
 
@@ -1044,6 +1072,12 @@ class LocationJobMySqlTest {
         Claim claim = transactions.claim(target(id)).orElseThrow();
         transactions.complete(claim, new Outcome(null, null, failureCode));
         return id;
+    }
+
+    private void hideExistingRestaurantsFromAdminList() {
+        // 이 클래스는 test transaction을 쓰지 않는다. offset 목록은 이전 테스트가 남긴 활성 식당도 포함하므로
+        // 현재 목록 fixture의 page/count 기대값을 독립시키되 production과 같은 soft-delete 조건을 사용한다.
+        jdbc.update("UPDATE restaurant SET deleted=true WHERE deleted=false");
     }
 
     private Long placesReviewRequiredRestaurant() {

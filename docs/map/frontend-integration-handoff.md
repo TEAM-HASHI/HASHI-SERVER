@@ -67,14 +67,16 @@
 
 | API | 사용 방법 |
 |---|---|
-| `GET /api/v1/admin/restaurants/locations` | 기본으로 `REVIEW_REQUIRED` 식당을 ID 오름차순으로 조회. `status`, 선택 `source`, 이전 응답의 `nextCursor`, `size`(기본 20, 최대 100)를 사용 |
+| `GET /api/v1/admin/restaurants/locations` | 기본으로 `REVIEW_REQUIRED` 식당을 ID 오름차순으로 조회. `status`, 선택 `source`, `page`(0부터 시작, 기본 0), `size`(기본 20, 1~100)를 사용 |
 | `GET /api/v1/admin/restaurants/{id}/location` | 수정 화면에서 해당 식당의 최신 상태와 주소 변경 번호를 확인 |
 | `POST /api/v1/admin/restaurants/{id}/location/retry` | `canRetry`와 최신 `addressRevision`을 확인한 뒤 재처리 |
 | `POST /api/v1/admin/restaurants/{id}/location/place-candidates` | `expectedAddressRevision`을 보내 저장된 식당명·주소로 매장 후보 검색. 후보 이름·주소·위치·Google Maps 링크를 함께 확인 |
 | `POST /api/v1/admin/restaurants/{id}/location/place-selection` | 선택한 후보의 `selectionToken`과 `expectedAddressRevision` 전달. 200의 `PENDING`은 선택 접수이며, 상태 조회에서 `READY`를 확인 |
 
-목록은 `restaurants`, `nextCursor`, `hasNext`를 반환한다. 상태가 바뀌는 작업 목록이므로 페이지 전체를 고정한 스냅샷은 아니다.
-조회 도중 처리 상태가 바뀐 항목을 다시 확인하려면 첫 페이지부터 새로 읽는다. ADMIN 권한이 필요하고 응답은 캐시하지 않는다.
+목록은 `restaurants`, `page`, `size`, `totalCount`, `totalPages`를 반환한다. Hashi 관리자 목록의 offset 방식을 따른다.
+한 응답의 목록과 총건수는 같은 DB 스냅샷에서 읽지만 여러 페이지 사이의 상태를 고정하지 않는다.
+주소 보완·재처리 뒤에는 현재 페이지를 다시 읽고, 상태 변경으로 페이지가 비었다면 이전 페이지나 첫 페이지로 이동한다.
+ADMIN 권한이 필요하고 응답은 캐시하지 않는다. 일반 지도 목록의 cursor 계약과 구분한다.
 시설 내부 매장은 `READY`여도 실제 매장 위치와 다를 수 있으므로 `status=READY&source=GOOGLE_GEOCODING`으로도 점검할 수 있다.
 후보 선택은 `READY`, `REVIEW_REQUIRED`, `FAILED`, `RETRY_WAIT`에서 사용할 수 있다. `PENDING`이면 처리 결과를 기다린다.
 선택 토큰은 10분 동안만 유효하며 다른 식당·이전 주소 상태에 재사용할 수 없다. 400이면 후보를 다시 검색하고,

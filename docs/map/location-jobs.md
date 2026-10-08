@@ -21,7 +21,12 @@ Google의 위치 확인 성공을 뜻하지 않는다.
 - `GET /api/v1/admin/restaurants/{id}/location`: 200 `COMMON-200`.
 - `POST /api/v1/admin/restaurants/{id}/location/retry`: body `{"expectedAddressRevision":1}`,
   200 `COMMON-200`. 누락/음수 revision은 400, 현재 revision 불일치/READY는 409 `RESTAURANT-019`.
-- 두 경로 모두 기존 SecurityFilterChain의 ADMIN 권한을 사용한다. 삭제/없는 식당은 `RESTAURANT-004`.
+- `GET /api/v1/admin/restaurants/locations`: `status`(기본 `REVIEW_REQUIRED`)와 선택 `source`로 필터링하고
+  `restaurantId ASC`로 조회한다. 관리자 목록 표준에 따라 0-based `page`(기본 0), `size`(기본 20, 최대 100)를
+  사용하며 응답은 `restaurants`, `page`, `size`, `totalCount`, `totalPages`다. 한 응답의 목록과 총건수는 같은
+  DB snapshot을 사용한다. `page × size`가 32-bit offset 상한을 넘으면 400이며, 처리 중 상태가 바뀌면 페이지
+  사이 결과가 달라질 수 있으므로 처리 후 현재 페이지를 다시 조회한다.
+- 세 경로 모두 기존 SecurityFilterChain의 ADMIN 권한을 사용한다. 삭제/없는 식당은 `RESTAURANT-004`.
 - 시설 후보 검색과 선택, Place ID 결합, 별도 SEARCH/DETAILS 예산은 [Places 후보 선택](place-selection.md)을 따른다.
 - 상태 응답: `restaurantId`, `locationStatus`, `addressRevision`, `source`, `verificationMode`, `validUntil`, `attempt`,
   `nextAttemptAt`, `failureCode`, `canRetry`. 시각은 UTC ISO-8601, Cache-Control은 no-store.

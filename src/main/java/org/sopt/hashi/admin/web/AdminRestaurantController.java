@@ -10,7 +10,6 @@ import jakarta.servlet.http.HttpServletResponse;
 import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.Pattern;
-import jakarta.validation.constraints.Positive;
 import org.sopt.hashi.admin.code.AdminSuccessCode;
 import org.sopt.hashi.admin.dto.AdminRestaurantResponse;
 import org.sopt.hashi.admin.dto.CreateRestaurantRequest;
@@ -272,7 +271,7 @@ public class AdminRestaurantController {
         return SuccessResponse.of(CommonSuccessCode.OK, adminRestaurantService.retryLocation(restaurantId, request));
     }
 
-    /** 위치 상태별 관리자 검토 목록. 상태 변경 중에도 안정적인 식당 ID 커서를 사용한다. */
+    /** 위치 상태별 관리자 검토 목록. 관리자 목록 표준인 0-based offset 페이지를 사용한다. */
     @GetMapping("/locations")
     @Operation(summary = "식당 위치 검토 목록 조회", description = """
             활성 식당을 locationStatus로 필터링해 restaurantId 오름차순으로 조회합니다.
@@ -281,8 +280,8 @@ public class AdminRestaurantController {
             각 항목의 attempt와 failureCode는 위치의 현재 requestId와 일치하는 작업에서만 가져옵니다.
             READY는 validUntil이 현재보다 늦어야 실제 지도 위치로 사용할 수 있습니다.
             재시도는 canRetry가 true인 항목의 최신 addressRevision을 expectedAddressRevision으로 보내세요.
-            상태가 바뀌면 다음 페이지에서 제외될 수 있으므로 전체 건수는 제공하지 않습니다.
-            hasNext가 true이면 nextCursor를 cursor로 그대로 전달하고, 필터는 같은 값으로 유지하세요.
+            page는 0부터 시작하며 같은 응답의 totalCount와 totalPages는 조회한 목록과 같은 DB snapshot 기준입니다.
+            처리 중 상태가 바뀌면 페이지 사이의 항목과 총건수도 달라질 수 있습니다. 처리 후 현재 page를 다시 조회하세요.
             """)
     @ApiSuccess(value = CommonSuccessCode.class, codes = {"OK"})
     @ApiException(value = CommonErrorCode.class, codes = {"INVALID_INPUT", "UNAUTHORIZED", "FORBIDDEN"})
@@ -297,14 +296,14 @@ public class AdminRestaurantController {
                     example = "GOOGLE_PLACES")
             @Pattern(regexp = "GOOGLE_GEOCODING|GOOGLE_PLACES|ADMIN")
             @RequestParam(required = false) String source,
-            @Parameter(description = "직전 응답의 nextCursor. 첫 페이지에서는 생략", example = "1020")
-            @Positive @RequestParam(required = false) Long cursor,
+            @Parameter(description = "0부터 시작하는 페이지 번호. page × size는 2,147,483,647 이하여야 함", example = "0")
+            @Min(0) @RequestParam(defaultValue = "0") int page,
             @Parameter(description = "페이지 크기(기본 20, 최대 100)", example = "20")
             @Min(1) @Max(100) @RequestParam(defaultValue = "20") int size,
             HttpServletResponse response) {
         response.setHeader("Cache-Control", "no-store");
         return SuccessResponse.of(CommonSuccessCode.OK,
-                adminRestaurantService.findLocationReviews(status, source, cursor, size));
+                adminRestaurantService.findLocationReviews(status, source, page, size));
     }
 
     @PostMapping("/{restaurantId}/location/place-candidates")

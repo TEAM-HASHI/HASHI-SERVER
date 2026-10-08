@@ -229,9 +229,10 @@ class RestaurantPortImpl implements RestaurantPort {
     }
 
     @Override
+    @Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ)
     public RestaurantLocationReviewPage findLocationReviewsByAdmin(
-            String status, String source, Long cursor, int size) {
-        return locationService.findReviews(status, source, cursor, size);
+            String status, String source, int page, int size) {
+        return locationService.findReviews(status, source, page, size);
     }
 
     @Override
