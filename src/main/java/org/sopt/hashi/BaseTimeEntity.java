@@ -23,4 +23,9 @@ public abstract class BaseTimeEntity {
 
     @LastModifiedDate
     private LocalDateTime updatedAt;
+
+    /** 컬렉션만 변경되어 JPA의 엔티티 변경 감지가 일어나지 않을 때 수정 시각을 기록한다. */
+    protected void markUpdatedAt(LocalDateTime now) {
+        this.updatedAt = now;
+    }
 }

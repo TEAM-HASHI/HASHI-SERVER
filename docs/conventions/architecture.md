@@ -62,6 +62,10 @@
   현재 migration 예외는 association 소유 도메인의 runner만 사용하는 `MediaBackfillPort`다.
   Controller와 일반 Service는 `MediaBackfillPort`를 사용할 수 없다.
 - **MUST**: **발행 이벤트**(예: `UserWithdrawnEvent`)는 모듈 루트에 공개(Port와 같은 위치)하고, `event/` 에는 **구독 리스너**(예: `UserWithdrawnListener`)만 둔다.
+- **MAY**: 상대 모듈의 답이 즉시 필요하지만 그 모듈을 의존하면 순환이 생길 때는, 필요한 쪽이 모듈 루트에
+  **요구 인터페이스(SPI)**를 공개하고 조건을 소유한 모듈이 구현한다(의존 역전). 예: 탈퇴 조건 `WithdrawalBlocker`는
+  user가 정의하고 reservation이 구현해 의존은 기존대로 reservation → user다. 이미 그 모듈을 의존하는 모듈만 구현한다 —
+  반대 방향(user가 의존하는 restaurant·media·auth)이 구현하면 순환이므로, 그 모듈의 조건은 필요한 쪽이 포트로 직접 확인한다.
 - **MAY**: outbound storage adapter, 규격·설정 파일 reader처럼 모듈 밖에 공개하지 않는 기술 구현은
   `internal/`에 둘 수 있다. 엔티티·Repository·비즈니스 로직·Request/Response·Controller는 각각
   `domain`·`service`·`dto`·`web`에 두며, 다른 모듈은 `internal`을 import하지 않는다.
@@ -160,8 +164,8 @@
   `@TransactionalEventListener`를 사용한다. 이 listener에는 `@Transactional`을 붙이지 않고,
   Event Publication Registry 재전송과 downstream 멱등성을 함께 구현한다.
 - **MUST**: 이벤트 핸들러는 **멱등(idempotent)** 하게 작성한다(재처리/중복 수신 대비).
-- **MUST**: 모듈 간 이벤트는 발행 모듈이 `@NamedInterface`로 노출하고, 구독 모듈은 그 이벤트
-  타입만 의존한다. 같은 모듈 안에서 application service와 outbound adapter를 연결하는 내부
+- **MUST**: 모듈 간 이벤트는 발행 모듈의 루트 패키지(기본 공개)나 `@NamedInterface`로 노출하고, 구독 모듈은 그 이벤트
+  타입만 의존한다. 구독은 발행 모듈을 향한 코드 의존이므로 순환 검증 대상이다(예: point → user). 같은 모듈 안에서 application service와 outbound adapter를 연결하는 내부
   이벤트는 공개하지 않는다.
 - **MUST NOT**: 이벤트 발행자가 구독자를 직접 알거나 호출하지 않는다.
 - 이벤트 신뢰성은 Event Publication Registry(JPA, MySQL)로 보장한다(트랜잭셔널 아웃박스).
@@ -183,6 +187,10 @@
 - **MUST**: 원칙은 **1 트랜잭션 = 1 애그리거트**.
 - **MUST**: 즉시 일관성이 필요한 교차 작업(포인트 적립/차감/복원 등)은 트리거 작업과 **같은 트랜잭션**(동기 포트 호출)으로 처리한다.
 - **MUST**: 팬아웃 후속처리(탈퇴 정리 등)는 **이벤트**로, 발행 트랜잭션 커밋 후 별도 트랜잭션에서 처리한다.
+- **MUST**: 회원 소유 데이터를 **새로 만드는** 쓰기(예약 생성·리뷰 작성·컬렉션 생성 등)는 저장 전에 같은 트랜잭션에서
+  `UserPort.lockActiveUser`(user 모듈 안이면 `UserRepository.findByIdForUpdate`)로 users 행을 잠그고 활성 회원인지 확인한다.
+  모듈 간 FK가 없어 자식 INSERT가 부모 행을 잠그지 않으므로, 이 잠금이 탈퇴(회원 행 잠금 → 미종료 예약 검사 → 커밋)와의
+  순서를 강제해 "탈퇴 회원 명의의 새 데이터"가 생기지 않게 한다. 잠금 순서는 users → 그 외(point_account 등) 한 방향만 둔다.
 - **SHOULD**: 동시성 위험이 있는 잔액성 데이터(포인트)는 낙관적 락 또는 잔액 검증으로 보호한다.
 
 ---
@@ -191,7 +199,7 @@
 
 - **MUST**: `auth`는 `@Modulithic(sharedModules = "auth")`로 등록한다(횡단 관심사).
 - **MUST**: 인증 **강제**는 Spring Security 필터 체인이 담당한다. 도메인 모듈은 `auth.internal`을 import하지 않고, `auth`가 공개한 `CurrentUserProvider`로 현재 사용자를 읽는다(`SecurityContextHolder` 직접 접근 금지). actor 유형까지 필요한 media는 현재 공개 지점인 `CurrentActorProvider`를 사용한다.
-- **MUST**: 의존 방향은 **도메인 → auth**다. 현재 공개 지점은 `CurrentUserProvider`, `CurrentActorProvider`, `AuthAccountPort`다. **`auth`는 어떤 도메인 모듈도 되참조하지 않는다**(순환 방지). auth가 도메인을 관찰해야 하면 **이벤트**로 붙인다. 상세는 `auth.md` §1 참조.
+- **MUST**: 의존 방향은 **도메인 → auth**다. 현재 공개 지점은 `CurrentUserProvider`, `CurrentActorProvider`, `AuthAccountPort`다. **`auth`는 어떤 도메인 모듈도 되참조하지 않는다**(순환 방지). auth가 도메인을 관찰해야 하면 **이벤트**로 붙이되, 회원 삭제와 인증 계정 정리처럼 **함께 커밋돼야 하는** 처리는 도메인이 `AuthAccountPort`를 호출한다(탈퇴 — `auth.md` §3). 상세는 `auth.md` §1 참조.
 - **MUST NOT**: 도메인 모듈이 인증 로직을 직접 구현하지 않는다.
 - **MUST**: `admin`은 진입점 모듈로, **도메인 로직을 두지 않는다.** 각 컨텍스트의 `Port`로 위임만 한다.
 - **MUST NOT**: `admin`이 타 모듈의 `internal`/Repository/엔티티에 직접 접근하지 않는다.
@@ -220,15 +228,16 @@
 
 ```text
 모든 도메인 → auth (CurrentUserProvider, CurrentActorProvider, AuthAccountPort; auth는 도메인 되참조 금지)
-review → restaurant, reservation, point, user   (작성자 닉네임·프사 enrich; 탈퇴 시 UserPort 빈 값 → "탈퇴한 회원" fallback)
-reservation → restaurant, user, point
+review → restaurant, reservation, point, user   (작성자 닉네임·프사 enrich; 탈퇴 회원은 UserPort.findProfiles가 익명 닉네임·이미지 없음으로 내림)
+reservation → restaurant, user, point           (user의 WithdrawalBlocker 구현 포함 — 탈퇴 조건)
 magazine → restaurant                (관련 식당 큐레이션, 매핑 테이블 + RestaurantPort)
-user → restaurant, media             (식당 컬렉션 — 저장 식당 매핑 테이블 + RestaurantPort enrich, 대표 이미지 MediaPort)
+user → restaurant, media, auth       (식당 컬렉션 — 저장 식당 매핑 테이블 + RestaurantPort enrich, 대표 이미지 MediaPort; AuthAccountPort로 온보딩 계정 연결·탈퇴 계정 정리)
 admin → restaurant, magazine, reservation, user
 upload → shared (FileStorage)         (지원 모듈; 도메인 모듈 의존 없음)
 콘텐츠 도메인 → media (MediaPort)    (일반 요청의 asset 검증, claim, role별 bulk 조회)
 도메인 backfill runner → media (MediaBackfillPort) (migration 전용 READY asset 연결)
 media → auth, shared                  (actor 조회와 인프라 공통 계약; 콘텐츠 도메인 되참조 금지)
 모든 도메인 → shared (OPEN)
-user ⇢ reservation, point, auth      (UserWithdrawnEvent 구독; auth=토큰 무효화·블랙리스트)
+point → user                         (UserWithdrawnEvent 구독 — 포인트 소멸; 이벤트 타입만 의존)
+user ⇢ point                         (UserWithdrawnEvent 발행 — 탈퇴 후속 정리는 이벤트, 토큰 무효화·계정 정리는 AuthAccountPort)
 ```

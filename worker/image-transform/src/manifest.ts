@@ -107,8 +107,10 @@ export function loadMediaSpec(specVersion: number, specsDirectory?: string): Loa
     if (manifest.processorRevision !== expectedRevision) {
       throw new ContractMismatchError("Worker does not support the manifest processor revision");
     }
-    const supportedPurposes = specVersion === 1 ? SUPPORTED_PURPOSES_V1 : SUPPORTED_PURPOSES_V2;
-    const supportedRoles = specVersion === 1 ? SUPPORTED_ROLES_V1 : SUPPORTED_ROLES_V2;
+    const supportedPurposes = specVersion === 1 ? SUPPORTED_PURPOSES_V1
+      : specVersion === 2 ? SUPPORTED_PURPOSES_V2 : [...SUPPORTED_PURPOSES_V2, "NOTICE"];
+    const supportedRoles = specVersion === 1 ? SUPPORTED_ROLES_V1
+      : specVersion === 2 ? SUPPORTED_ROLES_V2 : [...SUPPORTED_ROLES_V2, "NOTICE_DETAIL"];
     assertExactKeys(manifest.purposes, supportedPurposes, "purposes");
     assertExactKeys(manifest.roles, supportedRoles, "roles");
     assertUniqueCandidateWidths(manifest);

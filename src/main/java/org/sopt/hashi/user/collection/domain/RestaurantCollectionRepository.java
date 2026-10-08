@@ -6,6 +6,7 @@ import jakarta.persistence.LockModeType;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Lock;
+import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
@@ -38,4 +39,15 @@ public interface RestaurantCollectionRepository extends JpaRepository<Restaurant
         String getVisibility();
         long getCollectionVersion();
     }
+
+    /** 탈퇴 정리 — 회원의 모든 컬렉션에 저장된 식당 매핑을 한 번에 지운다(컬렉션 삭제 전에 호출, 애그리거트 내부 FK). */
+    @Modifying
+    @Query("delete from SavedRestaurant s where s.collection.id in "
+            + "(select c.id from RestaurantCollection c where c.userId = :userId)")
+    void deleteSavedRestaurantsByUserId(@Param("userId") Long userId);
+
+    /** 탈퇴 정리 — 회원의 모든 컬렉션을 한 번에 지운다. */
+    @Modifying
+    @Query("delete from RestaurantCollection c where c.userId = :userId")
+    void deleteByUserId(@Param("userId") Long userId);
 }
