@@ -28,6 +28,7 @@ public class PointService {
 
     private static final long REVIEW_REWARD = 500L;
     private static final String REVIEW_REWARD_REASON = "리뷰 작성 보상";
+    private static final String FORFEIT_REASON = "회원 탈퇴 소멸";
 
     private final PointAccountRepository pointAccountRepository;
     private final PointTransactionRepository pointTransactionRepository;
@@ -130,6 +131,27 @@ public class PointService {
     public boolean isRestored(PointSourceType sourceType, Long sourceId) {
         return pointTransactionRepository.existsByTypeAndSourceTypeAndSourceId(
                 PointTransactionType.RESTORE, sourceType, sourceId);
+    }
+
+    /**
+     * 탈퇴 소멸 — 계정 잔액 전액을 0으로 만들고 FORFEIT 원장을 남긴다(UserWithdrawnEvent 구독 처리).
+     * 이벤트가 재제출돼도 한 번만 소멸하도록 같은 회원의 FORFEIT 원장이 있으면 아무것도 하지 않고,
+     * 동시 처리는 uk_point_tx_type_source와 계정의 낙관적 락이 막는다. 계정이 없거나 잔액이 0이면 원장 없이 끝낸다.
+     */
+    @Transactional
+    public void forfeit(Long userId) {
+        boolean alreadyForfeited = pointTransactionRepository.existsByTypeAndSourceTypeAndSourceId(
+                PointTransactionType.FORFEIT, PointSourceType.USER, userId);
+        if (alreadyForfeited) {
+            return;
+        }
+        PointAccount account = pointAccountRepository.findByUserId(userId).orElse(null);
+        if (account == null || account.getBalance() == 0L) {
+            return;
+        }
+        long forfeited = account.forfeit();
+        pointTransactionRepository.save(PointTransaction.forfeit(account.getId(), forfeited, FORFEIT_REASON, userId));
+        log.info("포인트 소멸. userId={}, amount={}", userId, forfeited);
     }
 
     /** 잔액 조회 — 계정이 없으면 0(아직 포인트 발생 이력이 없는 사용자). */
