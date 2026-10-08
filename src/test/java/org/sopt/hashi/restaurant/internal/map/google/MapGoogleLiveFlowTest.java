@@ -104,6 +104,10 @@ class MapGoogleLiveFlowTest {
                         .contentType(MediaType.APPLICATION_JSON).content(createBody()))
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.code").value("ADMIN-204"))
+                .andExpect(jsonPath("$.data.address")
+                        .value("東京都新宿区西新宿2丁目8番1号 架空ビル1F"))
+                .andExpect(jsonPath("$.data.geocodingAddress")
+                        .value("東京都新宿区西新宿2丁目8番1号"))
                 .andExpect(jsonPath("$.data.locationStatus").value("PENDING"))
                 .andExpect(jsonPath("$.data.addressRevision").value(1))
                 .andReturn().getResponse().getContentAsString());
@@ -222,7 +226,9 @@ class MapGoogleLiveFlowTest {
     private String createBody() {
         return """
                 {"name":"합성 식당","localName":"試験","summary":"합성 요약","description":"합성 설명",
-                 "address":"東京都新宿区西新宿2丁目8番1号","area":"합성 지역","genre":"sushi",
+                 "address":"東京都新宿区西新宿2丁目8番1号 架空ビル1F",
+                 "geocodingAddress":"東京都新宿区西新宿2丁目8番1号",
+                 "area":"합성 지역","genre":"sushi",
                  "foodCategory":"초밥","placeType":"restaurant","priceCurrency":"JPY",
                  "minPrice":1,"maxPrice":10,"imageKeys":["restaurants/synthetic.jpg"],
                  "hashtags":["합성"],"curationTypes":[],"businessHours":[
