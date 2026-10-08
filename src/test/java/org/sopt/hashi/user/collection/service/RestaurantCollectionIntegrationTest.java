@@ -12,6 +12,7 @@ import ch.qos.logback.core.read.ListAppender;
 import java.math.BigDecimal;
 import java.time.Clock;
 import java.time.Instant;
+import java.time.LocalDate;
 import java.util.Collection;
 import java.util.List;
 import org.assertj.core.api.ThrowableAssert.ThrowingCallable;
@@ -35,11 +36,14 @@ import org.sopt.hashi.user.collection.domain.RestaurantCollection;
 import org.sopt.hashi.user.collection.domain.RestaurantCollectionRepository;
 import org.sopt.hashi.user.collection.domain.SavedRestaurant;
 import org.sopt.hashi.user.collection.domain.SavedRestaurantRepository;
+import org.sopt.hashi.user.collection.dto.CreateRestaurantCollectionRequest;
 import org.sopt.hashi.user.collection.dto.MoveSavedRestaurantsRequest;
 import org.sopt.hashi.user.collection.dto.RestaurantCollectionListResponse;
 import org.sopt.hashi.user.collection.dto.RestaurantCollectionListResponse.RestaurantCollectionSummaryResponse;
 import org.sopt.hashi.user.collection.dto.SavedRestaurantListResponse;
 import org.sopt.hashi.user.collection.dto.SavedRestaurantListResponse.SavedRestaurantResponse;
+import org.sopt.hashi.user.domain.User;
+import org.sopt.hashi.user.domain.UserRepository;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.orm.jpa.DataJpaTest;
 import org.springframework.context.annotation.Import;
@@ -92,6 +96,9 @@ class RestaurantCollectionIntegrationTest {
     @Autowired
     private SavedRestaurantRepository savedRestaurantRepository;
 
+    @Autowired
+    private UserRepository userRepository;
+
     @MockitoBean
     private RestaurantPort restaurantPort;
 
@@ -115,6 +122,26 @@ class RestaurantCollectionIntegrationTest {
     void tearDown() {
         savedRestaurantRepository.deleteAllInBatch();
         restaurantCollectionRepository.deleteAllInBatch();
+        userRepository.deleteAllInBatch();
+    }
+
+    @Test
+    void 컬렉션_생성은_회원_행을_잠가_활성_회원만_허용하고_탈퇴_회원은_찾을_수_없다고_응답한다() {
+        User active = saveUser("활성회원", "01011110001", "active@hashi.test");
+        User withdrawn = saveUser("탈퇴할회원", "01011110002", "withdrawn@hashi.test");
+        withdrawn.withdraw();
+        userRepository.saveAndFlush(withdrawn);
+        CreateRestaurantCollectionRequest request =
+                new CreateRestaurantCollectionRequest("도쿄 맛집", "red", null, "public");
+
+        loginAs(active.getId());
+        assertThat(collectionService.create(request)).isNotNull();
+
+        loginAs(withdrawn.getId());
+        assertBusinessError(() -> collectionService.create(request), UserErrorCode.NOT_FOUND);
+
+        assertThat(restaurantCollectionRepository.countByUserId(active.getId())).isEqualTo(1L);
+        assertThat(restaurantCollectionRepository.countByUserId(withdrawn.getId())).isZero();
     }
 
     @Test
@@ -425,6 +452,11 @@ class RestaurantCollectionIntegrationTest {
         return savedRestaurantRepository.findAllByCollection_IdInOrderByIdAsc(List.of(collectionId)).stream()
                 .map(SavedRestaurant::getRestaurantId)
                 .toList();
+    }
+
+    private User saveUser(String nickname, String phone, String email) {
+        return userRepository.saveAndFlush(
+                User.onboard(nickname, "HASHI", LocalDate.of(1998, 1, 1), phone, email, null));
     }
 
     private void loginAs(Long userId) {

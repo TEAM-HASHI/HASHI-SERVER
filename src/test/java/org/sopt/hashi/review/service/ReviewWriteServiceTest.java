@@ -30,6 +30,7 @@ import org.sopt.hashi.review.domain.ReviewRepository;
 import org.sopt.hashi.review.dto.CreateReviewRequest;
 import org.sopt.hashi.review.dto.CreateReviewResponse;
 import org.sopt.hashi.shared.error.BusinessException;
+import org.sopt.hashi.user.UserPort;
 import org.springframework.test.util.ReflectionTestUtils;
 
 @ExtendWith(MockitoExtension.class)
@@ -52,6 +53,9 @@ class ReviewWriteServiceTest {
     private PointPort pointPort;
 
     @Mock
+    private UserPort userPort;
+
+    @Mock
     private CurrentUserProvider currentUserProvider;
 
     private ReviewWriteService reviewWriteService;
@@ -63,6 +67,7 @@ class ReviewWriteServiceTest {
                 reservationPort,
                 restaurantPort,
                 pointPort,
+                userPort,
                 currentUserProvider
         );
     }
@@ -74,6 +79,7 @@ class ReviewWriteServiceTest {
                 .willReturn(reservation(USER_ID, ReservationStatus.VISITED));
         given(restaurantPort.existsById(RESTAURANT_ID)).willReturn(true);
         given(reviewRepository.existsByReservationId(RESERVATION_ID)).willReturn(false);
+        given(userPort.lockActiveUser(USER_ID)).willReturn(true);
         given(reviewRepository.saveAndFlush(any(Review.class))).willAnswer(invocation -> {
             Review review = invocation.getArgument(0);
             ReflectionTestUtils.setField(review, "id", 1L);
@@ -101,6 +107,23 @@ class ReviewWriteServiceTest {
                 );
         verify(pointPort).earnReviewReward(USER_ID, RESERVATION_ID);
         verify(restaurantPort).increaseReviewStatistics(RESTAURANT_ID, 5);
+    }
+
+    @Test
+    void 탈퇴한_회원은_리뷰를_저장하지_못하고_보상도_받지_않는다() {
+        given(currentUserProvider.currentUserId()).willReturn(USER_ID);
+        given(reservationPort.getReviewInfoByIdAndUserId(RESERVATION_ID, USER_ID))
+                .willReturn(reservation(USER_ID, ReservationStatus.VISITED));
+        given(restaurantPort.existsById(RESTAURANT_ID)).willReturn(true);
+        given(reviewRepository.existsByReservationId(RESERVATION_ID)).willReturn(false);
+        given(userPort.lockActiveUser(USER_ID)).willReturn(false);
+
+        assertThatThrownBy(() -> reviewWriteService.create(request()))
+                .isInstanceOf(BusinessException.class)
+                .hasFieldOrPropertyWithValue("errorCode", ReviewErrorCode.REVIEWER_NOT_FOUND);
+
+        verify(reviewRepository, never()).saveAndFlush(any(Review.class));
+        verifyNoInteractions(pointPort);
     }
 
     @Test

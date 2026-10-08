@@ -130,7 +130,7 @@ public class MediaAssetService {
             if (!SUPPORTED_CONTENT_TYPES.contains(file.contentType())) {
                 throw new BusinessException(MediaErrorCode.UNSUPPORTED_FILE_TYPE);
             }
-            long maxFileSize = purpose == MediaPurpose.MAGAZINE_CARD_NEWS
+            long maxFileSize = (purpose == MediaPurpose.MAGAZINE_CARD_NEWS || purpose == MediaPurpose.NOTICE)
                     ? CARD_NEWS_MAX_FILE_SIZE
                     : storageProperties.maxFileSize().toBytes();
             if (file.fileSize() > maxFileSize) {

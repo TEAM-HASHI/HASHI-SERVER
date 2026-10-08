@@ -116,8 +116,9 @@ class MediaAssetServiceTest {
         verify(transactionService).createAssets(eq(USER), eq(MediaPurpose.REVIEW), anyList());
     }
 
-    @Test
-    void 카드뉴스만_10MiB까지_업로드_요청을_허용한다() {
+    @ParameterizedTest
+    @EnumSource(value = MediaPurpose.class, names = {"MAGAZINE_CARD_NEWS", "NOTICE"})
+    void 카드뉴스와_공지는_10MiB까지_허용한다(MediaPurpose purpose) {
         long fileSize = 10L * 1024 * 1024;
         given(currentActorProvider.currentActor()).willReturn(ADMIN);
         given(originalStorage.createPresignedUpload(
@@ -133,7 +134,7 @@ class MediaAssetServiceTest {
         ));
 
         service.createAssets(new CreateMediaAssetsRequest(
-                MediaPurpose.MAGAZINE_CARD_NEWS,
+                purpose,
                 List.of(new CreateMediaAssetsRequest.FileRequest("image/png", fileSize))
         ));
 
@@ -159,11 +160,12 @@ class MediaAssetServiceTest {
         verify(transactionService, never()).createAssets(eq(ADMIN), eq(MediaPurpose.MAGAZINE_CARD_NEWS), anyList());
     }
 
-    @Test
-    void 카드뉴스도_10MiB를_넘으면_거부한다() {
+    @ParameterizedTest
+    @EnumSource(value = MediaPurpose.class, names = {"MAGAZINE_CARD_NEWS", "NOTICE"})
+    void 카드뉴스와_공지의_10MiB초과를_거부한다(MediaPurpose purpose) {
         given(currentActorProvider.currentActor()).willReturn(ADMIN);
         assertThatThrownBy(() -> service.createAssets(new CreateMediaAssetsRequest(
-                MediaPurpose.MAGAZINE_CARD_NEWS,
+                purpose,
                 List.of(new CreateMediaAssetsRequest.FileRequest("image/png", 10L * 1024 * 1024 + 1)))))
                 .isInstanceOf(BusinessException.class)
                 .hasFieldOrPropertyWithValue("errorCode", MediaErrorCode.FILE_SIZE_EXCEEDED);

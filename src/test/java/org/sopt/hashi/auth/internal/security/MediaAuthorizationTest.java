@@ -9,6 +9,7 @@ import org.sopt.hashi.auth.internal.jwt.AuthRoles;
 import org.sopt.hashi.auth.internal.jwt.JwtProvider;
 import org.sopt.hashi.auth.internal.onboarding.OnboardingJwtIssuer;
 import org.sopt.hashi.auth.internal.token.OnboardingTokenStore;
+import org.sopt.hashi.auth.internal.token.TokenBlacklist;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
 import org.springframework.context.annotation.ComponentScan.Filter;
@@ -52,6 +53,10 @@ class MediaAuthorizationTest {
 
     @MockitoBean
     private OnboardingTokenStore onboardingTokenStore;
+
+    // 탈퇴 블랙리스트 대조도 Redis라 모킹한다 — 기본값(false)이라 차단 없이 통과한다
+    @MockitoBean
+    private TokenBlacklist tokenBlacklist;
 
     @Test
     void USER는_media_API에_접근할_수_있다() throws Exception {
