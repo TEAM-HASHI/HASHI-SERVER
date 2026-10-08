@@ -17,6 +17,7 @@ import org.sopt.hashi.restaurant.code.RestaurantErrorCode;
 import org.sopt.hashi.restaurant.domain.MapQueryBounds;
 import org.sopt.hashi.restaurant.domain.MapRegionSummary;
 import org.sopt.hashi.restaurant.domain.MapSearchCriteria;
+import org.sopt.hashi.restaurant.domain.MapSearchResultExtent;
 import org.sopt.hashi.restaurant.domain.RestaurantMapCandidate;
 import org.sopt.hashi.restaurant.domain.RestaurantMapQueryRepository;
 import org.sopt.hashi.restaurant.dto.RestaurantMapLocationResponse;
@@ -94,7 +95,9 @@ public class RestaurantMapService {
         if (candidates.size() > capacity) {
             throw new BusinessException(RestaurantErrorCode.MAP_CAPACITY_EXCEEDED);
         }
-        return new CandidateSnapshot(candidates, rankingAsOf);
+        MapSearchResultExtent resultExtent = criteria.keyword() == null ? null
+                : read(() -> repository.findResultExtent(criteria, rankingAsOf));
+        return new CandidateSnapshot(candidates, rankingAsOf, resultExtent);
     }
 
     /** 현재 조건을 재검사한 ID만 첫 요청 순서로 반환한다. 새 순위 값은 세션의 고정 순위를 대체하지 않는다. */
@@ -116,9 +119,14 @@ public class RestaurantMapService {
         return readBatches(ids, batch -> repository.findActiveMapInfos(batch, now), RestaurantMapInfo::restaurantId);
     }
 
-    public record CandidateSnapshot(List<RestaurantMapCandidate> candidates, Instant rankingAsOf) {
+    public record CandidateSnapshot(List<RestaurantMapCandidate> candidates, Instant rankingAsOf,
+                                    MapSearchResultExtent resultExtent) {
         public CandidateSnapshot {
             candidates = List.copyOf(candidates);
+        }
+
+        public CandidateSnapshot(List<RestaurantMapCandidate> candidates, Instant rankingAsOf) {
+            this(candidates, rankingAsOf, null);
         }
     }
 

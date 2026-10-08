@@ -11,6 +11,7 @@ import java.util.List;
 import java.util.Optional;
 import org.sopt.hashi.restaurant.RestaurantMapInfo;
 import org.sopt.hashi.restaurant.RestaurantMapInfo.LocationInfo;
+import org.sopt.hashi.restaurant.domain.MapSearchResultExtent.ResultBounds;
 import org.springframework.stereotype.Repository;
 
 /** 지도 전용 값 projection. 모든 SQL은 restaurant 모듈 안의 테이블만 사용한다. */
@@ -42,6 +43,21 @@ public class RestaurantMapQueryRepository {
 
     public List<RestaurantMapCandidate> findMatchingCandidates(MapSearchCriteria criteria, Instant now, List<Long> ids) {
         return ids.isEmpty() ? List.of() : candidateRows(criteria, now, ids, null);
+    }
+
+    /** 페이지 크기와 무관하게 검색 조건에 맞는 모든 유효 좌표의 개수와 경계를 집계한다. */
+    public MapSearchResultExtent findResultExtent(MapSearchCriteria criteria, Instant now) {
+        StringBuilder sql = matchingRowsSql("""
+                select count(*), min(l.latitude), max(l.latitude), min(l.longitude), max(l.longitude)
+                """, criteria);
+        Object[] row = (Object[]) bindCriteria(entityManager.createNativeQuery(sql.toString()), criteria, now)
+                .getSingleResult();
+        long totalCount = number(row[0]);
+        if (totalCount == 0) {
+            return MapSearchResultExtent.empty();
+        }
+        return new MapSearchResultExtent(totalCount, new ResultBounds(
+                (BigDecimal) row[1], (BigDecimal) row[2], (BigDecimal) row[3], (BigDecimal) row[4]));
     }
 
     public Optional<MapQueryBounds> findActiveRegionBounds(Long id) {
@@ -93,8 +109,26 @@ public class RestaurantMapQueryRepository {
 
     private List<RestaurantMapCandidate> candidateRows(MapSearchCriteria criteria, Instant now,
                                                       List<Long> ids, Integer maxResults) {
-        StringBuilder sql = new StringBuilder("""
+        StringBuilder sql = matchingRowsSql("""
                 select r.id, r.rating, r.review_count
+                """, criteria);
+        if (ids != null) {
+            sql.append(" and r.id in (:ids)");
+        }
+        sql.append(" order by r.id");
+        Query query = bindCriteria(entityManager.createNativeQuery(sql.toString()), criteria, now);
+        if (ids != null) {
+            query.setParameter("ids", ids);
+        }
+        if (maxResults != null) {
+            query.setMaxResults(maxResults);
+        }
+        return rows(query).stream().map(row -> new RestaurantMapCandidate(number(row[0]),
+                (BigDecimal) row[1], number(row[2]))).toList();
+    }
+
+    private static StringBuilder matchingRowsSql(String select, MapSearchCriteria criteria) {
+        StringBuilder sql = new StringBuilder(select).append("""
                 from restaurant r join restaurant_location l on l.id = r.location_id
                 where r.deleted = false and
                 """).append(USABLE_LOCATION).append("""
@@ -112,17 +146,13 @@ public class RestaurantMapQueryRepository {
             sql.append(" and r.place_type = :placeType");
         }
         if (criteria.keyword() != null) {
-            sql.append("""
-                     and (lower(r.name) like :keyword escape '!'
-                     or exists (select 1 from restaurant_menu m where m.restaurant_id = r.id
-                                and lower(m.name) like :keyword escape '!'))
-                    """);
+            appendKeywordPredicate(sql, criteria);
         }
-        if (ids != null) {
-            sql.append(" and r.id in (:ids)");
-        }
-        sql.append(" order by r.id");
-        Query query = entityManager.createNativeQuery(sql.toString()).setParameter("now", utc(now))
+        return sql;
+    }
+
+    private static Query bindCriteria(Query query, MapSearchCriteria criteria, Instant now) {
+        query.setParameter("now", utc(now))
                 .setParameter("south", criteria.bounds().south()).setParameter("north", criteria.bounds().north())
                 .setParameter("west", criteria.bounds().west()).setParameter("east", criteria.bounds().east());
         if (criteria.mapRegionId() != null) {
@@ -135,16 +165,38 @@ public class RestaurantMapQueryRepository {
             query.setParameter("placeType", criteria.placeType().name());
         }
         if (criteria.keyword() != null) {
-            query.setParameter("keyword", criteria.keywordPattern());
+            List<String> patterns = criteria.keywordPatterns();
+            for (int index = 0; index < patterns.size(); index++) {
+                query.setParameter("keyword" + index, patterns.get(index));
+            }
         }
-        if (ids != null) {
-            query.setParameter("ids", ids);
+        return query;
+    }
+
+    private static void appendKeywordPredicate(StringBuilder sql, MapSearchCriteria criteria) {
+        sql.append(" and (");
+        List<String> patterns = criteria.keywordPatterns();
+        for (int index = 0; index < patterns.size(); index++) {
+            if (index > 0) {
+                sql.append(" or ");
+            }
+            String parameter = ":keyword" + index;
+            if (criteria.hashtagOnly()) {
+                appendHashtagExists(sql, parameter);
+            } else {
+                sql.append("(lower(r.name) like ").append(parameter).append(" escape '!' or ")
+                        .append("exists (select 1 from restaurant_menu m where m.restaurant_id = r.id ")
+                        .append("and lower(m.name) like ").append(parameter).append(" escape '!') or ");
+                appendHashtagExists(sql, parameter);
+                sql.append(")");
+            }
         }
-        if (maxResults != null) {
-            query.setMaxResults(maxResults);
-        }
-        return rows(query).stream().map(row -> new RestaurantMapCandidate(number(row[0]),
-                (BigDecimal) row[1], number(row[2]))).toList();
+        sql.append(")");
+    }
+
+    private static void appendHashtagExists(StringBuilder sql, String parameter) {
+        sql.append("exists (select 1 from restaurant_hashtag h where h.restaurant_id = r.id ")
+                .append("and lower(h.hashtag) like ").append(parameter).append(" escape '!')");
     }
 
     @SuppressWarnings("unchecked")
