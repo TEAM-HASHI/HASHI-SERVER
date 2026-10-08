@@ -117,15 +117,15 @@ public class LocationAdoptionPolicy {
     }
 
     private static boolean hasConflictingMainNumber(String input, List<AddressComponent> components) {
-        Optional<List<BigInteger>> inputNumber = inputMainNumber(input);
+        InputNumber inputNumber = inputMainNumber(input);
         ProviderNumber providerNumber = providerMainNumber(components);
-        if (providerNumber.conflicting()) {
+        if (inputNumber.conflicting() || providerNumber.conflicting()) {
             return true;
         }
-        if (inputNumber.isEmpty() || providerNumber.evidence().isEmpty()) {
+        if (inputNumber.evidence().isEmpty() || providerNumber.evidence().isEmpty()) {
             return false;
         }
-        List<BigInteger> inputParts = inputNumber.orElseThrow();
+        List<BigInteger> inputParts = inputNumber.evidence().orElseThrow();
         NumberEvidence provider = providerNumber.evidence().orElseThrow();
         if (provider.fullTuple()) {
             return !inputParts.equals(provider.parts());
@@ -133,16 +133,21 @@ public class LocationAdoptionPolicy {
         return !endsWith(inputParts, provider.parts());
     }
 
-    private static Optional<List<BigInteger>> inputMainNumber(String value) {
+    private static InputNumber inputMainNumber(String value) {
         if (value == null) {
-            return Optional.empty();
+            return new InputNumber(Optional.empty(), false);
         }
         String normalized = normalize(value);
         normalized = POSTAL_CODE.matcher(normalized).replaceAll(" ");
         normalized = FLOOR.matcher(normalized).replaceAll(" ");
         normalized = normalizeNumberSeparators(normalized);
         Set<List<BigInteger>> matches = numberSequences(normalized);
-        return matches.size() == 1 ? Optional.of(matches.iterator().next()) : Optional.empty();
+        if (matches.size() > 1) {
+            return new InputNumber(Optional.empty(), true);
+        }
+        Optional<List<BigInteger>> evidence = matches.size() == 1
+                ? Optional.of(matches.iterator().next()) : Optional.empty();
+        return new InputNumber(evidence, false);
     }
 
     private static ProviderNumber providerMainNumber(List<AddressComponent> components) {
@@ -292,6 +297,9 @@ public class LocationAdoptionPolicy {
         private static ProviderNumber conflictingNumber() {
             return new ProviderNumber(Optional.empty(), true);
         }
+    }
+
+    private record InputNumber(Optional<List<BigInteger>> evidence, boolean conflicting) {
     }
 
     public record Decision(MapCoordinates coordinates, String failureCode) {
