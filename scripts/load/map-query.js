@@ -8,7 +8,9 @@ if (!/^http:\/\/127\.0\.0\.1:\d+$/.test(base || '')) {
     throw new Error('BASE_URL must identify the local test server');
 }
 const profile = __ENV.MAP_LOAD_PROFILE || 'smoke';
-if (!['smoke', 'staged', 'ttl'].includes(profile)) throw new Error('Invalid load profile');
+if (!['smoke', 'normal', 'staged', 'ttl'].includes(profile)) throw new Error('Invalid load profile');
+const traffic = __ENV.MAP_LOAD_TRAFFIC || 'shared';
+if (!['shared', 'distinct'].includes(traffic)) throw new Error('Invalid load traffic');
 const rejected429 = new Counter('map_rejected_429');
 const rejected503 = new Counter('map_rejected_503');
 const responseCodes = new Counter('map_response_codes');
@@ -41,9 +43,17 @@ export const options = {
 };
 
 function page(query, operation, metric) {
-    const response = http.get(`${base}/api/v1/restaurants/map?${query}`, {
-        tags: { name: `map_${operation}`, operation }, timeout: '10s',
-    });
+    const requestOptions = {
+        tags: { name: `map_${operation}`, operation, traffic }, timeout: '10s',
+    };
+    if (traffic === 'distinct') {
+        // The Java harness accepts this only through its explicitly trusted loopback proxy.
+        const offset = __VU - 1;
+        requestOptions.headers = {
+            'X-Forwarded-For': `198.18.${Math.floor(offset / 254)}.${(offset % 254) + 1}`,
+        };
+    }
+    const response = http.get(`${base}/api/v1/restaurants/map?${query}`, requestOptions);
     metric.add(response.timings.duration);
     responseCodes.add(1, {status: String(response.status), operation});
     if (response.status === 429) rejected429.add(1);
@@ -100,6 +110,8 @@ export default function () {
         // k6 does not fail its process for an iteration exception unless a threshold records it.
         recordFailure('map iteration completes without an unexpected exception');
     } finally {
-        sleep(2);
+        // 5 requests and 2 new queries per iteration: paced callers stay below production budgets.
+        const pacing = 12 + (__VU % 5) * 0.25;
+        sleep(profile === 'normal' || profile === 'ttl' ? pacing : 2);
     }
 }

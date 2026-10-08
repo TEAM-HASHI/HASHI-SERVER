@@ -54,6 +54,7 @@ import org.testcontainers.utility.DockerImageName;
         "kakao.client-id=test-client-id", "kakao.redirect-uri=https://app.hashi.test/callback",
         "hashi.storage.cloudfront-domain=https://cdn.hashi.test",
         "hashi.map.location-job.enabled=false", "hashi.map.google-geocoding.enabled=false",
+        "server.tomcat.remoteip.internal-proxies=127\\.0\\.0\\.1|0:0:0:0:0:0:0:1",
         "hashi.restaurant.map.initial-bounds.south=10", "hashi.restaurant.map.initial-bounds.north=11",
         "hashi.restaurant.map.initial-bounds.west=20", "hashi.restaurant.map.initial-bounds.east=21",
         "hashi.restaurant.map.supported-bounds.south=10", "hashi.restaurant.map.supported-bounds.north=11",
@@ -69,6 +70,7 @@ import org.testcontainers.utility.DockerImageName;
 @DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_CLASS)
 class MapQueryLoadTest {
     private static final String PROFILE = System.getProperty("map.k6.profile", "smoke");
+    private static final String TRAFFIC = System.getProperty("map.k6.traffic", "shared");
     private static final int RESTAURANTS = Integer.parseInt(System.getProperty("map.k6.restaurants", "620"));
     private static final int IDLE_SECONDS = "ttl".equals(PROFILE) ? 300 : 10;
     private static final int WORKLOAD_SECONDS = "smoke".equals(PROFILE) ? 90 : 300;
@@ -96,8 +98,15 @@ class MapQueryLoadTest {
 
     @Test
     void 실제_HTTP_혼합부하_후_유휴세션이_정리되고_제한해제후_복구된다() throws Exception {
-        assertThat(PROFILE).isIn("smoke", "staged", "ttl");
+        assertThat(PROFILE).isIn("smoke", "normal", "staged", "ttl");
+        assertThat(TRAFFIC).isIn("shared", "distinct");
         assertThat(RESTAURANTS).isBetween(620, 5000);
+        if ("normal".equals(PROFILE) || "ttl".equals(PROFILE)) {
+            assertThat(TRAFFIC).as("paced profiles model distinct callers").isEqualTo("distinct");
+            limits.setRequestsPerCaller(120);
+            limits.setNewQueriesPerCaller(12);
+            limits.setRequestsPerMinute(600);
+        }
         limits.setIdleTimeout(Duration.ofSeconds(IDLE_SECONDS));
         limits.setMaxLifetime(Duration.ofSeconds("ttl".equals(PROFILE) ? 1800 : 30));
         Path output = Path.of(System.getProperty("map.k6.output"));
@@ -116,6 +125,7 @@ class MapQueryLoadTest {
             builder.environment().remove("HASHI_MAP_GOOGLEGEOCODING_APIKEY");
             builder.environment().put("BASE_URL", base);
             builder.environment().put("MAP_LOAD_PROFILE", PROFILE);
+            builder.environment().put("MAP_LOAD_TRAFFIC", TRAFFIC);
             builder.redirectErrorStream(true).redirectOutput(output.resolve("k6.log").toFile());
             Process process = builder.start();
             long deadline = System.nanoTime() + Duration.ofSeconds(WORKLOAD_SECONDS + 60).toNanos();
@@ -142,7 +152,7 @@ class MapQueryLoadTest {
             limits.setIdleTimeout(Duration.ofSeconds(10));
             limits.setMaxLifetime(Duration.ofSeconds(30));
             limits.setSessions(2);
-            if (!"smoke".equals(PROFILE)) {
+            if ("shared".equals(TRAFFIC) && !"smoke".equals(PROFILE)) {
                 // A saturated caller window lasts up to one minute. Do not erase admission Redis data.
                 for (int second = 0; second < 65; second++) {
                     samples.add(sample());
@@ -159,7 +169,7 @@ class MapQueryLoadTest {
             assertThat(redis.opsForValue().get(SENTINEL)).isEqualTo("synthetic-auth-value");
             json.writeValue(output.resolve("recovery.json").toFile(), Map.of(
                     "syntheticRestaurants", RESTAURANTS, "workloadSeconds", WORKLOAD_SECONDS, "idleTimeoutSeconds", IDLE_SECONDS,
-                    "profile", PROFILE, "k6Exit", k6Exit,
+                    "profile", PROFILE, "traffic", TRAFFIC, "k6Exit", k6Exit,
                     "capacityRejected", true, "recoveredAfterExpiry", true, "authSentinelPreserved", true));
             json.writeValue(output.resolve("resource-samples.json").toFile(), samples);
             assertThat(k6Exit).as("Original k6 thresholds remain enforced; see rejection counters and k6.log").isZero();
@@ -177,14 +187,24 @@ class MapQueryLoadTest {
             var memory = connection.serverCommands().info("memory");
             var pool = ((HikariDataSource) dataSource).getHikariPoolMXBean();
             var ledger = redis.opsForHash().values("hashi:restaurant:map:{sessions-v2}:admission");
+            var requestLedger = "hashi:restaurant:map:{sessions-v2}:requests";
+            Object requestTotal = redis.opsForHash().get(requestLedger, "total");
+            long requestFields = redis.opsForHash().size(requestLedger);
             long recordedBytes = ledger.stream().map(Object::toString)
                     .mapToLong(value -> Long.parseLong(value.substring(value.indexOf(':') + 1))).sum();
-            return Map.of("elapsedAt", System.currentTimeMillis(), "sessions", redis.keys(QUERIES).size(),
-                    "redisUsedBytes", Long.parseLong(memory.getProperty("used_memory")),
-                    "dbActive", pool.getActiveConnections(), "dbWaiting", pool.getThreadsAwaitingConnection(),
-                    "ledgerRecordedBytes", recordedBytes, "ledgerEntries", ledger.size(),
-                    "concurrentRequestLimit", limits.getConcurrentRequests(),
-                    "ledgerBudgetBytes", limits.getTotalBytes(), "sessionLimit", limits.getSessions());
+            return Map.ofEntries(
+                    Map.entry("elapsedAt", System.currentTimeMillis()),
+                    Map.entry("sessions", redis.keys(QUERIES).size()),
+                    Map.entry("redisUsedBytes", Long.parseLong(memory.getProperty("used_memory"))),
+                    Map.entry("dbActive", pool.getActiveConnections()),
+                    Map.entry("dbWaiting", pool.getThreadsAwaitingConnection()),
+                    Map.entry("ledgerRecordedBytes", recordedBytes),
+                    Map.entry("ledgerEntries", ledger.size()),
+                    Map.entry("requestWindowTotal", requestTotal == null ? 0 : Long.parseLong(requestTotal.toString())),
+                    Map.entry("requestCallerEntries", Math.max(0, requestFields - 2)),
+                    Map.entry("concurrentRequestLimit", limits.getConcurrentRequests()),
+                    Map.entry("ledgerBudgetBytes", limits.getTotalBytes()),
+                    Map.entry("sessionLimit", limits.getSessions()));
         }
     }
 
