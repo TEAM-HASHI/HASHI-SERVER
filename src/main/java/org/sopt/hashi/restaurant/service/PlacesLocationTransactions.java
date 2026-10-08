@@ -14,6 +14,8 @@ import org.sopt.hashi.restaurant.domain.RestaurantLocationJobRepository;
 import org.sopt.hashi.restaurant.domain.RestaurantLocationStatus;
 import org.sopt.hashi.restaurant.domain.RestaurantRepository;
 import org.sopt.hashi.shared.error.BusinessException;
+import org.sopt.hashi.shared.error.CommonErrorCode;
+import org.sopt.hashi.restaurant.internal.map.places.PlacesProvider;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Isolation;
 import org.springframework.transaction.annotation.Propagation;
@@ -42,13 +44,17 @@ public class PlacesLocationTransactions {
     public SearchContext prepareSearch(Long restaurantId, long expectedAddressRevision) {
         Restaurant restaurant = activeForUpdate(restaurantId);
         RestaurantLocation location = requireSelectable(restaurant, expectedAddressRevision);
-        LocalDateTime now = now();
+        String query = (restaurant.getLocalName() + " " + restaurant.geocodingAddressForResolution()).strip();
+        if (query.isEmpty() || query.codePointCount(0, query.length()) > PlacesProvider.MAX_SEARCH_QUERY_LENGTH) {
+            throw new BusinessException(CommonErrorCode.INVALID_INPUT);
+        }
         var budget = budgets.findByOperationForUpdate(Operation.SEARCH).orElse(null);
-        if (budget == null || !budget.reserve(now)) {
+        // Read the clock after waiting for the shared budget lock, so minute/day counters use admission time.
+        if (budget == null || !budget.reserve(now())) {
             throw new BusinessException(RestaurantErrorCode.PLACES_BUDGET_EXHAUSTED);
         }
         return new SearchContext(restaurant.getId(), location.getAddressRevision(), location.getRequestId(),
-                restaurant.getLocalName() + " " + restaurant.geocodingAddressForResolution());
+                query);
     }
 
     @Transactional(readOnly = true, propagation = Propagation.REQUIRES_NEW)
