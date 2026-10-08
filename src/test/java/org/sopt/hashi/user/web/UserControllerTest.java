@@ -1,6 +1,8 @@
 package org.sopt.hashi.user.web;
 
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -11,6 +13,7 @@ import org.sopt.hashi.auth.internal.security.JwtAuthenticationFilter;
 import org.sopt.hashi.shared.exception.GlobalExceptionHandler;
 import org.sopt.hashi.user.service.OnboardingService;
 import org.sopt.hashi.user.service.UserProfileService;
+import org.sopt.hashi.user.service.UserWithdrawalService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
@@ -39,6 +42,9 @@ class UserControllerTest {
     @MockitoBean
     private UserProfileService userProfileService;
 
+    @MockitoBean
+    private UserWithdrawalService userWithdrawalService;
+
     @Test
     void 온보딩은_legacy_key와_asset_ID를_함께_받으면_400으로_거부한다() throws Exception {
         mockMvc.perform(post("/api/v1/users/onboarding")
@@ -58,5 +64,14 @@ class UserControllerTest {
                 .andExpect(jsonPath("$.code").value("COMMON-400"));
 
         verifyNoInteractions(onboardingService);
+    }
+
+    @Test
+    void 탈퇴는_DELETE_me로_호출되고_USER_204를_내린다() throws Exception {
+        mockMvc.perform(delete("/api/v1/users/me"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value("USER-204"));
+
+        verify(userWithdrawalService).withdraw();
     }
 }

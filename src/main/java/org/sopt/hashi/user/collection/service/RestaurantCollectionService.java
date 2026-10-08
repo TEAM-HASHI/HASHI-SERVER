@@ -30,6 +30,7 @@ import org.sopt.hashi.user.collection.dto.RestaurantCollectionResponse.CoverResp
 import org.sopt.hashi.user.collection.dto.SaveRestaurantRequest;
 import org.sopt.hashi.user.collection.dto.UpdateRestaurantCollectionRequest;
 import org.sopt.hashi.user.collection.service.SavedRestaurantEnricher.ThumbnailProjection;
+import org.sopt.hashi.user.domain.UserRepository;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
@@ -58,6 +59,7 @@ public class RestaurantCollectionService {
     private final RestaurantCollectionFinder collectionFinder;
     private final SavedRestaurantEnricher enricher;
     private final RestaurantPort restaurantPort;
+    private final UserRepository userRepository;
     private final CurrentUserProvider currentUserProvider;
 
     public RestaurantCollectionService(RestaurantCollectionRepository restaurantCollectionRepository,
@@ -65,19 +67,26 @@ public class RestaurantCollectionService {
                                        RestaurantCollectionFinder collectionFinder,
                                        SavedRestaurantEnricher enricher,
                                        RestaurantPort restaurantPort,
+                                       UserRepository userRepository,
                                        CurrentUserProvider currentUserProvider) {
         this.restaurantCollectionRepository = restaurantCollectionRepository;
         this.savedRestaurantRepository = savedRestaurantRepository;
         this.collectionFinder = collectionFinder;
         this.enricher = enricher;
         this.restaurantPort = restaurantPort;
+        this.userRepository = userRepository;
         this.currentUserProvider = currentUserProvider;
     }
 
-    /** 새 컬렉션 만들기(SAVED-006) — 같은 사용자의 컬렉션명은 중복될 수 없다. 공개 범위는 요청에서 필수로 받는다. */
+    /**
+     * 새 컬렉션 만들기(SAVED-006) — 같은 사용자의 컬렉션명은 중복될 수 없다. 공개 범위는 요청에서 필수로 받는다.
+     * 저장 전에 회원 행을 잠가 탈퇴(회원 행 잠금 뒤 컬렉션 삭제)와 엇갈려 탈퇴 회원의 컬렉션이 남지 않게 한다(architecture.md §8).
+     */
     @Transactional
     public RestaurantCollectionResponse create(CreateRestaurantCollectionRequest request) {
         Long userId = currentUserProvider.currentUserId();
+        userRepository.findByIdForUpdate(userId)
+                .orElseThrow(() -> new BusinessException(UserErrorCode.NOT_FOUND));
         if (restaurantCollectionRepository.countByUserId(userId) >= MAX_COLLECTIONS_PER_USER) {
             throw new BusinessException(UserErrorCode.COLLECTION_LIMIT_EXCEEDED);
         }

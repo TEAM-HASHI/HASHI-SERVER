@@ -145,7 +145,8 @@ final class MediaSpecManifestValidator {
     private static Set<String> expectedPurposeNames(int specVersion) {
         Set<String> names = new HashSet<>();
         for (MediaPurpose value : MediaPurpose.values()) {
-            if (specVersion == 1 && value == MediaPurpose.MAGAZINE_CARD_NEWS) {
+            if ((specVersion < 3 && value == MediaPurpose.NOTICE)
+                    || (specVersion == 1 && value == MediaPurpose.MAGAZINE_CARD_NEWS)) {
                 continue;
             }
             names.add(value.name());
@@ -156,7 +157,8 @@ final class MediaSpecManifestValidator {
     private static Set<String> expectedRoleNames(int specVersion) {
         Set<String> names = new HashSet<>();
         for (ImageRole value : ImageRole.values()) {
-            if (specVersion == 1 && value == ImageRole.MAGAZINE_CARD_NEWS) {
+            if ((specVersion < 3 && value == ImageRole.NOTICE_DETAIL)
+                    || (specVersion == 1 && value == ImageRole.MAGAZINE_CARD_NEWS)) {
                 continue;
             }
             names.add(value.name());

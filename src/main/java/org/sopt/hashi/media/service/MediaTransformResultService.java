@@ -110,7 +110,7 @@ public class MediaTransformResultService {
     }
 
     private void validateVerifiedSource(ImageAsset asset, MediaVerifiedSource source) {
-        long maxBytes = asset.getPurpose() == MediaPurpose.MAGAZINE_CARD_NEWS
+        long maxBytes = (asset.getPurpose() == MediaPurpose.MAGAZINE_CARD_NEWS || asset.getPurpose() == MediaPurpose.NOTICE)
                 && asset.getTargetSpecVersion() != null && asset.getTargetSpecVersion() >= 2
                 ? 10L * 1024 * 1024
                 : 5L * 1024 * 1024;
