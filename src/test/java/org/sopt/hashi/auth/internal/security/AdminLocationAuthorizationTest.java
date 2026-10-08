@@ -18,6 +18,7 @@ import org.sopt.hashi.admin.web.AdminRestaurantController;
 import org.sopt.hashi.auth.internal.jwt.JwtProvider;
 import org.sopt.hashi.auth.internal.onboarding.OnboardingJwtIssuer;
 import org.sopt.hashi.auth.internal.token.OnboardingTokenStore;
+import org.sopt.hashi.auth.internal.token.TokenBlacklist;
 import org.sopt.hashi.restaurant.RestaurantLocationInfo;
 import org.sopt.hashi.restaurant.RestaurantPort;
 import org.sopt.hashi.restaurant.code.RestaurantErrorCode;
@@ -48,6 +49,7 @@ class AdminLocationAuthorizationTest {
     @Autowired JwtProvider tokens;
     @MockitoBean RestaurantPort restaurants;
     @MockitoBean OnboardingTokenStore onboardingTokenStore;
+    @MockitoBean TokenBlacklist tokenBlacklist;
 
     @ParameterizedTest
     @ValueSource(longs = {0, 3})
