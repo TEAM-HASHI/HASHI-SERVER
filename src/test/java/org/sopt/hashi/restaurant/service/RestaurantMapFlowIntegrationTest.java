@@ -157,12 +157,12 @@ class RestaurantMapFlowIntegrationTest {
     @Test
     void 관리자_저장_후_실제_worker가_확인한_식당만_현재위치와_지역수와_Port에_나타난다() throws Exception {
         mvc.perform(post("/api/v1/admin/restaurants")
-                        .contentType(MediaType.APPLICATION_JSON).content(createBody()))
+                        .contentType(MediaType.APPLICATION_JSON).content(createBodyWithDisplayAddress()))
                 .andExpect(status().isUnauthorized());
         String token = jwt.createAccessToken(1L, "ROLE_ADMIN");
         JsonNode saved = body(mvc.perform(post("/api/v1/admin/restaurants")
                         .header("Authorization", "Bearer " + token)
-                        .contentType(MediaType.APPLICATION_JSON).content(createBody()))
+                        .contentType(MediaType.APPLICATION_JSON).content(createBodyWithDisplayAddress()))
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.code").value("ADMIN-204"))
                 .andExpect(jsonPath("$.data.locationStatus").value("PENDING"))
@@ -237,6 +237,23 @@ class RestaurantMapFlowIntegrationTest {
         mvc.perform(get("/api/v1/users/me/restaurant-saves").param("restaurantIds", Long.toString(id))
                         .header("Authorization", "Bearer " + userToken))
                 .andExpect(status().isOk()).andExpect(jsonPath("$.data.restaurants[0].saved").value(true));
+
+        mvc.perform(patch("/api/v1/admin/restaurants/{id}", id)
+                        .header("Authorization", "Bearer " + token)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"address\":\"" + ADDRESS + " 架空ビル2F\",\"geocodingAddress\":\""
+                                + ADDRESS + "\"}"))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.code").value("ADMIN-205"))
+                .andExpect(jsonPath("$.data.locationStatus").value("READY"))
+                .andExpect(jsonPath("$.data.addressRevision").value(1));
+        assertThat(jdbc.queryForObject("select count(*) from restaurant_location_job where restaurant_id=?",
+                Integer.class, id)).isEqualTo(1);
+        verify(google, times(1)).geocode(ADDRESS);
+        mvc.perform(get("/api/v1/collections/{collectionId}/map-markers", collectionId))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.visibleRestaurantCount").value(1))
+                .andExpect(jsonPath("$.data.locationUnavailableCount").value(0))
+                .andExpect(jsonPath("$.data.content[0].restaurantId").value(id));
 
         mvc.perform(patch("/api/v1/admin/restaurants/{id}", id)
                         .header("Authorization", "Bearer " + token)
@@ -462,5 +479,10 @@ class RestaurantMapFlowIntegrationTest {
                    {"dayOfWeek":"FRIDAY","closed":true},{"dayOfWeek":"SATURDAY","closed":true},
                    {"dayOfWeek":"SUNDAY","closed":true}]}
                 """;
+    }
+
+    private String createBodyWithDisplayAddress() {
+        return createBody().replace("\"address\":\"" + ADDRESS + "\"",
+                "\"address\":\"" + ADDRESS + " 架空ビル1F\",\"geocodingAddress\":\"" + ADDRESS + "\"");
     }
 }

@@ -2,6 +2,7 @@ package org.sopt.hashi.restaurant.internal.map.google;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -164,6 +165,31 @@ class MapGoogleLiveFlowTest {
 
         assertThat(jdbc.queryForObject("select reserved_calls from restaurant_geocoding_budget where id=1", Integer.class)).isEqualTo(1);
         assertThat(jdbc.queryForObject("select count(*) from restaurant_location_job where restaurant_id=? and state='SUCCEEDED'", Integer.class, id)).isEqualTo(1);
+        assertThat(liveRequests.count()).isEqualTo(1);
+
+        mvc.perform(patch("/api/v1/admin/restaurants/{id}", id)
+                        .header("Authorization", "Bearer " + token)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"address":"東京都新宿区西新宿2丁目8番1号 架空ビル2F",
+                                 "geocodingAddress":"東京都新宿区西新宿2丁目8番1号"}
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value("ADMIN-205"))
+                .andExpect(jsonPath("$.data.address")
+                        .value("東京都新宿区西新宿2丁目8番1号 架空ビル2F"))
+                .andExpect(jsonPath("$.data.geocodingAddress")
+                        .value("東京都新宿区西新宿2丁目8番1号"))
+                .andExpect(jsonPath("$.data.locationStatus").value("READY"))
+                .andExpect(jsonPath("$.data.addressRevision").value(1));
+        assertThat(jdbc.queryForObject("select count(*) from restaurant_location_job where restaurant_id=?",
+                Integer.class, id)).isEqualTo(1);
+        assertThat(liveRequests.count()).isEqualTo(1);
+        mvc.perform(get("/api/v1/collections/{collectionId}/map-markers", collectionId))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.visibleRestaurantCount").value(1))
+                .andExpect(jsonPath("$.data.locationUnavailableCount").value(0))
+                .andExpect(jsonPath("$.data.content[0].restaurantId").value(id));
 
         LocationSnapshot initial = location(id);
         assertThat(Duration.between(initial.obtainedAt(), initial.validUntil())).isEqualTo(Duration.ofDays(30));
