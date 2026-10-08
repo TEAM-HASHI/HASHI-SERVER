@@ -100,10 +100,10 @@ class ReviewModuleTest {
 @ApplicationModuleTest
 class UserWithdrawTest {
     @Test
-    void 탈퇴_시_포인트_계정이_소멸된다(Scenario scenario) {
+    void 탈퇴_시_포인트_잔액이_소멸된다(Scenario scenario) {
         scenario.publish(new UserWithdrawnEvent(1L))
-                .andWaitForStateChange(() -> pointAccountRepository.existsByUserId(1L), exists -> !exists)
-                .andVerify(exists -> assertThat(exists).isFalse());
+                .andWaitForStateChange(() -> pointService.getBalance(1L), balance -> balance == 0L)
+                .andVerify(balance -> assertThat(balance).isZero());
     }
 }
 ```
