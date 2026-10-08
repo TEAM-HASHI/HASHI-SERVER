@@ -120,9 +120,9 @@ public class RestaurantLocationService {
                 row.getLocationStatus(),
                 row.getLocationSource(),
                 row.getAddressRevision(),
-                toInstant(row.getValidUntil()),
+                parseUtc(row.getValidUntilUtc()),
                 row.getAttempt(),
-                toInstant(row.getNextAttemptAt()),
+                parseUtc(row.getNextAttemptAtUtc()),
                 row.getFailureCode(),
                 canRetry);
     }
@@ -136,8 +136,8 @@ public class RestaurantLocationService {
         }
     }
 
-    private Instant toInstant(LocalDateTime value) {
-        return value == null ? null : value.toInstant(ZoneOffset.UTC);
+    private Instant parseUtc(String value) {
+        return value == null ? null : LocalDateTime.parse(value).toInstant(ZoneOffset.UTC);
     }
 
     private void supersede(Long restaurantId, LocalDateTime now) {

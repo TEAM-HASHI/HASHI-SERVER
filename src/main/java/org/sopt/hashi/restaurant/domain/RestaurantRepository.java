@@ -2,7 +2,6 @@ package org.sopt.hashi.restaurant.domain;
 
 import jakarta.persistence.LockModeType;
 import java.time.DayOfWeek;
-import java.time.LocalDateTime;
 import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
@@ -45,9 +44,9 @@ public interface RestaurantRepository extends JpaRepository<Restaurant, Long>, J
                    case when l.id is null then 'UNRESOLVED' else l.status end as locationStatus,
                    l.source as locationSource,
                    coalesce(l.address_revision, 0) as addressRevision,
-                   l.valid_until as validUntil,
+                   date_format(l.valid_until, '%Y-%m-%dT%H:%i:%s.%f') as validUntilUtc,
                    coalesce(j.attempt, 0) as attempt,
-                   l.next_attempt_at as nextAttemptAt,
+                   date_format(l.next_attempt_at, '%Y-%m-%dT%H:%i:%s.%f') as nextAttemptAtUtc,
                    j.failure_code as failureCode
             from restaurant r
             left join restaurant_location l on l.id = r.location_id
@@ -83,11 +82,11 @@ public interface RestaurantRepository extends JpaRepository<Restaurant, Long>, J
 
         Long getAddressRevision();
 
-        LocalDateTime getValidUntil();
+        String getValidUntilUtc();
 
         Integer getAttempt();
 
-        LocalDateTime getNextAttemptAt();
+        String getNextAttemptAtUtc();
 
         String getFailureCode();
     }

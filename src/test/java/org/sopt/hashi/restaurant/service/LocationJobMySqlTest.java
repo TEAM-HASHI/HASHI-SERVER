@@ -17,8 +17,10 @@ import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDateTime;
 import java.time.ZoneOffset;
+import java.time.format.DateTimeFormatter;
 import java.util.Arrays;
 import java.util.List;
+import java.util.TimeZone;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.CyclicBarrier;
 import java.util.concurrent.Executors;
@@ -81,6 +83,8 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 @DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_CLASS)
 class LocationJobMySqlTest {
     private static final AtomicInteger RESTAURANT_SEQUENCE = new AtomicInteger();
+    private static final DateTimeFormatter DATABASE_TIME =
+            DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss.SSSSSS");
     @Container
     @ServiceConnection
     static final MySQLContainer<?> MYSQL = new MySQLContainer<>("mysql:8.4")
@@ -771,6 +775,48 @@ class LocationJobMySqlTest {
         assertThat(restaurantPort.findLocationReviewsByAdmin(
                 "REVIEW_REQUIRED", null, startCursor, 20).restaurants())
                 .isEmpty();
+    }
+
+    @Test
+    void 관리자_위치목록은_JVM_UTC와_JDBC_서울에서도_DATETIME을_UTC로_반환한다() {
+        TimeZone originalTimezone = TimeZone.getDefault();
+        try {
+            TimeZone.setDefault(TimeZone.getTimeZone("UTC"));
+            assertThat(TimeZone.getDefault().getID()).isEqualTo("UTC");
+            assertThat(jdbc.queryForObject("SELECT TIMESTAMPDIFF(SECOND, UTC_TIMESTAMP(), NOW())", Integer.class))
+                    .isEqualTo(9 * 60 * 60);
+
+            Long startCursor = restaurants.createByAdmin(createCommand()).restaurantId();
+            Long ready = restaurants.createByAdmin(createCommand()).restaurantId();
+            transactions.complete(transactions.claim(target(ready)).orElseThrow(), ready());
+            Long retryWait = restaurants.createByAdmin(createCommand()).restaurantId();
+            transactions.complete(transactions.claim(target(retryWait)).orElseThrow(),
+                    Outcome.failure(FailureKind.TRANSIENT_ERROR));
+
+            LocalDateTime validUntil = LocalDateTime.parse("2030-03-04T05:06:07.123456");
+            LocalDateTime nextAttemptAt = LocalDateTime.parse("2030-04-05T06:07:08.654321");
+            jdbc.update("""
+                    UPDATE restaurant_location l JOIN restaurant r ON r.location_id=l.id
+                    SET l.valid_until=? WHERE r.id=?
+                    """, validUntil.format(DATABASE_TIME), ready);
+            jdbc.update("""
+                    UPDATE restaurant_location l JOIN restaurant r ON r.location_id=l.id
+                    SET l.next_attempt_at=? WHERE r.id=?
+                    """, nextAttemptAt.format(DATABASE_TIME), retryWait);
+
+            assertThat(restaurantPort.findLocationReviewsByAdmin(
+                    "READY", null, startCursor, 20).restaurants())
+                    .singleElement()
+                    .satisfies(item -> assertThat(item.validUntil())
+                            .isEqualTo(validUntil.toInstant(ZoneOffset.UTC)));
+            assertThat(restaurantPort.findLocationReviewsByAdmin(
+                    "RETRY_WAIT", null, startCursor, 20).restaurants())
+                    .singleElement()
+                    .satisfies(item -> assertThat(item.nextAttemptAt())
+                            .isEqualTo(nextAttemptAt.toInstant(ZoneOffset.UTC)));
+        } finally {
+            TimeZone.setDefault(originalTimezone);
+        }
     }
 
     private Long createReviewRequired(String failureCode) {
