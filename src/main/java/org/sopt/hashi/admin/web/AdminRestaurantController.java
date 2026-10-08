@@ -1,5 +1,6 @@
 package org.sopt.hashi.admin.web;
 
+import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.media.Content;
 import io.swagger.v3.oas.annotations.media.ExampleObject;
 import jakarta.validation.Valid;
@@ -42,6 +43,11 @@ public class AdminRestaurantController {
     /** 식당 등록 — 식당·메뉴 사진은 presigned URL로 업로드를 마친 S3 키로 받는다. */
     // businessHours는 minItems=7이라 자동 생성 예시가 같은 요일(MONDAY)을 7번 복제해 그대로 보내면
     // RESTAURANT-006이 난다. 복붙만으로 성공하도록 요일 7개가 모두 다른 완성형 예시를 명시한다.
+    @Operation(summary = "식당 등록", description = """
+            식당 정보를 저장한 뒤 지도 위치 확인 작업을 비동기로 요청합니다.
+            201 응답은 식당 저장과 위치 작업 등록 성공을 뜻하며, Google 위치 확인 완료를 뜻하지 않습니다.
+            응답의 locationStatus와 addressRevision을 확인하고 위치 상태 조회 API로 최신 상태를 조회하세요.
+            """)
     @io.swagger.v3.oas.annotations.parameters.RequestBody(content = @Content(examples = @ExampleObject(
             name = "식당 등록 예시(복붙 가능)", value = """
             {
@@ -107,35 +113,82 @@ public class AdminRestaurantController {
     /** 식당 부분 수정 — 보낸 필드만 변경하며, 컬렉션(이미지·메뉴·해시태그·큐레이션)은 전체 교체한다. */
     // 자동 생성 예시는 businessHours를 같은 요일 7개로 복제해 그대로 보내면 실패한다(등록과 동일).
     // PATCH 의미(보낸 필드만 변경)가 드러나도록 일부 필드 + 올바른 영업시간 예시를 명시한다.
-    @io.swagger.v3.oas.annotations.parameters.RequestBody(content = @Content(examples = @ExampleObject(
-            name = "부분 수정 예시(복붙 가능)", value = """
-            {
-              "name": "야키니쿠 리키마루 이케부쿠로 본점",
-              "summary": "리뉴얼한 이케부쿠로 야키니쿠 맛집",
-              "geocodingAddress": "東京都豊島区東池袋1-1-1",
-              "placeType": "cafe",
-              "menus": [
-                {
-                  "menuId": 10,
-                  "name": "특선 모둠 야키니쿠",
-                  "description": "엄선한 부위 5종 모둠",
-                  "imageKey": "restaurant-menus/a1b2c3-menu.jpg",
-                  "priceCurrency": "JPY",
-                  "priceAmount": 4500,
-                  "main": true
-                }
-              ],
-              "businessHours": [
-                {"dayOfWeek": "MONDAY", "openTime": "11:30", "closeTime": "22:00", "closed": false},
-                {"dayOfWeek": "TUESDAY", "openTime": "11:30", "closeTime": "22:00", "closed": false},
-                {"dayOfWeek": "WEDNESDAY", "openTime": "11:30", "closeTime": "22:00", "closed": false},
-                {"dayOfWeek": "THURSDAY", "openTime": "11:30", "closeTime": "22:00", "closed": false},
-                {"dayOfWeek": "FRIDAY", "openTime": "11:30", "closeTime": "23:00", "closed": false},
-                {"dayOfWeek": "SATURDAY", "openTime": "11:30", "closeTime": "23:00", "closed": false},
-                {"dayOfWeek": "SUNDAY", "closed": true}
-              ]
-            }
-            """)))
+    @Operation(summary = "식당 부분 수정", description = """
+            보낸 필드만 변경합니다. address는 건물명·층까지 보존하는 화면 표시 주소이고,
+            geocodingAddress는 Google 위치 확인에만 쓰는 별도 지정 주소입니다.
+            geocodingAddress를 생략하거나 null로 보내면 address가 그대로일 때 기존 별도 지정 주소를 유지합니다.
+            address만 변경하면 기존 별도 지정 주소를 삭제하고 새 address를 위치 확인 기준으로 사용합니다.
+            이때 유효한 위치 확인 입력까지 달라진 경우에만 기존 좌표를 무효화하고 새 작업을 요청합니다.
+            geocodingAddress의 공백 문자열은 별도 지정 주소를 명시적으로 삭제하고 현재 address를 사용한다는 뜻입니다.
+            표시 주소를 바꾸면서 기존과 같은 위치 확인 기준을 geocodingAddress로 함께 보내면 좌표와 위치 상태를 유지합니다.
+            200 응답은 식당 저장과 필요한 위치 작업 등록 성공을 뜻하며, Google 위치 확인 완료를 뜻하지 않습니다.
+            """)
+    @io.swagger.v3.oas.annotations.parameters.RequestBody(content = @Content(examples = {
+            @ExampleObject(name = "일반 부분 수정(복붙 가능)", value = """
+                    {
+                      "name": "야키니쿠 리키마루 이케부쿠로 본점",
+                      "summary": "리뉴얼한 이케부쿠로 야키니쿠 맛집",
+                      "geocodingAddress": "東京都豊島区東池袋1-1-1",
+                      "placeType": "cafe",
+                      "menus": [
+                        {
+                          "menuId": 10,
+                          "name": "특선 모둠 야키니쿠",
+                          "description": "엄선한 부위 5종 모둠",
+                          "imageKey": "restaurant-menus/a1b2c3-menu.jpg",
+                          "priceCurrency": "JPY",
+                          "priceAmount": 4500,
+                          "main": true
+                        }
+                      ],
+                      "businessHours": [
+                        {"dayOfWeek": "MONDAY", "openTime": "11:30", "closeTime": "22:00", "closed": false},
+                        {"dayOfWeek": "TUESDAY", "openTime": "11:30", "closeTime": "22:00", "closed": false},
+                        {"dayOfWeek": "WEDNESDAY", "openTime": "11:30", "closeTime": "22:00", "closed": false},
+                        {"dayOfWeek": "THURSDAY", "openTime": "11:30", "closeTime": "22:00", "closed": false},
+                        {"dayOfWeek": "FRIDAY", "openTime": "11:30", "closeTime": "23:00", "closed": false},
+                        {"dayOfWeek": "SATURDAY", "openTime": "11:30", "closeTime": "23:00", "closed": false},
+                        {"dayOfWeek": "SUNDAY", "closed": true}
+                      ]
+                    }
+                    """),
+            @ExampleObject(
+                    name = "표시 층만 변경하고 기존 위치 기준 유지",
+                    description = "기존 geocodingAddress가 東京都豊島区東池袋1-1-1인 식당의 층만 바꾸는 예시입니다. "
+                            + "같은 별도 지정 주소를 함께 보내므로 위치 확인 입력과 좌표·상태를 유지합니다.",
+                    value = """
+                    {
+                      "address": "東京都豊島区東池袋1-1-1 架空ビル2F",
+                      "geocodingAddress": "東京都豊島区東池袋1-1-1"
+                    }
+                    """),
+            @ExampleObject(
+                    name = "위치 확인 기준 변경",
+                    description = "표시 주소와 별도 지정 주소의 위치 기준이 바뀌어 기존 좌표를 무효화하고 새 작업을 요청합니다.",
+                    value = """
+                    {
+                      "address": "東京都豊島区東池袋2-2-2 新館1F",
+                      "geocodingAddress": "東京都豊島区東池袋2-2-2"
+                    }
+                    """),
+            @ExampleObject(
+                    name = "표시 주소만 변경",
+                    description = "geocodingAddress를 생략하면 기존 별도 지정 주소를 삭제하고 새 address를 위치 확인 기준으로 사용합니다. "
+                            + "유효 입력까지 달라질 때만 좌표를 무효화합니다.",
+                    value = """
+                    {
+                      "address": "東京都豊島区東池袋3-3-3 本館1F"
+                    }
+                    """),
+            @ExampleObject(
+                    name = "별도 지정 주소 삭제",
+                    description = "공백 문자열은 저장된 geocodingAddress를 명시적으로 삭제하고 현재 address를 위치 확인 기준으로 사용합니다.",
+                    value = """
+                    {
+                      "geocodingAddress": " "
+                    }
+                    """)
+            }))
     @ApiException(value = CommonErrorCode.class, codes = {"INVALID_INPUT", "UNAUTHORIZED", "FORBIDDEN"})
     @ApiErrorResponse(status = HttpStatus.NOT_FOUND, code = "MEDIA-001",
             message = "이미지 자산을 찾을 수 없습니다")
@@ -173,6 +226,13 @@ public class AdminRestaurantController {
 
     /** 식당 정보 저장 결과와 별개인 지도 위치 처리 상태를 조회한다. */
     @GetMapping("/{restaurantId}/location")
+    @Operation(summary = "식당 위치 처리 상태 조회", description = """
+            식당 저장과 별도로 진행되는 최신 위치 확인 상태를 조회합니다.
+            UNRESOLVED는 위치 행 없음, PENDING은 처리 중, READY는 위치 확인 완료,
+            RETRY_WAIT는 자동 재시도 대기, REVIEW_REQUIRED는 관리자 확인 필요, FAILED는 자동 처리 중단입니다.
+            READY여도 validUntil이 현재보다 늦어야 지도에서 사용할 수 있습니다.
+            재시도 화면은 서버가 계산한 canRetry와 addressRevision을 함께 사용하고, 응답은 저장하지 말고 매번 최신 상태를 조회하세요.
+            """)
     @ApiSuccess(value = CommonSuccessCode.class, codes = {"OK"})
     @ApiException(value = CommonErrorCode.class, codes = {"UNAUTHORIZED", "FORBIDDEN"})
     @ApiErrorResponse(status = HttpStatus.NOT_FOUND, code = "RESTAURANT-004", message = "식당을 찾을 수 없습니다.")
@@ -184,6 +244,13 @@ public class AdminRestaurantController {
 
     /** 현재 주소 revision의 위치 확인을 재요청한다. PENDING은 기존 작업을 반환한다. */
     @PostMapping("/{restaurantId}/location/retry")
+    @Operation(summary = "식당 위치 확인 재요청", description = """
+            먼저 위치 상태 조회 API에서 최신 addressRevision을 읽어 expectedAddressRevision으로 보냅니다.
+            같은 revision의 PENDING 작업이 있으면 새 작업을 만들지 않고 현재 상태를 반환하며,
+            그 밖의 재시도 가능 상태는 PENDING 작업을 새로 요청합니다.
+            주소 revision이 달라졌거나 이미 READY이면 409를 반환합니다.
+            200 응답은 재요청 접수 성공을 뜻하며, Google 위치 확인 완료를 뜻하지 않습니다.
+            """)
     @ApiSuccess(value = CommonSuccessCode.class, codes = {"OK"})
     @ApiException(value = CommonErrorCode.class, codes = {"INVALID_INPUT", "UNAUTHORIZED", "FORBIDDEN"})
     @ApiErrorResponse(status = HttpStatus.NOT_FOUND, code = "RESTAURANT-004", message = "식당을 찾을 수 없습니다.")
