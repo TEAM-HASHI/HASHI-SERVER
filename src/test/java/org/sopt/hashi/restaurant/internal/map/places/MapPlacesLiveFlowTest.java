@@ -325,7 +325,7 @@ class MapPlacesLiveFlowTest {
                  "description":"실호출 검증 설명",
                  "address":"東京都千代田区丸の内1-9-1 東京駅一番街 B1F",
                  "geocodingAddress":"東京都千代田区丸の内1-9-1 東京駅一番街 B1F",
-                 "area":"도쿄역","genre":"ramen","foodCategory":"라멘",
+                 "area":"도쿄역","genre":"noodle","foodCategory":"라멘",
                  "placeType":"restaurant","priceCurrency":"JPY","minPrice":1,"maxPrice":10,
                  "imageKeys":["restaurants/synthetic-places.jpg"],"hashtags":["실호출"],
                  "curationTypes":[],"businessHours":[
