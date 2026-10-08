@@ -110,6 +110,9 @@ tasks.named('test') {
     useJUnitPlatform {
         excludeTags 'map-load', 'map-live'
     }
+    // Limit retained Spring contexts during the full suite.
+    maxParallelForks = 1
+    systemProperty 'spring.test.context.cache.maxSize', '8'
     testLogging {
         exceptionFormat = 'full'
     }
