@@ -114,6 +114,31 @@ class LocationAdoptionPolicyTest {
     }
 
     @Test
+    void 명시단위와_같은_component의_숫자short는_같은역할로만_해석한다() {
+        var value = candidateWithComponents(List.of(
+                component("日本", "JP", "country"),
+                component("東京都", "東京都", "administrative_area_level_1"),
+                component("1丁目", "1丁目", "sublocality_level_2"),
+                component("2番", "2", "sublocality_level_3"),
+                component("3号", "3", "sublocality_level_4")));
+
+        assertThat(policy.evaluate(ADDRESS, new Candidates(List.of(value))).failureCode()).isNull();
+    }
+
+    @Test
+    void 명시단위와_같은_component의_다른숫자short는_거절한다() {
+        var value = candidateWithComponents(List.of(
+                component("日本", "JP", "country"),
+                component("東京都", "東京都", "administrative_area_level_1"),
+                component("1丁目", "1丁目", "sublocality_level_2"),
+                component("2番", "3", "sublocality_level_3"),
+                component("3号", "3", "sublocality_level_4")));
+
+        assertThat(policy.evaluate(ADDRESS, new Candidates(List.of(value))).failureCode())
+                .isEqualTo("ADDRESS_MISMATCH");
+    }
+
+    @Test
     void premise에_층표기가_섞이면_본번tuple로_추측하지_않는다() {
         var value = candidateWithComponents(List.of(
                 component("日本", "JP", "country"),
