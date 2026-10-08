@@ -70,22 +70,34 @@
 | `GET /api/v1/admin/restaurants/locations` | 기본으로 `REVIEW_REQUIRED` 식당을 ID 오름차순으로 조회. `status`, 선택 `source`, 이전 응답의 `nextCursor`, `size`(기본 20, 최대 100)를 사용 |
 | `GET /api/v1/admin/restaurants/{id}/location` | 수정 화면에서 해당 식당의 최신 상태와 주소 변경 번호를 확인 |
 | `POST /api/v1/admin/restaurants/{id}/location/retry` | `canRetry`와 최신 `addressRevision`을 확인한 뒤 재처리 |
+| `POST /api/v1/admin/restaurants/{id}/location/place-candidates` | `expectedAddressRevision`을 보내 저장된 식당명·주소로 매장 후보 검색. 후보 이름·주소·위치·Google Maps 링크를 함께 확인 |
+| `POST /api/v1/admin/restaurants/{id}/location/place-selection` | 선택한 후보의 `selectionToken`과 `expectedAddressRevision` 전달. 200의 `PENDING`은 선택 접수이며, 상태 조회에서 `READY`를 확인 |
 
 목록은 `restaurants`, `nextCursor`, `hasNext`를 반환한다. 상태가 바뀌는 작업 목록이므로 페이지 전체를 고정한 스냅샷은 아니다.
 조회 도중 처리 상태가 바뀐 항목을 다시 확인하려면 첫 페이지부터 새로 읽는다. ADMIN 권한이 필요하고 응답은 캐시하지 않는다.
 시설 내부 매장은 `READY`여도 실제 매장 위치와 다를 수 있으므로 `status=READY&source=GOOGLE_GEOCODING`으로도 점검할 수 있다.
-지도에서 Places 후보를 고르고 확정하는 API는 아직 없다. 후속 계약은 `place-review-proposal.md`에 구분했다.
+후보 선택은 `READY`, `REVIEW_REQUIRED`, `FAILED`, `RETRY_WAIT`에서 사용할 수 있다. `PENDING`이면 처리 결과를 기다린다.
+선택 토큰은 10분 동안만 유효하며 다른 식당·이전 주소 상태에 재사용할 수 없다. 400이면 후보를 다시 검색하고,
+409이면 최신 상태를 읽은 뒤 다음 동작을 정한다. 자세한 오류와 예시는 [Places 선택 계약](./place-selection.md)을 따른다.
 
 `REVIEW_REQUIRED`는 같은 주소를 자동으로 반복 호출하지 않는다. 관리자가 실제 지점과 주소를 확인해
 위치 확인용 주소를 보완하거나 재처리를 요청한다. 식당이나 컬렉션 저장 관계를 삭제하지 않는다.
 역·쇼핑몰 내부 매장은 주소 변환이 성공해도 시설 대표 위치일 수 있다. 이 경우 주소만 반복 조회하는 대신
-식당명·지점명·주소로 Places 후보를 확인하는 후속 흐름이 필요하다. 현재 API가 후보 선택을 지원한다고 안내하면 안 된다.
+식당명·지점명·주소로 Places 후보를 확인한다. 후보를 새로 선택하면 이전 핀을 숨기고 Details 검증 후 새 핀을 표시한다.
+이후 같은 매장 위치를 정기 갱신할 때는 기존 유효 핀을 유지한다. 식당의 표시 주소를 Google 후보 주소로 덮어쓰지 않는다.
+
+### 출처 표시
+
+후보 화면은 `displayName`, `address`, `googleMapsUri`로 지점을 확인하고 `attributions`의 이름·링크도 표시한다.
+Google 지도가 없는 후보 목록에는 Google Maps 표시가 필요하다. 지도 자체의 Google Maps 로고를 가리면 안 된다.
+공개 지도 카드·단건 위치·컬렉션 핀의 `location.attributions`가 비어 있지 않으면 해당 이름·링크를 좌표와 함께 표시한다.
+이는 Google Maps 기본 로고와 별개의 제3자 출처다. `validUntil`에 좌표를 제거할 때 함께 제거한다.
 
 ## 실제 Google 추가 검증과 확장 범위
 
 - 동일한 정상 주소를 대량 반복하기보다 확인 대상과 시설 내부 매장에 집중한다. 원문 입력을 보존하고 요청 방식, 응답 정확도, 선택한 지점의 일치 여부를 구분해 기록한다.
 - Places API (New)는 별도 활성화·키 제한·호출 예산을 확인한 뒤 소량 검증한다. Text Search에 식당명·지점명·주소를 전달하고 필요한 필드만 요청한다. 첫 후보를 무조건 확정하지 않는다.
-- 후보가 하나로 확인되면 place ID 중심의 확정·재확인 방식을 설계한다. 이는 provider 출처·수명·관리자 확인 이력을 포함하는 후속 API/DB 계약이며 현재 Geocoding 코드에 이미 구현된 기능이 아니다.
+- 관리자가 후보를 선택하면 place ID 중심으로 저장·재확인한다. Geocoding 자동 저장과 구분되며 첫 후보를 자동 선택하지 않는다.
 - 실제 프로젝트에서 처리 방식이 확인되면 격리된 개발 데이터로 등록 → 좌표 저장 → 갱신 → 확인 대상 재처리를 검증한다. 운영 backfill은 대상 수·예산을 먼저 확인하고 작은 범위부터 실행한다.
 - Google 대량 부하는 하지 않는다. k6는 합성 식당과 mock provider를 사용한다.
 - Routes API는 이번 구현에 포함하지 않는다. 향후 서비스 안에서 경로·이동 시간·복수 목적지 기능을 제공할 때 비용과 제품 요구를 다시 검토한다. 현재는 확장을 위한 빈 추상화나 dependency를 추가하지 않는다.
