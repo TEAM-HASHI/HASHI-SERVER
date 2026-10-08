@@ -48,7 +48,8 @@ public class RestaurantMapQueryRepository {
     /** 페이지 크기와 무관하게 검색 조건에 맞는 모든 유효 좌표의 개수와 경계를 집계한다. */
     public MapSearchResultExtent findResultExtent(MapSearchCriteria criteria, Instant now) {
         StringBuilder sql = matchingRowsSql("""
-                select count(*), min(l.latitude), max(l.latitude), min(l.longitude), max(l.longitude)
+                select count(*), min(l.latitude), max(l.latitude), min(l.longitude), max(l.longitude),
+                       date_format(min(l.valid_until), '%Y-%m-%dT%H:%i:%s.%f')
                 """, criteria);
         Object[] row = (Object[]) bindCriteria(entityManager.createNativeQuery(sql.toString()), criteria, now)
                 .getSingleResult();
@@ -57,7 +58,7 @@ public class RestaurantMapQueryRepository {
             return MapSearchResultExtent.empty();
         }
         return new MapSearchResultExtent(totalCount, new ResultBounds(
-                (BigDecimal) row[1], (BigDecimal) row[2], (BigDecimal) row[3], (BigDecimal) row[4]));
+                (BigDecimal) row[1], (BigDecimal) row[2], (BigDecimal) row[3], (BigDecimal) row[4]), instant(row[5]));
     }
 
     public Optional<MapQueryBounds> findActiveRegionBounds(Long id) {
