@@ -150,12 +150,8 @@ jobs:
           exception_pattern = re.compile(
               rf"^(?:Caused by:\s+)?({qualified_identifier})(?::|$)"
           )
-          frame_pattern = re.compile(
-              rf"^at\s+({qualified_identifier})\.({java_identifier})\("
-          )
           failed_tests = set()
           failure_types = []
-          failure_frames = []
           for report in reports:
               suite = ET.parse(report).getroot()
               for testcase in suite.findall("testcase"):
@@ -178,18 +174,11 @@ jobs:
                       exception = exception_pattern.match(sanitized)
                       if exception and exception.group(1) not in failure_types:
                           failure_types.append(exception.group(1))
-                      stack_frame = frame_pattern.match(sanitized)
-                      if stack_frame:
-                          identifier = f"{stack_frame.group(1)}#{stack_frame.group(2)}"
-                          if identifier not in failure_frames:
-                              failure_frames.append(identifier)
 
           for failed_test in sorted(failed_tests):
               print(f"Failed test: {failed_test}")
           for failure_type in failure_types[:8]:
               print(f"Failure type: {failure_type}")
-          for failure_frame in failure_frames[:12]:
-              print(f"Failure frame: {failure_frame}")
 
           assert (report_root / "TEST-org.sopt.hashi.ModularityTests.xml").is_file(), \
               "Module verification did not produce a test report"
