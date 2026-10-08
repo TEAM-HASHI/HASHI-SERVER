@@ -25,6 +25,7 @@ import org.sopt.hashi.auth.internal.security.JwtAuthenticationFilter;
 import org.sopt.hashi.auth.internal.security.OriginValidator;
 import org.sopt.hashi.auth.internal.security.SecurityConfig;
 import org.sopt.hashi.auth.internal.token.OnboardingTokenStore;
+import org.sopt.hashi.auth.internal.token.TokenBlacklist;
 import org.sopt.hashi.restaurant.domain.RestaurantMapSort;
 import org.sopt.hashi.restaurant.internal.map.MapCursorCodec;
 import org.sopt.hashi.restaurant.internal.map.MapSessionId;
@@ -72,6 +73,7 @@ class RestaurantMapSessionGateTest {
     @MockitoBean RestaurantMapPageReader reader;
     @MockitoBean RedisMapSessionStore store;
     @MockitoBean OnboardingTokenStore onboardingTokenStore;
+    @MockitoBean TokenBlacklist tokenBlacklist;
 
     @BeforeEach
     void prepareValidKeyWithoutActivation() {

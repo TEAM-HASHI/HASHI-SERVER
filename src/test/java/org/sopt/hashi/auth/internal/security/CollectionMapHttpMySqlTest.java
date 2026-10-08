@@ -27,6 +27,7 @@ import org.sopt.hashi.auth.internal.jwt.JwtProvider;
 import org.sopt.hashi.auth.internal.jwt.MemberPrincipal;
 import org.sopt.hashi.auth.internal.onboarding.OnboardingJwtIssuer;
 import org.sopt.hashi.auth.internal.token.OnboardingTokenStore;
+import org.sopt.hashi.auth.internal.token.TokenBlacklist;
 import org.sopt.hashi.config.JpaAuditingConfig;
 import org.sopt.hashi.config.TimeConfig;
 import org.sopt.hashi.media.MediaPort;
@@ -43,6 +44,7 @@ import org.sopt.hashi.user.collection.service.CollectionMapQueryService;
 import org.sopt.hashi.user.collection.service.CollectionMapSnapshotStore;
 import org.sopt.hashi.user.collection.service.RestaurantCollectionService;
 import org.sopt.hashi.user.collection.web.CollectionMapController;
+import org.sopt.hashi.user.domain.UserRepository;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.autoconfigure.ImportAutoConfiguration;
 import org.springframework.boot.autoconfigure.domain.EntityScan;
@@ -114,8 +116,10 @@ class CollectionMapHttpMySqlTest {
     @Autowired RestaurantCollectionService writes;
     @Autowired EntityManagerFactory entityManagerFactory;
     @MockitoBean OnboardingTokenStore onboardingTokenStore;
+    @MockitoBean TokenBlacklist tokenBlacklist;
     @MockitoBean RestaurantPort restaurants;
     @MockitoBean MediaPort media;
+    @MockitoBean UserRepository userRepository;
     @MockitoBean(name = "japanClock") Clock clock;
 
     @BeforeEach

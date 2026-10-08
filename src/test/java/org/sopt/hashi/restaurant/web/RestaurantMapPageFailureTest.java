@@ -24,6 +24,7 @@ import org.sopt.hashi.auth.internal.security.JwtAuthenticationFilter;
 import org.sopt.hashi.auth.internal.security.OriginValidator;
 import org.sopt.hashi.auth.internal.security.SecurityConfig;
 import org.sopt.hashi.auth.internal.token.OnboardingTokenStore;
+import org.sopt.hashi.auth.internal.token.TokenBlacklist;
 import org.sopt.hashi.restaurant.dto.RestaurantMapPageRequest;
 import org.sopt.hashi.restaurant.service.RestaurantMapPageService;
 import org.sopt.hashi.shared.exception.GlobalExceptionHandler;
@@ -63,6 +64,7 @@ class RestaurantMapPageFailureTest {
     @Autowired private MockMvc mvc;
     @MockitoBean private RestaurantMapPageService service;
     @MockitoBean private OnboardingTokenStore onboardingTokenStore;
+    @MockitoBean private TokenBlacklist tokenBlacklist;
 
     @Test
     void 명시적인_빈_검색어는_기존_지도_계약대로_400이다() throws Exception {
