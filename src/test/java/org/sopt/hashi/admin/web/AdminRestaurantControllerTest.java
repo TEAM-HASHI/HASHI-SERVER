@@ -106,12 +106,12 @@ class AdminRestaurantControllerTest {
     void 수정의_공백_위치확인주소를_override_삭제_요청으로_전달한다() throws Exception {
         mockMvc.perform(patch("/api/v1/admin/restaurants/{restaurantId}", 1L)
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"geocodingAddress\":\" \\u3000 \"}"))
+                        .content("{\"geocodingAddress\":\"\\u00a0\\u2007\\u202f\"}"))
                 .andExpect(status().isOk());
 
         ArgumentCaptor<UpdateRestaurantRequest> request =
                 ArgumentCaptor.forClass(UpdateRestaurantRequest.class);
         verify(adminRestaurantService).update(eq(1L), request.capture());
-        assertThat(request.getValue().geocodingAddress()).isEqualTo(" \u3000 ");
+        assertThat(request.getValue().geocodingAddress()).isEqualTo("\u00A0\u2007\u202F");
     }
 }
