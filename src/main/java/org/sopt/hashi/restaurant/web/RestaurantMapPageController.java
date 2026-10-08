@@ -40,7 +40,7 @@ public class RestaurantMapPageController {
             요청은 세 모드 중 하나만 사용한다. 새 조회는 south/north/west/east와 선택 필터를 보내고,
             정렬 변경은 querySessionId와 sort만, 다음 페이지는 cursor만 보낸다. 전체 음식점 분류는
             placeType을 생략한다. keyword 일반 검색은 공백으로 나눈 토큰 중 하나라도 식당명·메뉴명·해시태그에
-            포함되면 일치하고, #으로 시작하면 공백 없는 단일 해시태그를 검색한다.
+            포함되면 일치하고, #으로 시작하면 식당명·메뉴명을 제외하고 공백 없는 단일 해시태그를 부분 검색한다.
             응답 content는 최대 10개이고 같은 항목이 목록과 핀의 기준이다. 조건에 맞는 식당이 없으면
             오류 대신 content=[]인 200을 반환한다. keyword 조회의 searchResult는 rankingAsOf에 고정된 전체
             검색 결과 수와 경계이며, 이후 삭제 등으로 달라져도 각 페이지의 content와 핀은 현재 상태를 재검사한다.
@@ -67,7 +67,7 @@ public class RestaurantMapPageController {
                     schema = @Schema(type = "integer", format = "int64", example = "1")),
             @Parameter(name = "keyword", in = ParameterIn.QUERY, description = "새 조회 선택, 최대 30자. "
                     + "일반 검색은 공백 구분 OR 토큰으로 식당명·메뉴명·해시태그를 찾는다. "
-                    + "#단일태그는 해시태그 하나를 정확히 지정하며 # 뒤가 비거나 공백을 포함하면 400",
+                    + "#단일태그는 해시태그에서만 리터럴 부분 검색하며 # 뒤가 비거나 공백을 포함하면 400",
                     schema = @Schema(type = "string", example = "sushi")),
             @Parameter(name = "genre", in = ParameterIn.QUERY, description = "새 조회 선택. 음식 장르",
                     schema = @Schema(type = "string", allowableValues = {"sushi", "noodle", "rice-bowl",
@@ -86,8 +86,9 @@ public class RestaurantMapPageController {
                     schema = @Schema(type = "string", format = "uuid",
                             example = "123e4567-e89b-12d3-a456-426614174000")),
             @Parameter(name = "cursor", in = ParameterIn.QUERY,
-                    description = "다음 페이지 전용. 직전 응답의 nextCursor를 그대로 전달",
-                    schema = @Schema(type = "string", example = "AQEj5FZ-ibEtOkVkJmFBdAAAAAAQ"))
+                    description = "다음 페이지 전용. 직전 응답의 72자 nextCursor를 그대로 전달하며 임의 생성·수정하지 않음",
+                    schema = @Schema(type = "string",
+                            example = "AhI-RWfomxLTpFZCZhQXQAAAAAAACso6YZT4UYYs1U4g1RUyPn-6Z318IrJMCmUuvhgmPhvW"))
     })
     @GetMapping("/api/v1/restaurants/map")
     public SuccessResponse<RestaurantMapPageResponse> getPage(

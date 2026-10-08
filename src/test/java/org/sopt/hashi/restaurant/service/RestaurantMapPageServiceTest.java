@@ -66,6 +66,42 @@ class RestaurantMapPageServiceTest {
         assertThat(List.of("admit", "candidates", "save", "read_page", "touch"))
                 .allSatisfy(stage -> assertThat(registry.get("hashi.restaurant.map.stage.duration")
                         .tags("operation", "new_query", "stage", stage).timer().count()).isEqualTo(1));
+        assertThat(registry.find("hashi.restaurant.map.stage.duration")
+                .tags("operation", "new_query", "stage", "load_session").timer()).isNull();
+    }
+
+    @Test
+    void 다음페이지와_정렬변경은_세션조회의_성공과실패를_기록하고_원래예외를_유지한다() {
+        for (boolean nextPage : List.of(false, true)) {
+            var reader = mock(RestaurantMapPageReader.class);
+            var store = mock(RedisMapSessionStore.class);
+            var properties = enabledProperties();
+            var registry = new SimpleMeterRegistry();
+            var cursors = new MapCursorCodec(properties);
+            var sessionId = new MapSessionId(UUID.randomUUID());
+            var candidate = new RestaurantMapCandidate(1L, BigDecimal.ZERO, 0);
+            var session = new MapQuerySession(MapQuerySession.SCHEMA_VERSION, sessionId.id(), MapSearchCriteria.of(
+                    MapQueryBounds.parse("0", "1", "0", "1"), null, null, null, null), List.of(candidate),
+                    null, Instant.now(), Instant.now().plusSeconds(1800));
+            var failure = new IllegalStateException("synthetic session load failure");
+            when(store.find(sessionId)).thenReturn(session).thenThrow(failure);
+            when(reader.read(any(), any(), anyInt()))
+                    .thenReturn(new RestaurantMapPageReader.Page(List.of(), false, 0));
+            when(store.touch(any(), any())).thenReturn(Instant.now().plusSeconds(300));
+            var service = new RestaurantMapPageService(mock(RestaurantMapService.class), reader, store,
+                    cursors, new MapSessionLimits(), new MapCapacityMetrics(registry));
+            var request = nextPage
+                    ? new RestaurantMapPageRequest(null, null, null,
+                            cursors.encode(sessionId, RestaurantMapSort.RECOMMEND, 1))
+                    : new RestaurantMapPageRequest(null, RestaurantMapSort.RATING, sessionId.value(), null);
+            String operation = nextPage ? "next_page" : "sort_change";
+
+            assertThat(service.getPage(request, "caller").content()).isEmpty();
+            assertThatThrownBy(() -> service.getPage(request, "caller")).isSameAs(failure);
+
+            assertThat(registry.get("hashi.restaurant.map.stage.duration")
+                    .tags("operation", operation, "stage", "load_session").timer().count()).isEqualTo(2);
+        }
     }
 
     @Test

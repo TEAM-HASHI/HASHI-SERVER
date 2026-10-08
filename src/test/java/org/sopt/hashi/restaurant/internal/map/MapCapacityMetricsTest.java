@@ -35,7 +35,7 @@ class MapCapacityMetricsTest {
                     assertThat(meter.getId().getTag("operation"))
                             .isIn("new_query", "sort_change", "next_page");
                     assertThat(meter.getId().getTag("stage"))
-                            .isIn("admit", "candidates", "save", "read_page", "touch");
+                            .isIn("admit", "load_session", "candidates", "save", "read_page", "touch");
                 });
         assertThat(registry.get(MapCapacityMetrics.STAGE_DURATION_METRIC)
                 .tags("operation", "new_query", "stage", "candidates")

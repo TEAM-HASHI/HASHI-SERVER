@@ -76,17 +76,19 @@ public class RestaurantMapPageService {
         int start = 0;
         if (request.cursor() != null) {
             var cursor = cursors.decode(request.cursor());
-            id = cursor.session();
+            var sessionId = cursor.session();
+            id = sessionId;
             sort = cursor.sort();
             start = cursor.position();
             metrics.record(operation, Stage.ADMIT,
                     () -> store.admit(cursors.callerKey(remoteAddress), false));
-            session = store.find(id);
+            session = metrics.record(operation, Stage.LOAD_SESSION, () -> store.find(sessionId));
         } else if (request.querySessionId() != null) {
-            id = MapSessionId.parse(request.querySessionId());
+            var sessionId = MapSessionId.parse(request.querySessionId());
+            id = sessionId;
             metrics.record(operation, Stage.ADMIT,
                     () -> store.admit(cursors.callerKey(remoteAddress), false));
-            session = store.find(id);
+            session = metrics.record(operation, Stage.LOAD_SESSION, () -> store.find(sessionId));
         } else {
             var startedAt = metrics.record(operation, Stage.ADMIT,
                     () -> store.admit(cursors.callerKey(remoteAddress), true));
