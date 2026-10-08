@@ -13,6 +13,8 @@ import java.util.Set;
 import java.util.UUID;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 
 class RestaurantRequestValidationTest {
 
@@ -249,9 +251,10 @@ class RestaurantRequestValidationTest {
                 .containsExactly("placeType");
     }
 
-    @Test
-    void 식당_등록의_위치확인주소는_선택이지만_보내면_공백일_수_없다() {
-        CreateRestaurantRequest request = createRequestWithGeocodingAddress(" \u3000 ");
+    @ParameterizedTest
+    @ValueSource(strings = {" \u3000 ", "\u00A0", "\u2007", "\u202F", "\u001C"})
+    void 식당_등록의_위치확인주소는_선택이지만_보내면_Unicode공백일_수_없다(String blank) {
+        CreateRestaurantRequest request = createRequestWithGeocodingAddress(blank);
 
         assertThat(validator.validate(request))
                 .extracting(violation -> violation.getPropertyPath().toString())
@@ -261,7 +264,7 @@ class RestaurantRequestValidationTest {
     @Test
     void 식당_수정의_공백_위치확인주소는_override_삭제_요청으로_허용한다() {
         UpdateRestaurantRequest request = new UpdateRestaurantRequest(
-                null, null, null, null, null, " \u3000 ", null, null, null, null,
+                null, null, null, null, null, "\u00A0\u2007\u202F", null, null, null, null,
                 null, null, null, null, null, null, null, null, null, null);
 
         assertThat(validator.validate(request)).isEmpty();
