@@ -200,22 +200,21 @@ public class Restaurant extends BaseTimeEntity {
         if (description != null) {
             this.description = description;
         }
+        String previousGeocodingInput = geocodingAddressForResolution();
         boolean addressChanged = address != null && !Objects.equals(this.address, address);
         boolean geocodingAddressProvided = geocodingAddress != null;
         String nextGeocodingAddress = geocodingAddressProvided
                 ? normalizeGeocodingAddress(geocodingAddress)
                 : addressChanged ? null : this.geocodingAddress;
-        boolean geocodingAddressChanged = !Objects.equals(this.geocodingAddress, nextGeocodingAddress);
-        if (addressChanged || geocodingAddressChanged) {
-            if (location != null && !deleted) {
-                location.addressChanged();
-            }
-        }
         if (addressChanged) {
             this.address = address;
         }
         if (geocodingAddressProvided || addressChanged) {
             this.geocodingAddress = nextGeocodingAddress;
+        }
+        boolean geocodingInputChanged = !Objects.equals(previousGeocodingInput, geocodingAddressForResolution());
+        if (geocodingInputChanged && location != null && !deleted) {
+            location.addressChanged();
         }
         if (area != null) {
             this.area = area;

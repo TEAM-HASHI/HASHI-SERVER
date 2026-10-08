@@ -194,8 +194,8 @@ rating·reviewCount는 rankingAsOf 기준, 다른 표시 값과 좌표는 현재
 (200 ADMIN-205)의 저장 성공 의미를 유지한다. 응답에 `geocodingAddress`, `locationStatus`,
 `addressRevision`을 추가한다. “식당 정보 저장 완료 / 지도 위치 확인 중”을 분리해 표시한다.
 `address`는 건물명·층·호실을 포함한 표시용 전체 주소로 보존하며 Google 응답으로 덮어쓰지 않는다.
-운영자는 선택 `geocodingAddress`에 Google 조회용 일본어 기본 주소를 입력한다. 서버가 상세 주소에서
-건물·층을 추측해 제거하지 않는다. null이면 `address`를 조회 fallback으로 사용한다.
+운영자는 표시 주소와 다른 provider 입력이 필요한 경우 선택 `geocodingAddress`를 입력한다. 서버가 상세 주소에서
+건물·층을 추측해 제거하거나 일본어로 번역하지 않는다. null이면 `address`를 조회 fallback으로 사용한다.
 
 PATCH에서 `geocodingAddress` 미전송/null은 기존 값을 유지하고 공백은 명시 값 삭제다. 표시 주소를
 바꾸면서 이 필드를 생략하면 과거 기본 주소도 삭제한다. 기존 기본 주소를 유지하려면 응답 값을 함께 보낸다.
@@ -209,9 +209,9 @@ PATCH에서 `geocodingAddress` 미전송/null은 기존 값을 유지하고 공�
 | REVIEW_REQUIRED | 결과 없음·모호함·허용 정확도 미달로 주소 확인 필요. 기존 유효 좌표가 있으면 노출 가능 |
 | FAILED | 설정·권한 문제 또는 재시도 소진으로 자동 처리 중단. 기존 유효 좌표가 있으면 노출 가능 |
 
-- 신규 저장/표시 주소 또는 위치 확인용 주소 변경은 `addressRevision` 증가, 이전 좌표 무효화·제거,
-  PENDING 작업 생성까지 한 transaction이다. 동일한 두 주소의 다른 정보 수정은 revision·작업을
-  불필요하게 갱신하지 않는다.
+- 신규 저장 또는 변경 전후 실제 provider 입력(`geocodingAddress`, 없으면 `address`) 변경은
+  `addressRevision` 증가, 이전 좌표 무효화·제거, PENDING 작업 생성까지 한 transaction이다.
+  같은 명시 override를 유지한 표시 주소·건물·층 수정은 revision·좌표·진행 중 작업을 보존한다.
 - 작업에는 restaurant ID·주소 revision·job ID·lease token/만료·attempt·nextAttemptAt·안전한
   failureCode를 남긴다. provider 호출 시 해당 revision의 명시 기본 주소 또는 표시 주소 fallback을
   claim snapshot으로 읽는다. 완료 시 모든 식별자와 lease가
