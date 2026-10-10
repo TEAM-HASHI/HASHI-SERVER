@@ -151,10 +151,13 @@ HASHI_RESTAURANT_MAP_REDIS_TIMEOUT
 지도에는 별도 Redis 연결을 사용한다. `HASHI_RESTAURANT_MAP_REDIS_HOST`가 비어 있으면
 인증용 `REDIS_HOST`로 대체하지 않고 지도 요청만 503으로 반환한다. 기본 포트는 6379,
 연결 timeout은 2초, 명령 timeout은 3초다. TLS가 필요한 Redis는 `..._SSL=true`로 설정하고
-ACL을 사용하는 경우에만 `..._USERNAME`/`..._PASSWORD`를 넣는다. 인증 Redis의 TLS 설정과 별개다.
+Redis 인증이 필요한 경우 `..._PASSWORD`를 넣고, ACL 사용자를 지정할 때 `..._USERNAME`도 넣는다.
+비밀번호만 사용하는 Redis도 지원한다. 인증 Redis의 TLS 설정과 별개다.
 Redis 메모리 정책은 `noeviction`이어야 하며, 기존 인증 Redis의 정책을 바꿔서 맞추지 않는다.
 별도 연결이 추가되어도 기존 인증 연결·RedisTemplate·캐시 설정은 유지한다.
 호스트가 없거나 설정이 유효하지 않으면 활성화된 경우에만 값 없는 WARN을 남긴다.
+포트·SSL·timeout은 문자열로 받은 뒤 검증하므로 형식 오타도 앱 시작을 막지 않는다.
+잘못된 SSL 값을 false로 대체하지 않고 지도 요청을 거절한다.
 연결은 첫 정상 지도 요청에서 생성되므로, 비활성 상태의 앱 시작에는 지도 Redis가 필요 없다.
 
 추가 ElastiCache 생성은 전제하지 않는다. 로컬의 제한된 컨테이너로 검증한 뒤 기존 EC2 자원으로

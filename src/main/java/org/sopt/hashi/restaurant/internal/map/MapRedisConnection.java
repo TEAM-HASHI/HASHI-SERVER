@@ -40,7 +40,7 @@ public class MapRedisConnection {
             return;
         }
         try {
-            properties.validate();
+            properties.requireConfiguration();
         } catch (BusinessException exception) {
             log.warn("Map query sessions are enabled but the dedicated Redis configuration is missing or invalid.");
         }
@@ -49,14 +49,14 @@ public class MapRedisConnection {
     /** 첫 유효 요청에서만 초기화하며, 동시 요청이 별도 연결을 중복 생성하지 않는다. */
     synchronized StringRedisTemplate template() {
         sessions.requireConfigured();
-        properties.validate();
+        var settings = properties.requireConfiguration();
         if (closed) {
             throw unavailable();
         }
         if (template != null) {
             return template;
         }
-        var server = new RedisStandaloneConfiguration(properties.getHost(), properties.getPort());
+        var server = new RedisStandaloneConfiguration(properties.getHost(), settings.port());
         if (properties.getUsername() != null && !properties.getUsername().isBlank()) {
             server.setUsername(properties.getUsername());
         }
@@ -68,14 +68,14 @@ public class MapRedisConnection {
         }
         var client = LettuceClientConfiguration.builder()
                 .clientResources(clientResources)
-                .commandTimeout(properties.getTimeout())
+                .commandTimeout(settings.timeout())
                 .clientOptions(ClientOptions.builder()
-                        .socketOptions(SocketOptions.builder().connectTimeout(properties.getConnectTimeout())
+                        .socketOptions(SocketOptions.builder().connectTimeout(settings.connectTimeout())
                                 .keepAlive(true).build())
                         .requestQueueSize(256)
                         .disconnectedBehavior(ClientOptions.DisconnectedBehavior.REJECT_COMMANDS)
                         .build());
-        if (properties.isSsl()) {
+        if (settings.ssl()) {
             client.useSsl(); // 기본 인증서/호스트 검증 유지.
         }
         var created = new LettuceConnectionFactory(server, client.build());

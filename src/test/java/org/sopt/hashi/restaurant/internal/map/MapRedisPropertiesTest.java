@@ -34,12 +34,13 @@ class MapRedisPropertiesTest {
                 .run(context -> {
                     assertThat(context).hasNotFailed();
                     var properties = context.getBean(MapRedisProperties.class);
-                    assertThatCode(properties::validate).doesNotThrowAnyException();
+                    assertThatCode(properties::requireConfiguration).doesNotThrowAnyException();
+                    var settings = properties.requireConfiguration();
                     assertThat(properties.getHost()).isEqualTo("map-redis.synthetic");
-                    assertThat(properties.getPort()).isEqualTo(16379);
-                    assertThat(properties.isSsl()).isTrue();
-                    assertThat(properties.getConnectTimeout()).isEqualTo(Duration.ofMillis(500));
-                    assertThat(properties.getTimeout()).isEqualTo(Duration.ofSeconds(1));
+                    assertThat(settings.port()).isEqualTo(16379);
+                    assertThat(settings.ssl()).isTrue();
+                    assertThat(settings.connectTimeout()).isEqualTo(Duration.ofMillis(500));
+                    assertThat(settings.timeout()).isEqualTo(Duration.ofSeconds(1));
                     assertThat(properties.getUsername()).isEqualTo("synthetic-user");
                     assertThat(properties.getPassword()).isEqualTo("synthetic-password");
                     assertThat(properties.toString()).doesNotContain("synthetic-user", "synthetic-password");
@@ -53,7 +54,7 @@ class MapRedisPropertiesTest {
         properties.setHost("map-redis.synthetic");
         properties.setPassword("synthetic-password");
         mutate.accept(properties);
-        assertThatThrownBy(properties::validate).isInstanceOfSatisfying(BusinessException.class, exception -> {
+        assertThatThrownBy(properties::requireConfiguration).isInstanceOfSatisfying(BusinessException.class, exception -> {
             assertThat(exception.getErrorCode()).isEqualTo(RestaurantErrorCode.MAP_SESSION_UNAVAILABLE);
             assertThat(exception.getCause()).isNull();
             assertThat(exception.getMessage()).doesNotContain("synthetic-password", "map-redis.synthetic");
@@ -62,9 +63,9 @@ class MapRedisPropertiesTest {
 
     private static Stream<Consumer<MapRedisProperties>> invalidConfiguration() {
         return Stream.of(properties -> properties.setHost(null), properties -> properties.setHost(" "),
-                properties -> properties.setPort(0), properties -> properties.setPort(65536),
-                properties -> properties.setConnectTimeout(null), properties -> properties.setTimeout(Duration.ZERO),
-                properties -> properties.setTimeout(Duration.ofSeconds(31)));
+                properties -> properties.setPort("0"), properties -> properties.setPort("65536"),
+                properties -> properties.setConnectTimeout(null), properties -> properties.setTimeout("0ms"),
+                properties -> properties.setTimeout("31s"));
     }
 
     @Configuration(proxyBeanMethods = false)
