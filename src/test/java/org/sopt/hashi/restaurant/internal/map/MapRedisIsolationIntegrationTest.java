@@ -19,6 +19,8 @@ import java.util.List;
 import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 import org.sopt.hashi.auth.internal.jwt.JwtProperties;
 import org.sopt.hashi.auth.internal.token.RefreshTokenStore;
 import org.sopt.hashi.config.RedisConfig;
@@ -139,6 +141,23 @@ class MapRedisIsolationIntegrationTest {
             assertThat(ReflectionTestUtils.getField(context.getBean(MapRedisConnection.class), "connections")).isNull();
             verifyTokenRotation(context.getBean(RefreshTokenStore.class));
         });
+    }
+
+    @ParameterizedTest
+    @CsvSource({"port,not-a-port", "ssl,not-a-boolean", "connect-timeout,not-a-duration", "timeout,not-a-duration"})
+    void 지도설정_형식오류도_앱시작과_인증을_막지_않고_지도연결만_거절한다(String property, String invalidValue) {
+        for (boolean enabled : List.of(false, true)) {
+            runner().withPropertyValues("hashi.restaurant.map.redis." + property + "=" + invalidValue,
+                    "hashi.restaurant.map.session.enabled=" + enabled).run(context -> {
+                assertThat(context).hasNotFailed().hasSingleBean(RedisConnectionFactory.class);
+                var holder = context.getBean(MapRedisConnection.class);
+                assertCode(holder::template, RestaurantErrorCode.MAP_SESSION_UNAVAILABLE);
+                assertThat(ReflectionTestUtils.getField(holder, "connections")).isNull();
+                assertThat(ReflectionTestUtils.getField(holder, "clientResources")).isNull();
+                verifyTokenRotation(context.getBean(RefreshTokenStore.class));
+                assertThat(context.getBean(StringRedisTemplate.class).keys(PREFIX + "*")).isEmpty();
+            });
+        }
     }
 
     @Test
