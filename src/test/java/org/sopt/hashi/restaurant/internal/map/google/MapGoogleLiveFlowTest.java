@@ -33,6 +33,8 @@ import org.springframework.boot.testcontainers.service.connection.ServiceConnect
 import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.annotation.DirtiesContext;
+import org.springframework.test.context.DynamicPropertyRegistry;
+import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 import org.testcontainers.containers.MySQLContainer;
@@ -79,6 +81,11 @@ class MapGoogleLiveFlowTest {
             .withCommand("redis-server", "--maxmemory", "128mb", "--maxmemory-policy", "noeviction");
 
 
+    @DynamicPropertySource
+    static void mapRedis(DynamicPropertyRegistry registry) {
+        registry.add("hashi.restaurant.map.redis.host", REDIS::getHost);
+        registry.add("hashi.restaurant.map.redis.port", () -> REDIS.getMappedPort(6379));
+    }
     @Autowired MockMvc mvc;
     @Autowired ObjectMapper json;
     @Autowired JwtProvider jwt;

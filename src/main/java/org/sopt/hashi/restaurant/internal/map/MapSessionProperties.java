@@ -17,6 +17,10 @@ public class MapSessionProperties {
     private boolean enabled;
     private String signingKey;
 
+    public boolean isEnabled() {
+        return enabled;
+    }
+
     public void setEnabled(boolean enabled) {
         this.enabled = enabled;
     }

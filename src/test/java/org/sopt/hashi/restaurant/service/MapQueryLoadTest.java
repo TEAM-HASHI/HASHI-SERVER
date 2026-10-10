@@ -23,6 +23,8 @@ import java.util.concurrent.TimeUnit;
 import javax.sql.DataSource;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.AfterEach;
 import org.sopt.hashi.media.MediaPort;
 import org.sopt.hashi.restaurant.domain.MapCoordinates;
 import org.sopt.hashi.restaurant.domain.PriceCurrency;
@@ -38,7 +40,10 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.web.server.LocalServerPort;
 import org.springframework.boot.testcontainers.service.connection.ServiceConnection;
 import org.springframework.data.redis.core.StringRedisTemplate;
+import org.springframework.data.redis.connection.lettuce.LettuceConnectionFactory;
 import org.springframework.test.annotation.DirtiesContext;
+import org.springframework.test.context.DynamicPropertyRegistry;
+import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.transaction.support.TransactionTemplate;
 import org.testcontainers.containers.GenericContainer;
@@ -90,21 +95,51 @@ class MapQueryLoadTest {
     static final MySQLContainer<?> MYSQL = new MySQLContainer<>("mysql:8.4")
             .withDatabaseName("map_load").withUsername("hashi").withPassword("hashi");
     @Container @ServiceConnection(name = "redis")
+    static final GenericContainer<?> AUTH_REDIS = new GenericContainer<>(DockerImageName.parse(
+            "redis@sha256:858f009f9709ce576febc734aa78b8f6d624b82571f9ddb6bda4377c833b3499"))
+            .withExposedPorts(6379)
+            .withCommand("redis-server", "--maxmemory", "64mb", "--maxmemory-policy", "volatile-lru")
+            .withCreateContainerCmdModifier(command -> command.getHostConfig()
+                    .withMemory(128L * 1024 * 1024).withMemorySwap(128L * 1024 * 1024));
+    @Container
     static final GenericContainer<?> REDIS = new GenericContainer<>(DockerImageName.parse(
             "redis@sha256:858f009f9709ce576febc734aa78b8f6d624b82571f9ddb6bda4377c833b3499"))
             .withExposedPorts(6379)
-            .withCommand("redis-server", "--maxmemory", "128mb", "--maxmemory-policy", "noeviction");
+            .withCommand("redis-server", "--maxmemory", "128mb", "--maxmemory-policy", "noeviction")
+            .withCreateContainerCmdModifier(command -> command.getHostConfig()
+                    .withMemory(256L * 1024 * 1024).withMemorySwap(256L * 1024 * 1024));
+
+    @DynamicPropertySource
+    static void mapRedis(DynamicPropertyRegistry registry) {
+        registry.add("hashi.restaurant.map.redis.host", REDIS::getHost);
+        registry.add("hashi.restaurant.map.redis.port", () -> REDIS.getMappedPort(6379));
+    }
 
     @LocalServerPort int port;
     @Autowired RestaurantRepository restaurants;
     @Autowired TransactionTemplate transactions;
-    @Autowired StringRedisTemplate redis;
+    @Autowired StringRedisTemplate authRedis;
+    private StringRedisTemplate redis;
+    private LettuceConnectionFactory mapObservation;
     @Autowired MapSessionLimits limits;
     @Autowired ObjectMapper json;
     @Autowired DataSource dataSource;
     @Autowired MeterRegistry meterRegistry;
     @MockitoBean MediaPort mediaPort;
     @MockitoBean FileStorage fileStorage;
+
+    @BeforeEach
+    void connectMapObservation() {
+        // 테스트 관측 전용. Spring bean으로 등록해 인증 자동 구성을 바꾸지 않는다.
+        mapObservation = new LettuceConnectionFactory(REDIS.getHost(), REDIS.getMappedPort(6379));
+        mapObservation.afterPropertiesSet();
+        redis = new StringRedisTemplate(mapObservation);
+    }
+
+    @AfterEach
+    void closeMapObservation() {
+        if (mapObservation != null) mapObservation.destroy();
+    }
 
     @Test
     void 실제_HTTP_혼합부하_후_유휴세션이_정리되고_제한해제후_복구된다() throws Exception {
@@ -129,7 +164,8 @@ class MapQueryLoadTest {
             Files.deleteIfExists(output.resolve(file));
         }
         seedRestaurants();
-        redis.opsForValue().set(SENTINEL, "synthetic-auth-value", Duration.ofDays(1));
+        authRedis.opsForValue().set(SENTINEL, "synthetic-auth-value", Duration.ofDays(1));
+        assertThat(redis.hasKey(SENTINEL)).isFalse();
         String base = "http://127.0.0.1:" + port;
         List<Map<String, Object>> samples = new ArrayList<>();
         int k6Exit;
@@ -165,7 +201,8 @@ class MapQueryLoadTest {
             assertThat(samples.stream().mapToInt(sample -> ((Number) sample.get("sessions")).intValue())
                     .max().orElseThrow()).isPositive();
             awaitSessionCleanup(samples);
-            assertThat(redis.opsForValue().get(SENTINEL)).isEqualTo("synthetic-auth-value");
+            assertThat(authRedis.opsForValue().get(SENTINEL)).isEqualTo("synthetic-auth-value");
+            assertThat(authRedis.keys(QUERIES)).isEmpty();
             // Prove the limit rejects safely and releases naturally without flushing shared Redis keys.
             // The retention profile was measured unchanged above; shorten only this separate rejection probe.
             limits.setIdleTimeout(Duration.ofSeconds(10));
@@ -185,7 +222,8 @@ class MapQueryLoadTest {
             assertThat(json.readTree(rejected.body()).path("code").asText()).isEqualTo("RESTAURANT-016");
             awaitSessionCleanup(samples);
             assertThat(request(client, base).statusCode()).isEqualTo(200);
-            assertThat(redis.opsForValue().get(SENTINEL)).isEqualTo("synthetic-auth-value");
+            assertThat(authRedis.opsForValue().get(SENTINEL)).isEqualTo("synthetic-auth-value");
+            assertThat(authRedis.keys(QUERIES)).isEmpty();
             json.writeValue(output.resolve("recovery.json").toFile(), Map.ofEntries(
                     Map.entry("syntheticRestaurants", RESTAURANTS), Map.entry("workloadSeconds", WORKLOAD_SECONDS),
                     Map.entry("idleTimeoutSeconds", IDLE_SECONDS), Map.entry("profile", PROFILE),

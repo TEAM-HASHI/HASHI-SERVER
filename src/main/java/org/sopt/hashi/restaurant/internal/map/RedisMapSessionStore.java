@@ -6,10 +6,8 @@ import org.sopt.hashi.restaurant.code.RestaurantErrorCode;
 import org.sopt.hashi.restaurant.internal.map.MapCapacityMetrics.Reason;
 import org.sopt.hashi.shared.error.BusinessException;
 import org.springframework.beans.BeansException;
-import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.core.io.ClassPathResource;
 import org.springframework.dao.DataAccessException;
-import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.core.script.DefaultRedisScript;
 import org.springframework.stereotype.Component;
 
@@ -21,14 +19,14 @@ public class RedisMapSessionStore {
     private static final DefaultRedisScript<Long> CREATE = script("create");
     private static final DefaultRedisScript<Long> TOUCH = script("touch");
     private static final DefaultRedisScript<Long> ADMIT = script("admit");
-    private final ObjectProvider<StringRedisTemplate> templates;
+    private final MapRedisConnection redis;
     private final MapSessionSerializer serializer;
     private final MapSessionLimits limits;
     private final MapCapacityMetrics metrics;
 
-    public RedisMapSessionStore(ObjectProvider<StringRedisTemplate> templates, MapSessionSerializer serializer,
+    public RedisMapSessionStore(MapRedisConnection redis, MapSessionSerializer serializer,
                                MapSessionLimits limits, MapCapacityMetrics metrics) {
-        this.templates = templates;
+        this.redis = redis;
         this.serializer = serializer;
         this.limits = limits;
         this.metrics = metrics;
@@ -74,7 +72,7 @@ public class RedisMapSessionStore {
     public MapQuerySession find(MapSessionId id) {
         String payload;
         try {
-            payload = templates.getObject().opsForValue().get(key(id));
+            payload = redis.template().opsForValue().get(key(id));
         } catch (DataAccessException | BeansException exception) {
             throw unavailable();
         }
@@ -98,7 +96,7 @@ public class RedisMapSessionStore {
 
     private long execute(DefaultRedisScript<Long> script, List<String> keys, String... args) {
         try {
-            Long result = templates.getObject().execute(script, keys, (Object[]) args);
+            Long result = redis.template().execute(script, keys, (Object[]) args);
             if (result == null) {
                 throw unavailable();
             }
