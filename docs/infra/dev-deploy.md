@@ -126,6 +126,13 @@ GRAFANA_ADMIN_PASSWORD
 GRAFANA_ADMIN_USER
 HASHI_RESTAURANT_MAP_SESSION_ENABLED
 HASHI_RESTAURANT_MAP_SESSION_SIGNINGKEY
+HASHI_RESTAURANT_MAP_REDIS_HOST
+HASHI_RESTAURANT_MAP_REDIS_PORT
+HASHI_RESTAURANT_MAP_REDIS_SSL
+HASHI_RESTAURANT_MAP_REDIS_USERNAME
+HASHI_RESTAURANT_MAP_REDIS_PASSWORD
+HASHI_RESTAURANT_MAP_REDIS_CONNECTTIMEOUT
+HASHI_RESTAURANT_MAP_REDIS_TIMEOUT
 ```
 
 지도 세션은 `HASHI_RESTAURANT_MAP_SESSION_ENABLED=false`가 기본값이다. 키 준비와 공개 활성화는
@@ -134,6 +141,20 @@ HASHI_RESTAURANT_MAP_SESSION_SIGNINGKEY
 비활성화 상태에서는 유효한 키를 넣어도 지도 목록 세 모드가 DB/Redis 접근 전에 RESTAURANT-014 / 503을 반환한다.
 활성화한 상태에서 키가 없거나 잘못되면 부팅은 유지하고 시작 시 값·예외 원문 없는 WARN을 한 번 남기며,
 지도 세션 요청은 같은 503을 반환한다. 비활성화 상태에서는 키 누락/오류로 WARN을 남기지 않는다.
+
+지도에는 별도 Redis 연결을 사용한다. `HASHI_RESTAURANT_MAP_REDIS_HOST`가 비어 있으면
+인증용 `REDIS_HOST`로 대체하지 않고 지도 요청만 503으로 반환한다. 기본 포트는 6379,
+연결 timeout은 2초, 명령 timeout은 3초다. TLS가 필요한 Redis는 `..._SSL=true`로 설정하고
+ACL을 사용하는 경우에만 `..._USERNAME`/`..._PASSWORD`를 넣는다. 인증 Redis의 TLS 설정과 별개다.
+Redis 메모리 정책은 `noeviction`이어야 하며, 기존 인증 Redis의 정책을 바꿔서 맞추지 않는다.
+별도 연결이 추가되어도 기존 인증 연결·RedisTemplate·캐시 설정은 유지한다.
+호스트가 없거나 설정이 유효하지 않으면 활성화된 경우에만 값 없는 WARN을 남긴다.
+연결은 첫 정상 지도 요청에서 생성되므로, 비활성 상태의 앱 시작에는 지도 Redis가 필요 없다.
+
+추가 ElastiCache 생성은 전제하지 않는다. 로컬의 제한된 컨테이너로 검증한 뒤 기존 EC2 자원으로
+감당할 수 있는지 확인한다. 개발 서버의 여유 메모리가 부족하면 컨테이너부터 추가하지 않는다.
+컨테이너 배치와 서버 활성화는 이 설정 추가만으로 실행되지 않는다.
+[로컬 검증과 장애 대응](../map/map-pagination.md#지도-전용-redis-연결)을 따른다.
 
 공개 활성화 전 신뢰 가능한 ingress 제한·호출자 식별 경계와 정상 트래픽 용량을 검증하고,
 실제 후보 규모가 세션별 계획 상한(`snapshot-bytes / 32`)과 직렬화 byte 예산 안에 드는지 확인해야 한다.
