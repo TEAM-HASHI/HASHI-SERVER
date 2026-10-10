@@ -45,7 +45,8 @@ class RestaurantPortImplTest {
 
     @BeforeEach
     void setUp() {
-        restaurantPort = new RestaurantPortImpl(restaurantRepository, restaurantService, fileStorage);
+        restaurantPort = new RestaurantPortImpl(restaurantRepository, restaurantService, fileStorage,
+                org.mockito.Mockito.mock(RestaurantMapService.class));
     }
 
     @Test
