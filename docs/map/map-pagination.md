@@ -86,7 +86,7 @@ keyword 조회는 집계 경계에 포함된 좌표 중 가장 이른 `validUnti
 | `new-queries-per-caller` | 분당 12 | 신규 DB 조회 남용 제한 |
 | `requests-per-caller` / `requests-per-minute` | 분당 120 / 600 | 페이지·정렬 포함 호출 제한 |
 | `callers-per-minute` | 2,048 | 익명 호출자 관리 정보 크기 제한 |
-| `redis-memory-ceiling` / `redis-headroom` | 128MiB / 32MiB | 공유 Redis 사용량 상한과 여유분 |
+| `redis-memory-ceiling` / `redis-headroom` | 128MiB / 32MiB | 지도 Redis 사용량 상한과 여유분 |
 
 500개 고정 제한은 제거했다. 500·501·620개도 마지막 페이지까지 조회한다.
 무한 목록을 메모리에 올리지는 않는다. 후보당 32 byte를 보수적 계획 단위로 사용해
@@ -157,9 +157,46 @@ payload 포함 가능성 때문에 cause도 외부 로그에 전달하지 않는
 - RESTAURANT-022 / 429: 호출자별 신규/전체 요청 한도 초과. 분 단위로 회복하므로 최대 60초 기다린 뒤 재시도한다.
 - 기존 011/012/017/018은 #223 의미를 유지한다.
 
-기존 RedisTemplate·인증 키·CacheManager·연결 설정은 변경하지 않았다. 기존 명령 timeout 3초와
-연결 timeout 2초를 사용하며, 임시 Redis 일시중지 반례로 명령 실패가 10초 미만에 끝남을 검사한다.
-운영 Redis·Google·운영 DB에는 연결하지 않았다. 배포/운영 활성화/최종 GO 판정은 이 구현의 범위 밖이다.
+### 지도 전용 Redis 연결
+
+인증과 기존 캐시는 Spring Boot의 RedisConnectionFactory·RedisTemplate·CacheManager를 그대로 사용한다.
+지도 조회는 `hashi.restaurant.map.redis` 설정의 별도 Redis를 사용한다. 접두사나 DB 번호만 분리하는
+것과 달리 Redis 프로세스의 메모리와 eviction 정책이 분리되어야 한다.
+
+| 설정 | 기본값 / 의미 |
+| --- | --- |
+| `host`, `port` | 호스트 기본값 없음, 포트 6379. 호스트가 없으면 인증 Redis로 대체하지 않고 지도만 503 |
+| `ssl` | false. TLS가 필요한 서버는 true, 인증서 검증은 유지 |
+| `username`, `password` | 기본값 없음. 해당 Redis에서 ACL/비밀번호를 사용하는 경우 입력 |
+| `connect-timeout`, `timeout` | 연결 2초, 명령 3초. 각각 1ms~30s 범위 |
+
+환경 변수는 `HASHI_RESTAURANT_MAP_REDIS_HOST`, `..._PORT`, `..._SSL`, `..._USERNAME`,
+`..._PASSWORD`, `..._CONNECTTIMEOUT`, `..._TIMEOUT`이다. 예시는 `.env.dev.example`에 있다.
+enabled=true일 때 누락/잘못된 연결 설정은 값이나 예외 원문 없는 WARN을 남기며 앱 시작은 유지한다.
+첫 유효 지도 요청에서 전용 연결과 제한된 Lettuce 자원을 생성하고, 앱 종료 때 함께 정리한다.
+지도 factory/template은 Spring 빈으로 노출하지 않아 Boot의 기존 Redis 자동 구성을 끄지 않는다.
+비활성 상태에서는 지도 연결과 추가 Lettuce 자원을 만들지 않는다.
+
+추가 ElastiCache 없이 먼저 확인할 로컬 구성은 다음과 같다.
+
+```shell
+docker compose -p hashi-map-local -f docker/docker-compose.map-redis.local.yml up -d
+# 로컬 앱: hashi.restaurant.map.redis.host=127.0.0.1, hashi.restaurant.map.redis.port=16379
+# 검증 후 이 프로젝트의 임시 컨테이너만 정리
+docker compose -p hashi-map-local -f docker/docker-compose.map-redis.local.yml down
+```
+
+이 파일은 루프백만 열며 컨테이너 한도 128MiB, Redis maxmemory 64MiB, noeviction을 사용한다.
+세션 예약 16MiB와 headroom 32MiB 기본값을 유지하고, Lua는 설정 ceiling과 Redis maxmemory 중
+작은 값으로 검사한다. AOF/RDB는 사용하지 않으므로 재시작하면 기존 조회는 410으로 끝나고 새로
+조회해야 한다. 식당 원본과 인증 토큰은 다른 저장소에 남는다. 이 크기는 로컬 검증 시작값이며 운영 용량 보장이 아니다.
+운영 배치 시 호스트 포트를 열지 않고 앱과 같은 내부 네트워크에 배치한다. EC2 CPU/RAM 여유,
+동시 부하·재시작·인증 연속성을 확인하기 전 dev/prod compose에 컨테이너를 자동 추가하지 않는다.
+
+지도 Redis 무응답/쓰기 거절은 지도만 503으로 처리한다. 기본 Actuator Redis health는 인증 연결을
+계속 검사하므로 지도 장애를 대신 감시하지 않는다. 지도 오류율과 기존 map capacity rejection 지표를
+함께 확인해야 한다. 지도 장애 때 인증 Redis로 우회하거나 기존 Redis 정책을 바꾸지 않는다.
+배포와 서버 공개 활성화는 이 변경에 포함하지 않는다.
 
 ## 검증 구성
 
@@ -182,6 +219,10 @@ OSIV를 테스트에서 끄지 않으며, 지도 경로의 request-bound EntityM
 
 고정 슬롯 제거, 500개 초과 전량 페이지 조회, lookahead, 같은 cursor 재시도, 실패 시 미연장,
 절대 수명, 동시 TTL 갱신, 호출자/전체 용량 제한, 인증 키 보존을 검증한다.
+`MapRedisIsolationIntegrationTest`는 실제 Boot 인증 배선과 메모리 제한이 있는 Redis 두 개로
+지도 연결 분리·무응답·재시작·쓰기 거절·TTL 회수를 검사한다. 지도 장애 중에도 실제
+RefreshTokenStore의 저장·토큰 회전이 성공하는지 확인한다. 이는 로그인 HTTP 전체 흐름이나
+EC2 운영 부하 검증과는 구분한다.
 620개 합성 후보의 serializer 비교에서 기존 객체 배열은 UTF-8 31,188 bytes, compact tuple은
 7,646 bytes였다. ledger 예약식까지 적용하면 63,400 bytes에서 16,316 bytes로 74.3% 줄었다.
 큰 Long ID·리뷰 수와 긴 조건을 넣은 실제 Redis 500개 snapshot은 UTF-8 24,250 bytes,

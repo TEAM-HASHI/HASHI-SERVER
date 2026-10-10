@@ -37,7 +37,6 @@ import org.sopt.hashi.restaurant.service.RestaurantMapPageReader;
 import org.sopt.hashi.restaurant.service.RestaurantMapPageService;
 import org.sopt.hashi.restaurant.service.RestaurantMapService;
 import org.sopt.hashi.shared.error.BusinessException;
-import org.springframework.beans.factory.support.StaticListableBeanFactory;
 import org.springframework.data.redis.connection.RedisStandaloneConfiguration;
 import org.springframework.data.redis.connection.lettuce.LettuceClientConfiguration;
 import org.springframework.data.redis.connection.lettuce.LettuceConnectionFactory;
@@ -72,10 +71,10 @@ class RedisMapSessionStoreIntegrationTest {
                 REDIS.getHost(), REDIS.getMappedPort(6379)), client);
         connections.afterPropertiesSet();
         redis = new StringRedisTemplate(connections);
-        var factory = new StaticListableBeanFactory();
-        factory.addBean("redis", redis);
+        var connection = mock(MapRedisConnection.class);
+        when(connection.template()).thenReturn(redis);
         limits = new MapSessionLimits();
-        store = new RedisMapSessionStore(factory.getBeanProvider(StringRedisTemplate.class), SERIALIZER, limits,
+        store = new RedisMapSessionStore(connection, SERIALIZER, limits,
                 CAPACITY_METRICS);
     }
 
@@ -361,9 +360,9 @@ class RedisMapSessionStoreIntegrationTest {
     }
 
     private RedisMapSessionStore storeWith(MapSessionLimits configuration) {
-        var factory = new StaticListableBeanFactory();
-        factory.addBean("redis", redis);
-        return new RedisMapSessionStore(factory.getBeanProvider(StringRedisTemplate.class), SERIALIZER, configuration,
+        var connection = mock(MapRedisConnection.class);
+        when(connection.template()).thenReturn(redis);
+        return new RedisMapSessionStore(connection, SERIALIZER, configuration,
                 CAPACITY_METRICS);
     }
 
