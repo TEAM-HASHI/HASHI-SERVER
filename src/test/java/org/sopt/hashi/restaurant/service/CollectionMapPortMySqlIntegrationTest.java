@@ -126,6 +126,7 @@ class CollectionMapPortMySqlIntegrationTest {
     @MockitoBean CurrentUserProvider currentUser;
     @MockitoBean RestaurantService unusedRestaurantService;
     @MockitoBean RestaurantLocationService unusedAdminLocationService;
+    @MockitoBean MapRegionAdminService unusedAdminMapRegionService;
     @MockitoBean PlacesLocationService unusedPlacesLocationService;
     @MockitoBean MediaPort media;
     @MockitoBean FileStorage storage;

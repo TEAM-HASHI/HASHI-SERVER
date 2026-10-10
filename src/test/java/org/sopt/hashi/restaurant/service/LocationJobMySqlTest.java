@@ -120,6 +120,7 @@ class LocationJobMySqlTest {
     @MockitoBean MediaPort mediaPort;
     @MockitoBean FileStorage fileStorage;
     @MockitoBean RestaurantMapService restaurantMapService;
+    @MockitoBean MapRegionAdminService mapRegionAdminService;
 
     @BeforeEach
     void reset() {

@@ -74,6 +74,15 @@ public interface RestaurantPort {
     /** expectedAddressRevision이 현재와 일치할 때 같은 주소의 새 작업을 등록한다. */
     RestaurantLocationInfo retryLocationByAdmin(Long restaurantId, long expectedAddressRevision);
 
+    /** 활성·비활성 지역을 표시 순서·ID 순으로 조회한다. page는 0부터, size는 1~100이다. */
+    AdminMapRegionInfo.Page getMapRegionsByAdmin(int page, int size);
+
+    /** 안정적인 code로 전체 설정을 교체한다. 동일 요청 재전송·동시 생성에도 ID는 유지한다. */
+    AdminMapRegionInfo upsertMapRegionByAdmin(String code, AdminMapRegionCommand command);
+
+    /** 없는/삭제 식당은 거절하고, 존재하는 비활성 지역도 지정 가능하다. null은 소속 해제다. */
+    Long assignMapRegionByAdmin(Long restaurantId, Long mapRegionId);
+
     /** 관리자 위치 검토 목록. restaurantId 오름차순 offset 페이지로 활성 식당만 조회한다. */
     RestaurantLocationReviewPage findLocationReviewsByAdmin(
             String status, String source, int page, int size);

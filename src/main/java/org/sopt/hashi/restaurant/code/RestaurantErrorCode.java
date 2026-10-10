@@ -32,7 +32,7 @@ public enum RestaurantErrorCode implements ErrorCode {
     DUPLICATE_NAME(HttpStatus.CONFLICT, "RESTAURANT-020", "이미 등록된 식당명입니다."),
     DUPLICATE_ADDRESS(HttpStatus.CONFLICT, "RESTAURANT-021", "이미 등록된 주소입니다."),
     MAP_RATE_LIMITED(HttpStatus.TOO_MANY_REQUESTS, "RESTAURANT-022", "지도 조회 요청이 많습니다. 잠시 후 다시 시도해주세요."),
-    // RESTAURANT-023 is reserved for the admin tourist-region API (#256).
+    MAP_REGION_NOT_FOUND(HttpStatus.NOT_FOUND, "RESTAURANT-023", "관광 지역을 찾을 수 없습니다."),
     PLACES_UNAVAILABLE(HttpStatus.SERVICE_UNAVAILABLE, "RESTAURANT-024", "Places 위치 확인을 사용할 수 없습니다"),
     PLACES_BUDGET_EXHAUSTED(HttpStatus.TOO_MANY_REQUESTS, "RESTAURANT-025", "Places 호출 한도를 확인해주세요"),
     PLACES_PROVIDER_FAILED(HttpStatus.BAD_GATEWAY, "RESTAURANT-026", "Places 응답을 확인할 수 없습니다"),
