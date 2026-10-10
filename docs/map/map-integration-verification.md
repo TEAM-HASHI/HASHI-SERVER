@@ -101,6 +101,13 @@ Java 21과 Docker가 필요하다. 일반 검증과 부하는 동시에 실행�
 
 `MapQueryLoadTest`는 opt-in `map-load` 태그다. k6 설치 환경에서만 실행한다.
 
+현재 부하 fixture는 인증 Redis와 지도 Redis를 별도 컨테이너로 실행한다. 인증은
+maxmemory 64MiB/volatile-lru/컨테이너 128MiB, 지도는 기존 비교 조건인
+maxmemory 128MiB/noeviction/컨테이너 256MiB를 사용한다. 지도 메모리·세션·ledger는 지도
+연결에서 측정하고, 인증 보존용 합성 키는 인증 연결에서 확인한다. 이 합성 키 검사는 로그인 전체
+검증이 아니며, 실제 RefreshTokenStore 회전 중 장애 격리는 `MapRedisIsolationIntegrationTest`가 담당한다.
+일반 HTTP/실제 Google 흐름 fixture에도 지도 endpoint를 명시한다. 실제 Google 테스트 실행은 계속 opt-in이다.
+
 ```powershell
 .\gradlew.bat mapLoadTest `
   -Pk6Executable=<k6.exe 절대경로> `
@@ -127,7 +134,8 @@ Java 21과 Docker가 필요하다. 일반 검증과 부하는 동시에 실행�
 공개 활성화는 아직 NO-GO다.
 
 - 개발 Redis의 읽기 전용 점검에서는 eviction 정책이 지도 저장소의 fail-closed `noeviction` 요구와 맞지 않았다. 인증 데이터와 공유하므로 부하 결과를 이유로 runtime `CONFIG SET`을 실행하지 않는다.
-- 전용 map Redis 또는 충분한 headroom이 있는 공유 `noeviction` Redis를 선택하고 장애 격리·auth 영향을 검증해야 한다.
+- 지도 전용 연결과 제한된 로컬 컨테이너 검증을 먼저 사용한다. 기존 EC2에 배치할 수 있는지 자원을 확인하고,
+  실제 환경에서 장애 격리·auth 영향을 검증해야 한다. 이 변경만으로 추가 ElastiCache를 만들거나 서버에서 활성화하지 않는다.
 - 실제 데이터 aggregate와 새 fixed HEAD의 focused/full test, 실제 Google opt-in 결과, CI를 각각 확인해야 한다.
 - merge, 배포, live backfill과 운영 설정 변경은 별도 승인 대상이다.
 

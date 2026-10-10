@@ -64,6 +64,8 @@ import org.springframework.boot.testcontainers.service.connection.ServiceConnect
 import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.annotation.DirtiesContext;
+import org.springframework.test.context.DynamicPropertyRegistry;
+import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.transaction.support.TransactionTemplate;
@@ -120,6 +122,11 @@ class RestaurantMapFlowIntegrationTest {
             "redis@sha256:858f009f9709ce576febc734aa78b8f6d624b82571f9ddb6bda4377c833b3499"))
             .withExposedPorts(6379);
 
+    @DynamicPropertySource
+    static void mapRedis(DynamicPropertyRegistry registry) {
+        registry.add("hashi.restaurant.map.redis.host", REDIS::getHost);
+        registry.add("hashi.restaurant.map.redis.port", () -> REDIS.getMappedPort(6379));
+    }
     @Autowired MockMvc mvc;
     @Autowired ObjectMapper json;
     @Autowired JwtProvider jwt;
