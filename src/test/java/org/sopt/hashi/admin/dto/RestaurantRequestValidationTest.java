@@ -13,6 +13,8 @@ import java.util.Set;
 import java.util.UUID;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 
 class RestaurantRequestValidationTest {
 
@@ -249,12 +251,41 @@ class RestaurantRequestValidationTest {
                 .containsExactly("placeType");
     }
 
+    @ParameterizedTest
+    @ValueSource(strings = {" \u3000 ", "\u00A0", "\u2007", "\u202F", "\u001C"})
+    void 식당_등록의_위치확인주소는_선택이지만_보내면_Unicode공백일_수_없다(String blank) {
+        CreateRestaurantRequest request = createRequestWithGeocodingAddress(blank);
+
+        assertThat(validator.validate(request))
+                .extracting(violation -> violation.getPropertyPath().toString())
+                .containsExactly("geocodingAddress");
+    }
+
+    @Test
+    void 식당_수정의_공백_위치확인주소는_override_삭제_요청으로_허용한다() {
+        UpdateRestaurantRequest request = new UpdateRestaurantRequest(
+                null, null, null, null, null, "\u00A0\u2007\u202F", null, null, null, null,
+                null, null, null, null, null, null, null, null, null, null);
+
+        assertThat(validator.validate(request)).isEmpty();
+    }
+
     private CreateRestaurantRequest createRequest(
             List<String> imageKeys,
             List<UUID> imageAssetIds,
             List<CreateRestaurantRequest.MenuRequest> menus
     ) {
         return createRequest("restaurant", imageKeys, imageAssetIds, menus);
+    }
+
+    private CreateRestaurantRequest createRequestWithGeocodingAddress(String geocodingAddress) {
+        return new CreateRestaurantRequest(
+                "하시 스시", "Hashi Sushi", "한 줄 소개", "상세 설명",
+                "東京都渋谷区恵比寿2-37-8 架空ビル1F", geocodingAddress,
+                "도쿄", "sushi", "sushi", "restaurant", "JPY",
+                BigDecimal.valueOf(1_000), BigDecimal.valueOf(3_000),
+                List.of("restaurants/test.jpg"), null, null, List.of(), List.of("스시"), List.of(),
+                createBusinessHours());
     }
 
     private CreateRestaurantRequest createRequest(

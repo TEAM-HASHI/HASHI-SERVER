@@ -26,6 +26,8 @@ ext {
 dependencies {
     // web / docs
     implementation 'org.springframework.boot:spring-boot-starter-web'
+    // Geocoding: RestClient transport with explicit retry/redirect disabling (Boot-managed version).
+    implementation 'org.apache.httpcomponents.client5:httpclient5'
     implementation 'org.springframework.boot:spring-boot-starter-actuator'
     runtimeOnly 'io.micrometer:micrometer-registry-prometheus'
     // 로그 JSON 인코딩(Loki 수집용) — logback-spring.xml에서 사용
@@ -94,6 +96,7 @@ dependencyManagement {
 
 tasks.named('bootJar') {
     archiveFileName = 'app.jar'
+    mainClass = 'org.sopt.hashi.HashiApplication'
 }
 
 tasks.named('jar') {
@@ -101,7 +104,15 @@ tasks.named('jar') {
 }
 
 tasks.named('test') {
-    useJUnitPlatform()
+    // The maintenance smoke test launches the same artifact shipped by the existing build.
+    dependsOn tasks.named('bootJar')
+    systemProperty 'location.maintenance.jar', tasks.named('bootJar').get().archiveFile.get().asFile.absolutePath
+    useJUnitPlatform {
+        excludeTags 'map-load', 'map-live'
+    }
+    // Limit retained Spring contexts during the full suite.
+    maxParallelForks = 1
+    systemProperty 'spring.test.context.cache.maxSize', '8'
     testLogging {
         exceptionFormat = 'full'
     }
@@ -116,8 +127,46 @@ tasks.named('test') {
     ).withPropertyName('mediaBackfillInfrastructure')
 }
 
+// Explicit local capacity experiment; ordinary CI remains deterministic and does not require k6.
+tasks.register('mapLoadTest', Test) {
+    description = 'Runs the isolated MySQL/Redis HTTP map workload using a local k6 binary.'
+    group = 'verification'
+    testClassesDirs = sourceSets.test.output.classesDirs
+    classpath = sourceSets.test.runtimeClasspath
+    useJUnitPlatform { includeTags 'map-load' }
+    systemProperty 'map.k6.executable', providers.gradleProperty('k6Executable').getOrElse('k6')
+    systemProperty 'map.k6.script', file('scripts/load/map-query.js').absolutePath
+    systemProperty 'map.k6.output', layout.buildDirectory.dir('reports/map-load').get().asFile.absolutePath
+    systemProperty 'map.k6.profile', providers.gradleProperty('mapLoadProfile').getOrElse('smoke')
+    systemProperty 'map.k6.traffic', providers.gradleProperty('mapLoadTraffic').getOrElse('shared')
+    systemProperty 'map.k6.restaurants', providers.gradleProperty('mapLoadRestaurants').getOrElse('620')
+    systemProperty 'map.k6.budget-mib', providers.gradleProperty('mapLoadBudgetMiB').getOrElse('16')
+    systemProperty 'hashi.restaurant.map.session.limits.concurrent-requests',
+            providers.gradleProperty('mapLoadConcurrentRequests').getOrElse('4')
+    outputs.upToDateWhen { false }
+    maxParallelForks = 1
+    testLogging { exceptionFormat = 'full' }
+}
+
 tasks.named('processResources') {
     from('media-specs') {
         into 'media-specs'
+    }
+}
+
+// Real Google is excluded from ordinary CI and requires explicit opt-in plus an environment-only key.
+tasks.register('mapLiveTest', Test) {
+    group = 'verification'
+    testClassesDirs = sourceSets.test.output.classesDirs
+    classpath = sourceSets.test.runtimeClasspath
+    useJUnitPlatform { includeTags 'map-live' }
+    systemProperty 'map.live.enabled', providers.gradleProperty('mapLive').getOrElse('false')
+    outputs.upToDateWhen { false }
+    maxParallelForks = 1
+    doFirst {
+        if (providers.gradleProperty('mapLive').getOrElse('false') != 'true'
+                || !System.getenv('HASHI_MAP_GOOGLEGEOCODING_APIKEY')) {
+            throw new GradleException('mapLiveTest requires -PmapLive=true and an environment API key')
+        }
     }
 }

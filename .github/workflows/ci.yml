@@ -134,14 +134,52 @@ jobs:
         run: ./gradlew clean build --no-daemon
 
       - name: Verify test execution
+        if: ${{ always() }}
         run: |
           python3 - <<'PY'
           from pathlib import Path
+          import re
           import xml.etree.ElementTree as ET
 
           report_root = Path("build/test-results/test")
           reports = sorted(report_root.glob("TEST-*.xml"))
           assert reports, "Test reports are missing"
+
+          java_identifier = r"[A-Za-z_$][A-Za-z0-9_$]*"
+          qualified_identifier = rf"{java_identifier}(?:\.{java_identifier})+"
+          exception_pattern = re.compile(
+              rf"^(?:Caused by:\s+)?({qualified_identifier})(?::|$)"
+          )
+          failed_tests = set()
+          failure_types = []
+          for report in reports:
+              suite = ET.parse(report).getroot()
+              for testcase in suite.findall("testcase"):
+                  outcome = testcase.find("failure")
+                  if outcome is None:
+                      outcome = testcase.find("error")
+                  if outcome is None:
+                      continue
+
+                  class_name = testcase.attrib.get("classname", "<unknown-class>")
+                  stack = outcome.text or ""
+                  frame = re.search(
+                      rf"\bat\s+{re.escape(class_name)}\.([^\s.(]+)\(",
+                      stack,
+                  )
+                  method_name = frame.group(1) if frame else "<unknown-method>"
+                  failed_tests.add(f"{class_name}#{method_name}")
+                  for line in stack.splitlines():
+                      sanitized = line.strip()
+                      exception = exception_pattern.match(sanitized)
+                      if exception and exception.group(1) not in failure_types:
+                          failure_types.append(exception.group(1))
+
+          for failed_test in sorted(failed_tests):
+              print(f"Failed test: {failed_test}")
+          for failure_type in failure_types[:8]:
+              print(f"Failure type: {failure_type}")
+
           assert (report_root / "TEST-org.sopt.hashi.ModularityTests.xml").is_file(), \
               "Module verification did not produce a test report"
 
@@ -156,3 +194,15 @@ jobs:
 
           print(f"Test suites: {len(reports)}, tests: {total}, failures/errors/skips: 0")
           PY
+
+      - name: Upload test diagnostics
+        if: ${{ failure() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: test-diagnostics-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            build/test-results/test
+            build/reports/tests/test
+            build/reports/problems
+          if-no-files-found: warn
+          retention-days: 7

@@ -146,6 +146,13 @@ class GlobalExceptionHandler {
 - **MUST**: 성공 응답의 알맹이(도메인 DTO)는 각 모듈 `dto/`의 `<Context>Response`다.
 - **MUST**: 성공·실패 응답 모두 `data` 필드를 **항상 노출**한다(없으면 `null`). 실패 응답의 `data`는 **항상 `null`**이다(성공/실패 형태 일관성).
 - **MUST**: 실패 응답에는 `timestamp`(ISO-8601)·`path`(요청 경로)를 포함하고, **검증 실패 시** `errors`(필드 단위 `FieldError` 목록)를 채운다. 검증 외 일반 에러는 `errors`를 내려보내지 않는다.
+
+  현재 레거시 `GlobalExceptionHandler`는 DTO `@Valid` 실패에만 `errors`를 채우며,
+  경로·쿼리 파라미터의 제약 위반·타입 불일치에는 `COMMON-400`과 `data: null`을 반환하고
+  `errors`를 생략한다. 지도 API도 이 공통 동작을 따른다. 위 MUST는 향후 전역 표준이며,
+  파라미터 오류까지 확장할 때는 공통 핸들러·전체 API 계약·회귀 테스트를 함께 변경한다.
+  개별 도메인 advice만으로 응답 차이를 만들지 않는다.
+
 - **MUST**: `data`를 제외한 `null` 필드는 직렬화에서 제외한다 — `ErrorResponse`에 **클래스 단위 `@JsonInclude(NON_NULL)`**, `data` 필드에만 **`@JsonInclude(ALWAYS)`**를 붙인다(`data`는 `null`이어도 항상 노출, `errors`는 `null`이면 자동 생략).
 - **MUST NOT**: `SuccessResponse`에는 클래스 단위 `NON_NULL`을 적용하지 않는다(성공 응답 `data`도 `null`이어도 항상 노출).
 
