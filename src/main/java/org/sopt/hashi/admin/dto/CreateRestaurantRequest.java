@@ -36,9 +36,15 @@ public record CreateRestaurantRequest(
         @Schema(description = "매장 상세 설명", example = "엄선된 고기와 다양한 코스를 제공합니다.")
         @NotBlank(message = "상세 설명은 필수입니다")
         @Size(max = 500, message = "상세 설명은 500자 이내입니다") String description,
-        @Schema(description = "주소", example = "도쿄도 도시마구 히가시이케부쿠로 1-1-1")
+        @Schema(description = "사용자 화면에 표시할 전체 주소. 건물명·층 정보를 보존하며, geocodingAddress를 생략하면 Google 위치 확인에도 이 값을 사용",
+                example = "도쿄도 도시마구 히가시이케부쿠로 1-1-1")
         @NotBlank(message = "주소는 필수입니다")
         @Size(max = 255, message = "주소는 255자 이내입니다") String address,
+        @Schema(description = "Google 위치 확인에만 사용할 별도 지정 주소(선택). 화면에는 address의 건물명·층 정보를 그대로 보여주면서 검색에는 정제한 주소를 쓰기 위한 필드. 생략/null이면 address를 사용하고 공백은 허용하지 않음",
+                example = "東京都豊島区東池袋1-1-1")
+        @Pattern(regexp = "(?s).*[^\\p{javaWhitespace}\\p{Z}].*",
+                message = "위치 확인용 주소는 공백일 수 없습니다")
+        @Size(max = 255, message = "위치 확인용 주소는 255자 이내입니다") String geocodingAddress,
         @Schema(description = "지역", example = "이케부쿠로")
         @NotBlank(message = "지역은 필수입니다")
         @Size(max = 20, message = "지역은 20자 이내입니다") String area,
@@ -78,7 +84,36 @@ public record CreateRestaurantRequest(
         List<@NotBlank(message = "큐레이션 유형은 비어 있을 수 없습니다") String> curationTypes,
         @NotNull(message = "영업시간은 필수입니다")
         @Size(min = 7, max = 7, message = "영업시간은 모든 요일(7개)을 포함해야 합니다")
-        List<@NotNull(message = "영업시간 항목은 null일 수 없습니다") @Valid BusinessHourRequest> businessHours) {
+        List<@NotNull(message = "영업시간 항목은 null일 수 없습니다") @Valid BusinessHourRequest> businessHours,
+        @Schema(description = "등록 전 위치 미리보기에서 관리자가 고른 후보의 selectionToken(선택). "
+                + "같은 관리자가 검색 후 10분 안에 이름·현지명·표시주소·기본주소를 그대로 보내야 함. "
+                + "생략/null이면 식당을 먼저 저장한 뒤 주소로 자동 위치 확인. "
+                + "토큰을 보냈더라도 저장 직후는 PENDING이며 Places 상세 검증이 끝나야 핀 노출")
+        @Pattern(regexp = ".*\\S.*", message = "위치 선택 토큰은 공백일 수 없습니다")
+        @Size(max = 2048) String locationSelectionToken) {
+
+    public CreateRestaurantRequest(
+            String name, String localName, String summary, String description, String address,
+            String geocodingAddress, String area, String genre, String foodCategory, String placeType,
+            String priceCurrency, BigDecimal minPrice, BigDecimal maxPrice, List<String> imageKeys,
+            List<UUID> imageAssetIds, JsonNode unsupportedImages, List<MenuRequest> menus,
+            List<String> hashtags, List<String> curationTypes, List<BusinessHourRequest> businessHours) {
+        this(name, localName, summary, description, address, geocodingAddress, area, genre, foodCategory,
+                placeType, priceCurrency, minPrice, maxPrice, imageKeys, imageAssetIds, unsupportedImages,
+                menus, hashtags, curationTypes, businessHours, null);
+    }
+
+    /** geocodingAddress 도입 전 Java 호출부의 source compatibility를 유지한다. */
+    public CreateRestaurantRequest(
+            String name, String localName, String summary, String description, String address,
+            String area, String genre, String foodCategory, String placeType, String priceCurrency,
+            BigDecimal minPrice, BigDecimal maxPrice, List<String> imageKeys, List<UUID> imageAssetIds,
+            JsonNode unsupportedImages, List<MenuRequest> menus, List<String> hashtags,
+            List<String> curationTypes, List<BusinessHourRequest> businessHours) {
+        this(name, localName, summary, description, address, null, area, genre, foodCategory, placeType,
+                priceCurrency, minPrice, maxPrice, imageKeys, imageAssetIds, unsupportedImages, menus,
+                hashtags, curationTypes, businessHours);
+    }
 
     @AssertTrue(message = "식당 이미지는 imageKeys 또는 imageAssetIds 중 하나만 필요합니다")
     @JsonIgnore

@@ -102,6 +102,12 @@ class ReviewUpdateConcurrencyMySqlTest {
     @MockitoBean
     private RestaurantMapService restaurantMapService;
 
+    @MockitoBean
+    private RestaurantLocationService restaurantLocationService;
+
+    @MockitoBean
+    private PlacesLocationService placesLocationService;
+
     private ExecutorService executor;
 
     @BeforeEach

@@ -1,5 +1,8 @@
 package org.sopt.hashi.admin.web;
 
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -8,6 +11,8 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
+import org.sopt.hashi.admin.dto.UpdateRestaurantRequest;
 import org.sopt.hashi.admin.service.AdminRestaurantService;
 import org.sopt.hashi.auth.internal.onboarding.OnboardingJwtIssuer;
 import org.sopt.hashi.auth.internal.security.JwtAuthenticationFilter;
@@ -95,5 +100,35 @@ class AdminRestaurantControllerTest {
                 .andExpect(jsonPath("$.code").value("COMMON-400"));
 
         verifyNoInteractions(adminRestaurantService);
+    }
+
+    @Test
+    void 수정의_공백_위치확인주소를_override_삭제_요청으로_전달한다() throws Exception {
+        mockMvc.perform(patch("/api/v1/admin/restaurants/{restaurantId}", 1L)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"geocodingAddress\":\"\\u00a0\\u2007\\u202f\"}"))
+                .andExpect(status().isOk());
+
+        ArgumentCaptor<UpdateRestaurantRequest> request =
+                ArgumentCaptor.forClass(UpdateRestaurantRequest.class);
+        verify(adminRestaurantService).update(eq(1L), request.capture());
+        assertThat(request.getValue().geocodingAddress()).isEqualTo("\u00A0\u2007\u202F");
+    }
+
+    @Test
+    void 표시주소와_같은_위치확인주소를_함께보낸_PATCH를_둘다_서비스에_전달한다() throws Exception {
+        mockMvc.perform(patch("/api/v1/admin/restaurants/{restaurantId}", 1L)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"address":"東京都中央区月島3-16-9 建物2F",
+                                 "geocodingAddress":"東京都中央区月島3-16-9"}
+                                """))
+                .andExpect(status().isOk());
+
+        ArgumentCaptor<UpdateRestaurantRequest> request =
+                ArgumentCaptor.forClass(UpdateRestaurantRequest.class);
+        verify(adminRestaurantService).update(eq(1L), request.capture());
+        assertThat(request.getValue().address()).isEqualTo("東京都中央区月島3-16-9 建物2F");
+        assertThat(request.getValue().geocodingAddress()).isEqualTo("東京都中央区月島3-16-9");
     }
 }

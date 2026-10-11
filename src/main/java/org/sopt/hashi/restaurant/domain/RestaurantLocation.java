@@ -15,6 +15,7 @@ import java.time.LocalDateTime;
 import java.time.ZoneOffset;
 import java.time.temporal.ChronoUnit;
 import java.util.Objects;
+import java.util.List;
 import java.util.UUID;
 import lombok.AccessLevel;
 import lombok.Getter;
@@ -48,6 +49,13 @@ public class RestaurantLocation extends BaseTimeEntity {
     @Column(name = "source", length = 20)
     private RestaurantLocationSource source;
 
+    @Column(name = "google_place_id", length = 255)
+    private String googlePlaceId;
+
+    @JdbcTypeCode(SqlTypes.JSON)
+    @Column(name = "places_attributions", columnDefinition = "json")
+    private List<RestaurantLocationAttribution> placesAttributions;
+
     @Column(name = "address_revision", nullable = false)
     private long addressRevision;
 
@@ -68,6 +76,20 @@ public class RestaurantLocation extends BaseTimeEntity {
     @Column(name = "next_attempt_at")
     private LocalDateTime nextAttemptAt;
 
+    @Enumerated(EnumType.STRING)
+    @Column(name = "confirmation_method", length = 30)
+    private LocationConfirmationMethod confirmationMethod;
+
+    @Column(name = "confirmed_by_admin_id")
+    private Long confirmedByAdminId;
+
+    @JdbcTypeCode(SqlTypes.LOCAL_DATE_TIME)
+    @Column(name = "confirmed_at")
+    private LocalDateTime confirmedAt;
+
+    @Column(name = "confirmed_revision")
+    private Long confirmedRevision;
+
     @Version
     @Column(name = "lock_version", nullable = false)
     private long lockVersion;
@@ -83,6 +105,10 @@ public class RestaurantLocation extends BaseTimeEntity {
     public boolean isUsable(Clock clock) {
         boolean hasAcceptedLocation = coordinates != null && source != null
                 && obtainedAt != null && validUntil != null && obtainedAt.isBefore(validUntil);
+        if (source == RestaurantLocationSource.GOOGLE_PLACES
+                && (googlePlaceId == null || placesAttributions == null)) {
+            return false;
+        }
         return hasAcceptedLocation && utcNow(clock).isBefore(validUntil);
     }
 
@@ -108,6 +134,21 @@ public class RestaurantLocation extends BaseTimeEntity {
         beginPending();
     }
 
+    void selectPlaceForVerification() {
+        clearAcceptedLocation();
+        beginPending();
+    }
+
+    void confirmPlaceSelection(Long adminId, LocalDateTime confirmedAt) {
+        if (adminId == null || adminId < 1) {
+            throw new IllegalArgumentException("유효한 관리자 ID가 필요합니다");
+        }
+        this.confirmationMethod = LocationConfirmationMethod.ADMIN_PLACE_SELECTION;
+        this.confirmedByAdminId = adminId;
+        this.confirmedAt = toMicros(confirmedAt);
+        this.confirmedRevision = addressRevision;
+    }
+
     boolean beginScheduledRetry(Clock clock) {
         boolean due = status == RestaurantLocationStatus.RETRY_WAIT
                 && !utcNow(clock).isBefore(nextAttemptAt);
@@ -120,11 +161,28 @@ public class RestaurantLocation extends BaseTimeEntity {
     boolean complete(long expectedRevision, UUID expectedRequestId, MapCoordinates coordinates,
                      RestaurantLocationSource source, LocalDateTime obtainedAt,
                      LocalDateTime validUntil, Clock clock) {
+        return complete(expectedRevision, expectedRequestId, coordinates, source, null,
+                null, obtainedAt, validUntil, clock);
+    }
+
+    boolean complete(long expectedRevision, UUID expectedRequestId, MapCoordinates coordinates,
+                     RestaurantLocationSource source, String googlePlaceId,
+                     List<RestaurantLocationAttribution> placesAttributions, LocalDateTime obtainedAt,
+                     LocalDateTime validUntil, Clock clock) {
         if (!matchesPending(expectedRevision, expectedRequestId)) {
             return false;
         }
         Objects.requireNonNull(coordinates, "coordinates");
         Objects.requireNonNull(source, "source");
+        boolean places = source == RestaurantLocationSource.GOOGLE_PLACES;
+        boolean validPlacesFields = places
+                ? googlePlaceId != null && placesAttributions != null
+                : googlePlaceId == null && placesAttributions == null;
+        if (!validPlacesFields || (googlePlaceId != null
+                && (googlePlaceId.isBlank() || !googlePlaceId.equals(googlePlaceId.trim())
+                || googlePlaceId.length() > 255))) {
+            throw new IllegalArgumentException("Google Places 위치에는 유효한 Place ID가 필요합니다");
+        }
         LocalDateTime obtained = toMicros(obtainedAt);
         LocalDateTime until = toMicros(validUntil);
         LocalDateTime now = utcNow(clock);
@@ -134,8 +192,15 @@ public class RestaurantLocation extends BaseTimeEntity {
         }
         this.coordinates = coordinates;
         this.source = source;
+        this.googlePlaceId = googlePlaceId;
+        this.placesAttributions = placesAttributions == null ? null : List.copyOf(placesAttributions);
         this.obtainedAt = obtained;
         this.validUntil = until;
+        if (confirmationMethod == null && source == RestaurantLocationSource.GOOGLE_GEOCODING) {
+            this.confirmationMethod = LocationConfirmationMethod.AUTOMATIC;
+            this.confirmedAt = obtained;
+            this.confirmedRevision = addressRevision;
+        }
         this.status = RestaurantLocationStatus.READY;
         return true;
     }
@@ -180,8 +245,14 @@ public class RestaurantLocation extends BaseTimeEntity {
     private void clearAcceptedLocation() {
         this.coordinates = null;
         this.source = null;
+        this.googlePlaceId = null;
+        this.placesAttributions = null;
         this.obtainedAt = null;
         this.validUntil = null;
+        this.confirmationMethod = null;
+        this.confirmedByAdminId = null;
+        this.confirmedAt = null;
+        this.confirmedRevision = null;
     }
 
     private static LocalDateTime utcNow(Clock clock) {
