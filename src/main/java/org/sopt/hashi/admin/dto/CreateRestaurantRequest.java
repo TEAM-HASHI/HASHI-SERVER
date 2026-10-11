@@ -84,7 +84,24 @@ public record CreateRestaurantRequest(
         List<@NotBlank(message = "큐레이션 유형은 비어 있을 수 없습니다") String> curationTypes,
         @NotNull(message = "영업시간은 필수입니다")
         @Size(min = 7, max = 7, message = "영업시간은 모든 요일(7개)을 포함해야 합니다")
-        List<@NotNull(message = "영업시간 항목은 null일 수 없습니다") @Valid BusinessHourRequest> businessHours) {
+        List<@NotNull(message = "영업시간 항목은 null일 수 없습니다") @Valid BusinessHourRequest> businessHours,
+        @Schema(description = "등록 전 위치 미리보기에서 관리자가 고른 후보의 selectionToken(선택). "
+                + "같은 관리자가 검색 후 10분 안에 이름·현지명·표시주소·기본주소를 그대로 보내야 함. "
+                + "생략/null이면 식당을 먼저 저장한 뒤 주소로 자동 위치 확인. "
+                + "토큰을 보냈더라도 저장 직후는 PENDING이며 Places 상세 검증이 끝나야 핀 노출")
+        @Pattern(regexp = ".*\\S.*", message = "위치 선택 토큰은 공백일 수 없습니다")
+        @Size(max = 2048) String locationSelectionToken) {
+
+    public CreateRestaurantRequest(
+            String name, String localName, String summary, String description, String address,
+            String geocodingAddress, String area, String genre, String foodCategory, String placeType,
+            String priceCurrency, BigDecimal minPrice, BigDecimal maxPrice, List<String> imageKeys,
+            List<UUID> imageAssetIds, JsonNode unsupportedImages, List<MenuRequest> menus,
+            List<String> hashtags, List<String> curationTypes, List<BusinessHourRequest> businessHours) {
+        this(name, localName, summary, description, address, geocodingAddress, area, genre, foodCategory,
+                placeType, priceCurrency, minPrice, maxPrice, imageKeys, imageAssetIds, unsupportedImages,
+                menus, hashtags, curationTypes, businessHours, null);
+    }
 
     /** geocodingAddress 도입 전 Java 호출부의 source compatibility를 유지한다. */
     public CreateRestaurantRequest(

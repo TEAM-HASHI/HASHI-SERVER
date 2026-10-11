@@ -45,7 +45,7 @@ public record AdminRestaurantResponse(
                 allowableValues = {"UNRESOLVED", "PENDING", "READY", "RETRY_WAIT", "REVIEW_REQUIRED", "FAILED"},
                 example = "PENDING")
         String locationStatus,
-        @Schema(description = "현재 위치 확인 기준 주소의 revision. 위치 재시도 전 상태 조회 API에서 최신 값을 확인",
+        @Schema(description = "위치 확인 기준 정보 변경 번호(addressRevision). 이름·현지명·표시주소·위치조회주소 변경에 따라 증가. 위치 재시도 전 상태 조회 API에서 최신 값을 확인",
                 example = "1")
         long addressRevision) {
 

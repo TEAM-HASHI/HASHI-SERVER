@@ -21,6 +21,7 @@ import org.sopt.hashi.auth.internal.onboarding.OnboardingJwtIssuer;
 import org.sopt.hashi.auth.internal.token.OnboardingTokenStore;
 import org.sopt.hashi.auth.internal.token.TokenBlacklist;
 import org.sopt.hashi.restaurant.RestaurantLocationInfo;
+import org.sopt.hashi.restaurant.RestaurantLocationPreviewCommand;
 import org.sopt.hashi.restaurant.RestaurantLocationReviewInfo;
 import org.sopt.hashi.restaurant.RestaurantLocationReviewPage;
 import org.sopt.hashi.restaurant.RestaurantPort;
@@ -247,6 +248,41 @@ class AdminLocationAuthorizationTest {
         mvc.perform(post(PATH + suffix).header("Authorization", admin())
                         .contentType(MediaType.APPLICATION_JSON).content(body))
                 .andExpect(status().isBadRequest()).andExpect(jsonPath("$.code").value("COMMON-400"));
+        verifyNoInteractions(restaurants);
+    }
+
+    @Test
+    void 등록전_미리보기는_ADMIN만_검색하고_빈후보도_성공응답으로_구분한다() throws Exception {
+        var input = new RestaurantLocationPreviewCommand("식당", "現地名", "住所", null);
+        given(restaurants.previewLocationByAdmin(input)).willReturn(List.of());
+        mvc.perform(post("/api/v1/admin/restaurants/location-preview").header("Authorization", admin())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"name\":\"식당\",\"localName\":\"現地名\",\"address\":\"住所\"}"))
+                .andExpect(status().isOk()).andExpect(header().string("Cache-Control", "no-store"))
+                .andExpect(jsonPath("$.data.candidates.length()").value(0));
+        verify(restaurants).previewLocationByAdmin(input);
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"USER", "ONBOARDING", "ANONYMOUS"})
+    void 등록전_미리보기는_일반회원과_익명의_유료호출을_차단한다(String role) throws Exception {
+        var request = post("/api/v1/admin/restaurants/location-preview").contentType(MediaType.APPLICATION_JSON)
+                .content("{\"name\":\"식당\",\"localName\":\"現地名\",\"address\":\"住所\"}");
+        if (!role.equals("ANONYMOUS")) {
+            String token = role.equals("ONBOARDING") ? tokens.createOnboardingToken(1L)
+                    : tokens.createAccessToken(1L, "ROLE_USER");
+            request.header("Authorization", "Bearer " + token);
+        }
+        mvc.perform(request).andExpect(role.equals("ANONYMOUS") ? status().isUnauthorized() : status().isForbidden());
+        verifyNoInteractions(restaurants);
+    }
+
+    @Test
+    void 등록전_미리보기의_공백기본주소는_유료호출전에_거부한다() throws Exception {
+        mvc.perform(post("/api/v1/admin/restaurants/location-preview").header("Authorization", admin())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"name\":\"식당\",\"localName\":\"現地名\",\"address\":\"住所\",\"geocodingAddress\":\" \"}"))
+                .andExpect(status().isBadRequest());
         verifyNoInteractions(restaurants);
     }
 

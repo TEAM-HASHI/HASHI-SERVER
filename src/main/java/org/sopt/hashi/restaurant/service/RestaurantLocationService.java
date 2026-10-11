@@ -52,6 +52,15 @@ public class RestaurantLocationService {
         jobs.save(RestaurantLocationJob.pending(restaurant, now));
     }
 
+    /** 등록 전 선택은 식당 생성 transaction에 함께 저장한다. Google 상세 조회는 worker가 수행한다. */
+    @Transactional(propagation = Propagation.MANDATORY)
+    public void enqueueSelectedPlace(Restaurant restaurant, String placeId, Long adminId) {
+        LocalDateTime now = LocalDateTime.ofInstant(clock.instant(), ZoneOffset.UTC);
+        restaurant.requestLocationResolution();
+        restaurant.confirmPlaceSelection(adminId, now);
+        jobs.save(RestaurantLocationJob.pendingDetails(restaurant, placeId, now));
+    }
+
     @Transactional(propagation = Propagation.MANDATORY)
     public void cancel(Restaurant restaurant) {
         supersede(restaurant.getId(), LocalDateTime.ofInstant(clock.instant(), ZoneOffset.UTC));
@@ -126,7 +135,11 @@ public class RestaurantLocationService {
                 location.getValidUntil() == null ? null : location.getValidUntil().toInstant(ZoneOffset.UTC),
                 job == null ? 0 : job.getAttempt(),
                 location.getNextAttemptAt() == null ? null : location.getNextAttemptAt().toInstant(ZoneOffset.UTC),
-                job == null ? null : job.getFailureCode(), canRetry);
+                job == null ? null : job.getFailureCode(), canRetry,
+                location.getConfirmationMethod() == null ? null : location.getConfirmationMethod().name(),
+                location.getConfirmedByAdminId(),
+                location.getConfirmedAt() == null ? null : location.getConfirmedAt().toInstant(ZoneOffset.UTC),
+                location.getConfirmedRevision());
     }
 
     private RestaurantLocationReviewInfo toReviewInfo(RestaurantLocationReviewProjection row) {
