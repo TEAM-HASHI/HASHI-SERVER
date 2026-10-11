@@ -64,6 +64,10 @@ public class Restaurant extends BaseTimeEntity {
     @Column(name = "address", length = 255, nullable = false)
     private String address;
 
+    /** null이면 기존 표시 주소를 위치 확인 입력으로 사용한다. */
+    @Column(name = "geocoding_address", length = 255)
+    private String geocodingAddress;
+
     @Column(name = "area", length = 20, nullable = false)
     private String area;
 
@@ -138,6 +142,7 @@ public class Restaurant extends BaseTimeEntity {
     private List<RestaurantBusinessHour> businessHours = new ArrayList<>();
 
     private Restaurant(String name, String localName, String summary, String description, String address,
+                       String geocodingAddress,
                        String area, RestaurantGenre genre, String foodCategory, RestaurantPlaceType placeType,
                        PriceCurrency priceCurrency, BigDecimal minPrice, BigDecimal maxPrice) {
         this.name = name;
@@ -145,6 +150,7 @@ public class Restaurant extends BaseTimeEntity {
         this.summary = summary;
         this.description = description;
         this.address = address;
+        this.geocodingAddress = normalizeGeocodingAddress(geocodingAddress);
         this.area = area;
         this.genre = genre;
         this.foodCategory = foodCategory;
@@ -159,19 +165,31 @@ public class Restaurant extends BaseTimeEntity {
     }
 
     public static Restaurant create(String name, String localName, String summary, String description,
+                                    String address, String geocodingAddress, String area, RestaurantGenre genre,
+                                    String foodCategory, RestaurantPlaceType placeType,
+                                    PriceCurrency priceCurrency, BigDecimal minPrice,
+                                    BigDecimal maxPrice) {
+        return new Restaurant(name, localName, summary, description, address, geocodingAddress, area, genre,
+                foodCategory, placeType, priceCurrency, minPrice, maxPrice);
+    }
+
+    /** geocodingAddress 도입 전 도메인 호출부의 source compatibility를 유지한다. */
+    public static Restaurant create(String name, String localName, String summary, String description,
                                     String address, String area, RestaurantGenre genre,
                                     String foodCategory, RestaurantPlaceType placeType,
                                     PriceCurrency priceCurrency, BigDecimal minPrice,
                                     BigDecimal maxPrice) {
-        return new Restaurant(name, localName, summary, description, address, area, genre, foodCategory,
+        return create(name, localName, summary, description, address, null, area, genre, foodCategory,
                 placeType, priceCurrency, minPrice, maxPrice);
     }
 
-    /** 부분 수정(PATCH) — null 필드는 기존 값을 유지한다(값 비우기 불가, magazine과 동일 정책). */
+    /** 부분 수정(PATCH) — null은 유지하며 geocodingAddress만 공백으로 명시 값을 지울 수 있다. */
     public void updateBasicInfo(String name, String localName, String summary, String description,
-                                String address, String area, RestaurantGenre genre,
+                                String address, String geocodingAddress, String area, RestaurantGenre genre,
                                 String foodCategory, RestaurantPlaceType placeType,
                                 PriceCurrency priceCurrency, BigDecimal minPrice, BigDecimal maxPrice) {
+        boolean nameChanged = name != null && !Objects.equals(this.name, name);
+        boolean localNameChanged = localName != null && !Objects.equals(this.localName, localName);
         if (name != null) {
             this.name = name;
         }
@@ -184,12 +202,22 @@ public class Restaurant extends BaseTimeEntity {
         if (description != null) {
             this.description = description;
         }
+        String previousGeocodingInput = geocodingAddressForResolution();
         boolean addressChanged = address != null && !Objects.equals(this.address, address);
+        boolean geocodingAddressProvided = geocodingAddress != null;
+        String nextGeocodingAddress = geocodingAddressProvided
+                ? normalizeGeocodingAddress(geocodingAddress)
+                : addressChanged ? null : this.geocodingAddress;
         if (addressChanged) {
-            if (location != null) {
-                location.addressChanged();
-            }
             this.address = address;
+        }
+        if (geocodingAddressProvided || addressChanged) {
+            this.geocodingAddress = nextGeocodingAddress;
+        }
+        boolean geocodingInputChanged = !Objects.equals(previousGeocodingInput, geocodingAddressForResolution());
+        if ((nameChanged || localNameChanged || addressChanged || geocodingInputChanged)
+                && location != null && !deleted) {
+            location.addressChanged();
         }
         if (area != null) {
             this.area = area;
@@ -212,6 +240,47 @@ public class Restaurant extends BaseTimeEntity {
         if (maxPrice != null) {
             this.maxPrice = maxPrice;
         }
+    }
+
+    /** geocodingAddress 도입 전 호출부는 base 미전송으로 해석한다. */
+    public void updateBasicInfo(String name, String localName, String summary, String description,
+                                String address, String area, RestaurantGenre genre,
+                                String foodCategory, RestaurantPlaceType placeType,
+                                PriceCurrency priceCurrency, BigDecimal minPrice, BigDecimal maxPrice) {
+        updateBasicInfo(name, localName, summary, description, address, null, area, genre, foodCategory,
+                placeType, priceCurrency, minPrice, maxPrice);
+    }
+
+    /** 자동 문자열 추측 없이 명시 base를 우선하고, 기존 row는 표시 주소로 호환 처리한다. */
+    public String geocodingAddressForResolution() {
+        return geocodingAddress == null ? address : geocodingAddress;
+    }
+
+    public static String normalizeGeocodingAddress(String value) {
+        if (value == null) {
+            return null;
+        }
+        int start = 0;
+        int end = value.length();
+        while (start < end) {
+            int codePoint = value.codePointAt(start);
+            if (!isAddressWhitespace(codePoint)) {
+                break;
+            }
+            start += Character.charCount(codePoint);
+        }
+        while (start < end) {
+            int codePoint = value.codePointBefore(end);
+            if (!isAddressWhitespace(codePoint)) {
+                break;
+            }
+            end -= Character.charCount(codePoint);
+        }
+        return start == end ? null : value.substring(start, end);
+    }
+
+    private static boolean isAddressWhitespace(int codePoint) {
+        return Character.isWhitespace(codePoint) || Character.isSpaceChar(codePoint);
     }
 
     /** 어드민 삭제(soft delete) — 사용자 노출만 차단하고 예약·리뷰가 참조하는 데이터는 보존한다. */
@@ -245,6 +314,23 @@ public class Restaurant extends BaseTimeEntity {
         location.beginRefresh();
     }
 
+    /** 관리자가 새 Places 후보를 선택하면 잘못된 기존 좌표를 즉시 제거하고 새 requestId를 발급한다. */
+    public void selectPlaceForLocation() {
+        requireActiveForLocation();
+        if (location == null) {
+            throw new IllegalStateException("선택할 위치가 없습니다");
+        }
+        location.selectPlaceForVerification();
+    }
+
+    public void confirmPlaceSelection(Long adminId, LocalDateTime confirmedAt) {
+        requireActiveForLocation();
+        if (location == null) {
+            throw new IllegalStateException("확인할 위치가 없습니다");
+        }
+        location.confirmPlaceSelection(adminId, confirmedAt);
+    }
+
     public boolean retryLocationWhenDue(Clock clock) {
         return !deleted && location != null && location.beginScheduledRetry(clock);
     }
@@ -255,6 +341,15 @@ public class Restaurant extends BaseTimeEntity {
                                     LocalDateTime validUntil, Clock clock) {
         return !deleted && location != null && location.complete(expectedRevision, expectedRequestId,
                 coordinates, source, obtainedAt, validUntil, clock);
+    }
+
+    public boolean completePlacesLocation(long expectedRevision, UUID expectedRequestId,
+                                          MapCoordinates coordinates, String googlePlaceId,
+                                          List<RestaurantLocationAttribution> placesAttributions,
+                                          LocalDateTime obtainedAt, LocalDateTime validUntil, Clock clock) {
+        return !deleted && location != null && location.complete(expectedRevision, expectedRequestId,
+                coordinates, RestaurantLocationSource.GOOGLE_PLACES, googlePlaceId, placesAttributions,
+                obtainedAt, validUntil, clock);
     }
 
     public boolean deferLocation(long expectedRevision, UUID expectedRequestId,

@@ -24,6 +24,7 @@ public record AdminRestaurantCommand(
         String summary,
         String description,
         String address,
+        String geocodingAddress,
         String area,
         String genre,
         String foodCategory,
@@ -38,6 +39,18 @@ public record AdminRestaurantCommand(
         List<String> hashtags,
         List<String> curationTypes,
         List<BusinessHourCommand> businessHours) {
+
+    /** geocodingAddress 도입 전 모듈 내부 호출부의 source compatibility를 유지한다. */
+    public AdminRestaurantCommand(
+            String name, String localName, String summary, String description, String address,
+            String area, String genre, String foodCategory, String placeType, String priceCurrency,
+            BigDecimal minPrice, BigDecimal maxPrice, List<String> imageKeys, List<UUID> imageAssetIds,
+            List<ImageCommand> images, List<MenuCommand> menus, List<String> hashtags,
+            List<String> curationTypes, List<BusinessHourCommand> businessHours) {
+        this(name, localName, summary, description, address, null, area, genre, foodCategory, placeType,
+                priceCurrency, minPrice, maxPrice, imageKeys, imageAssetIds, images, menus, hashtags,
+                curationTypes, businessHours);
+    }
 
     /** 수정 collection의 유지 association 또는 신규 asset. 배열 위치가 최종 순서다. */
     public record ImageCommand(Long restaurantImageId, UUID imageAssetId) {

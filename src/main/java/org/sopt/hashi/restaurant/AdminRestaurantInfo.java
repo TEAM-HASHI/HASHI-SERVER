@@ -19,6 +19,7 @@ public record AdminRestaurantInfo(
         String summary,
         String description,
         String address,
+        String geocodingAddress,
         String area,
         String genre,
         String foodCategory,
@@ -35,7 +36,9 @@ public record AdminRestaurantInfo(
         List<String> hashtags,
         List<String> curationTypes,
         List<AdminRestaurantBusinessHourInfo> businessHours,
-        LocalDateTime createdAt) {
+        LocalDateTime createdAt,
+        String locationStatus,
+        long addressRevision) {
 
     public record AdminRestaurantMenuInfo(
             Long menuId,

@@ -27,6 +27,7 @@ import org.sopt.hashi.restaurant.domain.RestaurantPlaceType;
 import org.sopt.hashi.restaurant.domain.RestaurantImage;
 import org.sopt.hashi.restaurant.domain.RestaurantRepository;
 import org.sopt.hashi.restaurant.service.RestaurantService;
+import org.sopt.hashi.restaurant.service.RestaurantLocationService;
 import org.sopt.hashi.shared.storage.FileStorage;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.orm.jpa.DataJpaTest;
@@ -42,6 +43,7 @@ import org.springframework.transaction.support.TransactionTemplate;
         MediaPortImpl.class,
         MediaPurposeAccessPolicy.class,
         RestaurantService.class,
+        RestaurantLocationService.class,
         TimeConfig.class
 })
 @TestPropertySource(properties = {
