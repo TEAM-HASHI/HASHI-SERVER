@@ -33,6 +33,9 @@ import org.sopt.hashi.media.MediaImageRole;
 import org.sopt.hashi.media.MediaImageSelection;
 import org.sopt.hashi.media.MediaPort;
 import org.sopt.hashi.restaurant.AdminRestaurantCommand;
+import org.sopt.hashi.restaurant.RestaurantMapInfo;
+import org.sopt.hashi.restaurant.domain.RestaurantMapCandidate;
+import org.sopt.hashi.restaurant.dto.RestaurantMapPageResponse.MapCardResponse;
 import org.sopt.hashi.restaurant.AdminRestaurantCommand.BusinessHourCommand;
 import org.sopt.hashi.restaurant.AdminRestaurantCommand.ImageCommand;
 import org.sopt.hashi.restaurant.AdminRestaurantCommand.MenuCommand;
@@ -177,6 +180,27 @@ public class RestaurantService {
                 nextCursor,
                 hasNext
         );
+    }
+
+    /** 지도 페이지도 기존 카드 변환을 공유하되 순위 값은 최초 세션 값을 사용한다. */
+    public List<MapCardResponse> findMapCards(List<RestaurantMapCandidate> candidates,
+                                            Map<Long, RestaurantMapInfo> mapInfos) {
+        if (candidates.isEmpty()) {
+            return List.of();
+        }
+        List<Restaurant> restaurants = restaurantRepository.findAllByIdInAndDeletedFalse(
+                candidates.stream().map(RestaurantMapCandidate::restaurantId).toList());
+        var byId = restaurants.stream().collect(Collectors.toMap(Restaurant::getId, Function.identity()));
+        LocalDate businessDate = LocalDate.now(japanClock);
+        var hours = findBusinessHours(restaurants, businessDate.getDayOfWeek());
+        var media = loadRestaurantProjection(restaurants, MediaImageRole.RESTAURANT_CARD, 3);
+        return candidates.stream().map(candidate -> {
+            Restaurant restaurant = byId.get(candidate.restaurantId());
+            return MapCardResponse.from(toSummaryResponse(restaurant, businessDate, hours.get(restaurant.getId()), media),
+                    candidate, restaurant.getPlaceType().value(), new PriceRangeResponse(
+                            restaurant.getPriceCurrency().value(), toWholeAmount(restaurant.getMinPrice()),
+                            toWholeAmount(restaurant.getMaxPrice())), mapInfos.get(restaurant.getId()).location());
+        }).toList();
     }
 
     public RestaurantSearchSuggestionResponse getSearchSuggestions(String keyword, Integer size) {

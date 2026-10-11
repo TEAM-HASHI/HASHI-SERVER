@@ -60,6 +60,9 @@ class RestaurantServiceIntegrationTest {
     private MediaPort mediaPort;
 
     @MockitoBean
+    private RestaurantMapService restaurantMapService;
+
+    @MockitoBean
     private PlacesLocationService placesLocationService;
 
     @Test
