@@ -37,7 +37,7 @@ class RestaurantMapMigrationTest {
     }
 
     @Test
-    void 기존_데이터와_명시주소를_보존하며_Places_스키마까지_적용한다() {
+    void 기존_데이터와_명시주소를_보존하며_위치확인기록_스키마까지_적용한다() {
         jdbc.update("""
                 INSERT INTO restaurant (id, name, local_name, summary, description, address, area,
                     genre, food_category, place_type, price_currency, price_min, price_max,
@@ -107,6 +107,53 @@ class RestaurantMapMigrationTest {
                 .isEqualTo(2);
         assertThat(places.validateWithResult().validationSuccessful).isTrue();
         assertThat(places.migrate().migrationsExecuted).isZero();
+
+        jdbc.update("""
+                INSERT INTO restaurant_location (id, status, address_revision, request_id, lock_version,
+                    latitude, longitude, source, google_place_id, places_attributions, obtained_at, valid_until)
+                VALUES (1, 'READY', 1, '00000000-0000-0000-0000-000000000001', 0,
+                    35.0, 139.0, 'GOOGLE_GEOCODING', NULL, NULL, '2026-01-01', '2026-01-02'),
+                    (2, 'READY', 1, '00000000-0000-0000-0000-000000000002', 0,
+                    35.1, 139.1, 'GOOGLE_PLACES', 'fixture-place', '[]', '2026-01-01', '2026-01-02'),
+                    (3, 'READY', 1, '00000000-0000-0000-0000-000000000003', 0,
+                    35.2, 139.2, 'ADMIN', NULL, NULL, '2026-01-01', '2026-01-02'),
+                    (4, 'PENDING', 1, '00000000-0000-0000-0000-000000000004', 0,
+                    NULL, NULL, NULL, NULL, NULL, NULL, NULL)
+                """);
+        List<Map<String, Object>> beforeConfirmation = jdbc.queryForList(
+                "SELECT * FROM restaurant_location ORDER BY id");
+        Flyway confirmation = flyway("39.3");
+        assertThat(confirmation.migrate().migrationsExecuted).isEqualTo(1);
+        List<Map<String, Object>> confirmedLocations = jdbc.queryForList(
+                "SELECT * FROM restaurant_location ORDER BY id");
+        assertThat(confirmedLocations).hasSize(beforeConfirmation.size());
+        for (int index = 0; index < beforeConfirmation.size(); index++) {
+            Map<String, Object> previous = beforeConfirmation.get(index);
+            String method = "GOOGLE_GEOCODING".equals(previous.get("source")) ? "AUTOMATIC" : null;
+            assertThat(confirmedLocations.get(index)).containsAllEntriesOf(previous)
+                    .containsEntry("confirmation_method", method)
+                    .containsEntry("confirmed_by_admin_id", null)
+                    .containsEntry("confirmed_at", null)
+                    .containsEntry("confirmed_revision", null);
+        }
+        assertThat(jdbc.queryForList("SELECT * FROM restaurant ORDER BY id")).isEqualTo(beforePlaces);
+        assertThat(jdbc.queryForList("SELECT * FROM restaurant_image")).isEqualTo(images);
+        assertThat(jdbc.queryForList("SELECT * FROM restaurant_menu")).isEqualTo(menus);
+        assertThat(jdbc.queryForList("SELECT * FROM restaurant_hashtag")).isEqualTo(hashtags);
+        for (String change : List.of(
+                "confirmation_method=NULL, confirmed_by_admin_id=7, confirmed_at=NOW(6), confirmed_revision=1",
+                "confirmation_method='ADMIN_PLACE_SELECTION', confirmed_by_admin_id=NULL, confirmed_at=NOW(6), confirmed_revision=1",
+                "confirmation_method='ADMIN_PLACE_SELECTION', confirmed_by_admin_id=7, confirmed_at=NOW(6), confirmed_revision=2")) {
+            assertThatThrownBy(() -> jdbc.update("UPDATE restaurant_location SET " + change + " WHERE id=4"))
+                    .as(change).isInstanceOf(DataAccessException.class)
+                    .hasMessageContaining("chk_location_confirmation");
+        }
+        jdbc.update("""
+                UPDATE restaurant_location SET confirmation_method='ADMIN_PLACE_SELECTION',
+                    confirmed_by_admin_id=7, confirmed_at=NOW(6), confirmed_revision=1 WHERE id=4
+                """);
+        assertThat(confirmation.validateWithResult().validationSuccessful).isTrue();
+        assertThat(confirmation.migrate().migrationsExecuted).isZero();
         validateUpgradedSchema();
     }
 
