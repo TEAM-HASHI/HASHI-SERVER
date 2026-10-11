@@ -15,8 +15,15 @@
 | `PUT /api/v1/admin/map-regions/{code}` | 같은 code의 지역을 생성하거나 전체 설정 교체 |
 | `PUT /api/v1/admin/restaurants/{restaurantId}/map-region` | 식당의 지역 소속 지정·변경·해제 |
 
-목록은 `content`, `page`, `size`, `totalElements`, `totalPages`를 반환한다.
+목록은 `content`, `page`, `size`, `totalCount`, `totalPages`를 반환한다. 총건수 필드명은 다른 ADMIN 목록과 같다.
+`totalCount`는 현재 페이지의 항목 수가 아니라 활성·비활성 지역 전체 개수다.
 page는 0부터 시작하고 size는 1~100이다. 목록이 비어 있으면 빈 content로 성공한다.
+
+등록된 지역이 없을 때 기본 목록 요청의 응답 `data` 예시는 다음과 같다.
+
+```json
+{"content": [], "page": 0, "size": 20, "totalCount": 0, "totalPages": 0}
+```
 
 1. 기획에서 승인한 대표 위치·카메라 범위를 받아 비활성 지역을 등록한다.
 2. 반환된 `mapRegionId`로 식당의 소속을 지정한다. 공개 준비 전인 비활성 지역도 지정할 수 있다.
@@ -102,6 +109,9 @@ cameraBounds는 지역을 눌렀을 때 보여줄 화면이고 자동 소속 판
 서버 조회 세션의 요청 기준 유휴 5분 만료는 시작 시점이 다른 정책이다.
 
 ## 검증
+
+`AdminMapRegionControllerTest`는 실제 Controller·Service와 모킹한 RestaurantPort를 통해
+HTTP 응답의 `totalCount`, 페이지 메타데이터, 빈 목록, `totalElements` 미노출을 확인한다.
 
 `MapRegionAdminIntegrationTest`는 실제 SecurityFilterChain·ADMIN JWT·Controller·Port·Repository와
 Testcontainers MySQL 8.4·Redis를 사용한다. 지역·식당은 합성 데이터다. 반복/동시 upsert, null 해제,

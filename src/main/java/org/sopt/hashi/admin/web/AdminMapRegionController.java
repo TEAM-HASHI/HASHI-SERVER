@@ -43,6 +43,7 @@ public class AdminMapRegionController {
     @GetMapping("/map-regions")
     @Operation(summary = "관광 지역 설정 목록 조회",
             description = "ADMIN 전용입니다. 활성·비활성 지역을 모두 displayOrder, mapRegionId 순으로 반환합니다. "
+                    + "목록은 content, page, size, totalCount, totalPages를 반환하며 totalCount는 전체 지역 수입니다. "
                     + "active=false인 지역은 공개 지역 목록과 지역 필터에서 제외되지만 관리자 목록에는 남습니다.")
     @ApiSuccess(value = CommonSuccessCode.class, codes = "OK")
     @ApiException(value = CommonErrorCode.class, codes = {"INVALID_INPUT", "UNAUTHORIZED", "FORBIDDEN"})

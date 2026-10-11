@@ -138,7 +138,8 @@ class MapRegionAdminIntegrationTest {
                 .isEqualTo(id);
         upsert("DRAFT", body("초안", 1, false));
         JsonNode list = success(admin(get(REGIONS).param("size", "1")));
-        assertThat(list.path("totalElements").asLong()).isEqualTo(2);
+        assertThat(list.path("totalCount").asLong()).isEqualTo(2);
+        assertThat(list.has("totalElements")).isFalse();
         assertThat(list.path("content").get(0).path("code").asText()).isEqualTo("DRAFT");
         assertThat(list.path("content").get(0).path("active").asBoolean()).isFalse();
         assertThat(success(admin(get(REGIONS).param("page", "1").param("size", "1")))
@@ -164,7 +165,8 @@ class MapRegionAdminIntegrationTest {
                 .param("size", Integer.toString(size))));
         assertThat(result.path("content").size()).isZero();
         assertThat(result.path("page").asInt()).isEqualTo(lastValidPage);
-        assertThat(result.path("totalElements").asLong()).isEqualTo(1);
+        assertThat(result.path("totalCount").asLong()).isEqualTo(1);
+        assertThat(result.has("totalElements")).isFalse();
     }
 
     @Test

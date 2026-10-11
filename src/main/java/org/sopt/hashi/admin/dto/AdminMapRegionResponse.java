@@ -36,7 +36,7 @@ public record AdminMapRegionResponse(
             @Schema(description = "현재 페이지의 지역 설정. 비활성 초안도 포함") List<AdminMapRegionResponse> content,
             @Schema(description = "0부터 시작하는 현재 페이지", example = "0") int page,
             @Schema(description = "요청한 페이지 크기", example = "20") int size,
-            @Schema(description = "활성·비활성 지역 전체 개수", example = "3") long totalElements,
+            @Schema(description = "활성·비활성 지역 전체 개수", example = "3") long totalCount,
             @Schema(description = "전체 페이지 수", example = "1") int totalPages) {
         public static Page from(AdminMapRegionInfo.Page info) {
             return new Page(info.content().stream().map(AdminMapRegionResponse::from).toList(),
