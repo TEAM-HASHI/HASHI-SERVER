@@ -138,7 +138,7 @@ class RestaurantMapControllerTest {
     }
 
     @Test
-    void 잘못된_ID는_400이며_지도_페이지_임시_API를_제공하지_않는다() throws Exception {
+    void 잘못된_ID는_공통_400_형식과_보안필터의_no_store를_반환한다() throws Exception {
         for (long invalidId : new long[]{0L, -1L}) {
             mvc.perform(get("/api/v1/restaurants/{restaurantId}/map-location", invalidId))
                     .andExpect(status().isBadRequest())
@@ -152,7 +152,6 @@ class RestaurantMapControllerTest {
                 .andExpect(jsonPath("$.code").value("COMMON-400"))
                 .andExpect(jsonPath("$.data").isEmpty())
                 .andExpect(jsonPath("$.errors").doesNotExist());
-        mvc.perform(get("/api/v1/restaurants/map")).andExpect(status().isNotFound());
     }
 
     @Test

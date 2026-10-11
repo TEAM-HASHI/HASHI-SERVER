@@ -14,7 +14,7 @@ import org.springframework.web.bind.annotation.RestControllerAdvice;
 
 /** Service 본문 밖의 DB/transaction 실패를 지도 조회 503 응답으로 변환한다. */
 @Order(0)
-@RestControllerAdvice(assignableTypes = RestaurantMapController.class)
+@RestControllerAdvice(assignableTypes = {RestaurantMapController.class, RestaurantMapPageController.class})
 public class RestaurantMapExceptionHandler {
 
     @ExceptionHandler({DataAccessException.class, TransactionException.class})

@@ -3,7 +3,7 @@ package org.sopt.hashi.restaurant.domain;
 import java.math.BigDecimal;
 import java.time.Instant;
 
-/** 검색 조건에 맞는 전체 식당 수와 모든 유효 좌표를 포함하는 경계. 검색 결과가 없으면 bounds는 null이다. */
+/** 검색 조건에 맞는 전체 식당 수, 모든 유효 좌표의 경계와 가장 이른 만료. 0건이면 경계와 만료는 null이다. */
 public record MapSearchResultExtent(long totalCount, ResultBounds bounds, Instant earliestValidUntil) {
 
     public MapSearchResultExtent {
@@ -21,10 +21,14 @@ public record MapSearchResultExtent(long totalCount, ResultBounds bounds, Instan
     public record ResultBounds(BigDecimal south, BigDecimal north, BigDecimal west, BigDecimal east) {
 
         public ResultBounds {
-            if (south == null || north == null || west == null || east == null
+            if (!inRange(south, 90) || !inRange(north, 90) || !inRange(west, 180) || !inRange(east, 180)
                     || south.compareTo(north) > 0 || west.compareTo(east) > 0) {
                 throw new IllegalArgumentException("검색 결과 경계가 올바르지 않습니다");
             }
+        }
+
+        private static boolean inRange(BigDecimal value, int maximum) {
+            return value != null && value.abs().compareTo(BigDecimal.valueOf(maximum)) <= 0;
         }
     }
 }
