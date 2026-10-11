@@ -248,14 +248,58 @@ class RestaurantMapFlowIntegrationTest {
         mvc.perform(patch("/api/v1/admin/restaurants/{id}", id)
                         .header("Authorization", "Bearer " + token)
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"address\":\"" + ADDRESS + " 架空ビル2F\",\"geocodingAddress\":\""
-                                + ADDRESS + "\"}"))
-                .andExpect(status().isOk()).andExpect(jsonPath("$.code").value("ADMIN-205"))
+                        .content("{\"name\":\"합성 식당\",\"localName\":\"試験\",\"address\":\"" + ADDRESS
+                                + " 架空ビル1F\",\"geocodingAddress\":\"" + ADDRESS + "\"}"))
+                .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.locationStatus").value("READY"))
                 .andExpect(jsonPath("$.data.addressRevision").value(1));
         assertThat(jdbc.queryForObject("select count(*) from restaurant_location_job where restaurant_id=?",
                 Integer.class, id)).isEqualTo(1);
         verify(google, times(1)).geocode(ADDRESS);
+
+        mvc.perform(patch("/api/v1/admin/restaurants/{id}", id)
+                        .header("Authorization", "Bearer " + token)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"address\":\"" + ADDRESS + " 架空ビル2F\",\"geocodingAddress\":\""
+                                + ADDRESS + "\"}"))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.code").value("ADMIN-205"))
+                .andExpect(jsonPath("$.data.locationStatus").value("PENDING"))
+                .andExpect(jsonPath("$.data.addressRevision").value(2));
+        assertThat(jdbc.queryForObject("select count(*) from restaurant_location_job where restaurant_id=?",
+                Integer.class, id)).isEqualTo(2);
+        verify(google, times(1)).geocode(ADDRESS);
+        mvc.perform(get("/api/v1/admin/restaurants/{id}/location", id)
+                        .header("Authorization", "Bearer " + token))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.confirmationMethod").doesNotExist())
+                .andExpect(jsonPath("$.data.confirmedAt").doesNotExist())
+                .andExpect(jsonPath("$.data.confirmedRevision").doesNotExist());
+        mvc.perform(get("/api/v1/restaurants/{id}/map-location", id))
+                .andExpect(status().isConflict()).andExpect(jsonPath("$.code").value("RESTAURANT-018"));
+        mvc.perform(get("/api/v1/collections/{collectionId}/map-markers", collectionId))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.visibleRestaurantCount").value(1))
+                .andExpect(jsonPath("$.data.locationUnavailableCount").value(1))
+                .andExpect(jsonPath("$.data.content").isEmpty());
+        mvc.perform(get("/api/v1/restaurants/map")
+                        .param("querySessionId", firstPage.path("querySessionId").asText())
+                        .param("sort", "recommend"))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.data.content").isEmpty());
+
+        worker.runOnce();
+        verify(google, times(2)).geocode(ADDRESS);
+        mvc.perform(get("/api/v1/admin/restaurants/{id}/location", id)
+                        .header("Authorization", "Bearer " + token))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.locationStatus").value("READY"))
+                .andExpect(jsonPath("$.data.addressRevision").value(2))
+                .andExpect(jsonPath("$.data.confirmationMethod").value("AUTOMATIC"))
+                .andExpect(jsonPath("$.data.confirmedRevision").value(2));
+        mvc.perform(get("/api/v1/restaurants/{id}/map-location", id))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.data.restaurantId").value(id));
+        mvc.perform(get("/api/v1/restaurants/map")
+                        .param("south", "10").param("north", "11").param("west", "20").param("east", "21"))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.data.content[0].restaurantId").value(id));
         mvc.perform(get("/api/v1/collections/{collectionId}/map-markers", collectionId))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.visibleRestaurantCount").value(1))
@@ -268,7 +312,7 @@ class RestaurantMapFlowIntegrationTest {
                         .content("{\"address\":\"東京都試験区架空町4丁目5番6号\"}"))
                 .andExpect(status().isOk()).andExpect(jsonPath("$.code").value("ADMIN-205"))
                 .andExpect(jsonPath("$.data.locationStatus").value("PENDING"))
-                .andExpect(jsonPath("$.data.addressRevision").value(2));
+                .andExpect(jsonPath("$.data.addressRevision").value(3));
         mvc.perform(get("/api/v1/restaurants/{id}/map-location", id))
                 .andExpect(status().isConflict()).andExpect(jsonPath("$.code").value("RESTAURANT-018"));
         mvc.perform(get("/api/v1/restaurants/map/regions"))

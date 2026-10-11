@@ -1,4 +1,4 @@
-# 지도 프런트 연동 인계 — 2026-10-09
+# 지도 프런트 연동 인계 — 2026-10-11
 
 ## 범위와 기준
 
@@ -62,11 +62,14 @@
 | 다음 시도·시도 횟수 | `nextAttemptAt`, `attempt`. 일시 장애는 서버가 자동 재시도하므로 중복 클릭을 유도하지 않음 |
 | 다시 확인 버튼 | `canRetry=true`일 때 현재 `addressRevision`을 `expectedAddressRevision`으로 전달. 409면 최신 상태를 다시 읽음 |
 | 유효기간 | `validUntil`. 갱신 중에도 아직 유효한 기존 좌표가 남을 수 있으므로 처리 상태만으로 핀 노출을 판단하지 않음 |
+| 확인 방식 | 단건 상태의 `confirmationMethod`: `AUTOMATIC` 또는 `ADMIN_PLACE_SELECTION`. 좌표 제공자인 `source`와 구분 |
+| 관리자 확인 기록 | 단건 상태의 `confirmedByAdminId`, `confirmedAt`, `confirmedRevision`. 관리자 ID는 서버 인증 정보에서 기록. 선택 접수 시각은 좌표 취득 완료 시각과 다르며 과거 기록은 null일 수 있음 |
 
 관리자 등록·수정 외에 다음 API를 제공한다.
 
 | API | 사용 방법 |
 |---|---|
+| `POST /api/v1/admin/restaurants/location-preview` | 등록 전 `name`, `localName`, `address`, 선택 `geocodingAddress`로 후보 검색. 식당 ID가 필요 없으며 식당을 저장하지 않음 |
 | `GET /api/v1/admin/restaurants/locations` | 기본으로 `REVIEW_REQUIRED` 식당을 ID 오름차순으로 조회. `status`, 선택 `source`, `page`(0부터 시작, 기본 0), `size`(기본 20, 1~100)를 사용 |
 | `GET /api/v1/admin/restaurants/{id}/location` | 수정 화면에서 해당 식당의 최신 상태와 주소 변경 번호를 확인 |
 | `POST /api/v1/admin/restaurants/{id}/location/retry` | `canRetry`와 최신 `addressRevision`을 확인한 뒤 재처리 |
@@ -77,10 +80,31 @@
 한 응답의 목록과 총건수는 같은 DB 스냅샷에서 읽지만 여러 페이지 사이의 상태를 고정하지 않는다.
 주소 보완·재처리 뒤에는 현재 페이지를 다시 읽고, 상태 변경으로 페이지가 비었다면 이전 페이지나 첫 페이지로 이동한다.
 ADMIN 권한이 필요하고 응답은 캐시하지 않는다. 일반 지도 목록의 cursor 계약과 구분한다.
+확인 방식과 관리자 확인 기록은 단건 `GET /{id}/location`에서 읽는다. 위치 검토 목록에는 포함되지 않는다.
 시설 내부 매장은 `READY`여도 실제 매장 위치와 다를 수 있으므로 `status=READY&source=GOOGLE_GEOCODING`으로도 점검할 수 있다.
 후보 선택은 `READY`, `REVIEW_REQUIRED`, `FAILED`, `RETRY_WAIT`에서 사용할 수 있다. `PENDING`이면 처리 결과를 기다린다.
 선택 토큰은 10분 동안만 유효하며 다른 식당·이전 주소 상태에 재사용할 수 없다. 400이면 후보를 다시 검색하고,
 409이면 최신 상태를 읽은 뒤 다음 동작을 정한다. 자세한 오류와 예시는 [Places 선택 계약](./place-selection.md)을 따른다.
+
+### 등록 전 후보 선택과 입력 변경
+
+1. 미리보기는 현지명과 `geocodingAddress`로 검색하며 기본 주소가 없으면 표시 주소를 사용한다.
+   후보의 이름·지점·주소·지도 위치를 확인한 뒤 `selectionToken`을 등록 요청의 `locationSelectionToken`으로 보낸다.
+2. 토큰은 같은 관리자가 같은 네 입력으로 10분 안에 사용할 수 있다. 이름·현지명·표시 주소·기본 주소를 바꾸면 다시 검색한다.
+   등록 전 토큰과 기존 식당의 선택 토큰을 서로 바꾸어 사용할 수 없으며, 원문 Place ID나 좌표를 등록 값으로 보내지 않는다.
+3. 토큰 변조·만료는 400, 관리자·입력 불일치는 409다. 토큰 검증이 실패하면 식당과 작업 모두 저장되지 않는다.
+   후보 없음은 200과 `candidates=[]`, 예산 소진은 429, 설정 문제는 503, Google 조회 실패는 502로 구분한다.
+4. 후보가 없거나 선택을 생략해도 토큰 없이 등록할 수 있다. 이때 기존 주소 자동 확인을 요청한다.
+   토큰을 보내면 선택한 매장의 Details 작업만 등록하며 등록 transaction에서 Google을 호출하지 않는다.
+   `201/PENDING`은 접수 성공이며 worker 완료 전에는 새 핀을 표시하지 않는다. Details가 승인된 뒤 `source=GOOGLE_PLACES`가 된다.
+5. 후보와 선택 토큰은 화면에서만 일시적으로 보관하고 영구 저장소나 로그에 남기지 않는다.
+
+저장된 식당의 이름·현지명·표시 주소·위치 확인 입력이 실제로 달라지면 기존 좌표와 확인 기록을 지우고
+`addressRevision`을 올려 다시 확인한다. 같은 기본 주소를 보내면서 층수만 바꾸어도 해당한다.
+`addressRevision`이라는 응답 이름은 호환을 위해 유지하지만 의미는 위치 확인 기준 정보의 변경 번호다.
+값이 그대로인 PATCH나 가격·소개만 수정하는 요청은 위치 확인에 영향을 주지 않는다.
+같은 매장의 정기 갱신은 유효한 기존 핀과 관리자 선택 기록을 보존한다. 관리자 후보 선택 기록만으로
+위치 확인 완료를 표시하거나 `source`를 자체 좌표로 바꾸지 않는다.
 
 `REVIEW_REQUIRED`는 같은 주소를 자동으로 반복 호출하지 않는다. 관리자가 실제 지점과 주소를 확인해
 위치 확인용 주소를 보완하거나 재처리를 요청한다. 식당이나 컬렉션 저장 관계를 삭제하지 않는다.

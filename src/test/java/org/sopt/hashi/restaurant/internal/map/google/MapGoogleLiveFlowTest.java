@@ -178,13 +178,14 @@ class MapGoogleLiveFlowTest {
                         .header("Authorization", "Bearer " + token)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
-                                {"address":"東京都新宿区西新宿2丁目8番1号 架空ビル2F",
+                                {"name":"합성 식당","localName":"試験",
+                                 "address":"東京都新宿区西新宿2丁目8番1号 架空ビル1F",
                                  "geocodingAddress":"東京都新宿区西新宿2丁目8番1号"}
                                 """))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.code").value("ADMIN-205"))
                 .andExpect(jsonPath("$.data.address")
-                        .value("東京都新宿区西新宿2丁目8番1号 架空ビル2F"))
+                        .value("東京都新宿区西新宿2丁目8番1号 架空ビル1F"))
                 .andExpect(jsonPath("$.data.geocodingAddress")
                         .value("東京都新宿区西新宿2丁目8番1号"))
                 .andExpect(jsonPath("$.data.locationStatus").value("READY"))
