@@ -199,7 +199,8 @@
 
 - **MUST**: `auth`는 `@Modulithic(sharedModules = "auth")`로 등록한다(횡단 관심사).
 - **MUST**: 인증 **강제**는 Spring Security 필터 체인이 담당한다. 도메인 모듈은 `auth.internal`을 import하지 않고, `auth`가 공개한 `CurrentUserProvider`로 현재 사용자를 읽는다(`SecurityContextHolder` 직접 접근 금지). actor 유형까지 필요한 media는 현재 공개 지점인 `CurrentActorProvider`를 사용한다.
-- **MUST**: 의존 방향은 **도메인 → auth**다. 현재 공개 지점은 `CurrentUserProvider`, `CurrentActorProvider`, `AuthAccountPort`다. **`auth`는 어떤 도메인 모듈도 되참조하지 않는다**(순환 방지). auth가 도메인을 관찰해야 하면 **이벤트**로 붙이되, 회원 삭제와 인증 계정 정리처럼 **함께 커밋돼야 하는** 처리는 도메인이 `AuthAccountPort`를 호출한다(탈퇴 — `auth.md` §3). 상세는 `auth.md` §1 참조.
+- **MUST**: 의존 방향은 **도메인 → auth**다. 현재 공개 지점은 `CurrentUserProvider`, `CurrentActorProvider`, `AuthAccountPort`, `AdminAccountPort`다. **`auth`는 어떤 도메인 모듈도 되참조하지 않는다**(순환 방지). auth가 도메인을 관찰해야 하면 **이벤트**로 붙이되, 회원 삭제와 인증 계정 정리처럼 **함께 커밋돼야 하는** 처리는 도메인이 `AuthAccountPort`를 호출한다(탈퇴 — `auth.md` §3). 상세는 `auth.md` §1 참조.
+- **MUST**: `AdminAccountPort`는 관리자 화면의 확인자 표시에만 사용하는 읽기 전용 capability다. `admin` 진입점이 저장된 관리자 ID 목록으로 현재 로그인 ID를 일괄 조회하며, 포트도 ADMIN 인증을 확인한다. 계정 엔티티·비밀번호는 공개하지 않고 없는 계정은 제외한다. 회원 계정 연결·탈퇴를 담당하는 `AuthAccountPort`와 구분한다.
 - **MUST NOT**: 도메인 모듈이 인증 로직을 직접 구현하지 않는다.
 - **MUST**: `admin`은 진입점 모듈로, **도메인 로직을 두지 않는다.** 각 컨텍스트의 `Port`로 위임만 한다.
 - **MUST NOT**: `admin`이 타 모듈의 `internal`/Repository/엔티티에 직접 접근하지 않는다.
@@ -232,7 +233,7 @@ review → restaurant, reservation, point, user   (작성자 닉네임·프사 e
 reservation → restaurant, user, point           (user의 WithdrawalBlocker 구현 포함 — 탈퇴 조건)
 magazine → restaurant                (관련 식당 큐레이션, 매핑 테이블 + RestaurantPort)
 user → restaurant, media, auth       (식당 컬렉션 — 저장 식당 매핑 테이블 + RestaurantPort enrich, 대표 이미지 MediaPort; AuthAccountPort로 온보딩 계정 연결·탈퇴 계정 정리)
-admin → restaurant, magazine, reservation, user
+admin → restaurant, magazine, reservation, user, auth (AdminAccountPort로 확인자 표시용 로그인 ID 일괄 조회)
 upload → shared (FileStorage)         (지원 모듈; 도메인 모듈 의존 없음)
 콘텐츠 도메인 → media (MediaPort)    (일반 요청의 asset 검증, claim, role별 bulk 조회)
 도메인 backfill runner → media (MediaBackfillPort) (migration 전용 READY asset 연결)
