@@ -33,7 +33,7 @@ class CollectionVersionMigrationTest {
                 .locations("classpath:db/migration").validateOnMigrate(true).load();
         latest.migrate();
         assertThat(latest.validateWithResult().validationSuccessful).isTrue();
-        assertThat(latest.info().current().getVersion().getVersion()).isEqualTo("41");
+        assertThat(latest.info().pending()).isEmpty();
         try (var connection = DriverManager.getConnection(MYSQL.getJdbcUrl(), MYSQL.getUsername(), MYSQL.getPassword());
              var statement = connection.createStatement();
              var result = statement.executeQuery("select name,description,collection_version,"

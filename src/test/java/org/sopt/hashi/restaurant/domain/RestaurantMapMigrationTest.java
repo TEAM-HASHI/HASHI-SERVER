@@ -6,10 +6,13 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import java.util.List;
 import java.util.Map;
 import org.flywaydb.core.Flyway;
+import org.flywaydb.core.api.FlywayException;
 import org.hibernate.boot.MetadataSources;
 import org.hibernate.boot.registry.StandardServiceRegistryBuilder;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.dao.DataAccessException;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.datasource.DriverManagerDataSource;
@@ -250,6 +253,71 @@ class RestaurantMapMigrationTest {
         for (Map<String, Object> column : columns) {
             assertThat(((Number) column.get("numeric_scale")).intValue()).isEqualTo(6);
         }
+    }
+
+    @Test
+    void 지역_코드_제약을_강화해도_정상행과_JPA_스키마는_보존하고_줄바꿈_쓰기를_거절한다() {
+        flyway("41").migrate();
+        for (String code : List.of("A", "AREA_1", "A" + "1_".repeat(19) + "1")) {
+            insertRegion(code);
+        }
+        List<Map<String, Object>> previous = jdbc.queryForList("SELECT * FROM map_region ORDER BY id");
+
+        Flyway migration = flyway("42");
+        assertThat(migration.migrate().migrationsExecuted).isEqualTo(1);
+        assertThat(migration.info().current().getVersion().getVersion()).isEqualTo("42");
+        assertThat(jdbc.queryForList("SELECT * FROM map_region ORDER BY id")).isEqualTo(previous);
+        assertThat(migration.validateWithResult().validationSuccessful).isTrue();
+        assertThat(migration.migrate().migrationsExecuted).isZero();
+        validateUpgradedSchema();
+
+        for (String code : List.of("B", "AREA_2", "B" + "9_".repeat(19) + "9")) {
+            insertRegion(code);
+        }
+        List<Map<String, Object>> validRows = jdbc.queryForList("SELECT * FROM map_region ORDER BY id");
+        assertThat(validRows).hasSize(6);
+        for (String code : List.of("AREA\n", "AREA\r", "AREA\r\n", "AREA\t")) {
+            assertThatThrownBy(() -> insertRegion(code))
+                    .isInstanceOf(DataAccessException.class).hasMessageContaining("chk_map_region_code");
+            assertThatThrownBy(() -> jdbc.update("UPDATE map_region SET code=? WHERE id=1", code))
+                    .isInstanceOf(DataAccessException.class).hasMessageContaining("chk_map_region_code");
+        }
+        assertThat(jdbc.queryForList("SELECT * FROM map_region ORDER BY id")).isEqualTo(validRows);
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"AREA\n", "AREA\r", "AREA\r\n"})
+    void 기존_불량_지역_코드가_있으면_자동변경_없이_마이그레이션을_거절한다(String code) {
+        flyway("41").migrate();
+        insertRegion("KEEP_1");
+        insertRegion(code);
+        List<Map<String, Object>> previous = jdbc.queryForList("SELECT * FROM map_region ORDER BY id");
+        String previousCheck = regionCodeCheck();
+
+        assertThatThrownBy(() -> flyway("42").migrate())
+                .isInstanceOf(FlywayException.class).hasMessageContaining("chk_map_region_code");
+
+        assertThat(jdbc.queryForList("SELECT * FROM map_region ORDER BY id")).isEqualTo(previous);
+        assertThat(regionCodeCheck()).isEqualTo(previousCheck);
+        assertThat(jdbc.queryForObject("""
+                SELECT COUNT(*) FROM flyway_schema_history WHERE version='42' AND success=TRUE
+                """, Integer.class)).isZero();
+    }
+
+    private void insertRegion(String code) {
+        jdbc.update("""
+                INSERT INTO map_region (code, name, cluster_latitude, cluster_longitude,
+                    south, north, west, east, display_order, created_at, updated_at)
+                VALUES (?, 'synthetic region', 10, 20, 10, 11, 20, 21, 0,
+                    '2026-01-01 00:00:00', '2026-01-01 00:00:00')
+                """, code);
+    }
+
+    private String regionCodeCheck() {
+        return jdbc.queryForObject("""
+                SELECT check_clause FROM information_schema.check_constraints
+                WHERE constraint_schema=DATABASE() AND constraint_name='chk_map_region_code'
+                """, String.class);
     }
 
     private Flyway flyway(String target) {
