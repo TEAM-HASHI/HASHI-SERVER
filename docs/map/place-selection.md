@@ -98,9 +98,11 @@ provider API key를 재사용하지 않는다.
 
 ## 위치 확인 기록과 변경
 
-좌표 제공자인 `source`와 확인 방식인 `confirmationMethod`는 별개다. 관리자가 Places 매장을 골라도
-source는 `GOOGLE_PLACES`이며 자체 좌표로 바뀌지 않는다. `ADMIN_PLACE_SELECTION`, 인증 관리자 ID,
-선택 접수 시각, 당시 revision을 기록한다. 접수 시각은 Google 좌표 취득 완료 시각과 다르다.
+좌표 제공자인 `source`와 확인 방식인 `confirmationMethod`는 별개다. 관리자 선택 직후 `source`는 null이고,
+Places Details 검증에 성공해 좌표를 저장하면 `GOOGLE_PLACES`가 된다. 관리자 확인으로 자체 좌표로 바뀌지는 않는다.
+`confirmationMethod=ADMIN_PLACE_SELECTION`, `confirmedByAdminId`(인증 관리자 ID),
+`confirmedAt`(선택 접수 시각), `confirmedRevision`(당시 revision)을 기록한다.
+접수 시각은 Google 좌표 취득 완료 시각과 다르다.
 현재 위치 상태 조회에서 이 값과 `locationStatus`를 함께 확인한다. PENDING이면 지도에 새 핀을 표시하지 않는다.
 
 Geocoding의 자동 채택은 `AUTOMATIC`으로 기록한다. 기존 데이터에서 알 수 없는 관리자나 확인 시각을

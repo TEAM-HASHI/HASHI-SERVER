@@ -380,7 +380,8 @@ public class AdminRestaurantController {
             직전 후보 검색 응답의 addressRevision을 요청의 expectedAddressRevision으로 전달하고,
             선택한 후보의 selectionToken으로 한 후보를 선택합니다.
             토큰을 수정했거나 만료됐으면 400, 다른 관리자·변경된 식당 정보·현재 작업·상태이거나 PENDING이면 409입니다.
-            서버 인증 정보로 선택 관리자·선택 시각·확인 방식·당시 revision을 기록합니다. 좌표 출처는 GOOGLE_PLACES입니다.
+            서버 인증 정보로 선택 관리자·선택 시각·확인 방식·당시 revision을 기록합니다.
+            선택 직후 source는 null이며, Places Details 검증에 성공해 좌표를 저장하면 GOOGLE_PLACES가 됩니다.
             선택 즉시 기존 승인 좌표를 제거하고 새 PLACE_DETAILS 작업을 PENDING으로 등록합니다.
             200 응답은 선택 저장과 작업 등록 성공을 뜻하며 Places 상세 확인 완료를 뜻하지 않습니다.
             locationStatus를 다시 조회해 READY와 validUntil을 확인하세요.
