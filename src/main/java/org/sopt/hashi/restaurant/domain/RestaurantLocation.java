@@ -76,6 +76,20 @@ public class RestaurantLocation extends BaseTimeEntity {
     @Column(name = "next_attempt_at")
     private LocalDateTime nextAttemptAt;
 
+    @Enumerated(EnumType.STRING)
+    @Column(name = "confirmation_method", length = 30)
+    private LocationConfirmationMethod confirmationMethod;
+
+    @Column(name = "confirmed_by_admin_id")
+    private Long confirmedByAdminId;
+
+    @JdbcTypeCode(SqlTypes.LOCAL_DATE_TIME)
+    @Column(name = "confirmed_at")
+    private LocalDateTime confirmedAt;
+
+    @Column(name = "confirmed_revision")
+    private Long confirmedRevision;
+
     @Version
     @Column(name = "lock_version", nullable = false)
     private long lockVersion;
@@ -125,6 +139,16 @@ public class RestaurantLocation extends BaseTimeEntity {
         beginPending();
     }
 
+    void confirmPlaceSelection(Long adminId, LocalDateTime confirmedAt) {
+        if (adminId == null || adminId < 1) {
+            throw new IllegalArgumentException("유효한 관리자 ID가 필요합니다");
+        }
+        this.confirmationMethod = LocationConfirmationMethod.ADMIN_PLACE_SELECTION;
+        this.confirmedByAdminId = adminId;
+        this.confirmedAt = toMicros(confirmedAt);
+        this.confirmedRevision = addressRevision;
+    }
+
     boolean beginScheduledRetry(Clock clock) {
         boolean due = status == RestaurantLocationStatus.RETRY_WAIT
                 && !utcNow(clock).isBefore(nextAttemptAt);
@@ -172,6 +196,11 @@ public class RestaurantLocation extends BaseTimeEntity {
         this.placesAttributions = placesAttributions == null ? null : List.copyOf(placesAttributions);
         this.obtainedAt = obtained;
         this.validUntil = until;
+        if (confirmationMethod == null && source == RestaurantLocationSource.GOOGLE_GEOCODING) {
+            this.confirmationMethod = LocationConfirmationMethod.AUTOMATIC;
+            this.confirmedAt = obtained;
+            this.confirmedRevision = addressRevision;
+        }
         this.status = RestaurantLocationStatus.READY;
         return true;
     }
@@ -239,6 +268,10 @@ public class RestaurantLocation extends BaseTimeEntity {
         this.placesAttributions = null;
         this.obtainedAt = null;
         this.validUntil = null;
+        this.confirmationMethod = null;
+        this.confirmedByAdminId = null;
+        this.confirmedAt = null;
+        this.confirmedRevision = null;
     }
 
     private static LocalDateTime utcNow(Clock clock) {

@@ -48,11 +48,7 @@ public class PlacesLocationTransactions {
         if (query.isEmpty() || query.codePointCount(0, query.length()) > PlacesProvider.MAX_SEARCH_QUERY_LENGTH) {
             throw new BusinessException(CommonErrorCode.INVALID_INPUT);
         }
-        var budget = budgets.findByOperationForUpdate(Operation.SEARCH).orElse(null);
-        // Read the clock after waiting for the shared budget lock, so minute/day counters use admission time.
-        if (budget == null || !budget.reserve(now())) {
-            throw new BusinessException(RestaurantErrorCode.PLACES_BUDGET_EXHAUSTED);
-        }
+        reserveSearchBudget();
         return new SearchContext(restaurant.getId(), location.getAddressRevision(), location.getRequestId(),
                 query);
     }
@@ -71,7 +67,7 @@ public class PlacesLocationTransactions {
 
     @Transactional(propagation = Propagation.REQUIRES_NEW, isolation = Isolation.READ_COMMITTED)
     public Restaurant select(Long restaurantId, long expectedAddressRevision, UUID expectedRequestId,
-                             String googlePlaceId) {
+                             String googlePlaceId, Long adminId) {
         Restaurant restaurant = activeForUpdate(restaurantId);
         RestaurantLocation location = requireSelectable(restaurant, expectedAddressRevision);
         if (!location.getRequestId().equals(expectedRequestId)) {
@@ -80,8 +76,18 @@ public class PlacesLocationTransactions {
         LocalDateTime now = now();
         jobs.findActiveForUpdate(restaurantId).forEach(job -> job.supersede(now));
         restaurant.selectPlaceForLocation();
+        restaurant.confirmPlaceSelection(adminId, now);
         jobs.save(RestaurantLocationJob.pendingDetails(restaurant, googlePlaceId, now));
         return restaurant;
+    }
+
+    @Transactional(propagation = Propagation.REQUIRES_NEW, isolation = Isolation.READ_COMMITTED)
+    public void reservePreviewSearch(String query) {
+        if (query == null || query.isBlank()
+                || query.codePointCount(0, query.length()) > PlacesProvider.MAX_SEARCH_QUERY_LENGTH) {
+            throw new BusinessException(CommonErrorCode.INVALID_INPUT);
+        }
+        reserveSearchBudget();
     }
 
     @Transactional(propagation = Propagation.REQUIRES_NEW, isolation = Isolation.READ_COMMITTED)
@@ -89,6 +95,14 @@ public class PlacesLocationTransactions {
         var budget = budgets.findByOperationForUpdate(Operation.SEARCH).orElse(null);
         if (budget != null) {
             budget.blockUntil(now().plusMinutes(1));
+        }
+    }
+
+    private void reserveSearchBudget() {
+        var budget = budgets.findByOperationForUpdate(Operation.SEARCH).orElse(null);
+        // Read after the budget lock: a waiter may have crossed the minute/day boundary.
+        if (budget == null || !budget.reserve(now())) {
+            throw new BusinessException(RestaurantErrorCode.PLACES_BUDGET_EXHAUSTED);
         }
     }
 

@@ -15,8 +15,9 @@ Google의 위치 확인 성공을 뜻하지 않는다.
 - 표시 주소를 바꾸면서 `geocodingAddress`를 생략하면 과거 기본 주소를 자동으로 신뢰하지 않고 삭제한다.
   새 표시 주소가 fallback 입력이 되며, 이전 위치 작업과 결과는 새 revision에 적용되지 않는다.
 - 표시 주소를 바꿔도 같은 기본 주소를 유지하려면 응답의 `geocodingAddress`를 수정 요청에 함께 보낸다.
-- 변경 전후 실제 provider 입력(`geocodingAddress`, 없으면 `address`)이 달라질 때만 `addressRevision`이 증가하고
-  위치 확인을 다시 시작한다. 같은 명시 base를 유지한 건물명·층수 표시 수정은 기존 좌표와 진행 중 작업을 보존한다.
+- 이름·현지명·표시 주소 또는 실제 위치 확인 입력이 바뀌면 `addressRevision`이 증가하고 다시 확인한다.
+  같은 기본 주소를 보내도 건물명·층 등 표시 주소가 바뀌면 기존 핀과 확인 기록을 지운다.
+  같은 값을 다시 보내거나 가격·소개만 바꾸는 요청은 기존 좌표와 진행 중 작업을 보존한다.
 
 - `GET /api/v1/admin/restaurants/{id}/location`: 200 `COMMON-200`.
 - `POST /api/v1/admin/restaurants/{id}/location/retry`: body `{"expectedAddressRevision":1}`,
@@ -29,7 +30,10 @@ Google의 위치 확인 성공을 뜻하지 않는다.
 - 세 경로 모두 기존 SecurityFilterChain의 ADMIN 권한을 사용한다. 삭제/없는 식당은 `RESTAURANT-004`.
 - 시설 후보 검색과 선택, Place ID 결합, 별도 SEARCH/DETAILS 예산은 [Places 후보 선택](place-selection.md)을 따른다.
 - 상태 응답: `restaurantId`, `locationStatus`, `addressRevision`, `source`, `verificationMode`, `validUntil`, `attempt`,
-  `nextAttemptAt`, `failureCode`, `canRetry`. 시각은 UTC ISO-8601, Cache-Control은 no-store.
+  `nextAttemptAt`, `failureCode`, `canRetry`, `confirmationMethod`, `confirmedByAdminId`, `confirmedAt`,
+  `confirmedRevision`. 시각은 UTC ISO-8601, Cache-Control은 no-store.
+  Places 선택의 `confirmedAt`은 관리자 선택 접수 시각이며 좌표 취득 완료를 뜻하지 않는다. 선택 직후 `source`는 null이고,
+  Places Details 검증에 성공해 좌표를 저장하면 `GOOGLE_PLACES`가 된다.
 - UNRESOLVED의 revision은 0, attempt는 0이다. PENDING 재처리는 기존 작업을 반환한다.
   READY는 갱신 API 범위이며 일반 재처리로 받지 않는다. 좌표/주소/provider 원문/lease는 반환하지 않는다.
 
@@ -116,6 +120,6 @@ worker를 켰으나 지원 범위/보관 기간이 없거나 유효하지 않으
 - 자동 시도 기본값을 4회에서 최초 요청 포함 8회로 바꿨다. 일정은 위 표를 따르며 오류가 영구적이면 즉시 중단한다.
 - 마지막 취소 응답도 재시도 대기에 남기지 않고 실패로 끝낸다. 전송 중인 요청의 실행 예약은 lease까지 남겨 중복 호출을 막는다.
 - 정기 갱신 스케줄과 Grafana 알림은 #235에서 연결한다. 위치 V38, 작업 V39, 선택 위치 확인 주소 V39.1,
-  Places 결합 V39.2 순서로 적용한다. develop에 병합된 V32·V36·V36.1·V37과 다른 담당자의 PR은 수정하지 않는다.
+  Places 결합 V39.2, 위치 확인 기록 V39.3 순서로 적용한다. develop에 병합된 V32·V36·V36.1·V37과 다른 담당자의 PR은 수정하지 않는다.
 - 전역 호출 중단·일일 한도 소진·공유 대기·실행 슬롯 포화는 후보 조회 전에 읽기 전용으로 확인한다. 실제 예약 시에는 잠금 안에서 다시 검사한다.
   다만 이미 시도를 소진한 만료 작업과 설정 오류는 Google 호출 없이 실패로 정리한다. 호출 대기 작업이 많아도 소진 작업이 밀리지 않도록 별도로 조회한다.

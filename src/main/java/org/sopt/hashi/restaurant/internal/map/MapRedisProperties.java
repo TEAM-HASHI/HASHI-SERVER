@@ -22,10 +22,19 @@ public class MapRedisProperties {
     private String password;
     private String connectTimeout = "2s";
     private String timeout = "3s";
+    private String mode = "dedicated";
+
+    boolean shared() {
+        if (!"dedicated".equals(mode) && !"shared".equals(mode)) {
+            throw new BusinessException(RestaurantErrorCode.MAP_SESSION_UNAVAILABLE);
+        }
+        return "shared".equals(mode);
+    }
 
     /** 먼저 문자열로 바인딩해 지도 설정 오타가 다른 API의 시작을 막지 않게 한다. */
     ConnectionSettings requireConfiguration() {
         try {
+            shared();
             int parsedPort = Integer.parseInt(port.strip());
             Duration parsedConnectTimeout = DurationStyle.detectAndParse(connectTimeout.strip());
             Duration parsedTimeout = DurationStyle.detectAndParse(timeout.strip());

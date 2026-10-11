@@ -3,6 +3,7 @@ package org.sopt.hashi.restaurant.internal.map;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.Timer;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Supplier;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
@@ -15,12 +16,21 @@ public class MapCapacityMetrics {
     static final String STAGE_DURATION_METRIC = "hashi.restaurant.map.stage.duration";
 
     private final MeterRegistry registry;
+    private final AtomicLong lastRecoveryWarning = new AtomicLong();
 
     public MapCapacityMetrics(MeterRegistry registry) {
         this.registry = registry;
     }
 
     public void rejected(Reason reason) {
+        if (reason == Reason.REDIS_RECOVERY) {
+            long now = System.currentTimeMillis();
+            long previous = lastRecoveryWarning.get();
+            if (now - previous >= 60_000 && lastRecoveryWarning.compareAndSet(previous, now)) {
+                log.warn("Map shared Redis accounting is recovering; initial or missing metadata "
+                        + "blocks map sessions for up to 30 minutes. Authentication keys are unchanged.");
+            }
+        }
         try {
             registry.counter(REJECTION_METRIC, "reason", reason.tag).increment();
         } catch (RuntimeException exception) {
@@ -83,7 +93,9 @@ public class MapCapacityMetrics {
         CALLER_RATE("caller_rate"),
         CALLER_CARDINALITY("caller_cardinality"),
         GLOBAL_REQUESTS("global_requests"),
-        REDIS_MEMORY_GUARD("redis_memory_guard");
+        REDIS_MEMORY_GUARD("redis_memory_guard"),
+        REDIS_RECOVERY("redis_recovery"),
+        REDIS_ACCOUNTING("redis_accounting");
 
         private final String tag;
 

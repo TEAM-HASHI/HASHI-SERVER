@@ -2,6 +2,8 @@ package org.sopt.hashi.admin.service;
 
 import java.util.List;
 import org.sopt.hashi.admin.dto.AdminRestaurantResponse;
+import org.sopt.hashi.admin.dto.PreviewRestaurantLocationRequest;
+import org.sopt.hashi.admin.dto.RestaurantLocationPreviewResponse;
 import org.sopt.hashi.admin.dto.CreateRestaurantRequest;
 import org.sopt.hashi.admin.dto.UpdateRestaurantRequest;
 import org.sopt.hashi.admin.dto.RestaurantLocationResponse;
@@ -33,7 +35,14 @@ public class AdminRestaurantService {
     }
 
     public AdminRestaurantResponse create(CreateRestaurantRequest request) {
-        return AdminRestaurantResponse.from(restaurantPort.createByAdmin(toCommand(request)));
+        AdminRestaurantCommand command = toCommand(request);
+        return AdminRestaurantResponse.from(request.locationSelectionToken() == null
+                ? restaurantPort.createByAdmin(command)
+                : restaurantPort.createByAdmin(command, request.locationSelectionToken()));
+    }
+
+    public RestaurantLocationPreviewResponse previewLocation(PreviewRestaurantLocationRequest request) {
+        return RestaurantLocationPreviewResponse.from(restaurantPort.previewLocationByAdmin(request.toCommand()));
     }
 
     public AdminRestaurantResponse update(Long restaurantId, UpdateRestaurantRequest request) {

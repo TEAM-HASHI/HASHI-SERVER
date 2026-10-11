@@ -51,7 +51,7 @@
 
 `V41__add_collection_version.sql`은 컬렉션에 `collection_version BIGINT NOT NULL DEFAULT 0`을 추가한다.
 이미 병합된 V28/V30 및 `V31__link_magazine_card_news_to_media_assets.sql`은 수정하지 않는다.
-지도 스택의 V38(위치)·V39(작업)·V39.1(기본 주소)·V39.2(Places 선택)·V40(유지보수)를 먼저 적용한 뒤 V41을 적용한다.
+지도 스택의 V38(위치)·V39(작업)·V39.1(기본 주소)·V39.2(Places 선택)·V39.3(위치 확인 기록)·V40(유지보수)를 먼저 적용한 뒤 V41을 적용한다.
 선행 지도 migration이 빠진 환경에 V41을 먼저 배포하거나 `outOfOrder`로 순서를 우회하지 않는다.
 최종 업그레이드 검증은 V40까지 적용한 DB에서 V41을 실행해 기존 컬렉션과 저장 관계의 보존을 확인한다.
 

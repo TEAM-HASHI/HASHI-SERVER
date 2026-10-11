@@ -25,7 +25,7 @@ public record RestaurantLocationReviewResponse(
         @Schema(description = "현재 requestId 작업의 검증 방식",
                 allowableValues = {"GEOCODING", "PLACE_DETAILS"}, example = "PLACE_DETAILS", nullable = true)
         String verificationMode,
-        @Schema(description = "현재 위치 확인 기준 주소의 revision. 재시도 요청의 expectedAddressRevision으로 사용",
+        @Schema(description = "위치 확인 기준 정보 변경 번호(addressRevision). 이름·현지명·표시주소·위치조회주소 변경에 따라 증가. 재시도 요청의 expectedAddressRevision으로 사용",
                 example = "2")
         long addressRevision,
         @Schema(description = "승인 좌표의 유효 기한(UTC). 승인 좌표가 없으면 null", nullable = true)

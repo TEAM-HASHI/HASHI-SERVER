@@ -13,6 +13,8 @@ import org.sopt.hashi.restaurant.AdminRestaurantCommand;
 import org.sopt.hashi.restaurant.AdminMapRegionCommand;
 import org.sopt.hashi.restaurant.AdminMapRegionInfo;
 import org.sopt.hashi.restaurant.AdminRestaurantInfo;
+import org.sopt.hashi.restaurant.RestaurantLocationPreviewCommand;
+import org.sopt.hashi.restaurant.RestaurantPlacesCandidateInfo;
 import org.sopt.hashi.restaurant.RestaurantCardInfo;
 import org.sopt.hashi.restaurant.RestaurantDetailInfo;
 import org.sopt.hashi.restaurant.RestaurantInfo;
@@ -186,6 +188,20 @@ class RestaurantPortImpl implements RestaurantPort {
     @Transactional(isolation = Isolation.READ_COMMITTED)
     public AdminRestaurantInfo createByAdmin(AdminRestaurantCommand command) {
         return restaurantService.createByAdmin(command);
+    }
+
+    @Override
+    @Transactional(isolation = Isolation.READ_COMMITTED)
+    public AdminRestaurantInfo createByAdmin(AdminRestaurantCommand command, String locationSelectionToken) {
+        var selection = requirePlacesLocationService().verifyForCreate(
+                RestaurantLocationPreviewCommand.from(command), locationSelectionToken);
+        return restaurantService.createByAdmin(command, selection);
+    }
+
+    @Override
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
+    public List<RestaurantPlacesCandidateInfo> previewLocationByAdmin(RestaurantLocationPreviewCommand command) {
+        return requirePlacesLocationService().preview(command);
     }
 
     @Override

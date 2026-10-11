@@ -56,6 +56,12 @@ public interface RestaurantPort {
     /** 어드민 식당 등록 — 이미지·메뉴 사진은 업로드 완료된 S3 키로 받는다. */
     AdminRestaurantInfo createByAdmin(AdminRestaurantCommand command);
 
+    /** 등록 전 후보 토큰을 검증한 뒤 식당과 Places 상세 확인 작업을 같은 transaction으로 저장한다. */
+    AdminRestaurantInfo createByAdmin(AdminRestaurantCommand command, String locationSelectionToken);
+
+    /** 식당을 저장하지 않고 후보를 조회한다. 반환 토큰은 입력 네 필드와 인증 관리자에 묶인다. */
+    List<RestaurantPlacesCandidateInfo> previewLocationByAdmin(RestaurantLocationPreviewCommand command);
+
     /**
      * 어드민 식당 수정 — 부분 수정(PATCH). null 필드는 변경하지 않고, 컬렉션은 전체 교체한다.
      * 식당이 없으면 BusinessException(RESTAURANT-004 NOT_FOUND).

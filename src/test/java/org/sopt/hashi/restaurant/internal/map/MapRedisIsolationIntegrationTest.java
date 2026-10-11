@@ -99,6 +99,35 @@ class MapRedisIsolationIntegrationTest {
     }
 
     @Test
+    void 공유모드도_기존_인증배선을_유지하며_지도세션유실이_토큰회전을_변경하지_않는다() {
+        runner().withPropertyValues("hashi.restaurant.map.redis.mode=shared",
+                "hashi.restaurant.map.redis.host=" + AUTH.getHost(),
+                "hashi.restaurant.map.redis.port=" + AUTH.getMappedPort(6379)).run(context -> {
+            assertThat(context).hasSingleBean(RedisConnectionFactory.class).hasSingleBean(StringRedisTemplate.class);
+            var auth = context.getBean(StringRedisTemplate.class);
+            var map = context.getBean(MapRedisConnection.class).template();
+            var store = context.getBean(RedisMapSessionStore.class);
+            var tokens = context.getBean(RefreshTokenStore.class);
+            String shared = "hashi:restaurant:map:{sessions-shared-v3}:";
+            tokens.save("ROLE_USER", 1L, "synthetic-original");
+            assertThatThrownBy(() -> store.admit("warmup", true)).isInstanceOf(BusinessException.class);
+            // 테스트 전용 시각 이동. 제품에는 준비/복구 대기를 우회하는 API가 없다.
+            map.opsForHash().put(shared + "requests", "__readyAt", "0");
+            map.opsForHash().put(shared + "admission", "__readyAt", "0");
+            var session = session(store);
+            var id = store.save(session);
+            assertThat(auth.hasKey(shared + "query:" + id.value())).isTrue();
+            map.delete(shared + "query:" + id.value());
+            assertThatThrownBy(() -> store.find(id)).isInstanceOfSatisfying(BusinessException.class,
+                    exception -> assertThat(exception.getErrorCode()).isEqualTo(RestaurantErrorCode.MAP_SESSION_EXPIRED));
+            tokens.rotate("ROLE_USER", 1L, "synthetic-original", "synthetic-rotated");
+            assertThat(context.getBean("redisTemplate", RedisTemplate.class).opsForValue().get(AUTH_KEY))
+                    .isEqualTo("synthetic-rotated");
+            assertThat(map.getConnectionFactory()).isNotSameAs(auth.getConnectionFactory());
+        });
+    }
+
+    @Test
     void 자동구성은_인증용으로_유지하고_지도키는_별도_Redis에만_저장한다() {
         runner().run(context -> {
             assertThat(context).hasSingleBean(RedisConnectionFactory.class).hasSingleBean(StringRedisTemplate.class);
