@@ -125,6 +125,7 @@ class LocationJobMySqlTest {
     @MockitoBean CurrentActorProvider currentActorProvider;
     @MockitoBean FileStorage fileStorage;
     @MockitoBean RestaurantMapService restaurantMapService;
+    @MockitoBean MapRegionAdminService mapRegionAdminService;
 
     @BeforeEach
     void reset() {

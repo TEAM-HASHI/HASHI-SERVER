@@ -63,6 +63,9 @@ class RestaurantServiceIntegrationTest {
     private RestaurantMapService restaurantMapService;
 
     @MockitoBean
+    private MapRegionAdminService mapRegionAdminService;
+
+    @MockitoBean
     private PlacesLocationService placesLocationService;
 
     @Test
