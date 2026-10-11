@@ -30,10 +30,16 @@ Google의 위치 확인 성공을 뜻하지 않는다.
 - 세 경로 모두 기존 SecurityFilterChain의 ADMIN 권한을 사용한다. 삭제/없는 식당은 `RESTAURANT-004`.
 - 시설 후보 검색과 선택, Place ID 결합, 별도 SEARCH/DETAILS 예산은 [Places 후보 선택](place-selection.md)을 따른다.
 - 상태 응답: `restaurantId`, `locationStatus`, `addressRevision`, `source`, `verificationMode`, `validUntil`, `attempt`,
-  `nextAttemptAt`, `failureCode`, `canRetry`, `confirmationMethod`, `confirmedByAdminId`, `confirmedAt`,
+  `nextAttemptAt`, `failureCode`, `canRetry`, `confirmationMethod`, `confirmedByAdminId`, `confirmedByAdminLoginId`, `confirmedAt`,
   `confirmedRevision`. 시각은 UTC ISO-8601, Cache-Control은 no-store.
   Places 선택의 `confirmedAt`은 관리자 선택 접수 시각이며 좌표 취득 완료를 뜻하지 않는다. 선택 직후 `source`는 null이고,
   Places Details 검증에 성공해 좌표를 저장하면 `GOOGLE_PLACES`가 된다.
+- 상태 조회·재시도·Places 선택 응답과 검토 목록에는 확인자 표시용 `confirmedByAdminLoginId`를 내려준다.
+  `confirmedByAdminId`가 기록의 기준이며 로그인 ID는 그 계정의 현재 값이다. 예를 들어
+  `{"confirmedByAdminId":12,"confirmedByAdminLoginId":"hashi_admin"}`이면 12번 관리자가 확인했다는 뜻이다.
+  자동 확인·과거 확인자 기록 없음·계정 삭제 시 로그인 ID는 null이다. 계정이 삭제돼도 기록된 내부 ID는 유지한다.
+  클라이언트가 확인자 로그인 ID를 보내지 않으며 관리자 응답에만 표시한다. 목록은 페이지의 확인자 ID를 모아
+  한 번에 조회하므로 식당마다 계정을 추가 조회하지 않는다.
 - UNRESOLVED의 revision은 0, attempt는 0이다. PENDING 재처리는 기존 작업을 반환한다.
   READY는 갱신 API 범위이며 일반 재처리로 받지 않는다. 좌표/주소/provider 원문/lease는 반환하지 않는다.
 
