@@ -42,8 +42,12 @@ public class MapRedisConnection {
         try {
             properties.requireConfiguration();
         } catch (BusinessException exception) {
-            log.warn("Map query sessions are enabled but the dedicated Redis configuration is missing or invalid.");
+            log.warn("Map query sessions are enabled but the map Redis configuration is missing or invalid.");
         }
+    }
+
+    boolean shared() {
+        return properties.shared();
     }
 
     /** 첫 유효 요청에서만 초기화하며, 동시 요청이 별도 연결을 중복 생성하지 않는다. */
