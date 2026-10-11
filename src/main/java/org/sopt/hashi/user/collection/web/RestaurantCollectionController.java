@@ -53,7 +53,11 @@ public class RestaurantCollectionController {
         this.savedRestaurantQueryService = savedRestaurantQueryService;
     }
 
-    /** 새 컬렉션 만들기 — 공개 범위(public·private)는 필수다. 같은 이름의 컬렉션이 있으면 USER-007. */
+    /**
+     * 새 컬렉션 만들기 — 공개 범위(public·private)는 필수다.
+     * 이름·설명의 앞뒤 공백은 제거하고 중간 공백은 유지한다. 예: "  도쿄 맛집  " → "도쿄 맛집".
+     * 같은 사용자의 컬렉션 중 공백 제거 후 이름이 중복되면 USER-007(409)이다.
+     */
     @ApiException(value = CommonErrorCode.class, codes = {"INVALID_INPUT", "UNAUTHORIZED", "FORBIDDEN"})
     @ApiException(value = UserErrorCode.class, codes = {"DUPLICATE_COLLECTION_NAME", "UNSUPPORTED_COLLECTION_COLOR",
             "UNSUPPORTED_COLLECTION_VISIBILITY", "COLLECTION_LIMIT_EXCEEDED"})
@@ -88,7 +92,12 @@ public class RestaurantCollectionController {
         return SuccessResponse.of(CommonSuccessCode.OK, restaurantCollectionService.getCollection(collectionId));
     }
 
-    /** 컬렉션 수정(PATCH) — 보낸 필드만 바꾼다. 공유 전 공개 전환도 visibility로 처리한다. */
+    /**
+     * 컬렉션 수정(PATCH) — 생략·null 필드는 유지한다. 공유 전 공개 전환도 visibility로 처리한다.
+     * 이름·설명의 앞뒤 공백은 제거하고 중간 공백은 유지한다. 공백만 있는 이름은 거부한다.
+     * 설명에 빈 문자열이나 공백만 보내면 삭제한다. 같은 이름으로 다시 수정하는 것은 허용하며,
+     * 다른 내 컬렉션과 이름이 중복되면 USER-007(409)이다.
+     */
     @ApiException(value = CommonErrorCode.class, codes = {"INVALID_INPUT", "UNAUTHORIZED", "FORBIDDEN"})
     @ApiException(value = UserErrorCode.class, codes = {"COLLECTION_NOT_FOUND", "DUPLICATE_COLLECTION_NAME",
             "UNSUPPORTED_COLLECTION_COLOR", "UNSUPPORTED_COLLECTION_VISIBILITY"})

@@ -272,47 +272,104 @@ class RestaurantCollectionIntegrationTest {
     }
 
     @Test
-    void 생성과_수정은_이름과_설명의_공백을_보존한다() {
+    void 생성과_수정은_이름과_설명의_앞뒤_공백만_제거한다() {
         User active = saveUser("공백검증회원", "01011110003", "whitespace@hashi.test");
         loginAs(active.getId());
         var created = collectionService.create(new org.sopt.hashi.user.collection.dto.CreateRestaurantCollectionRequest(
-                "  도쿄  ", "red", "   ", "public"));
-        assertThat(created.name()).isEqualTo("  도쿄  ");
-        assertThat(created.description()).isEqualTo("   ");
+                "\u00a0  도쿄  맛집\u3000", "red", "\t 여행  첫날 \u0085", "public"));
+        assertThat(created.name()).isEqualTo("도쿄  맛집");
+        assertThat(created.description()).isEqualTo("여행  첫날");
         var updated = collectionService.update(created.collectionId(),
-                new org.sopt.hashi.user.collection.dto.UpdateRestaurantCollectionRequest("  교토  ", null, "  설명  ", null));
-        assertThat(updated.name()).isEqualTo("  교토  ");
-        assertThat(updated.description()).isEqualTo("  설명  ");
-        assertThat(collectionService.update(created.collectionId(),
-                new org.sopt.hashi.user.collection.dto.UpdateRestaurantCollectionRequest(null, null, "   ", null))
-                .description()).isEqualTo("   ");
+                new org.sopt.hashi.user.collection.dto.UpdateRestaurantCollectionRequest(
+                        "\u3000 교토  맛집\u00a0", null, "\n 첫째  날\u3000", null));
+        assertThat(updated.name()).isEqualTo("교토  맛집");
+        assertThat(updated.description()).isEqualTo("첫째  날");
+        var stored = restaurantCollectionRepository.findById(created.collectionId()).orElseThrow();
+        assertThat(stored.getName()).isEqualTo("교토  맛집");
+        assertThat(stored.getDescription()).isEqualTo("첫째  날");
         assertThat(collectionService.update(created.collectionId(),
                 new org.sopt.hashi.user.collection.dto.UpdateRestaurantCollectionRequest(null, null, null, null))
-                .description()).isEqualTo("   ");
+                .description()).isEqualTo("첫째  날");
+        assertThat(collectionService.update(created.collectionId(),
+                new org.sopt.hashi.user.collection.dto.UpdateRestaurantCollectionRequest(null, null, " \u00a0\u3000 ", null))
+                .description()).isNull();
         assertThat(collectionService.update(created.collectionId(),
                 new org.sopt.hashi.user.collection.dto.UpdateRestaurantCollectionRequest(null, null, "", null))
                 .description()).isNull();
+        assertThat(collectionService.create(new CreateRestaurantCollectionRequest(
+                "설명 없는 컬렉션", "red", " \u00a0\u3000 ", "public")).description()).isNull();
     }
 
     @Test
-    void 공백만인_이름은_거부하고_중복이름은_기존_409를_유지한다() {
+    void 공백만인_이름은_거부하고_앞뒤_공백이_다른_중복이름도_409이다() {
         User active = saveUser("중복검증회원", "01011110004", "duplicate@hashi.test");
         loginAs(active.getId());
-        for (String name : List.of(" ", "\u00a0\u3000", "\n\t")) {
+        var second = collectionService.create(new CreateRestaurantCollectionRequest(
+                "교토", "red", null, "public"));
+        for (String name : List.of("", " ", "\u00a0\u3000", "\n\t", "\u0085")) {
             assertBusinessError(() -> collectionService.create(
                     new org.sopt.hashi.user.collection.dto.CreateRestaurantCollectionRequest(name, "red", null, "public")),
+                    org.sopt.hashi.shared.error.CommonErrorCode.INVALID_INPUT);
+            assertBusinessError(() -> collectionService.update(second.collectionId(),
+                    new org.sopt.hashi.user.collection.dto.UpdateRestaurantCollectionRequest(name, null, null, null)),
                     org.sopt.hashi.shared.error.CommonErrorCode.INVALID_INPUT);
         }
         var first = collectionService.create(new org.sopt.hashi.user.collection.dto.CreateRestaurantCollectionRequest(
                 "  도쿄  ", "red", null, "public"));
-        var second = collectionService.create(new org.sopt.hashi.user.collection.dto.CreateRestaurantCollectionRequest(
-                "교토", "red", null, "public"));
         assertBusinessError(() -> collectionService.create(
-                new org.sopt.hashi.user.collection.dto.CreateRestaurantCollectionRequest("  도쿄  ", "red", null, "public")),
+                new org.sopt.hashi.user.collection.dto.CreateRestaurantCollectionRequest("도쿄\u00a0", "red", null, "public")),
                 UserErrorCode.DUPLICATE_COLLECTION_NAME);
         assertBusinessError(() -> collectionService.update(second.collectionId(),
-                new org.sopt.hashi.user.collection.dto.UpdateRestaurantCollectionRequest(first.name(), null, null, null)),
+                new org.sopt.hashi.user.collection.dto.UpdateRestaurantCollectionRequest("\u3000도쿄", null, null, null)),
                 UserErrorCode.DUPLICATE_COLLECTION_NAME);
+        assertThat(collectionService.update(first.collectionId(),
+                new org.sopt.hashi.user.collection.dto.UpdateRestaurantCollectionRequest(" 도쿄 ", null, null, null))
+                .name()).isEqualTo("도쿄");
+        assertThat(restaurantCollectionRepository.findById(second.collectionId()).orElseThrow().getName())
+                .isEqualTo("교토");
+    }
+
+    @Test
+    void 기존_공백_포함_이름은_자동_수정하지_않고_이름_수정시_중복이면_409이다() {
+        Long legacyId = saveCollection(OWNER_ID, " 도쿄 ", CollectionVisibility.PUBLIC);
+        saveCollection(OWNER_ID, "도쿄", CollectionVisibility.PUBLIC);
+
+        var unchanged = collectionService.update(legacyId,
+                new org.sopt.hashi.user.collection.dto.UpdateRestaurantCollectionRequest(null, "blue", null, null));
+        assertThat(unchanged.name()).isEqualTo(" 도쿄 ");
+        assertBusinessError(() -> collectionService.update(legacyId,
+                new org.sopt.hashi.user.collection.dto.UpdateRestaurantCollectionRequest(" 도쿄 ", null, null, null)),
+                UserErrorCode.DUPLICATE_COLLECTION_NAME);
+        assertThat(restaurantCollectionRepository.findById(legacyId).orElseThrow().getName()).isEqualTo(" 도쿄 ");
+    }
+
+    @Test
+    void 길이_제한은_공백_제거_전_입력에_적용하고_초과하면_기존값을_유지한다() {
+        User active = saveUser("길이검증회원", "01011110005", "length@hashi.test");
+        loginAs(active.getId());
+        String maxName = "가".repeat(20);
+        String maxDescription = "나".repeat(100);
+        var created = collectionService.create(new CreateRestaurantCollectionRequest(
+                maxName, "red", maxDescription, "public"));
+        assertThat(created.name()).isEqualTo(maxName);
+        assertThat(created.description()).isEqualTo(maxDescription);
+        assertBusinessError(() -> collectionService.create(new CreateRestaurantCollectionRequest(
+                " " + maxName, "red", null, "public")),
+                org.sopt.hashi.shared.error.CommonErrorCode.INVALID_INPUT);
+        assertBusinessError(() -> collectionService.create(new CreateRestaurantCollectionRequest(
+                "긴 설명", "red", maxDescription + " ", "public")),
+                org.sopt.hashi.shared.error.CommonErrorCode.INVALID_INPUT);
+        assertBusinessError(() -> collectionService.update(created.collectionId(),
+                new org.sopt.hashi.user.collection.dto.UpdateRestaurantCollectionRequest(
+                        maxName + " ", null, null, null)),
+                org.sopt.hashi.shared.error.CommonErrorCode.INVALID_INPUT);
+        assertBusinessError(() -> collectionService.update(created.collectionId(),
+                new org.sopt.hashi.user.collection.dto.UpdateRestaurantCollectionRequest(
+                        "새 이름", null, " " + maxDescription, null)),
+                org.sopt.hashi.shared.error.CommonErrorCode.INVALID_INPUT);
+        var stored = restaurantCollectionRepository.findById(created.collectionId()).orElseThrow();
+        assertThat(stored.getName()).isEqualTo(maxName);
+        assertThat(stored.getDescription()).isEqualTo(maxDescription);
     }
 
     @Test
