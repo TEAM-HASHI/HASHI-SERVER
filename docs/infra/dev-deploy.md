@@ -132,6 +132,14 @@ GRAFANA_ADMIN_PASSWORD
 GRAFANA_ADMIN_USER
 HASHI_RESTAURANT_MAP_SESSION_ENABLED
 HASHI_RESTAURANT_MAP_SESSION_SIGNINGKEY
+HASHI_RESTAURANT_MAP_REDIS_MODE
+HASHI_RESTAURANT_MAP_REDIS_HOST
+HASHI_RESTAURANT_MAP_REDIS_PORT
+HASHI_RESTAURANT_MAP_REDIS_SSL
+HASHI_RESTAURANT_MAP_REDIS_USERNAME
+HASHI_RESTAURANT_MAP_REDIS_PASSWORD
+HASHI_RESTAURANT_MAP_REDIS_CONNECTTIMEOUT
+HASHI_RESTAURANT_MAP_REDIS_TIMEOUT
 ```
 
 지도 세션은 `HASHI_RESTAURANT_MAP_SESSION_ENABLED=false`가 기본값이다. 키 준비와 공개 활성화는
@@ -140,6 +148,26 @@ HASHI_RESTAURANT_MAP_SESSION_SIGNINGKEY
 비활성화 상태에서는 유효한 키를 넣어도 지도 목록 세 모드가 DB/Redis 접근 전에 RESTAURANT-014 / 503을 반환한다.
 활성화한 상태에서 키가 없거나 잘못되면 부팅은 유지하고 시작 시 값·예외 원문 없는 WARN을 한 번 남기며,
 지도 세션 요청은 같은 503을 반환한다. 비활성화 상태에서는 키 누락/오류로 WARN을 남기지 않는다.
+
+지도에는 별도 Redis 연결을 사용한다. `HASHI_RESTAURANT_MAP_REDIS_HOST`가 비어 있으면
+인증용 `REDIS_HOST`로 대체하지 않고 지도 요청만 503으로 반환한다. 기본 포트는 6379,
+연결 timeout은 2초, 명령 timeout은 3초다. TLS가 필요한 Redis는 `..._SSL=true`로 설정하고
+Redis 인증이 필요한 경우 `..._PASSWORD`를 넣고, ACL 사용자를 지정할 때 `..._USERNAME`도 넣는다.
+비밀번호만 사용하는 Redis도 지원한다. 인증 Redis의 TLS 설정과 별개다.
+기존 ElastiCache를 재사용할 때는 `..._MODE=shared`와 기존 endpoint를 명시하고 `volatile-lru`를 유지한다.
+기본 mode는 dedicated이며 별도 `noeviction` Redis에서만 사용한다. 인증 Redis의 정책을 바꾸지 않는다.
+shared 최초 사용이나 회계 키 유실 후에는 최대 세션 수명인 30분간 503으로 준비/복구하므로 공개 전에 확인한다.
+별도 연결이 추가되어도 기존 인증 연결·RedisTemplate·캐시 설정은 유지한다.
+호스트가 없거나 설정이 유효하지 않으면 활성화된 경우에만 값 없는 WARN을 남긴다.
+포트·SSL·timeout은 문자열로 받은 뒤 검증하므로 형식 오타도 앱 시작을 막지 않는다.
+잘못된 SSL 값을 false로 대체하지 않고 지도 요청을 거절한다.
+연결은 첫 정상 지도 요청 또는 활성 상태의 주기 관측에서 생성한다.
+비활성 상태에서는 연결을 만들지 않으므로 앱 시작에 지도 Redis가 필요 없다.
+
+추가 ElastiCache나 EC2 Redis 컨테이너는 만들지 않고 기존 ElastiCache를 우선 사용한다.
+전체 사용량·지도 예약량·요청 제한과 사전 알림을 함께 확인하며 공유 자체가 인증 장애 격리를 보장하지는 않는다.
+서버 활성화와 Grafana 알림 등록은 이 설정 추가만으로 실행되지 않는다.
+[공유 운영과 사전 알림](../map/map-pagination.md#지도-redis-연결과-공유-운영)을 따른다.
 
 공개 활성화 전 신뢰 가능한 ingress 제한·호출자 식별 경계와 정상 트래픽 용량을 검증하고,
 실제 후보 규모가 세션별 계획 상한(`snapshot-bytes / 32`)과 직렬화 byte 예산 안에 드는지 확인해야 한다.

@@ -107,6 +107,8 @@ import org.springframework.modulith.test.ApplicationModuleTest;
 import org.springframework.orm.jpa.EntityManagerHolder;
 import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.test.context.TestPropertySource;
+import org.springframework.test.context.DynamicPropertyRegistry;
+import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
@@ -158,6 +160,13 @@ class RestaurantMapPageIntegrationTest {
     static final GenericContainer<?> REDIS = new GenericContainer<>(DockerImageName.parse(
             "redis@sha256:858f009f9709ce576febc734aa78b8f6d624b82571f9ddb6bda4377c833b3499"))
             .withExposedPorts(6379);
+
+    // 이 테스트는 페이지 계약을 검증한다. 서로 다른 Redis의 인증 격리는 MapRedisIsolationIntegrationTest에서 확인한다.
+    @DynamicPropertySource
+    static void mapRedis(DynamicPropertyRegistry registry) {
+        registry.add("hashi.restaurant.map.redis.host", REDIS::getHost);
+        registry.add("hashi.restaurant.map.redis.port", () -> REDIS.getMappedPort(6379));
+    }
 
     @Autowired MockMvc mvc;
     @Autowired ObjectMapper mapper;

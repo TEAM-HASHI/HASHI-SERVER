@@ -45,7 +45,9 @@ public class RestaurantMapPageController {
             오류 대신 content=[]인 200을 반환한다. keyword 조회의 searchResult는 rankingAsOf에 고정된 전체
             검색 결과 수와 경계이며, 이후 삭제 등으로 달라져도 각 페이지의 content와 핀은 현재 상태를 재검사한다.
             410이면 마지막 성공 조회 조건으로 새 조회를 시작하고,
-            429는 최대 60초 뒤, 503은 기존 결과를 유지한 채 같은 요청을 재시도한다.
+            429는 최대 60초 뒤 재시도한다. 503이면 기존 결과를 유지하고, 일시 장애는 같은 요청으로 재시도한다.
+            비활성·설정 오류는 서버 설정 조치가 필요하다. 같은 조건에서 수용량 오류(RESTAURANT-016)가 반복되면
+            자동으로 조건을 변경하지 말고 검색 범위나 필터를 조정하도록 안내한다.
             서버 세션은 정상 조회마다 유휴 5분을 갱신하되 최초 admission부터 최대 30분까지만 유지한다.
             화면 상태를 5분 보관하는 클라이언트 정책과 서버 세션 수명은 서로 다른 책임이다.
             """)
@@ -78,7 +80,9 @@ public class RestaurantMapPageController {
                             example = "restaurant")),
             @Parameter(name = "sort", in = ParameterIn.QUERY,
                     description = "새 조회에서는 선택(기본 recommend). 정렬 변경에서는 "
-                    + "querySessionId와 함께 필수",
+                    + "querySessionId와 함께 필수. recommend는 최초 무작위 순서를 세션에 고정한다. "
+                    + "rating은 별점 내림차순, reviews는 리뷰 수 내림차순이며 동점은 최초 추천 순서를 유지한다. "
+                    + "keyword로 검색한 뒤에도 지도 정렬 3가지를 사용한다",
                     schema = @Schema(type = "string", allowableValues = {"recommend", "rating", "reviews"},
                             defaultValue = "recommend")),
             @Parameter(name = "querySessionId", in = ParameterIn.QUERY,

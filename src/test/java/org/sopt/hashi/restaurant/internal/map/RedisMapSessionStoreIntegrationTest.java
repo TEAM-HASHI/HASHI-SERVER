@@ -22,6 +22,7 @@ import java.util.concurrent.Callable;
 import java.util.concurrent.Executors;
 import java.util.stream.IntStream;
 import org.junit.jupiter.api.AfterAll;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -37,7 +38,7 @@ import org.sopt.hashi.restaurant.service.RestaurantMapPageReader;
 import org.sopt.hashi.restaurant.service.RestaurantMapPageService;
 import org.sopt.hashi.restaurant.service.RestaurantMapService;
 import org.sopt.hashi.shared.error.BusinessException;
-import org.springframework.beans.factory.support.StaticListableBeanFactory;
+import org.springframework.core.io.ClassPathResource;
 import org.springframework.data.redis.connection.RedisStandaloneConfiguration;
 import org.springframework.data.redis.connection.lettuce.LettuceClientConfiguration;
 import org.springframework.data.redis.connection.lettuce.LettuceConnectionFactory;
@@ -62,6 +63,7 @@ class RedisMapSessionStoreIntegrationTest {
     private static final MapCapacityMetrics CAPACITY_METRICS = new MapCapacityMetrics(METRICS);
     private static final MapSessionSerializer SERIALIZER = new MapSessionSerializer();
     private static final String PREFIX = "hashi:restaurant:map:{sessions-v2}:query:";
+    private static final String SHARED = "hashi:restaurant:map:{sessions-shared-v3}:";
 
     @BeforeAll
     static void connect() {
@@ -72,10 +74,10 @@ class RedisMapSessionStoreIntegrationTest {
                 REDIS.getHost(), REDIS.getMappedPort(6379)), client);
         connections.afterPropertiesSet();
         redis = new StringRedisTemplate(connections);
-        var factory = new StaticListableBeanFactory();
-        factory.addBean("redis", redis);
+        var connection = mock(MapRedisConnection.class);
+        when(connection.template()).thenReturn(redis);
         limits = new MapSessionLimits();
-        store = new RedisMapSessionStore(factory.getBeanProvider(StringRedisTemplate.class), SERIALIZER, limits,
+        store = new RedisMapSessionStore(connection, SERIALIZER, limits,
                 CAPACITY_METRICS);
     }
 
@@ -99,6 +101,200 @@ class RedisMapSessionStoreIntegrationTest {
         limits.setRequestsPerCaller(120);
         limits.setNewQueriesPerCaller(12);
         limits.setCallersPerMinute(2048);
+        limits.setRedisMemoryCeiling(134_217_728);
+        limits.setRedisHeadroom(33_554_432);
+    }
+
+    @AfterEach
+    void restoreOnlyTestRedisPolicy() throws Exception {
+        REDIS.execInContainer("redis-cli", "CONFIG", "SET", "maxmemory", "0");
+        REDIS.execInContainer("redis-cli", "CONFIG", "SET", "maxmemory-policy", "noeviction");
+    }
+
+    @Test
+    void 공개전_준비명령은_대기시간을_줄이지_않고_지도회계키만_준비한다() throws Exception {
+        var shared = sharedStore();
+        var script = new DefaultRedisScript<>(
+                new ClassPathResource("map/shared.lua").getContentAsString(StandardCharsets.UTF_8) + "\n"
+                        + new ClassPathResource("map/prepare-shared.lua").getContentAsString(StandardCharsets.UTF_8),
+                List.class);
+        var keys = List.of(SHARED + "requests", SHARED + "admission");
+        List<?> first = redis.execute(script, keys, "134217728", "33554432");
+        assertThat(first.get(0)).isEqualTo(-6L);
+        assertThat((Long) first.get(1)).isBetween(1_799_000L, 1_800_000L);
+        Object readyAt = redis.opsForHash().get(SHARED + "admission", "__readyAt");
+        List<?> second = redis.execute(script, keys, "134217728", "33554432");
+        assertThat(second.get(0)).isEqualTo(-6L);
+        assertThat(redis.opsForHash().get(SHARED + "admission", "__readyAt")).isEqualTo(readyAt);
+        completeSharedWarmup();
+        shared.admit("caller", true);
+        List<?> ready = redis.execute(script, keys, "134217728", "33554432");
+        assertThat(ready.get(0)).isEqualTo(0L);
+        assertThat(ready.get(1)).isEqualTo(0L);
+        assertThat(redis.opsForHash().get(SHARED + "requests", "caller")).isEqualTo("1:1");
+        redis.opsForValue().set("auth:synthetic", "unchanged");
+        List<?> invalid = redis.execute(script, List.of("auth:synthetic", SHARED + "admission"),
+                "134217728", "33554432");
+        assertThat(invalid.get(0)).isEqualTo(-7L);
+        assertThat(redis.opsForValue().get("auth:synthetic")).isEqualTo("unchanged");
+    }
+
+    @Test
+    void 공유모드_최초시작과_회계유실은_30분간_새쓰기와_기존수명연장을_차단한다() throws Exception {
+        var shared = sharedStore();
+        assertCode(() -> shared.admit("caller", true), RestaurantErrorCode.MAP_SESSION_UNAVAILABLE);
+        assertThat(Long.parseLong((String) redis.opsForHash().get(SHARED + "admission", "__readyAt")))
+                .isBetween(redisNow().plusSeconds(1798).toEpochMilli(), redisNow().plusSeconds(1800).toEpochMilli());
+        assertThat(rejections("redis_recovery")).isEqualTo(1);
+        assertCode(() -> shared.save(session(Duration.ofMinutes(30))), RestaurantErrorCode.MAP_SESSION_UNAVAILABLE);
+        completeSharedWarmup();
+        shared.admit("caller", true);
+        var session = session(Duration.ofMinutes(30));
+        var id = shared.save(session);
+        redis.delete(SHARED + "admission");
+        assertCode(() -> shared.touch(id, session), RestaurantErrorCode.MAP_SESSION_UNAVAILABLE);
+        long ttl = redis.getExpire(SHARED + "query:" + id.value(), java.util.concurrent.TimeUnit.MILLISECONDS);
+        assertCode(() -> shared.save(session(Duration.ofMinutes(30))), RestaurantErrorCode.MAP_SESSION_UNAVAILABLE);
+        assertThat(redis.getExpire(SHARED + "query:" + id.value(), java.util.concurrent.TimeUnit.MILLISECONDS))
+                .isLessThanOrEqualTo(ttl);
+        assertThat(redis.opsForHash().size(SHARED + "admission")).isEqualTo(1);
+    }
+
+    @Test
+    void 공유모드_예약과_요청한도는_영구키로_보존하고_조회유실은_410으로_복구한다() throws Exception {
+        var shared = readySharedStore();
+        limits.setSessions(1);
+        limits.setNewQueriesPerCaller(1);
+        redis.opsForValue().set("auth:synthetic", "unchanged", Duration.ofMinutes(2));
+        shared.admit("caller", true);
+        assertCode(() -> shared.admit("caller", true), RestaurantErrorCode.MAP_RATE_LIMITED);
+        var session = session(Duration.ofMinutes(30));
+        var id = shared.save(session);
+        assertThat(redis.getExpire(SHARED + "admission")).isEqualTo(-1);
+        assertThat(redis.getExpire(SHARED + "requests")).isEqualTo(-1);
+        assertThat(redis.getExpire(SHARED + "query:" + id.value())).isBetween(1L, 300L);
+        assertCode(() -> shared.save(session(Duration.ofMinutes(30))), RestaurantErrorCode.MAP_CAPACITY_EXCEEDED);
+        redis.delete(SHARED + "query:" + id.value());
+        assertCode(() -> shared.find(id), RestaurantErrorCode.MAP_SESSION_EXPIRED);
+        assertCode(() -> shared.touch(id, session), RestaurantErrorCode.MAP_SESSION_EXPIRED);
+        // 유실된 조회의 예약은 원래 만료 때까지 보수적으로 남겨서 예산을 과소 계산하지 않는다.
+        assertCode(() -> shared.save(session(Duration.ofMinutes(30))), RestaurantErrorCode.MAP_CAPACITY_EXCEEDED);
+        assertThat(redis.opsForValue().get("auth:synthetic")).isEqualTo("unchanged");
+        assertThat(redis.getExpire("auth:synthetic")).isBetween(1L, 120L);
+    }
+
+    @Test
+    void 공유모드_회계손상이나_TTL추가는_제한을_초기화하지_않고_503으로_막는다() throws Exception {
+        var shared = readySharedStore();
+        redis.opsForHash().put(SHARED + "admission", "broken", "invalid");
+        assertCode(() -> shared.save(session(Duration.ofMinutes(30))), RestaurantErrorCode.MAP_SESSION_UNAVAILABLE);
+        assertThat(redis.opsForHash().get(SHARED + "admission", "broken")).isEqualTo("invalid");
+        redis.opsForHash().delete(SHARED + "admission", "broken");
+        shared.admit("caller", true);
+        redis.opsForHash().put(SHARED + "requests", "caller", "invalid");
+        assertCode(() -> shared.admit("caller", true), RestaurantErrorCode.MAP_SESSION_UNAVAILABLE);
+        redis.expire(SHARED + "requests", Duration.ofMinutes(1));
+        assertCode(() -> shared.admit("other", true), RestaurantErrorCode.MAP_SESSION_UNAVAILABLE);
+        assertThat(rejections("redis_accounting")).isEqualTo(3);
+        assertThat(redis.keys(SHARED + "query:*")).isEmpty();
+    }
+
+    @Test
+    void 공유모드도_전역메모리여유분을_확보하지_못하면_지도만_거절한다() throws Exception {
+        var shared = readySharedStore();
+        redis.opsForValue().set("auth:synthetic", "unchanged", Duration.ofMinutes(2));
+        limits.setSnapshotBytes(65_536);
+        limits.setTotalBytes(65_536);
+        limits.setRedisHeadroom(65_536);
+        limits.setRedisMemoryCeiling(131_072);
+        assertCode(() -> shared.admit("caller", true), RestaurantErrorCode.MAP_SESSION_UNAVAILABLE);
+        assertCode(() -> shared.save(session(Duration.ofMinutes(30))), RestaurantErrorCode.MAP_SESSION_UNAVAILABLE);
+        assertThat(rejections("redis_memory_guard")).isEqualTo(2);
+        assertThat(redis.opsForValue().get("auth:synthetic")).isEqualTo("unchanged");
+        assertThat(redis.keys(SHARED + "query:*")).isEmpty();
+    }
+
+    @Test
+    void 공유모드는_volatile_lru와_유한메모리만_허용한다() throws Exception {
+        var shared = readySharedStore();
+        assertCode(() -> store.admit("dedicated", true), RestaurantErrorCode.MAP_SESSION_UNAVAILABLE);
+        for (String policy : List.of("allkeys-lru", "noeviction")) {
+            REDIS.execInContainer("redis-cli", "CONFIG", "SET", "maxmemory-policy", policy);
+            assertCode(() -> shared.admit("caller", true), RestaurantErrorCode.MAP_SESSION_UNAVAILABLE);
+            assertCode(() -> shared.save(session(Duration.ofMinutes(30))), RestaurantErrorCode.MAP_SESSION_UNAVAILABLE);
+        }
+        REDIS.execInContainer("redis-cli", "CONFIG", "SET", "maxmemory-policy", "volatile-lru");
+        REDIS.execInContainer("redis-cli", "CONFIG", "SET", "maxmemory", "0");
+        assertCode(() -> shared.admit("caller", true), RestaurantErrorCode.MAP_SESSION_UNAVAILABLE);
+    }
+
+    @Test
+    void 실제_volatile_lru_eviction에도_요청한도와_예약키는_사라지지_않는다() throws Exception {
+        var shared = readySharedStore();
+        shared.admit("caller", true);
+        var session = session(Duration.ofMinutes(30));
+        shared.save(session);
+        long used;
+        try (var connection = connections.getConnection()) {
+            used = Long.parseLong(connection.serverCommands().info("memory").getProperty("used_memory"));
+        }
+        REDIS.execInContainer("redis-cli", "CONFIG", "SET", "maxmemory", Long.toString(used + 65_536));
+        for (int index = 0; index < 100; index++) {
+            redis.opsForValue().set("pressure:synthetic:" + index, "x".repeat(4096), Duration.ofMinutes(1));
+        }
+        try (var connection = connections.getConnection()) {
+            assertThat(Long.parseLong(connection.serverCommands().info("stats").getProperty("evicted_keys")))
+                    .isPositive();
+        }
+        assertThat(redis.getExpire(SHARED + "admission")).isEqualTo(-1);
+        assertThat(redis.getExpire(SHARED + "requests")).isEqualTo(-1);
+        assertThat(redis.opsForHash().get(SHARED + "requests", "caller")).isEqualTo("1:1");
+        assertThat(redis.opsForHash().size(SHARED + "admission")).isEqualTo(2);
+    }
+
+    @Test
+    void 메모리지표는_여유분과_사전경고기준을_공개하고_실패한_관측은_정상으로_표시하지_않는다() throws Exception {
+        var connection = mock(MapRedisConnection.class);
+        when(connection.template()).thenReturn(redis);
+        var sessions = new MapSessionProperties();
+        sessions.setEnabled(true);
+        var registry = new SimpleMeterRegistry();
+        var metrics = new MapRedisMetrics(connection, sessions, limits, registry);
+        REDIS.execInContainer("redis-cli", "CONFIG", "SET", "maxmemory", "128mb");
+        metrics.refresh();
+        assertThat(registry.get("hashi.restaurant.map.redis.probe.success").gauge().value()).isEqualTo(1);
+        assertThat(registry.get("hashi.restaurant.map.redis.used.bytes").gauge().value()).isPositive();
+        assertThat(registry.get("hashi.restaurant.map.redis.admission.limit.bytes").gauge().value())
+                .isEqualTo(96 * 1024 * 1024);
+        assertThat(registry.get("hashi.restaurant.map.redis.warning.limit.bytes").gauge().value())
+                .isEqualTo(72 * 1024 * 1024);
+        when(connection.template()).thenThrow(new IllegalStateException("synthetic-secret"));
+        metrics.refresh();
+        assertThat(registry.get("hashi.restaurant.map.redis.probe.success").gauge().value()).isZero();
+        assertThat(registry.get("hashi.restaurant.map.redis.used.bytes").gauge().value()).isNaN();
+    }
+
+    private RedisMapSessionStore readySharedStore() throws Exception {
+        var shared = sharedStore();
+        assertCode(() -> shared.admit("warmup", true), RestaurantErrorCode.MAP_SESSION_UNAVAILABLE);
+        completeSharedWarmup();
+        METRICS.clear();
+        return shared;
+    }
+
+    private RedisMapSessionStore sharedStore() throws Exception {
+        REDIS.execInContainer("redis-cli", "CONFIG", "SET", "maxmemory", "128mb");
+        REDIS.execInContainer("redis-cli", "CONFIG", "SET", "maxmemory-policy", "volatile-lru");
+        var connection = mock(MapRedisConnection.class);
+        when(connection.template()).thenReturn(redis);
+        when(connection.shared()).thenReturn(true);
+        return new RedisMapSessionStore(connection, SERIALIZER, limits, CAPACITY_METRICS);
+    }
+
+    private void completeSharedWarmup() {
+        // 테스트만 대기 시각을 이동한다. 제품에는 복구 대기를 우회하는 설정/API가 없다.
+        redis.opsForHash().put(SHARED + "requests", "__readyAt", "0");
+        redis.opsForHash().put(SHARED + "admission", "__readyAt", "0");
     }
 
     @Test
@@ -361,9 +557,9 @@ class RedisMapSessionStoreIntegrationTest {
     }
 
     private RedisMapSessionStore storeWith(MapSessionLimits configuration) {
-        var factory = new StaticListableBeanFactory();
-        factory.addBean("redis", redis);
-        return new RedisMapSessionStore(factory.getBeanProvider(StringRedisTemplate.class), SERIALIZER, configuration,
+        var connection = mock(MapRedisConnection.class);
+        when(connection.template()).thenReturn(redis);
+        return new RedisMapSessionStore(connection, SERIALIZER, configuration,
                 CAPACITY_METRICS);
     }
 

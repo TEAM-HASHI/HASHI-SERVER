@@ -1,0 +1,20 @@
+# 로컬 연결 검증 전용. dev/prod compose에 자동으로 추가하지 않는다.
+services:
+  map-redis:
+    image: redis@sha256:858f009f9709ce576febc734aa78b8f6d624b82571f9ddb6bda4377c833b3499
+    command: [redis-server, --maxmemory, 64mb, --maxmemory-policy, noeviction, --appendonly, "no", --save, ""]
+    ports:
+      - "127.0.0.1:16379:6379"
+    mem_limit: 128m
+    memswap_limit: 128m
+    cpus: 0.5
+    healthcheck:
+      test: [CMD, redis-cli, ping]
+      interval: 5s
+      timeout: 2s
+      retries: 3
+    logging:
+      driver: json-file
+      options:
+        max-size: "5m"
+        max-file: "2"
