@@ -1,0 +1,88 @@
+package org.sopt.hashi.restaurant.migration;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
+
+import java.time.Duration;
+import java.time.Instant;
+import java.util.UUID;
+import org.junit.jupiter.api.Test;
+import org.sopt.hashi.restaurant.internal.map.LocationJobProperties;
+import org.sopt.hashi.restaurant.internal.map.LocationRetentionProperties;
+import org.sopt.hashi.restaurant.internal.map.LocationRetentionService;
+import org.springframework.boot.test.context.runner.ApplicationContextRunner;
+
+class LocationMaintenanceConfigurationTest {
+    @Test
+    void 기본설정은_확인모드이고_모든변경명령은_명시동의를_요구한다() {
+        new ApplicationContextRunner().withUserConfiguration(LocationMaintenanceConfiguration.class)
+                .run(context -> {
+                    var options = context.getBean(LocationMaintenanceProperties.class);
+                    assertThat(options.command()).isEqualTo(LocationMaintenanceProperties.Command.DRY_RUN);
+                    assertThat(options.retentionEnabled()).isFalse();
+                    assertThat(options.execute()).isFalse();
+                    var runner = new LocationMaintenanceRunner(null, null, null);
+                    for (var command : LocationMaintenanceProperties.Command.values()) {
+                        if (command == LocationMaintenanceProperties.Command.DRY_RUN
+                                || command == LocationMaintenanceProperties.Command.STATUS) { continue; }
+                        assertThatThrownBy(() -> runner.execute(options(command, false, null, null, null)))
+                                .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("execute=true");
+                    }
+                });
+    }
+
+    @Test
+    void 호출상한계산의_전제인_worker하드최대여덟시도를_검증한다() {
+        assertThat(LocationMaintenanceProperties.CALLS_PER_JOB).isEqualTo(8);
+        assertThatThrownBy(() -> new LocationJobProperties(false, null, null, null, null, null, 9))
+                .isInstanceOf(IllegalArgumentException.class);
+    }
+
+    @Test
+    void 기한전여유시간과_한도와_고정범위를_검증한다() {
+        assertThatThrownBy(() -> options(LocationMaintenanceProperties.Command.DRY_RUN, false,
+                Duration.ofMinutes(1), Duration.ofMinutes(1), Duration.ofMinutes(1)))
+                .isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> options(LocationMaintenanceProperties.Command.DRY_RUN, false,
+                Duration.ofDays(31), null, null)).isInstanceOf(IllegalArgumentException.class);
+        var start = options(LocationMaintenanceProperties.Command.START, true, null, null, null);
+        assertThatThrownBy(start::requiredUpperId).isInstanceOf(IllegalArgumentException.class);
+    }
+
+    @Test
+    void 갱신기간의_마이크로초미만_입력은_설정바인딩에서_거부한다() {
+        new ApplicationContextRunner().withUserConfiguration(LocationMaintenanceConfiguration.class)
+                .withPropertyValues("hashi.map.maintenance.command=START",
+                        "hashi.map.maintenance.refresh-ahead=PT3.000000001S",
+                        "hashi.map.maintenance.purge-ahead=2s", "hashi.map.maintenance.poll-delay=1s")
+                .run(context -> {
+                    assertThat(context).hasFailed();
+                    assertThat(context.getStartupFailure())
+                            .hasRootCauseMessage("refresh-ahead must use whole microseconds");
+                });
+    }
+
+    @Test
+    void 정리명령은_동의확인후_영구정리옵션으로_전달한다() {
+        var service = mock(LocationRetentionService.class);
+        var expected = new LocationRetentionProperties(25, 3, Duration.ofDays(2), Duration.ofHours(2),
+                true, Duration.ofMinutes(2));
+        var report = new LocationRetentionService.Report(Instant.now(), 0, 0, 0, 0);
+        when(service.purge(expected)).thenReturn(report);
+        var options = new LocationMaintenanceProperties(LocationMaintenanceProperties.Command.PURGE, null,
+                true, null, 99, 100L, 25, 3, null, null, Duration.ofDays(2), Duration.ofHours(2),
+                true, Duration.ofMinutes(2));
+
+        assertThat(new LocationMaintenanceRunner(null, null, service).execute(options)).isSameAs(report);
+        verify(service).purge(expected);
+    }
+
+    private static LocationMaintenanceProperties options(LocationMaintenanceProperties.Command command,
+            boolean execute, Duration refresh, Duration purge, Duration poll) {
+        return new LocationMaintenanceProperties(command, null, execute, UUID.randomUUID(), 0, null,
+                null, null, null, null, refresh, purge, false, poll);
+    }
+}

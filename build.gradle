@@ -96,6 +96,7 @@ dependencyManagement {
 
 tasks.named('bootJar') {
     archiveFileName = 'app.jar'
+    mainClass = 'org.sopt.hashi.HashiApplication'
 }
 
 tasks.named('jar') {
@@ -103,6 +104,9 @@ tasks.named('jar') {
 }
 
 tasks.named('test') {
+    // The maintenance smoke test launches the same artifact shipped by the existing build.
+    dependsOn tasks.named('bootJar')
+    systemProperty 'location.maintenance.jar', tasks.named('bootJar').get().archiveFile.get().asFile.absolutePath
     useJUnitPlatform()
     testLogging {
         exceptionFormat = 'full'

@@ -314,6 +314,12 @@ public class Restaurant extends BaseTimeEntity {
         location.beginRefresh();
     }
 
+    /** Retention also applies to soft-deleted restaurants; original restaurant data stays intact. */
+    public boolean purgeGoogleLocation(long revision, UUID request, LocalDateTime obtained, LocalDateTime until,
+                                       LocalDateTime purgeBefore) {
+        return location != null && location.purgeGoogle(revision, request, obtained, until, purgeBefore);
+    }
+
     /** 관리자가 새 Places 후보를 선택하면 잘못된 기존 좌표를 즉시 제거하고 새 requestId를 발급한다. */
     public void selectPlaceForLocation() {
         requireActiveForLocation();

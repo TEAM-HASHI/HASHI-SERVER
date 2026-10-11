@@ -16,4 +16,13 @@ class GeocodingBoundaryTest {
                 .should().dependOnClassesThat().resideInAPackage("org.sopt.hashi.restaurant.internal.map..")
                 .check(classes);
     }
+
+    @Test
+    void 영구지도구현은_한시적_migration_코드에_의존하지_않는다() {
+        var classes = new ClassFileImporter().withImportOption(new ImportOption.DoNotIncludeTests())
+                .importPackages("org.sopt.hashi.restaurant");
+        noClasses().that().resideInAPackage("org.sopt.hashi.restaurant.internal.map..")
+                .should().dependOnClassesThat().resideInAPackage("org.sopt.hashi.restaurant.migration..")
+                .check(classes);
+    }
 }
