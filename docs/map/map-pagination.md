@@ -111,7 +111,8 @@ Redis뿐 아니라 Java heap과 DB 연결도 보호하며, 실패해도 finally�
 
 내부 counter `hashi.restaurant.map.capacity.rejected`는 사용자 입력 없이 고정된 `reason`만 기록한다.
 `concurrent_requests`, `candidate_count`, `snapshot_bytes`, `total_bytes`, `session_count`,
-`caller_rate`, `caller_cardinality`, `global_requests`, `redis_memory_guard`를 구분하며 공개 상태·오류 코드는 바꾸지 않는다.
+`caller_rate`, `caller_cardinality`, `global_requests`, `redis_memory_guard`, `redis_recovery`,
+`redis_accounting`을 구분하며 공개 상태·오류 코드는 바꾸지 않는다.
 Prometheus에서는 `hashi_restaurant_map_capacity_rejected_total`로 조회한다.
 
 Redis `INFO memory`로 실제 메모리와 eviction 정책을 확인한다. dedicated 모드는 `noeviction`,
