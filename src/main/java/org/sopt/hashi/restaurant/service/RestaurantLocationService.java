@@ -157,7 +157,8 @@ public class RestaurantLocationService {
                 row.getAttempt(),
                 parseUtc(row.getNextAttemptAtUtc()),
                 row.getFailureCode(),
-                canRetry);
+                canRetry,
+                row.getConfirmedByAdminId());
     }
 
     private void validateReviewQuery(String status, String source, int page, int size) {
