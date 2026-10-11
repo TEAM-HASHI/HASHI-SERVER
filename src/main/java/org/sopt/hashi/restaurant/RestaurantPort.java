@@ -44,7 +44,6 @@ public interface RestaurantPort {
      * 상세와 달리 영업시간·이미지 전체·가격대는 읽지 않는다. 삭제된 식당은 제외하고 존재하는 식당만 반환하며 순서는 보장하지 않는다.
      */
     List<RestaurantCardInfo> findActiveCards(Collection<Long> restaurantIds);
-
     /** 리뷰 생성 시 식당 평점 합계·리뷰 수·평균을 원자적으로 증가시킨다. */
     void increaseReviewStatistics(Long restaurantId, int rating);
 

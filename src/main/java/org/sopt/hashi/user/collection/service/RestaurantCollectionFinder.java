@@ -32,6 +32,13 @@ class RestaurantCollectionFinder {
                 .orElseThrow(() -> new BusinessException(UserErrorCode.COLLECTION_NOT_FOUND));
     }
 
+    RestaurantCollection findOwnedForUpdate(Long collectionId) {
+        Long userId = currentUserProvider.currentUserId();
+        return restaurantCollectionRepository.findForUpdate(collectionId)
+                .filter(collection -> collection.isOwnedBy(userId))
+                .orElseThrow(() -> new BusinessException(UserErrorCode.COLLECTION_NOT_FOUND));
+    }
+
     /** 열람 가능한 컬렉션 — 공개 컬렉션은 비로그인 포함 누구나, 비공개 컬렉션은 소유자만. 볼 수 없으면 없는 것과 같게 응답한다. */
     RestaurantCollection findVisible(Long collectionId) {
         return restaurantCollectionRepository.findById(collectionId)
