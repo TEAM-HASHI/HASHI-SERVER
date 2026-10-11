@@ -25,21 +25,21 @@ import java.util.UUID;
  * businessHours는 보낼 경우 7개 요일을 중복 없이 모두 포함해야 한다.
  */
 public record UpdateRestaurantRequest(
-        @Schema(description = "식당명(선택)", example = "야키니쿠 리키마루 이케부쿠로점")
+        @Schema(description = "식당명(선택). 값이 바뀌면 기존 위치와 관리자 확인을 무효화하고 재확인", example = "야키니쿠 리키마루 이케부쿠로점")
         @Size(max = 100, message = "식당명은 100자 이내입니다") String name,
-        @Schema(description = "현지(일본어) 식당명(선택, 공백 불가)", example = "焼肉力丸 池袋東口店")
+        @Schema(description = "현지(일본어) 식당명(선택, 공백 불가). 값이 바뀌면 위치 재확인", example = "焼肉力丸 池袋東口店")
         @Pattern(regexp = ".*\\S.*", message = "현지 식당명은 공백일 수 없습니다")
         @Size(max = 100, message = "현지 식당명은 100자 이내입니다") String localName,
         @Schema(description = "한 줄 소개(선택)", example = "이케부쿠로의 인기 야키니쿠 전문점")
         @Size(max = 100, message = "한 줄 소개는 100자 이내입니다") String summary,
         @Schema(description = "매장 상세 설명(선택)", example = "엄선된 고기와 다양한 코스를 제공합니다.")
         @Size(max = 500, message = "상세 설명은 500자 이내입니다") String description,
-        @Schema(description = "사용자 화면에 표시할 전체 주소(PATCH 선택). 건물명·층 정보를 보존. 이 값만 바꾸면 기존 geocodingAddress를 삭제하고 새 address를 위치 확인 기준으로 사용하며, 유효 입력까지 달라질 때만 위치 확인을 다시 요청",
+        @Schema(description = "사용자 화면에 표시할 전체 주소(PATCH 선택). 건물명·층 정보를 보존. 이 값만 바꾸면 기존 geocodingAddress를 삭제하고 새 address를 위치 확인 기준으로 사용하며, 표시 주소가 바뀌면 기존 위치와 관리자 확인을 무효화하고 다시 요청",
                 example = "도쿄도 도시마구 히가시이케부쿠로 1-1-1")
         @Size(max = 255, message = "주소는 255자 이내입니다") String address,
         @Schema(description = "Google 위치 확인용 별도 지정 주소(PATCH). 생략/null은 address가 그대로일 때 기존 값을 유지하고, "
                 + "address 변경 시 기존 별도 지정 주소를 삭제함. 공백은 별도 지정 주소를 명시적으로 삭제하고 현재 address를 사용. "
-                + "표시 주소를 바꿔도 기존과 같은 위치 확인 기준을 함께 보내면 좌표·상태를 유지",
+                + "같은 기본 주소를 보내도 이름이나 표시 주소가 바뀌면 위치 재확인. 동일 입력은 기존 상태 유지",
                 example = "東京都豊島区東池袋1-1-1")
         @Size(max = 255, message = "위치 확인용 주소는 255자 이내입니다") String geocodingAddress,
         @Schema(description = "지역(선택)", example = "이케부쿠로")

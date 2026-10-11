@@ -10,6 +10,7 @@ import java.time.ZoneOffset;
 import java.util.Base64;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
+import org.sopt.hashi.restaurant.RestaurantLocationPreviewCommand;
 
 class PlacesSelectionTokenTest {
     private static final Instant NOW = Instant.parse("2030-01-02T03:04:05Z");
@@ -23,7 +24,7 @@ class PlacesSelectionTokenTest {
         UUID requestId = UUID.randomUUID();
         PlacesSelectionToken tokens = tokensAt(NOW);
 
-        var issued = tokens.issue(11L, 3, requestId, "place-123");
+        var issued = tokens.issue(11L, 3, requestId, "place-123", 7L);
 
         assertThat(issued.expiresAt()).isEqualTo(NOW.plus(Duration.ofMinutes(10)));
         assertThat(tokens.verify(issued.token())).hasValueSatisfying(claims -> {
@@ -31,13 +32,15 @@ class PlacesSelectionTokenTest {
             assertThat(claims.addressRevision()).isEqualTo(3);
             assertThat(claims.requestId()).isEqualTo(requestId);
             assertThat(claims.placeId()).isEqualTo("place-123");
+            assertThat(claims.adminId()).isEqualTo(7L);
+            assertThat(claims.preview()).isFalse();
         });
         assertThat(issued.token()).doesNotContain("place-123");
     }
 
     @Test
     void 변조와_만료와_설정오류는_검증을_통과하지못한다() {
-        String token = tokensAt(NOW).issue(11L, 3, UUID.randomUUID(), "place-123").token();
+        String token = tokensAt(NOW).issue(11L, 3, UUID.randomUUID(), "place-123", 7L).token();
         String tampered = token.substring(0, token.length() - 1)
                 + (token.endsWith("A") ? "B" : "A");
 
@@ -46,6 +49,20 @@ class PlacesSelectionTokenTest {
         assertThat(new PlacesSelectionProperties(true,
                 Base64.getEncoder().encodeToString(new byte[31]), Duration.ofMinutes(10)).isConfigured()).isFalse();
         assertThat(new PlacesSelectionProperties(true, KEY, Duration.ofMinutes(11)).isConfigured()).isFalse();
+    }
+
+    @Test
+    void 등록전_토큰은_관리자와_네가지_원문입력을_묶고_빈값과_null도_구분한다() {
+        var input = new RestaurantLocationPreviewCommand("이름", "現地名", "住所", null);
+        var issued = tokensAt(NOW).issuePreview(input, "place-123", 7L);
+        assertThat(tokensAt(NOW).verify(issued.token())).hasValueSatisfying(claims -> {
+            assertThat(claims.preview()).isTrue();
+            assertThat(claims.adminId()).isEqualTo(7L);
+            assertThat(claims.fingerprint()).isEqualTo(PlacesSelectionToken.fingerprint(input));
+        });
+        assertThat(PlacesSelectionToken.fingerprint(input)).isNotEqualTo(PlacesSelectionToken.fingerprint(
+                new RestaurantLocationPreviewCommand("이름", "現地名", "住所", "")));
+        assertThat(tokensAt(NOW.plusSeconds(600)).verify(issued.token())).isEmpty();
     }
 
     private PlacesSelectionToken tokensAt(Instant instant) {

@@ -108,7 +108,7 @@ class RestaurantLocationTest {
     }
 
     @Test
-    void 같은_위치확인주소를_유지한_표시주소_수정은_진행중요청을_보존한다() {
+    void 같은_위치확인주소라도_표시주소가_바뀌면_진행중요청을_무효화한다() {
         String base = "東京都試験区架空町1丁目2番3号";
         Restaurant restaurant = restaurantWithGeocodingAddress(base);
         restaurant.requestLocationResolution();
@@ -117,9 +117,31 @@ class RestaurantLocationTest {
         restaurant.updateBasicInfo(null, null, null, null, "표시용 전체 주소 架空ビル2F", base,
                 null, null, null, null, null, null, null);
 
-        assertThat(restaurant.getLocation().getAddressRevision()).isEqualTo(1);
-        assertThat(request(restaurant)).isEqualTo(currentRequest);
+        assertThat(restaurant.getLocation().getAddressRevision()).isEqualTo(2);
+        assertThat(request(restaurant)).isNotEqualTo(currentRequest);
         assertThat(restaurant.geocodingAddressForResolution()).isEqualTo(base);
+    }
+
+    @Test
+    void 식당명과_현지명_변경은_관리자확인을_지우고_같은값_PATCH는_유지한다() {
+        Restaurant restaurant = pending();
+        restaurant.confirmPlaceSelection(7L, NOW);
+        restaurant.completePlacesLocation(1, request(restaurant), POINT, "selected-place",
+                java.util.List.of(), NOW, NOW.plusDays(1), CLOCK);
+        UUID oldRequest = request(restaurant);
+        restaurant.updateBasicInfo(restaurant.getName(), restaurant.getLocalName(), null, null,
+                restaurant.getAddress(), null, null, null, null, null, null, null);
+        assertThat(request(restaurant)).isEqualTo(oldRequest);
+        assertThat(restaurant.getLocation().getConfirmedByAdminId()).isEqualTo(7L);
+
+        restaurant.updateBasicInfo("다른 지점", "別支店", null, null, null,
+                null, null, null, null, null, null, null);
+        assertThat(restaurant.getLocation().getAddressRevision()).isEqualTo(2);
+        assertThat(restaurant.getLocation().getConfirmedByAdminId()).isNull();
+        assertThat(restaurant.getLocation().getConfirmedAt()).isNull();
+        assertThat(restaurant.getLocation().getConfirmationMethod()).isNull();
+        assertThat(restaurant.hasUsableMapLocation(CLOCK)).isFalse();
+        assertThat(complete(restaurant, 1, oldRequest)).isFalse();
     }
 
     @ParameterizedTest

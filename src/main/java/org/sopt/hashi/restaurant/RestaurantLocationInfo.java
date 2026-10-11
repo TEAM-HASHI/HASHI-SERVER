@@ -6,5 +6,12 @@ import java.time.Instant;
 public record RestaurantLocationInfo(Long restaurantId, String locationStatus, long addressRevision,
                                      String source, String verificationMode,
                                      Instant validUntil, int attempt, Instant nextAttemptAt,
-                                     String failureCode, boolean canRetry) {
+                                     String failureCode, boolean canRetry, String confirmationMethod,
+                                     Long confirmedByAdminId, Instant confirmedAt, Long confirmedRevision) {
+    public RestaurantLocationInfo(Long restaurantId, String locationStatus, long addressRevision,
+                                  String source, String verificationMode, Instant validUntil, int attempt,
+                                  Instant nextAttemptAt, String failureCode, boolean canRetry) {
+        this(restaurantId, locationStatus, addressRevision, source, verificationMode, validUntil, attempt,
+                nextAttemptAt, failureCode, canRetry, null, null, null, null);
+    }
 }
