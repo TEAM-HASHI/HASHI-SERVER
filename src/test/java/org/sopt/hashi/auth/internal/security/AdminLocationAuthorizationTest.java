@@ -10,12 +10,15 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.sopt.hashi.admin.service.AdminRestaurantService;
 import org.sopt.hashi.admin.web.AdminRestaurantController;
+import org.sopt.hashi.auth.AdminAccountPort;
 import org.sopt.hashi.auth.internal.jwt.JwtProvider;
 import org.sopt.hashi.auth.internal.onboarding.OnboardingJwtIssuer;
 import org.sopt.hashi.auth.internal.token.OnboardingTokenStore;
@@ -54,8 +57,24 @@ class AdminLocationAuthorizationTest {
     @Autowired MockMvc mvc;
     @Autowired JwtProvider tokens;
     @MockitoBean RestaurantPort restaurants;
+    @MockitoBean AdminAccountPort admins;
     @MockitoBean OnboardingTokenStore onboardingTokenStore;
     @MockitoBean TokenBlacklist tokenBlacklist;
+
+    @Test
+    void 관리자_상태_응답에는_서버가_조회한_확인자_로그인ID를_표시한다() throws Exception {
+        given(restaurants.getLocationByAdmin(1L)).willReturn(new RestaurantLocationInfo(
+                1L, "PENDING", 2, null, "PLACE_DETAILS", null, 0, null, null, false,
+                "ADMIN_PLACE_SELECTION", 7L, null, 2L));
+        given(admins.findLoginIds(Set.of(7L))).willReturn(Map.of(7L, "hashi_admin"));
+
+        mvc.perform(get(PATH).header("Authorization", admin()))
+                .andExpect(status().isOk())
+                .andExpect(header().string("Cache-Control", "no-store"))
+                .andExpect(jsonPath("$.data.confirmedByAdminId").value(7))
+                .andExpect(jsonPath("$.data.confirmedByAdminLoginId").value("hashi_admin"))
+                .andExpect(jsonPath("$.data.password").doesNotExist());
+    }
 
     @ParameterizedTest
     @ValueSource(longs = {0, 3})
@@ -92,7 +111,7 @@ class AdminLocationAuthorizationTest {
         int expected = role.equals("ANONYMOUS") ? 401 : 403;
         mvc.perform(read).andExpect(status().is(expected));
         mvc.perform(retry).andExpect(status().is(expected));
-        verifyNoInteractions(restaurants);
+        verifyNoInteractions(restaurants, admins);
     }
 
     @ParameterizedTest
@@ -135,7 +154,8 @@ class AdminLocationAuthorizationTest {
     void ADMIN은_기본_REVIEW_REQUIRED_필터와_offset_응답을_사용한다() throws Exception {
         var item = new RestaurantLocationReviewInfo(
                 10L, "검토 식당", "東京都豊島区1-1", null, "REVIEW_REQUIRED", null,
-                "GEOCODING", 2, null, 1, null, "NO_RESULTS", true);
+                "GEOCODING", 2, null, 1, null, "NO_RESULTS", true, 7L);
+        given(admins.findLoginIds(Set.of(7L))).willReturn(Map.of(7L, "hashi_admin"));
         given(restaurants.findLocationReviewsByAdmin("REVIEW_REQUIRED", null, 0, 20))
                 .willReturn(new RestaurantLocationReviewPage(List.of(item), 0, 20, 1, 1));
 
@@ -146,6 +166,8 @@ class AdminLocationAuthorizationTest {
                 .andExpect(jsonPath("$.data.restaurants[0].restaurantId").value(10))
                 .andExpect(jsonPath("$.data.restaurants[0].locationStatus").value("REVIEW_REQUIRED"))
                 .andExpect(jsonPath("$.data.restaurants[0].failureCode").value("NO_RESULTS"))
+                .andExpect(jsonPath("$.data.restaurants[0].confirmedByAdminId").value(7))
+                .andExpect(jsonPath("$.data.restaurants[0].confirmedByAdminLoginId").value("hashi_admin"))
                 .andExpect(jsonPath("$.data.page").value(0))
                 .andExpect(jsonPath("$.data.size").value(20))
                 .andExpect(jsonPath("$.data.totalCount").value(1))

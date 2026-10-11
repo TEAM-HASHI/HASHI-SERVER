@@ -13,7 +13,7 @@
 - **MUST NOT**: 도메인 모듈이 `auth`의 `internal`(JWT·OAuth·필터 등)을 import하지 않는다.
 - **MUST**: 도메인에서 "현재 로그인 사용자"가 필요하면 **`CurrentUserProvider`** 로 읽는다.
 - **MUST**: USER, ADMIN, ONBOARDING 유형까지 구분해야 하는 media 같은 제한된 기능은 **`CurrentActorProvider`** 로 읽는다. 일반 사용자 도메인은 이를 현재 사용자 조회 대용으로 사용하지 않는다.
-- 의존 방향: **도메인 → auth** (auth는 depended-upon 위치). auth는 인증이라는 generic subdomain으로 잘 변하지 않아 불안정한 도메인이 안정적인 auth로 의존을 모은다(SDP, ADP). 현재 공개 지점은 `CurrentUserProvider`, `CurrentActorProvider`, `AuthAccountPort`다. 도메인은 `auth.internal`에 의존하지 않고 이 공개 지점으로만 auth를 참조한다.
+- 의존 방향: **도메인 → auth** (auth는 depended-upon 위치). auth는 인증이라는 generic subdomain으로 잘 변하지 않아 불안정한 도메인이 안정적인 auth로 의존을 모은다(SDP, ADP). 현재 공개 지점은 `CurrentUserProvider`, `CurrentActorProvider`, `AuthAccountPort`, `AdminAccountPort`다. 도메인은 `auth.internal`에 의존하지 않고 이 공개 지점으로만 auth를 참조한다.
 - **MUST**: **`auth`는 어떤 도메인 모듈도 되참조하지 않는다**(순환 방지·안정성 유지). `shared`라서 순환 검사가 면제되는 게 아니라, auth가 도메인을 되참조하지 않아 무순환이 유지된다 — auth가 도메인을 관찰해야 하면 **이벤트**로 붙인다. 단, 탈퇴처럼 회원 삭제와 인증 계정 정리가 함께 커밋돼야 하는 처리는 도메인이 `AuthAccountPort`를 호출한다(§3).
 
 ---
@@ -21,9 +21,14 @@
 ## 2. 현재 사용자 조회
 
 현재 `auth`가 노출하는 공개 지점은 `CurrentUserProvider`(현재 사용자 조회),
-`CurrentActorProvider`(인증 주체의 유형과 식별자 조회), `AuthAccountPort`(온보딩 계정 연결·탈퇴 계정 정리)다.
+`CurrentActorProvider`(인증 주체의 유형과 식별자 조회), `AuthAccountPort`(온보딩 계정 연결·탈퇴 계정 정리),
+`AdminAccountPort`(관리자 응답의 확인자 로그인 ID 일괄 조회)다.
 일반적인 현재 사용자 조회는 `CurrentUserProvider`를 쓰고, media의 역할별 권한과 소유권 검사는
 `CurrentActorProvider`를 쓴다.
+
+`AdminAccountPort`는 `admin` 진입점이 저장된 관리자 내부 ID로 현재 로그인 ID를 표시할 때만 사용한다.
+포트 안에서도 ADMIN 인증을 검사하며 없는 계정은 결과에서 제외한다. 확인 기록은 내부 ID로 유지하고,
+로그인 ID를 요청에서 받거나 과거 시점의 계정명으로 해석하지 않는다. 비밀번호·계정 엔티티는 반환하지 않는다.
 
 ```java
 // auth/CurrentUserProvider.java  (auth가 공개)
@@ -78,6 +83,7 @@ auth/
 ├─ CurrentActorProvider         # 공개 지점 (인증 주체 유형과 식별자 조회)
 ├─ CurrentActor · ActorType     # actor 조회 계약의 반환값과 유형
 ├─ AuthAccountPort              # 공개 지점 (온보딩 소셜 계정 연결·탈퇴 계정 정리 — user가 원자적 커밋 위해 호출)
+├─ AdminAccountPort             # 공개 지점 (ADMIN 화면 확인자 표시용 현재 로그인 ID 일괄 조회)
 ├─ code/  AuthErrorCode · AuthSuccessCode
 └─ internal/                     # 관심사별 하위 패키지 (경계 넘는 협력자는 public, 모듈 밖엔 여전히 비공개)
    ├─ account/    AuthAccount · AuthAccountRepository · AuthAccountService · AuthProvider · AuthAccountPortImpl

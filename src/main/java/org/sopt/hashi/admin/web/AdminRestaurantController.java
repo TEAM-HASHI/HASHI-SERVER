@@ -319,6 +319,8 @@ public class AdminRestaurantController {
             status 기본값은 REVIEW_REQUIRED이며 UNRESOLVED는 아직 위치 행이 없는 식당입니다.
             source는 GOOGLE_GEOCODING, GOOGLE_PLACES 또는 ADMIN으로 좁힐 때만 보내며, 승인 위치가 없는 행의 source는 null입니다.
             각 항목의 attempt와 failureCode는 위치의 현재 requestId와 일치하는 작업에서만 가져옵니다.
+            confirmedByAdminId는 확인자 내부 ID, confirmedByAdminLoginId는 현재 계정의 표시용 로그인 ID입니다.
+            자동 확인·과거 확인자 기록 없음·계정 삭제 시 로그인 ID는 null이며, 확인자 계정은 페이지 단위로 함께 조회합니다.
             READY는 validUntil이 현재보다 늦어야 실제 지도 위치로 사용할 수 있습니다.
             재시도는 canRetry가 true인 항목의 최신 addressRevision을 expectedAddressRevision으로 보내세요.
             page는 0부터 시작하며 같은 응답의 totalCount와 totalPages는 조회한 목록과 같은 DB snapshot 기준입니다.
@@ -381,6 +383,7 @@ public class AdminRestaurantController {
             선택한 후보의 selectionToken으로 한 후보를 선택합니다.
             토큰을 수정했거나 만료됐으면 400, 다른 관리자·변경된 식당 정보·현재 작업·상태이거나 PENDING이면 409입니다.
             서버 인증 정보로 선택 관리자·선택 시각·확인 방식·당시 revision을 기록합니다.
+            응답의 confirmedByAdminLoginId는 확인자 내부 ID로 서버가 조회한 현재 로그인 ID이며 요청으로 받지 않습니다.
             선택 직후 source는 null이며, Places Details 검증에 성공해 좌표를 저장하면 GOOGLE_PLACES가 됩니다.
             선택 즉시 기존 승인 좌표를 제거하고 새 PLACE_DETAILS 작업을 PENDING으로 등록합니다.
             200 응답은 선택 저장과 작업 등록 성공을 뜻하며 Places 상세 확인 완료를 뜻하지 않습니다.

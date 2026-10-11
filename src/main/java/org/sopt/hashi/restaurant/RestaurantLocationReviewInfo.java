@@ -16,5 +16,13 @@ public record RestaurantLocationReviewInfo(
         int attempt,
         Instant nextAttemptAt,
         String failureCode,
-        boolean canRetry) {
+        boolean canRetry,
+        Long confirmedByAdminId) {
+    public RestaurantLocationReviewInfo(Long restaurantId, String name, String address, String geocodingAddress,
+                                        String locationStatus, String source, String verificationMode,
+                                        long addressRevision, Instant validUntil, int attempt,
+                                        Instant nextAttemptAt, String failureCode, boolean canRetry) {
+        this(restaurantId, name, address, geocodingAddress, locationStatus, source, verificationMode,
+                addressRevision, validUntil, attempt, nextAttemptAt, failureCode, canRetry, null);
+    }
 }
