@@ -14,6 +14,7 @@ import org.sopt.hashi.restaurant.AdminRestaurantInfo;
 import org.sopt.hashi.restaurant.RestaurantCardInfo;
 import org.sopt.hashi.restaurant.RestaurantDetailInfo;
 import org.sopt.hashi.restaurant.RestaurantInfo;
+import org.sopt.hashi.restaurant.RestaurantMapInfo;
 import org.sopt.hashi.restaurant.RestaurantPort;
 import org.sopt.hashi.restaurant.domain.Restaurant;
 import org.sopt.hashi.restaurant.domain.RestaurantImage;
@@ -33,12 +34,14 @@ class RestaurantPortImpl implements RestaurantPort {
     private final RestaurantRepository restaurantRepository;
     private final RestaurantService restaurantService;
     private final FileStorage fileStorage;
+    private final RestaurantMapService restaurantMapService;
 
     RestaurantPortImpl(RestaurantRepository restaurantRepository, RestaurantService restaurantService,
-                       FileStorage fileStorage) {
+                       FileStorage fileStorage, RestaurantMapService restaurantMapService) {
         this.restaurantRepository = restaurantRepository;
         this.restaurantService = restaurantService;
         this.fileStorage = fileStorage;
+        this.restaurantMapService = restaurantMapService;
     }
 
     @Override
@@ -112,6 +115,11 @@ class RestaurantPortImpl implements RestaurantPort {
         return restaurantRepository.findAllByIdInAndDeletedFalse(ids).stream()
                 .map(this::toCardInfo)
                 .toList();
+    }
+
+    @Override
+    public List<RestaurantMapInfo> findActiveMapInfos(Collection<Long> restaurantIds) {
+        return restaurantMapService.findActiveMapInfos(restaurantIds);
     }
 
     @Override

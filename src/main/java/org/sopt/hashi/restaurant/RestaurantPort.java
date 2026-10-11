@@ -32,6 +32,14 @@ public interface RestaurantPort {
     List<RestaurantDetailInfo> findActiveDetails(Collection<Long> restaurantIds);
 
     /**
+     * 컬렉션 목록/핀용 공개 식당 정보. 삭제/없는 식당은 생략하고 위치 미준비/만료 식당은 location=null로 남긴다.
+     * 최초 입력 순서를 유지하고 중복 ID는 제거한다. null/빈 입력은 빈 목록, null/0/음수 ID는 잘못된 입력이다.
+     * 내부 500개 단위로 조회하며 전체 결과를 모은 뒤 반환한다. 중간 조회 실패는 부분 결과 없이 전파한다.
+     * 반환된 좌표도 validUntil부터 사용할 수 없으며 호출자는 응답 직전 자신의 권한/컬렉션 버전을 재검사한다.
+     */
+    List<RestaurantMapInfo> findActiveMapInfos(Collection<Long> restaurantIds);
+
+    /**
      * 사용자 노출용 식당 카드 목록 — 저장 컬렉션처럼 카드 표시와 평점·리뷰 수 정렬, 음식점 분류 필터가 필요한 enrich용(#216).
      * 상세와 달리 영업시간·이미지 전체·가격대는 읽지 않는다. 삭제된 식당은 제외하고 존재하는 식당만 반환하며 순서는 보장하지 않는다.
      */
