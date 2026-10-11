@@ -16,6 +16,7 @@ import org.sopt.hashi.restaurant.RestaurantPlacesCandidateInfo;
 import org.sopt.hashi.restaurant.RestaurantCardInfo;
 import org.sopt.hashi.restaurant.RestaurantDetailInfo;
 import org.sopt.hashi.restaurant.RestaurantInfo;
+import org.sopt.hashi.restaurant.RestaurantMapInfo;
 import org.sopt.hashi.restaurant.RestaurantPort;
 import org.sopt.hashi.restaurant.RestaurantLocationInfo;
 import org.sopt.hashi.restaurant.RestaurantLocationReviewPage;
@@ -43,25 +44,30 @@ class RestaurantPortImpl implements RestaurantPort {
     private final RestaurantService restaurantService;
     private final FileStorage fileStorage;
     private final RestaurantLocationService locationService;
+    private final RestaurantMapService restaurantMapService;
     private final PlacesLocationService placesLocationService;
 
     RestaurantPortImpl(RestaurantRepository restaurantRepository, RestaurantService restaurantService,
-                       FileStorage fileStorage, RestaurantLocationService locationService) {
+                       FileStorage fileStorage, RestaurantLocationService locationService,
+                       RestaurantMapService restaurantMapService) {
         this.restaurantRepository = restaurantRepository;
         this.restaurantService = restaurantService;
         this.fileStorage = fileStorage;
         this.locationService = locationService;
+        this.restaurantMapService = restaurantMapService;
         this.placesLocationService = null;
     }
 
     @Autowired
     RestaurantPortImpl(RestaurantRepository restaurantRepository, RestaurantService restaurantService,
                        FileStorage fileStorage, RestaurantLocationService locationService,
+                       RestaurantMapService restaurantMapService,
                        ObjectProvider<PlacesLocationService> placesLocationServices) {
         this.restaurantRepository = restaurantRepository;
         this.restaurantService = restaurantService;
         this.fileStorage = fileStorage;
         this.locationService = locationService;
+        this.restaurantMapService = restaurantMapService;
         this.placesLocationService = placesLocationServices.getIfAvailable();
     }
 
@@ -140,6 +146,11 @@ class RestaurantPortImpl implements RestaurantPort {
         return restaurantRepository.findAllByIdInAndDeletedFalse(ids).stream()
                 .map(this::toCardInfo)
                 .toList();
+    }
+
+    @Override
+    public List<RestaurantMapInfo> findActiveMapInfos(Collection<Long> restaurantIds) {
+        return restaurantMapService.findActiveMapInfos(restaurantIds);
     }
 
     @Override
