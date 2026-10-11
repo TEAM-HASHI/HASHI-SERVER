@@ -209,9 +209,9 @@ PATCH에서 `geocodingAddress` 미전송/null은 기존 값을 유지하고 공�
 | REVIEW_REQUIRED | 결과 없음·모호함·허용 정확도 미달로 주소 확인 필요. 기존 유효 좌표가 있으면 노출 가능 |
 | FAILED | 설정·권한 문제 또는 재시도 소진으로 자동 처리 중단. 기존 유효 좌표가 있으면 노출 가능 |
 
-- 신규 저장 또는 변경 전후 실제 provider 입력(`geocodingAddress`, 없으면 `address`) 변경은
-  `addressRevision` 증가, 이전 좌표 무효화·제거, PENDING 작업 생성까지 한 transaction이다.
-  같은 명시 override를 유지한 표시 주소·건물·층 수정은 revision·좌표·진행 중 작업을 보존한다.
+- 신규 저장은 revision 1로 시작한다. 이름·현지명·표시 주소 또는 실제 provider 입력 변경은
+  `addressRevision` 증가, 이전 좌표와 확인 기록 제거, PENDING 작업 생성까지 한 transaction이다.
+  같은 기본 주소를 명시해도 표시 주소·건물·층 수정은 재확인한다. 동일 입력의 PATCH는 기존 상태를 보존한다.
 - 작업에는 restaurant ID·주소 revision·job ID·lease token/만료·attempt·nextAttemptAt·안전한
   failureCode를 남긴다. provider 호출 시 해당 revision의 명시 기본 주소 또는 표시 주소 fallback을
   claim snapshot으로 읽는다. 완료 시 모든 식별자와 lease가

@@ -188,6 +188,8 @@ public class Restaurant extends BaseTimeEntity {
                                 String address, String geocodingAddress, String area, RestaurantGenre genre,
                                 String foodCategory, RestaurantPlaceType placeType,
                                 PriceCurrency priceCurrency, BigDecimal minPrice, BigDecimal maxPrice) {
+        boolean nameChanged = name != null && !Objects.equals(this.name, name);
+        boolean localNameChanged = localName != null && !Objects.equals(this.localName, localName);
         if (name != null) {
             this.name = name;
         }
@@ -213,7 +215,8 @@ public class Restaurant extends BaseTimeEntity {
             this.geocodingAddress = nextGeocodingAddress;
         }
         boolean geocodingInputChanged = !Objects.equals(previousGeocodingInput, geocodingAddressForResolution());
-        if (geocodingInputChanged && location != null && !deleted) {
+        if ((nameChanged || localNameChanged || addressChanged || geocodingInputChanged)
+                && location != null && !deleted) {
             location.addressChanged();
         }
         if (area != null) {
@@ -324,6 +327,14 @@ public class Restaurant extends BaseTimeEntity {
             throw new IllegalStateException("선택할 위치가 없습니다");
         }
         location.selectPlaceForVerification();
+    }
+
+    public void confirmPlaceSelection(Long adminId, LocalDateTime confirmedAt) {
+        requireActiveForLocation();
+        if (location == null) {
+            throw new IllegalStateException("확인할 위치가 없습니다");
+        }
+        location.confirmPlaceSelection(adminId, confirmedAt);
     }
 
     public boolean retryLocationWhenDue(Clock clock) {

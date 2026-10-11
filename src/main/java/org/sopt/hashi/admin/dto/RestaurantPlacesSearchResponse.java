@@ -10,7 +10,7 @@ import org.sopt.hashi.restaurant.RestaurantPlacesSearchInfo;
 @Schema(description = "저장된 식당명과 위치 확인 주소로 조회한 Google Places 후보")
 public record RestaurantPlacesSearchResponse(
         @Schema(example = "1001") Long restaurantId,
-        @Schema(description = "검색 시점의 주소 revision", example = "2") long addressRevision,
+        @Schema(description = "검색 시점의 위치 확인 기준 정보 변경 번호. 이름·현지명·표시주소·위치조회주소 변경 시 달라짐", example = "2") long addressRevision,
         @Schema(description = "도쿄 서비스 범위를 통과한 후보. 검색 결과가 없으면 빈 배열")
         List<Candidate> candidates) {
 
@@ -30,7 +30,7 @@ public record RestaurantPlacesSearchResponse(
             @Schema(example = "OPERATIONAL") String businessStatus,
             List<Attribution> attributions,
             @Schema(example = "https://maps.google.com/?cid=123") String googleMapsUri,
-            @Schema(description = "이 후보와 restaurant/revision/request를 묶은 10분 유효 서명 토큰")
+            @Schema(description = "후보·입력·인증 관리자를 묶은 10분 유효 서명 토큰. 발급받은 관리자만 사용 가능")
             String selectionToken,
             @Schema(description = "selectionToken 만료 시각(UTC)") Instant selectionExpiresAt) {
 
