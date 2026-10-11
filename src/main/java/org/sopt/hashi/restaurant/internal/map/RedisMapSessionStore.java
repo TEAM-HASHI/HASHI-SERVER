@@ -1,5 +1,7 @@
 package org.sopt.hashi.restaurant.internal.map;
 
+import java.io.IOException;
+import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.util.List;
 import org.sopt.hashi.restaurant.code.RestaurantErrorCode;
@@ -15,7 +17,7 @@ import org.springframework.stereotype.Component;
 @Component
 public class RedisMapSessionStore {
     private static final String PREFIX = "hashi:restaurant:map:{sessions-v2}:";
-    private static final String LEDGER = PREFIX + "admission";
+    private static final String SHARED_PREFIX = "hashi:restaurant:map:{sessions-shared-v3}:";
     private static final DefaultRedisScript<Long> CREATE = script("create");
     private static final DefaultRedisScript<Long> TOUCH = script("touch");
     private static final DefaultRedisScript<Long> ADMIT = script("admit");
@@ -35,11 +37,11 @@ public class RedisMapSessionStore {
     /** DB 조회와 JSON 생성 전에 호출한다. 원문 IP 대신 서명키로 HMAC한 caller만 Redis에 남긴다. */
     public Instant admit(String caller, boolean newQuery) {
         limits.validate();
-        long result = execute(ADMIT, List.of(PREFIX + "requests"),
+        long result = execute(ADMIT, List.of(prefix() + "requests", ledger()),
                 Long.toString(limits.getRedisMemoryCeiling()), Long.toString(limits.getRedisHeadroom()), caller,
                 Integer.toString(limits.getCallersPerMinute()), Integer.toString(limits.getRequestsPerMinute()),
                 Integer.toString(limits.getRequestsPerCaller()), Integer.toString(limits.getNewQueriesPerCaller()),
-                newQuery ? "1" : "0");
+                newQuery ? "1" : "0", sharedArgument());
         if (result == -3) {
             metrics.rejected(Reason.CALLER_RATE);
             throw new BusinessException(RestaurantErrorCode.MAP_RATE_LIMITED);
@@ -60,11 +62,12 @@ public class RedisMapSessionStore {
             throw exception;
         }
         var id = new MapSessionId(session.id());
-        long result = execute(CREATE, List.of(key(id), LEDGER),
+        long result = execute(CREATE, List.of(key(id), ledger(), prefix() + "requests"),
                 Long.toString(limits.getRedisMemoryCeiling()), Long.toString(limits.getRedisHeadroom()), payload,
                 Long.toString(session.expiresAt().toEpochMilli()), Long.toString(limits.getIdleTimeout().toMillis()),
                 Integer.toString(limits.getSnapshotBytes()), Long.toString(limits.getTotalBytes()),
-                Integer.toString(limits.getSessions()), id.value(), Long.toString(limits.getMaxLifetime().toMillis()));
+                Integer.toString(limits.getSessions()), id.value(), Long.toString(limits.getMaxLifetime().toMillis()),
+                sharedArgument());
         checkCreation(result);
         return id;
     }
@@ -86,8 +89,13 @@ public class RedisMapSessionStore {
     /** 읽기/커서 검증/카드 구성이 성공한 뒤에만 호출한다. GET 뒤 만료된 키를 다시 생성하지 않는다. */
     public Instant touch(MapSessionId id, MapQuerySession session) {
         limits.validate();
-        long expiry = execute(TOUCH, List.of(key(id), LEDGER), id.value(),
-                Long.toString(limits.getIdleTimeout().toMillis()), Long.toString(session.expiresAt().toEpochMilli()));
+        long expiry = execute(TOUCH, List.of(key(id), ledger(), prefix() + "requests"), id.value(),
+                Long.toString(limits.getIdleTimeout().toMillis()), Long.toString(session.expiresAt().toEpochMilli()),
+                sharedArgument());
+        if (expiry == -5) {
+            metrics.rejected(Reason.REDIS_MEMORY_GUARD);
+            throw unavailable();
+        }
         if (expiry < 0) {
             throw expired();
         }
@@ -98,6 +106,14 @@ public class RedisMapSessionStore {
         try {
             Long result = redis.template().execute(script, keys, (Object[]) args);
             if (result == null) {
+                throw unavailable();
+            }
+            if (result == -6) {
+                metrics.rejected(Reason.REDIS_RECOVERY);
+                throw unavailable();
+            }
+            if (result == -7) {
+                metrics.rejected(Reason.REDIS_ACCOUNTING);
                 throw unavailable();
             }
             return result;
@@ -146,15 +162,31 @@ public class RedisMapSessionStore {
         throw new BusinessException(RestaurantErrorCode.MAP_CAPACITY_EXCEEDED);
     }
 
-    private static String key(MapSessionId id) {
-        return PREFIX + "query:" + id.value();
+    private String key(MapSessionId id) {
+        return prefix() + "query:" + id.value();
+    }
+
+    private String ledger() {
+        return prefix() + "admission";
+    }
+
+    private String prefix() {
+        return redis.shared() ? SHARED_PREFIX : PREFIX;
+    }
+
+    private String sharedArgument() {
+        return redis.shared() ? "1" : "0";
     }
 
     private static DefaultRedisScript<Long> script(String name) {
-        var script = new DefaultRedisScript<Long>();
-        script.setLocation(new ClassPathResource("map/" + name + ".lua"));
-        script.setResultType(Long.class);
-        return script;
+        try {
+            String shared = new ClassPathResource("map/shared.lua").getContentAsString(StandardCharsets.UTF_8);
+            String operation = new ClassPathResource("map/" + name + ".lua")
+                    .getContentAsString(StandardCharsets.UTF_8);
+            return new DefaultRedisScript<>(shared + "\n" + operation, Long.class);
+        } catch (IOException exception) {
+            throw new IllegalStateException("Map Redis scripts are missing", exception);
+        }
     }
 
     private static BusinessException unavailable() {

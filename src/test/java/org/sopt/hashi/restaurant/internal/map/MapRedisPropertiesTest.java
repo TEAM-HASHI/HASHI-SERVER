@@ -44,6 +44,9 @@ class MapRedisPropertiesTest {
                     assertThat(properties.getUsername()).isEqualTo("synthetic-user");
                     assertThat(properties.getPassword()).isEqualTo("synthetic-password");
                     assertThat(properties.toString()).doesNotContain("synthetic-user", "synthetic-password");
+                    assertThat(properties.shared()).isFalse();
+                    properties.setMode("shared");
+                    assertThat(properties.shared()).isTrue();
                 });
     }
 
@@ -65,7 +68,8 @@ class MapRedisPropertiesTest {
         return Stream.of(properties -> properties.setHost(null), properties -> properties.setHost(" "),
                 properties -> properties.setPort("0"), properties -> properties.setPort("65536"),
                 properties -> properties.setConnectTimeout(null), properties -> properties.setTimeout("0ms"),
-                properties -> properties.setTimeout("31s"));
+                properties -> properties.setTimeout("31s"), properties -> properties.setMode("auto"),
+                properties -> properties.setMode(null));
     }
 
     @Configuration(proxyBeanMethods = false)
