@@ -1,55 +1,163 @@
 # 식당 저장부터 지도 조회까지 서버 통합 검증 (#231)
 
-## 범위와 결합 기준
+## 검증 범위
 
-이 문서는 한 서버 조립의 관리자 HTTP → 저장/위치 작업 → Google 대체 응답 → MySQL 위치 → 공개 지도 조회와 Redis 세션을 확인하는 방법이다. 실제 화면, 운영 Google 계정, 운영 DB, 유료 호출, 배포의 완료 증거가 아니다. 지도 전체 인수 조건은 [#219 계약](https://github.com/TEAM-HASHI/HASHI-SERVER/issues/219)과 PR #221의 문서에 있다.
+이 브랜치는 관리자 식당 저장부터 위치 작업, Google adapter, MySQL 위치, 공개 BBOX 조회, Redis 조회 세션, 컬렉션 핀까지 서버 호출 경로를 결합한다. 실제 화면, 운영 배포, 운영 backfill은 범위에 포함하지 않는다.
 
-| 코드 | 원래 고정 기준 | 이 브랜치에 가져온 변경 |
-| --- | --- | --- |
-| #220·#222·#224 | `0d77d91`, 이후 #224 `aaacb5d` | 시작 tree와 `1656dfe`. 위치 모델·adapter·관리자 저장/작업 경로와 개발용 fixture 잠금 수정 |
-| #223 | `98299f2`, `303fb5c` | `a592d1d`, `9f7e3e4`. 지도 오류 011~018과 위치 재처리 019, 두 Port 의존성을 함께 유지 |
-| #227 | `31a7998`, `c956780` | `291b46a`, `ee873b7`. 지도 페이지/Redis 세션과 OSIV 연결 반환 수정 |
-| #228 | `4ad25ea`, `4635276`, `fa7bc1e` | `ff7fad3`, `ec9ebd9`, `b9b6daf`와 최신 develop 결합. 지도 유지보수는 V40, 갱신/정리·정밀도 검증·CLI 테스트 격리 |
+| 결합 기능 | 확인 범위 |
+|---|---|
+| 위치 모델·Google adapter·worker·유지보수 | 관리자 저장/PATCH, durable job, 채택 정책, 갱신·만료 |
+| 공개 지도 조회·Redis 세션 | 10개 페이지, cursor 재시도, 동점 순서, compact session payload, TTL·용량 guard |
+| 컬렉션 지도 | 공개 핀, 저장 수, 본인 저장 여부, 위치 유효성 반영 |
 
-이 브랜치의 자체 변경은 `RestaurantMapFlowIntegrationTest`와 이 문서다. develop에 병합된 #216 컬렉션 CRUD/스키마를 재구현하지 않는다. 지도 저장 요약과 전체 핀은 후속 #242 결합·인수 기준을 따른다.
+JUnit 통합 테스트는 새 Testcontainers MySQL 8.4와 Redis를 사용한다. 합성 주소·좌표·사용자만 저장하며 개발·운영 DB/Redis에 쓰지 않는다. 일반 통합 테스트는 Google provider를 대체하고 worker를 직접 실행한다. `map-live` 태그 테스트만 명시적 승인 아래 실제 Google을 호출하며 Geocoding 흐름은 최대 2회, Places 흐름은 최대 3회다. 별도 공유 Redis probe의 실제 환경 범위는 아래에 구분한다.
 
-#227 첫 구현과 #228 구현의 원본/결합 커밋은 각각 stable patch-id가 일치한다. #223 첫 커밋은 `RestaurantErrorCode`와 `RestaurantPortImpl`의 양쪽 요구를 보존하는 충돌 해결이 들어가므로 원본과 patch-id가 달라질 수 있다. 결합 기준은 최종 파일의 API/상태·실제 테스트로 확인한다.
+## 자동 통합 흐름
 
-## 로컬 실행 환경
+`RestaurantMapFlowIntegrationTest`는 실제 Security filter, 관리자 Controller/Service, 위치 worker와 저장소, 공개 Controller/Service/Repository, Flyway/JPA, MySQL/Redis를 사용한다. 핵심 지도 서비스와 저장소는 mock으로 바꾸지 않는다.
 
-- Java 21: `C:/Users/venus/.jdks/ms-21.0.7`; Docker 실행 가능. 테스트는 Testcontainers MySQL 8.4와 Redis를 사용한다.
-- Gradle: PowerShell에서 전용 worktree를 현재 경로로 지정하고 다음 명령을 실행한다. 공유 Gradle 캐시와 Docker pipe 접근 권한이 필요하다.
-- JVM 기본 UTC/JDBC MySQL 세션 Seoul을 사용한다. DB 위치 시각은 UTC `DATETIME`으로 확인한다.
+1. 관리자 POST가 `201 ADMIN-204`, 위치 `PENDING`, 주소 revision 1, durable job 1개를 만든다. worker 전 공개 현재 위치는 409다.
+2. worker가 transaction 밖에서 provider를 호출하고 후보 채택 정책을 통과하면 위치가 `READY`가 된다. 관리자 상태, 공개 현재 위치, 지역 수, BBOX 첫 페이지와 RestaurantPort가 같은 식당과 좌표를 반환한다.
+3. 이름·현지명·표시 주소·기본 주소가 모두 그대로인 PATCH는 `READY`, revision 1과 job 1개를 유지한다. 표시 주소의 층수만 바꾸고 같은 `geocodingAddress`를 함께 PATCH하면 기존 좌표와 확인 기록을 지우고 `PENDING`, revision 2와 job 2개가 된다. 현재 위치·기존 Redis 조회 세션·컬렉션 핀에서 제외되며 worker가 다시 확인한 뒤 `READY`와 핀이 복구된다.
+4. 실제 geocoding 기준 주소가 바뀌면 revision이 증가하고 새 job이 등록된다. 기존 위치는 공개 조회와 핀에서 제외되고, 변경 전 Redis 조회 세션을 다시 읽어도 오래된 카드가 반환되지 않는다.
+5. 이전 revision의 늦은 성공과 삭제 뒤 늦은 실패는 현재 주소나 삭제 상태를 덮어쓰지 못한다.
+6. 유효기간 전 갱신 등록은 기존 좌표를 유지한 채 `PENDING`으로 전환한다. worker 성공 뒤 새 유효기간을 저장한다. 실제 만료 정리는 공개 현재 위치, Port, BBOX와 핀에서 좌표를 제거한다.
+7. 합성 READY 식당 23·500·501·620개를 10개씩 끝까지 조회해 중복·누락 없음, 같은 cursor 재시도, 10 valid + 미소비 lookahead, 동점 추천 순서를 확인한다. 임의 500개 전체 제한은 두지 않는다.
+8. 기존 컬렉션 저장 관계를 통해 전체 핀, 공개 저장 사용자 수, 본인 저장 여부를 확인한다. 위치가 무효해져도 저장 관계는 남고 핀만 제외된다.
+
+## 로컬 검증 명령
+
+Java 21과 Docker가 필요하다. 일반 검증과 부하는 동시에 실행하지 않는다.
 
 ```powershell
-$env:JAVA_HOME='C:\Users\venus\.jdks\ms-21.0.7'
-$env:PATH="$env:JAVA_HOME\bin;C:\Program Files\Docker\Docker\resources\bin;$env:PATH"
-.\gradlew test --tests org.sopt.hashi.restaurant.service.RestaurantMapFlowIntegrationTest --no-daemon
-.\gradlew clean build --no-daemon
+.\gradlew.bat test `
+  --tests '*RestaurantMapFlowIntegrationTest' `
+  --tests '*LocationMaintenanceMySqlTest' `
+  --tests '*CollectionMapPortMySqlIntegrationTest' `
+  --tests '*RedisMapSessionStoreIntegrationTest' `
+  bootJar --no-daemon --console=plain --max-workers=1 '-Dorg.gradle.jvmargs=-Xmx384m'
 ```
 
-테스트 주소 `東京都試験区架空町1丁目2番3号`, 식당·관광 지역·좌표는 합성 고정값이다. Google provider, 자동 `LocationJobScheduler`, 범위 밖의 `MediaPort`·`FileStorage`를 대체한다. worker는 테스트에서 직접 한 번 실행하고 관광 지역 관계는 fixture에서 직접 설정한다. 후보 정확도·주소 일치 판정은 실제 `LocationAdoptionPolicy`를 통과한다. 위치 작업 전역 호출 예산은 기본적으로 닫혀 있으므로 테스트 전용 MySQL row에서만 연다. Redis 서명 키도 테스트 문자열을 실행 중 메모리에만 설정한다. 운영 키나 주소 원문 응답을 로그/문서에 넣지 않는다.
+전체 build와 원격 CI는 위 focused 검증과 별도 결과로 기록한다.
 
-2026-09-27 첫 관련 검증은 5개 suite / 42개 테스트, failures·errors·skipped 모두 0건이었다(`RestaurantMapFlowIntegrationTest` 4, `RestaurantMapPageIntegrationTest` 17, `LocationMaintenanceMySqlTest` 18, `DevLocationJobMySqlTest` 2, `ModularityTests` 1). 리뷰 후 보강한 `RestaurantMapFlowIntegrationTest` 5개도 별도 재실행에서 모두 통과했다. 최종 전체 build와 원격 CI 결과는 별도로 확인한다.
+2026-10-11, #233 `da20fd8f`와 공유 Redis `f61a3a95`를 결합하고 위치 변경 계약을 정렬한 코드에서
+위 명령이 통과했다. 지도 흐름 8건, 유지보수 26건, 컬렉션 Port 6건, Redis 저장소 22건으로
+총 62건이며 실패·오류·skip은 0이다. `bootJar`도 성공했다. 이 실행은 실제 Google이나 k6를 포함하지 않는다.
 
-## 직접 연결한 흐름
+## 실제 Google opt-in 검증
 
-`RestaurantMapFlowIntegrationTest`는 실제 `SecurityFilterChain`, 관리자 Controller/Service/RestaurantPort, 위치 worker/작업 저장소, 공개 Controller/Service/Repository, Flyway/JPA, MySQL/Redis를 사용한다. 핵심 서비스·Port·Repository는 mock으로 바꾸지 않는다. 관리자 인증은 합성 JWT를 만들고 무인증 요청의 401도 확인한다.
+`MapGoogleLiveFlowTest`는 일반 `test`와 CI에서 제외된다. `-PmapLive=true`와 환경 변수의 API key가 모두 있어야 실행되며, key를 Gradle 인자·파일·로그에 적지 않는다.
 
-1. 관리자 POST의 기존 `201 ADMIN-204`와 `PENDING`/revision 1, 같은 DB transaction에서 생성된 durable job을 확인한다. worker 전에는 공개 `map-location`이 409다.
-2. worker가 정확한 한 후보를 처리한다. provider 진입에서 활성 DB transaction이 없음을 관측한다. 이후 관리자 `READY`, 공개 현재 위치, 관광 지역 count, RestaurantPort bulk, 공개 첫 페이지에서 같은 식당 ID와 좌표를 확인한다.
-3. 주소 B PATCH의 기존 `200 ADMIN-205`, revision 2와 새 `PENDING`을 확인한다. 기존 위치·지역 count·Port 좌표가 사라지고 기존 Redis 세션을 정렬 재조회해도 오래된 카드가 돌아오지 않는다.
-4. 주소 A 작업을 claim한 채 B를 저장하고 A의 늦은 성공을 완료한다. 현재 revision을 덮지 못한다. B claim 뒤 삭제하고 늦은 실패를 완료해도 삭제 식당이 공개되지 않는다.
-5. Google 결과를 READY로 만든 뒤 합성 DB의 남은 수명을 3시간으로 당기고, provider 예산을 닫은 상태에서 원본 1일 수명보다 짧은 6시간 갱신 창으로 run을 등록한다. 새 작업 등록, 추가 provider 호출 없음, 기존 유효 좌표 유지를 관리자 상태, 현재 위치, Port, 기존 페이지에서 확인한다.
-6. 별도의 READY fixture를 보존 경계 안으로 당긴다. provider 예산을 끄고 정리를 실행하여 실제 DB의 좌표·유효기간이 제거되고 현재 위치, Port, 기존 페이지 재조회에서 보이지 않는지 확인한다.
+```powershell
+.\gradlew.bat mapLiveTest -PmapLive=true --tests '*MapGoogleLiveFlowTest' --no-daemon --console=plain --max-workers=1
+```
 
-7. 별도 합성 READY 식당 23개를 실제 DB에 만들어 공개 페이지를 10/10/3으로 순회한다. 모든 카드의 `restaurantId`가 중복 없이 예상 식당 ID와 일치하고 각 카드의 위치가 같은 핀 좌표인지 확인한다.
+승인된 loopback TCP 터널을 사용할 때도 제품 HTTPS endpoint, SNI와 인증서 검증은 유지한다. 자동 scheduler는 대체하고 worker만 수동 실행한다. DB 일일 예산과 테스트 provider counter의 상한은 두 번이다.
 
-Redis TTL·유실·장애, cursor 변조와 중복 재시도는 [#227 자체 테스트](../../src/test/java/org/sopt/hashi/restaurant/service/RestaurantMapPageIntegrationTest.java)의 실제 Redis 검증을 참조한다. 갱신 등록·CLI dry-run/resume/stop·동시 정리의 상세 반례는 [#228 runbook](location-maintenance-runbook.md)과 해당 MySQL 테스트를 참조한다.
+한 실행의 확인 순서는 다음과 같다.
 
-## 별도 인수와 운영 입력
+1. 관리자 저장 뒤 실제 Google 1회 호출로 `READY`, BBOX 카드와 컬렉션 핀까지 확인한다.
+2. 이름·현지명·표시 주소·기본 주소를 저장된 값 그대로 PATCH한다. 값이 바뀌지 않았으므로 revision·job·핀은 유지되고 provider counter도 1에 머문다. 층수 변경은 일반 통합 테스트에서 별도 검증한다.
+3. 위치 유효기간을 갱신 창 안으로 옮겨 refresh job을 등록한다. 기존 핀을 유지한 채 실제 Google 두 번째 호출로 새 유효기간을 저장한다.
 
-- 현재 CLIENT `/map`은 준비 중 화면이며 관리자도 새 위치 상태를 아직 표시하지 않는다. 이 테스트 성공은 UI QA가 아니다. 카메라 상태, chip 재선택, 카드·핀, 복귀·만료 처리는 실제 화면에서 따로 검증한다.
-- #242에서 `GET /collections/{id}/map-markers`, `GET /restaurants/save-counts`, `GET /users/me/restaurant-saves`를 develop의 실제 #216 저장 관계·권한과 연결한다. 23개 식당 중 위치 없는 2개가 있어도 목록과 별개로 유효 핀 21개를 한 응답에 반환해야 한다. 저장 수는 사용자 수로 세고, 공개 범위/소속 변경 번호를 응답 직전에 재확인하며 부분 200을 허용하지 않는다. 현재 첫 지도 페이지의 카드는 개인 저장 상태를 포함하지 않는다.
-- 관광 지역 대표 위치·범위·매핑, 운영 Google 계약/키 제한/보관 수명, Redis 용량과 장애 예산, DB 백업·복원 보존 절차는 실제 운영값이 필요하다. 합성 fixture는 이를 대신하지 않는다.
-- 실제 Google 호출, 운영 backfill/물리 정리, 배포, 병합은 이 검증의 실행 대상이 아니다.
+`languageCode=en`은 provider 응답 언어를 고정하기 위한 값이며 입력 주소나 UI 표시 주소의 언어를 강제하지 않는다. JP 지역 정보와 후보의 국가·행정구역·정밀도·주소 구성요소를 채택 정책에서 확인한다. Google 응답 언어와 관리자가 저장한 표시 주소 언어는 서로 다른 계약이다. 통과를 위해 실제 응답이나 기대 좌표를 임의로 바꾸지 않는다. Google 원문, 좌표 원문, 운영 주소와 key는 저장소에 남기지 않는다.
+
+2026-10-08 코드 `39266dd`에서는 당시 계약에 따라 층수 변경에도 기존 revision·job·핀을 유지했고, Google 호출은 최초 등록과 갱신 각 한 번으로 통과했다. 이는 과거 구현의 실호출 기록이다. 현재 계약은 층수 변경도 무효화하므로 2회 상한을 유지하도록 위 2단계를 값이 그대로인 PATCH로 바꿨다. 변경된 테스트의 실제 Google 호출은 다시 실행하지 않았다. 당시에도 별도 Testcontainers DB/Redis를 사용했고 운영 데이터나 자동 호출 설정은 변경하지 않았다.
+
+### Places 매장 선택과 갱신
+
+`MapPlacesLiveFlowTest`는 별도 opt-in 검증이다. 위 Geocoding 테스트와 한꺼번에 실행하지 않고 `--tests`로 대상을 지정한다.
+
+```powershell
+.\gradlew.bat mapLiveTest -PmapLive=true --tests '*MapPlacesLiveFlowTest' --no-daemon --console=plain --max-workers=1
+```
+
+격리된 MySQL·Redis에서 관리자 식당 등록 후 `REVIEW_REQUIRED`를 만들고, 후보 검색·관리자 선택·Details 저장·같은 매장 갱신을 실제 API 경로로 확인한다. 처음 확인 대상 상태를 만드는 Geocoding 응답만 mock이며, Places는 Text Search 1회와 동일 Place ID의 Details 2회로 제한한다. 지도 카드와 컬렉션 핀이 갱신 전·중·후 모두 조회되는지 확인한다.
+
+실제 Google 통신만 개발 서버의 승인된 SSH 터널을 거친다. 애플리케이션과 DB는 개발 EC2의 실행 중 서비스가 아닌 로컬 테스트 컨테이너다. 주소·응답 원문·Place ID·키를 결과 로그에 출력하지 않고, 테스트가 끝나면 자체 터널과 컨테이너를 정리한다.
+
+2026-10-09 위 Places 흐름을 실제 실행해 통과했다. Text Search 1회와 Details 2회가 요청 제한·예산 집계와 일치했으며, 최초 선택과 정기 갱신 모두 `READY` 및 지도·컬렉션 핀을 확인했다. 운영 DB 쓰기나 자동 호출 활성화는 하지 않았다.
+
+## Redis session과 용량 결과
+
+세션은 query ID별 단일 Redis key와 단일 JSON payload를 유지한다. 후보는 `[restaurantId,rating,reviewCount]` tuple로 직렬화하고 format version을 검사한다. 이전 장문 JSON은 혼합 배포에서 fail-closed 410으로 처리한다. 유휴 TTL 5분과 최대 수명 30분, 추천 순서, 10 valid + 미소비 lookahead 계약은 바꾸지 않았다.
+
+620개 serializer 비교는 다음과 같다.
+
+| 항목 | 기존 object JSON | compact tuple JSON |
+|---|---:|---:|
+| payload | 31,188 B | 7,646 B |
+| admission 예약 | 63,400 B | 16,316 B |
+
+예약값은 74.3% 감소했다. 16 MiB 예산을 올리거나 Redis 자료구조를 여러 key로 나누지 않았다.
+
+실제 TTL 300초, distinct caller, 620개, 16 MiB의 로컬 비교 결과는 다음과 같다.
+
+| 설정 | 요청/iteration | 503 | 최대 ledger | DB pool | 성공 응답 전체 p95 | 판정 |
+|---|---:|---:|---:|---|---:|---|
+| 운영 기본 동시 요청 4 | 1,230 / 236 | 6 | 7,977,700 B (47.55%) | active 4, wait 0 | 229.76 ms | k6 FAIL |
+| test-only 동시 요청 8 | 1,148 / 223 | 3 | 7,488,384 B (44.64%) | max 10, active 7, wait 0 | 1,087.88 ms | k6 FAIL |
+
+두 실행의 workload에서 `total_bytes`, `snapshot_bytes`, `session_count`, `redis_memory_guard` 거절은 0이었다. 모든 503은 내부 `concurrent_requests` counter로 확인했다. 동시 요청 8은 거절을 6개에서 3개로 줄였지만 threshold를 통과하지 못했고, 처리량이 줄면서 성공 응답 전체 p95가 4.73배 증가했다. 운영 기본값 4를 유지한다.
+
+두 실행 모두 실제 300초 TTL 뒤 session key가 정리됐다. 별도 2-session probe는 세 번째 요청을 503으로 거절하고 만료 뒤 회복했으며 auth sentinel을 보존했다. 이 결과는 작은 로컬 합성 부하이며 운영 동시 사용자 수나 SLO를 증명하지 않는다.
+
+`MapQueryLoadTest`는 opt-in `map-load` 태그다. k6 설치 환경에서만 실행한다.
+
+현재 부하 fixture는 인증 Redis와 지도 Redis를 별도 컨테이너로 실행한다. 인증은
+maxmemory 64MiB/volatile-lru/컨테이너 128MiB, 지도는 기존 비교 조건인
+maxmemory 128MiB/noeviction/컨테이너 256MiB를 사용한다. 지도 메모리·세션·ledger는 지도
+연결에서 측정하고, 인증 보존용 합성 키는 인증 연결에서 확인한다. 이 합성 키 검사는 로그인 전체
+검증이 아니며, 실제 RefreshTokenStore 회전 중 장애 격리는 `MapRedisIsolationIntegrationTest`가 담당한다.
+일반 HTTP/실제 Google 흐름 fixture에도 지도 endpoint를 명시한다. 실제 Google 테스트 실행은 계속 opt-in이다.
+
+```powershell
+.\gradlew.bat mapLoadTest `
+  -Pk6Executable=<k6.exe 절대경로> `
+  -PmapLoadProfile=ttl -PmapLoadTraffic=distinct `
+  -PmapLoadRestaurants=620 -PmapLoadBudgetMiB=16 `
+  --no-daemon --console=plain --max-workers=1
+```
+
+테스트 전용 비교에는 `-PmapLoadConcurrentRequests=8`을 추가할 수 있지만 운영 기본값은 바뀌지 않는다. 결과는 `build/reports/map-load/`의 k6 summary, log, resource samples, recovery JSON에 기록한다. k6 threshold가 실패해도 TTL 정리·회복·auth sentinel을 확인한 뒤 최종 실패한다.
+
+### 단계별 시간 측정 후 실행
+
+2026-10-09, 단계별 지표가 포함된 코드 `c38601d3`에서 같은 크기의 합성 식당 620개와 서로 다른 호출자를 사용해 5→10→20 VU, 5분 부하를 실행했다. 요청 1,265건과 검증 2,783건이 실패 없이 통과했다. 추가 5분 뒤 TTL 정리, 별도 제한 초과 probe 후 복구와 인증용 테스트 키 보존도 확인했다.
+
+전체 요청 p95는 111.12ms였다. 단계별 평균은 새 조회 admission 4.88ms, 후보 조회 22.47ms, 세션 저장 5.94ms, 페이지 구성 41.97ms, TTL 갱신 3.64ms였다. 동시 요청 한도 4와 16MiB 예산은 그대로 유지했다.
+
+앞선 실패 실행과 호스트 부하를 통제한 A/B 비교가 아니다. 이 성공을 특정 수정의 인과적 성능 효과, 운영 처리량 또는 동시 사용자 20명 보장으로 해석하지 않는다. 현재 측정만으로 Redis List나 Sorted Set을 추가할 근거는 없다. 이후 Places 기능이 합쳐진 HEAD의 부하를 새로 측정한 결과도 아니다.
+
+### 실제 공유 Redis의 제한된 probe — 2026-10-11
+
+후보 `f61a3a95869e8c4fbbda4bc5464cc053770c9536`의 공유 모드 Lua를 실제 운영 Redis 7.1의
+기존 `volatile-lru` 정책에서 확인했다. 빈 고유 테스트 namespace에 합성 후보 620개로 구성한 세션을
+최대 32개 저장하고 32개 읽기·TTL 갱신을 확인했다. 지도 메모리·세션 수·호출자별 신규 조회 제한,
+query 소실 뒤 재생성 금지, ledger 소실 뒤 쓰기·TTL 갱신 차단도 통과했다.
+
+최초 30분 격리는 거절 응답으로 확인했다. 정상 경로를 확인하기 위해 다른 데이터가 없는 테스트 namespace의
+`readyAt`만 앞당겼으므로 실제 30분 경과 후 회복을 검증한 것은 아니다. 별도 HTTP/k6 부하나 운영 용량 검증도 아니다.
+테스트가 만든 키 35개를 모두 제거했고 남은 자체 키와 정리 실패는 0이었다. 전후 eviction은 0,
+애플리케이션 health는 HTTP 200이었고 앱을 재시작하지 않았다. 인증 키를 읽거나 변경하지 않았으며
+실제 애플리케이션 배포나 지도 활성화를 수행하지 않았다. 따라서 로그인 연속성이나 인증 영향 전체를 증명하지 않는다.
+
+근거는 저장소 밖의 로컬 `evidence/map-shared-redis-20261011/shared-result.json`이다.
+접속 정보·키·운영 메모리 설정값·원문 응답은 이 문서에 복제하지 않는다.
+
+## 현재 데이터 확인과 남은 gate
+
+운영 식당 주소 71개에 대한 실제 provider 응답을 별도 환경에서 제품 parser·정책으로 재생한 결과는 자동 채택 62건, 확인 대상 9건이다. 자동 채택 62건은 모두 선택 후보와 Maps 기준 거리를 계산했다. 위치 참조 정정 후 잘못 다른 지점을 가리키던 표본은 기준점과 거리 0.0m로 다시 확인됐다. 자동 채택 표본 중 기준점에서 50m 이상 떨어진 항목은 한 건이며 역 시설 약 208m 사례다. 이는 운영 DB에 좌표를 쓰거나 `READY` 상태를 만든 결과가 아니다. 저장소 문서에는 구체 식당 ID, 주소와 좌표를 기록하지 않는다.
+이 62/9 수치는 component의 동일 숫자를 서로 다른 역할로 오해하던 문제를 수정하기 전 선행 정책 HEAD에서 측정했으며, 현재 정책 71건의 최종 재검증 결과로 해석하지 않는다.
+
+공개 활성화는 아직 NO-GO다.
+
+- 이전 `dedicated` 모드의 `noeviction` 요구는 기존 공유 Redis 정책과 맞지 않았다. 현재 `shared` 모드는
+  영속 ledger와 제한·격리로 `volatile-lru`를 지원하며 위 실제 probe는 그 제한된 근거다. 인증 데이터와 공유하므로
+  runtime `CONFIG SET`으로 정책을 바꾸지 않는다.
+- 실제 앱 설정으로 연결한 HTTP 부하·30분 격리 후 회복·로그인 연속성과 장애 영향을 추가로 검증해야 한다.
+  지도 연결을 따로 두는 것만으로 공유 Redis의 메모리·장애가 격리되지는 않는다. 이 변경만으로 추가 ElastiCache를 만들거나 서버에서 활성화하지 않는다.
+- 실제 데이터 aggregate와 새 fixed HEAD의 focused/full test, 실제 Google opt-in 결과, CI를 각각 확인해야 한다.
+- merge, 배포, live backfill과 운영 설정 변경은 별도 승인 대상이다.
+
+프런트 계약과 화면 인계는 [프런트 연동 인계](frontend-integration-handoff.md), 위치 유지보수 반례와 명령은 [위치 유지보수 runbook](location-maintenance-runbook.md)을 따른다.

@@ -7,6 +7,8 @@ import java.sql.Connection;
 import java.sql.DriverManager;
 import java.sql.ResultSet;
 import java.sql.SQLException;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.UUID;
 import org.flywaydb.core.Flyway;
 import org.flywaydb.core.api.FlywayException;
@@ -34,6 +36,70 @@ class FlywayMigrationTest {
 
         assertThat(flyway.info().pending()).isEmpty();
         assertThat(flyway.validateWithResult().validationSuccessful).isTrue();
+    }
+
+    @Test
+    void V37의_식당과_컬렉션을_보존하고_지도_외부호출은_비활성으로_추가한다() throws SQLException {
+        Flyway throughV37 = Flyway.configure()
+                .dataSource(MYSQL.getJdbcUrl(), MYSQL.getUsername(), MYSQL.getPassword())
+                .locations("classpath:db/migration")
+                .target(MigrationVersion.fromVersion("37"))
+                .cleanDisabled(false).load();
+        throughV37.clean();
+        throughV37.migrate();
+        execute("""
+                INSERT INTO restaurant (id, name, local_name, address, area, genre, food_category,
+                    place_type, summary, description, price_currency, price_min, price_max,
+                    rating, rating_sum, review_count, deleted)
+                VALUES (101, '보존 식당', '保存食堂', '東京都中央区月島3-16-9 1F',
+                    'GINZA', 'JAPANESE', 'JAPANESE', 'RESTAURANT', '요약', '설명',
+                    'JPY', 1000, 3000, 4.5, 9, 2, FALSE),
+                    (102, '삭제 식당', '削除食堂', '1 Chome-9-1 Marunouchi, Tokyo',
+                    'GINZA', 'JAPANESE', 'JAPANESE', 'RESTAURANT', '요약', '설명',
+                    'JPY', 1000, 2000, 0, 0, 0, TRUE)
+                """);
+        execute("""
+                INSERT INTO restaurant_menu (id, restaurant_id, name, description,
+                    price_currency, price_amount, is_main)
+                VALUES (201, 101, '정식', '메뉴 설명', 'JPY', 1500, TRUE)
+                """);
+        execute("INSERT INTO restaurant_hashtag VALUES (101, '혼밥')");
+        execute("""
+                INSERT INTO restaurant_collection (id, user_id, name, color, visibility)
+                VALUES (301, 901, ' 여행 식당 ', 'BLUE', 'PRIVATE')
+                """);
+        execute("INSERT INTO saved_restaurant (id, collection_id, restaurant_id) VALUES (401, 301, 101)");
+        List<String> preservedQueries = List.of(
+                "SELECT id, name, local_name, address, rating, rating_sum, review_count, deleted FROM restaurant ORDER BY id",
+                "SELECT * FROM restaurant_menu ORDER BY id",
+                "SELECT * FROM restaurant_hashtag ORDER BY restaurant_id, hashtag",
+                "SELECT id, user_id, name, color, description, visibility, created_at, updated_at FROM restaurant_collection ORDER BY id",
+                "SELECT * FROM saved_restaurant ORDER BY id");
+        List<List<List<String>>> before = new ArrayList<>();
+        for (String query : preservedQueries) {
+            before.add(rows(query));
+        }
+
+        Flyway upgraded = flyway();
+        upgraded.migrate();
+
+        for (int index = 0; index < preservedQueries.size(); index++) {
+            assertThat(rows(preservedQueries.get(index))).isEqualTo(before.get(index));
+        }
+        assertThat(rows("SELECT COUNT(*) FROM restaurant WHERE location_id IS NOT NULL OR map_region_id IS NOT NULL OR geocoding_address IS NOT NULL"))
+                .isEqualTo(List.of(List.of("0")));
+        assertThat(rows("SELECT collection_version FROM restaurant_collection WHERE id = 301"))
+                .isEqualTo(List.of(List.of("0")));
+        for (String table : List.of("restaurant_location", "restaurant_location_job", "map_region",
+                "restaurant_location_maintenance_run")) {
+            assertThat(rows("SELECT COUNT(*) FROM " + table)).isEqualTo(List.of(List.of("0")));
+        }
+        assertThat(rows("SELECT COUNT(*) FROM restaurant_geocoding_budget WHERE enabled = TRUE"))
+                .isEqualTo(List.of(List.of("0")));
+        assertThat(rows("SELECT COUNT(*) FROM restaurant_places_budget WHERE enabled = TRUE"))
+                .isEqualTo(List.of(List.of("0")));
+        assertThat(upgraded.info().pending()).isEmpty();
+        assertThat(upgraded.validateWithResult().validationSuccessful).isTrue();
     }
 
     @Test
@@ -174,6 +240,22 @@ class FlywayMigrationTest {
         try (Connection connection = connection();
              var statement = connection.createStatement()) {
             statement.execute(sql);
+        }
+    }
+
+    private List<List<String>> rows(String sql) throws SQLException {
+        try (Connection connection = connection();
+             var statement = connection.createStatement();
+             ResultSet result = statement.executeQuery(sql)) {
+            List<List<String>> rows = new ArrayList<>();
+            while (result.next()) {
+                List<String> row = new ArrayList<>();
+                for (int column = 1; column <= result.getMetaData().getColumnCount(); column++) {
+                    row.add(result.getString(column));
+                }
+                rows.add(row);
+            }
+            return rows;
         }
     }
 

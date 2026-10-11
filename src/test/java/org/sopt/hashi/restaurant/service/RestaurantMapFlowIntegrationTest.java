@@ -17,6 +17,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import java.math.BigDecimal;
 import java.time.Clock;
 import java.time.Duration;
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.Base64;
@@ -27,6 +28,8 @@ import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.parallel.Isolated;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.sopt.hashi.auth.internal.jwt.JwtProvider;
 import org.sopt.hashi.media.MediaPort;
 import org.sopt.hashi.restaurant.RestaurantPort;
@@ -52,6 +55,8 @@ import org.sopt.hashi.restaurant.migration.LocationMaintenanceRunner;
 import org.sopt.hashi.restaurant.internal.map.LocationRetentionService;
 import org.sopt.hashi.restaurant.service.LocationJobTransactions.Outcome;
 import org.sopt.hashi.shared.storage.FileStorage;
+import org.sopt.hashi.user.domain.User;
+import org.sopt.hashi.user.domain.UserRepository;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -83,7 +88,10 @@ import org.testcontainers.utility.DockerImageName;
         "hashi.restaurant.map.initial-bounds.south=10", "hashi.restaurant.map.initial-bounds.north=11",
         "hashi.restaurant.map.initial-bounds.west=20", "hashi.restaurant.map.initial-bounds.east=21",
         "hashi.restaurant.map.supported-bounds.south=10", "hashi.restaurant.map.supported-bounds.north=11",
-        "hashi.restaurant.map.supported-bounds.west=20", "hashi.restaurant.map.supported-bounds.east=21"
+        "hashi.restaurant.map.supported-bounds.west=20", "hashi.restaurant.map.supported-bounds.east=21",
+        "hashi.restaurant.map.session.limits.requests-per-caller=600",
+        "hashi.restaurant.map.session.limits.new-queries-per-caller=100",
+        "hashi.restaurant.map.session.limits.requests-per-minute=3000"
 })
 @AutoConfigureMockMvc
 @DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_CLASS)
@@ -127,6 +135,7 @@ class RestaurantMapFlowIntegrationTest {
     @Autowired RestaurantPort port;
     @Autowired MapRegionRepository regions;
     @Autowired JdbcTemplate jdbc;
+    @Autowired UserRepository users;
     @Autowired RestaurantRepository restaurants;
     @Autowired TransactionTemplate transactionTemplate;
     @Autowired MapSessionProperties sessionProperties;
@@ -155,12 +164,12 @@ class RestaurantMapFlowIntegrationTest {
     @Test
     void 관리자_저장_후_실제_worker가_확인한_식당만_현재위치와_지역수와_Port에_나타난다() throws Exception {
         mvc.perform(post("/api/v1/admin/restaurants")
-                        .contentType(MediaType.APPLICATION_JSON).content(createBody()))
+                        .contentType(MediaType.APPLICATION_JSON).content(createBodyWithDisplayAddress()))
                 .andExpect(status().isUnauthorized());
         String token = jwt.createAccessToken(1L, "ROLE_ADMIN");
         JsonNode saved = body(mvc.perform(post("/api/v1/admin/restaurants")
                         .header("Authorization", "Bearer " + token)
-                        .contentType(MediaType.APPLICATION_JSON).content(createBody()))
+                        .contentType(MediaType.APPLICATION_JSON).content(createBodyWithDisplayAddress()))
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.code").value("ADMIN-204"))
                 .andExpect(jsonPath("$.data.locationStatus").value("PENDING"))
@@ -209,18 +218,111 @@ class RestaurantMapFlowIntegrationTest {
         assertThat(firstPage.path("content").get(0).path("location").path("latitude").decimalValue())
                 .isEqualByComparingTo("10.123457");
 
+        User mapUser = users.saveAndFlush(User.onboard(
+                "지도통합회원", "HASHI", LocalDate.of(1998, 1, 1),
+                "01011110006", "map-flow@hashi.test", null));
+        String userToken = jwt.createAccessToken(mapUser.getId(), "ROLE_USER");
+        long collectionId = body(mvc.perform(post("/api/v1/collections")
+                        .header("Authorization", "Bearer " + userToken)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"name\":\"지도 통합\",\"color\":\"red\",\"visibility\":\"public\"}"))
+                .andExpect(status().isCreated())
+                .andReturn().getResponse().getContentAsString()).path("data").path("collectionId").asLong();
+        mvc.perform(post("/api/v1/collections/{collectionId}/restaurants", collectionId)
+                        .header("Authorization", "Bearer " + userToken)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"restaurantId\":" + id + "}"))
+                .andExpect(status().isCreated());
+        mvc.perform(get("/api/v1/collections/{collectionId}/map-markers", collectionId))
+                .andExpect(status().isOk()).andExpect(header().string("Cache-Control", "no-store"))
+                .andExpect(jsonPath("$.data.visibleRestaurantCount").value(1))
+                .andExpect(jsonPath("$.data.locationUnavailableCount").value(0))
+                .andExpect(jsonPath("$.data.content[0].restaurantId").value(id))
+                .andExpect(jsonPath("$.data.content[0].location.latitude").value(10.123457));
+        mvc.perform(get("/api/v1/restaurants/save-counts").param("restaurantIds", Long.toString(id)))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.data.restaurants[0].saveCount").value(1));
+        mvc.perform(get("/api/v1/users/me/restaurant-saves").param("restaurantIds", Long.toString(id))
+                        .header("Authorization", "Bearer " + userToken))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.data.restaurants[0].saved").value(true));
+
+        mvc.perform(patch("/api/v1/admin/restaurants/{id}", id)
+                        .header("Authorization", "Bearer " + token)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"name\":\"합성 식당\",\"localName\":\"試験\",\"address\":\"" + ADDRESS
+                                + " 架空ビル1F\",\"geocodingAddress\":\"" + ADDRESS + "\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.locationStatus").value("READY"))
+                .andExpect(jsonPath("$.data.addressRevision").value(1));
+        assertThat(jdbc.queryForObject("select count(*) from restaurant_location_job where restaurant_id=?",
+                Integer.class, id)).isEqualTo(1);
+        verify(google, times(1)).geocode(ADDRESS);
+
+        mvc.perform(patch("/api/v1/admin/restaurants/{id}", id)
+                        .header("Authorization", "Bearer " + token)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"address\":\"" + ADDRESS + " 架空ビル2F\",\"geocodingAddress\":\""
+                                + ADDRESS + "\"}"))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.code").value("ADMIN-205"))
+                .andExpect(jsonPath("$.data.locationStatus").value("PENDING"))
+                .andExpect(jsonPath("$.data.addressRevision").value(2));
+        assertThat(jdbc.queryForObject("select count(*) from restaurant_location_job where restaurant_id=?",
+                Integer.class, id)).isEqualTo(2);
+        verify(google, times(1)).geocode(ADDRESS);
+        mvc.perform(get("/api/v1/admin/restaurants/{id}/location", id)
+                        .header("Authorization", "Bearer " + token))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.confirmationMethod").doesNotExist())
+                .andExpect(jsonPath("$.data.confirmedAt").doesNotExist())
+                .andExpect(jsonPath("$.data.confirmedRevision").doesNotExist());
+        mvc.perform(get("/api/v1/restaurants/{id}/map-location", id))
+                .andExpect(status().isConflict()).andExpect(jsonPath("$.code").value("RESTAURANT-018"));
+        mvc.perform(get("/api/v1/collections/{collectionId}/map-markers", collectionId))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.visibleRestaurantCount").value(1))
+                .andExpect(jsonPath("$.data.locationUnavailableCount").value(1))
+                .andExpect(jsonPath("$.data.content").isEmpty());
+        mvc.perform(get("/api/v1/restaurants/map")
+                        .param("querySessionId", firstPage.path("querySessionId").asText())
+                        .param("sort", "recommend"))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.data.content").isEmpty());
+
+        worker.runOnce();
+        verify(google, times(2)).geocode(ADDRESS);
+        mvc.perform(get("/api/v1/admin/restaurants/{id}/location", id)
+                        .header("Authorization", "Bearer " + token))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.locationStatus").value("READY"))
+                .andExpect(jsonPath("$.data.addressRevision").value(2))
+                .andExpect(jsonPath("$.data.confirmationMethod").value("AUTOMATIC"))
+                .andExpect(jsonPath("$.data.confirmedRevision").value(2));
+        mvc.perform(get("/api/v1/restaurants/{id}/map-location", id))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.data.restaurantId").value(id));
+        mvc.perform(get("/api/v1/restaurants/map")
+                        .param("south", "10").param("north", "11").param("west", "20").param("east", "21"))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.data.content[0].restaurantId").value(id));
+        mvc.perform(get("/api/v1/collections/{collectionId}/map-markers", collectionId))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.visibleRestaurantCount").value(1))
+                .andExpect(jsonPath("$.data.locationUnavailableCount").value(0))
+                .andExpect(jsonPath("$.data.content[0].restaurantId").value(id));
+
         mvc.perform(patch("/api/v1/admin/restaurants/{id}", id)
                         .header("Authorization", "Bearer " + token)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"address\":\"東京都試験区架空町4丁目5番6号\"}"))
                 .andExpect(status().isOk()).andExpect(jsonPath("$.code").value("ADMIN-205"))
                 .andExpect(jsonPath("$.data.locationStatus").value("PENDING"))
-                .andExpect(jsonPath("$.data.addressRevision").value(2));
+                .andExpect(jsonPath("$.data.addressRevision").value(3));
         mvc.perform(get("/api/v1/restaurants/{id}/map-location", id))
                 .andExpect(status().isConflict()).andExpect(jsonPath("$.code").value("RESTAURANT-018"));
         mvc.perform(get("/api/v1/restaurants/map/regions"))
                 .andExpect(status().isOk()).andExpect(jsonPath("$.data.regions[0].restaurantCount").value(0));
         assertThat(port.findActiveMapInfos(List.of(id)).getFirst().location()).isNull();
+        mvc.perform(get("/api/v1/collections/{collectionId}/map-markers", collectionId))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.visibleRestaurantCount").value(1))
+                .andExpect(jsonPath("$.data.locationUnavailableCount").value(1))
+                .andExpect(jsonPath("$.data.content").isEmpty());
         mvc.perform(get("/api/v1/restaurants/map")
                         .param("querySessionId", firstPage.path("querySessionId").asText())
                         .param("sort", "recommend"))
@@ -343,7 +445,7 @@ class RestaurantMapFlowIntegrationTest {
                         .header("Authorization", "Bearer " + token))
                 .andExpect(status().isOk()).andExpect(jsonPath("$.data.locationStatus").value("PENDING"));
         mvc.perform(get("/api/v1/restaurants/{id}/map-location", id))
-                .andExpect(status().isOk());
+                .andExpect(status().isOk()).andExpect(jsonPath("$.data.restaurantId").value(id));
         assertThat(port.findActiveMapInfos(List.of(id)).getFirst().location()).isNotNull();
         mvc.perform(get("/api/v1/restaurants/map")
                         .param("querySessionId", first.path("querySessionId").asText())
@@ -351,12 +453,13 @@ class RestaurantMapFlowIntegrationTest {
                 .andExpect(status().isOk()).andExpect(jsonPath("$.data.content[0].restaurantId").value(id));
     }
 
-    @Test
-    void 합성_23개는_10_10_3으로_조회되고_모든_카드_ID에_같은_핀_좌표가_있다() throws Exception {
+    @ParameterizedTest
+    @ValueSource(ints = {23, 500, 501, 620})
+    void 전체_식당은_중복누락없이_조회되고_같은_커서와_동점정렬은_순서를_유지한다(int count) throws Exception {
         Clock clock = Clock.systemUTC();
         List<Long> expected = transactionTemplate.execute(status -> {
             List<Long> ids = new ArrayList<>();
-            for (int index = 0; index < 23; index++) {
+            for (int index = 0; index < count; index++) {
                 Restaurant restaurant = Restaurant.create("합성 식당 " + index, "試験", "요약", "설명",
                         ADDRESS, "합성 지역", RestaurantGenre.SUSHI, "초밥", RestaurantPlaceType.RESTAURANT,
                         PriceCurrency.JPY, BigDecimal.ONE, BigDecimal.TEN);
@@ -376,7 +479,12 @@ class RestaurantMapFlowIntegrationTest {
                 .andExpect(status().isOk()).andReturn().getResponse().getContentAsString()).path("data");
         List<Long> seen = new ArrayList<>();
         String sessionId = page.path("querySessionId").asText();
-        for (int size : List.of(10, 10, 3)) {
+        JsonNode sorted = body(mvc.perform(get("/api/v1/restaurants/map")
+                        .param("querySessionId", sessionId).param("sort", "rating"))
+                .andExpect(status().isOk()).andReturn().getResponse().getContentAsString()).path("data");
+        assertThat(sorted.path("content")).isEqualTo(page.path("content"));
+        for (int offset = 0; offset < count; offset += 10) {
+            int size = Math.min(10, count - offset);
             assertThat(page.path("querySessionId").asText()).isEqualTo(sessionId);
             assertThat(page.path("content").size()).isEqualTo(size);
             page.path("content").forEach(card -> {
@@ -387,14 +495,20 @@ class RestaurantMapFlowIntegrationTest {
                         .isEqualByComparingTo("20.5");
                 seen.add(card.path("restaurantId").asLong());
             });
-            if (size == 3) {
+            if (offset + size == count) {
                 assertThat(page.path("hasNext").asBoolean()).isFalse();
                 assertThat(page.has("nextCursor")).isFalse();
             } else {
                 assertThat(page.path("hasNext").asBoolean()).isTrue();
-                page = body(mvc.perform(get("/api/v1/restaurants/map")
-                                .param("cursor", page.path("nextCursor").asText()))
+                String cursor = page.path("nextCursor").asText();
+                page = body(mvc.perform(get("/api/v1/restaurants/map").param("cursor", cursor))
                         .andExpect(status().isOk()).andReturn().getResponse().getContentAsString()).path("data");
+                if (offset == 0) {
+                    JsonNode replay = body(mvc.perform(get("/api/v1/restaurants/map").param("cursor", cursor))
+                            .andExpect(status().isOk()).andReturn().getResponse().getContentAsString()).path("data");
+                    assertThat(replay.path("content")).isEqualTo(page.path("content"));
+                    assertThat(replay.path("nextCursor")).isEqualTo(page.path("nextCursor"));
+                }
             }
         }
         assertThat(seen).doesNotHaveDuplicates().containsExactlyInAnyOrderElementsOf(expected);
@@ -416,5 +530,10 @@ class RestaurantMapFlowIntegrationTest {
                    {"dayOfWeek":"FRIDAY","closed":true},{"dayOfWeek":"SATURDAY","closed":true},
                    {"dayOfWeek":"SUNDAY","closed":true}]}
                 """;
+    }
+
+    private String createBodyWithDisplayAddress() {
+        return createBody().replace("\"address\":\"" + ADDRESS + "\"",
+                "\"address\":\"" + ADDRESS + " 架空ビル1F\",\"geocodingAddress\":\"" + ADDRESS + "\"");
     }
 }
