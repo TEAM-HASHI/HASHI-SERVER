@@ -12,6 +12,8 @@ import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.Pattern;
 import org.sopt.hashi.admin.code.AdminSuccessCode;
 import org.sopt.hashi.admin.dto.AdminRestaurantResponse;
+import org.sopt.hashi.admin.dto.PreviewRestaurantLocationRequest;
+import org.sopt.hashi.admin.dto.RestaurantLocationPreviewResponse;
 import org.sopt.hashi.admin.dto.CreateRestaurantRequest;
 import org.sopt.hashi.admin.dto.UpdateRestaurantRequest;
 import org.sopt.hashi.admin.dto.RestaurantLocationResponse;
@@ -57,6 +59,12 @@ public class AdminRestaurantController {
             식당 정보를 저장한 뒤 지도 위치 확인 작업을 비동기로 요청합니다.
             201 응답은 식당 저장과 위치 작업 등록 성공을 뜻하며, Google 위치 확인 완료를 뜻하지 않습니다.
             응답의 locationStatus와 addressRevision을 확인하고 위치 상태 조회 API로 최신 상태를 조회하세요.
+            등록 전에 POST /api/v1/admin/restaurants/location-preview로 후보를 확인할 수 있습니다.
+            지도에서 맞는 매장을 고른 뒤 후보의 selectionToken을 locationSelectionToken으로 보내세요.
+            같은 관리자가 이름·현지명·표시주소·기본주소를 변경하지 않고 10분 안에 등록해야 합니다.
+            토큰이 없으면 등록은 허용하고 기존 주소 자동 확인을 요청합니다. 확인 실패로 식당 정보가 삭제되지는 않습니다.
+            토큰이 있으면 선택한 Place ID의 상세 확인만 요청하며 주소 검색을 함께 반복하지 않습니다.
+            관리자의 후보 선택과 Google 상세 검증 완료는 다르므로 PENDING 동안에는 핀을 표시하지 마세요.
             """)
     @io.swagger.v3.oas.annotations.parameters.RequestBody(content = @Content(examples = @ExampleObject(
             name = "식당 등록 예시(복붙 가능)", value = """
@@ -111,6 +119,12 @@ public class AdminRestaurantController {
             message = "이미 등록된 식당명입니다.")
     @ApiErrorResponse(status = HttpStatus.CONFLICT, code = "RESTAURANT-021",
             message = "이미 등록된 주소입니다.")
+    @ApiErrorResponse(status = HttpStatus.BAD_REQUEST, code = "RESTAURANT-027",
+            message = "Places 선택 정보가 올바르지 않습니다")
+    @ApiErrorResponse(status = HttpStatus.CONFLICT, code = "RESTAURANT-028",
+            message = "현재 위치 상태를 다시 확인해주세요")
+    @ApiErrorResponse(status = HttpStatus.SERVICE_UNAVAILABLE, code = "RESTAURANT-024",
+            message = "Places 위치 확인을 사용할 수 없습니다")
     @ApiSuccess(value = AdminSuccessCode.class, codes = {"RESTAURANT_CREATED"})
     @ResponseStatus(HttpStatus.CREATED)
     @PostMapping
@@ -118,6 +132,32 @@ public class AdminRestaurantController {
             @Valid @RequestBody CreateRestaurantRequest request) {
         return SuccessResponse.of(AdminSuccessCode.RESTAURANT_CREATED,
                 adminRestaurantService.create(request));
+    }
+
+    @PostMapping("/location-preview")
+    @Operation(summary = "식당 등록 전 위치 미리보기", description = """
+            식당을 저장하기 전에 현지 식당명과 주소로 Google Places 후보를 조회합니다.
+            geocodingAddress가 없으면 건물명·층을 포함한 address를 사용합니다. 아직 식당 ID는 필요하지 않습니다.
+            후보의 이름·지점·주소와 지도 위치를 확인해 맞는 매장을 고르고, selectionToken을 최종 등록의
+            locationSelectionToken으로 전달하세요. 클라이언트가 좌표나 Place ID를 직접 확정해 보내는 방식이 아닙니다.
+            후보를 고른 관리자만 10분 안에 같은 입력으로 등록할 수 있습니다. 이름·현지명·주소·기본주소를
+            하나라도 바꾸거나 토큰이 만료되면 다시 미리보기를 요청하세요.
+            candidates=[]는 정상 조회 결과 0건입니다. 429는 호출 예산 소진, 503은 설정 문제, 502는 Google 조회 실패입니다.
+            후보가 없어도 토큰 없이 식당 정보를 저장할 수 있습니다. 위치 확인이 완료될 때까지 핀만 숨깁니다.
+            후보 결과는 저장하지 말고, Google 지도와 필요한 Google/제3자 출처 표시를 함께 보여주세요.
+            """)
+    @ApiSuccess(value = CommonSuccessCode.class, codes = {"OK"})
+    @ApiException(value = CommonErrorCode.class, codes = {"INVALID_INPUT", "UNAUTHORIZED", "FORBIDDEN"})
+    @ApiErrorResponse(status = HttpStatus.TOO_MANY_REQUESTS, code = "RESTAURANT-025",
+            message = "Places 호출 한도를 확인해주세요")
+    @ApiErrorResponse(status = HttpStatus.SERVICE_UNAVAILABLE, code = "RESTAURANT-024",
+            message = "Places 위치 확인을 사용할 수 없습니다")
+    @ApiErrorResponse(status = HttpStatus.BAD_GATEWAY, code = "RESTAURANT-026",
+            message = "Places 응답을 확인할 수 없습니다")
+    public SuccessResponse<RestaurantLocationPreviewResponse> previewLocation(
+            @Valid @RequestBody PreviewRestaurantLocationRequest request, HttpServletResponse response) {
+        response.setHeader("Cache-Control", "no-store");
+        return SuccessResponse.of(CommonSuccessCode.OK, adminRestaurantService.previewLocation(request));
     }
 
     /** 식당 부분 수정 — 보낸 필드만 변경하며, 컬렉션(이미지·메뉴·해시태그·큐레이션)은 전체 교체한다. */
@@ -128,9 +168,10 @@ public class AdminRestaurantController {
             geocodingAddress는 Google 위치 확인에만 쓰는 별도 지정 주소입니다.
             geocodingAddress를 생략하거나 null로 보내면 address가 그대로일 때 기존 별도 지정 주소를 유지합니다.
             address만 변경하면 기존 별도 지정 주소를 삭제하고 새 address를 위치 확인 기준으로 사용합니다.
-            이때 유효한 위치 확인 입력까지 달라진 경우에만 기존 좌표를 무효화하고 새 작업을 요청합니다.
+            이름(name/localName) 또는 표시 주소(address)가 실제로 달라지면 기존 좌표와 관리자 확인을 무효화하고 다시 확인합니다.
+            조회용 기본 주소가 같아도 층수·지점명 등 표시 정보가 바뀌면 같은 규칙을 적용합니다.
             geocodingAddress의 공백 문자열은 별도 지정 주소를 명시적으로 삭제하고 현재 address를 사용한다는 뜻입니다.
-            표시 주소를 바꾸면서 기존과 같은 위치 확인 기준을 geocodingAddress로 함께 보내면 좌표와 위치 상태를 유지합니다.
+            동일한 값을 다시 보내거나 위치와 무관한 소개·가격만 바꾸면 위치와 revision을 유지합니다.
             200 응답은 식당 저장과 필요한 위치 작업 등록 성공을 뜻하며, Google 위치 확인 완료를 뜻하지 않습니다.
             """)
     @io.swagger.v3.oas.annotations.parameters.RequestBody(content = @Content(examples = {
@@ -163,9 +204,9 @@ public class AdminRestaurantController {
                     }
                     """),
             @ExampleObject(
-                    name = "표시 층만 변경하고 기존 위치 기준 유지",
+                    name = "표시 층 변경 후 위치 재확인",
                     description = "기존 geocodingAddress가 東京都豊島区東池袋1-1-1인 식당의 층만 바꾸는 예시입니다. "
-                            + "같은 별도 지정 주소를 함께 보내므로 위치 확인 입력과 좌표·상태를 유지합니다.",
+                            + "같은 기본 주소를 보내도 표시 주소가 바뀌었으므로 기존 핀을 숨기고 위치를 다시 확인합니다.",
                     value = """
                     {
                       "address": "東京都豊島区東池袋1-1-1 架空ビル2F",
@@ -184,7 +225,7 @@ public class AdminRestaurantController {
             @ExampleObject(
                     name = "표시 주소만 변경",
                     description = "geocodingAddress를 생략하면 기존 별도 지정 주소를 삭제하고 새 address를 위치 확인 기준으로 사용합니다. "
-                            + "유효 입력까지 달라질 때만 좌표를 무효화합니다.",
+                            + "표시 주소가 바뀌면 기존 좌표와 확인 결과를 무효화합니다.",
                     value = """
                     {
                       "address": "東京都豊島区東池袋3-3-3 本館1F"
@@ -258,7 +299,7 @@ public class AdminRestaurantController {
             먼저 위치 상태 조회 API에서 최신 addressRevision을 읽어 expectedAddressRevision으로 보냅니다.
             같은 revision의 PENDING 작업이 있으면 새 작업을 만들지 않고 현재 상태를 반환하며,
             그 밖의 재시도 가능 상태는 PENDING 작업을 새로 요청합니다.
-            주소 revision이 달라졌거나 이미 READY이면 409를 반환합니다.
+            이름·현지명·주소 변경으로 revision이 달라졌거나 이미 READY이면 409를 반환합니다.
             200 응답은 재요청 접수 성공을 뜻하며, Google 위치 확인 완료를 뜻하지 않습니다.
             """)
     @ApiSuccess(value = CommonSuccessCode.class, codes = {"OK"})
@@ -312,7 +353,7 @@ public class AdminRestaurantController {
             클라이언트가 임의 검색어나 Place ID, 좌표를 보내지 않으며 서버가 일본·도쿄·지도 서비스 범위를 검증합니다.
             외부 유료 호출이므로 화면 진입만으로 자동 호출하지 말고 관리자가 검색을 요청할 때 호출하세요.
             검색 결과가 없거나 범위를 통과한 후보가 없으면 200과 빈 candidates를 반환합니다.
-            각 selectionToken은 검색 당시 restaurantId, addressRevision, requestId, Place ID에 묶여 10분 동안 유효합니다.
+            각 selectionToken은 검색 당시 관리자, restaurantId, addressRevision, requestId, Place ID에 묶여 10분 동안 유효합니다.
             """)
     @io.swagger.v3.oas.annotations.parameters.RequestBody(content = @Content(examples = @ExampleObject(
             name = "현재 주소의 후보 검색", value = """
@@ -338,7 +379,8 @@ public class AdminRestaurantController {
     @Operation(summary = "식당 Places 후보 선택", description = """
             직전 후보 검색 응답의 addressRevision을 요청의 expectedAddressRevision으로 전달하고,
             선택한 후보의 selectionToken으로 한 후보를 선택합니다.
-            토큰을 수정했거나 만료됐으면 400, 주소·현재 작업·상태가 달라졌거나 PENDING이면 409입니다.
+            토큰을 수정했거나 만료됐으면 400, 다른 관리자·변경된 식당 정보·현재 작업·상태이거나 PENDING이면 409입니다.
+            서버 인증 정보로 선택 관리자·선택 시각·확인 방식·당시 revision을 기록합니다. 좌표 출처는 GOOGLE_PLACES입니다.
             선택 즉시 기존 승인 좌표를 제거하고 새 PLACE_DETAILS 작업을 PENDING으로 등록합니다.
             200 응답은 선택 저장과 작업 등록 성공을 뜻하며 Places 상세 확인 완료를 뜻하지 않습니다.
             locationStatus를 다시 조회해 READY와 validUntil을 확인하세요.

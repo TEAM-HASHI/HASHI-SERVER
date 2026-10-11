@@ -15,8 +15,9 @@ Google의 위치 확인 성공을 뜻하지 않는다.
 - 표시 주소를 바꾸면서 `geocodingAddress`를 생략하면 과거 기본 주소를 자동으로 신뢰하지 않고 삭제한다.
   새 표시 주소가 fallback 입력이 되며, 이전 위치 작업과 결과는 새 revision에 적용되지 않는다.
 - 표시 주소를 바꿔도 같은 기본 주소를 유지하려면 응답의 `geocodingAddress`를 수정 요청에 함께 보낸다.
-- 변경 전후 실제 provider 입력(`geocodingAddress`, 없으면 `address`)이 달라질 때만 `addressRevision`이 증가하고
-  위치 확인을 다시 시작한다. 같은 명시 base를 유지한 건물명·층수 표시 수정은 기존 좌표와 진행 중 작업을 보존한다.
+- 이름·현지명·표시 주소 또는 실제 위치 확인 입력이 바뀌면 `addressRevision`이 증가하고 다시 확인한다.
+  같은 기본 주소를 보내도 건물명·층 등 표시 주소가 바뀌면 기존 핀과 확인 기록을 지운다.
+  같은 값을 다시 보내거나 가격·소개만 바꾸는 요청은 기존 좌표와 진행 중 작업을 보존한다.
 
 - `GET /api/v1/admin/restaurants/{id}/location`: 200 `COMMON-200`.
 - `POST /api/v1/admin/restaurants/{id}/location/retry`: body `{"expectedAddressRevision":1}`,

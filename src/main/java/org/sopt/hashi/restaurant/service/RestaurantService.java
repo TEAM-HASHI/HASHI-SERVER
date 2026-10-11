@@ -359,6 +359,12 @@ public class RestaurantService {
     /** 어드민 식당 등록 — 필수 값 형식 검증은 admin 요청 DTO가, 도메인 값 해석·저장은 여기가 담당한다. */
     @Transactional(isolation = Isolation.READ_COMMITTED)
     public AdminRestaurantInfo createByAdmin(AdminRestaurantCommand command) {
+        return createByAdmin(command, null);
+    }
+
+    @Transactional(isolation = Isolation.READ_COMMITTED)
+    public AdminRestaurantInfo createByAdmin(AdminRestaurantCommand command,
+                                            PlacesLocationService.CreationSelection selection) {
         validateRequiredForCreate(command);
 
         List<RestaurantImage> images = toImagesForCreate(command);
@@ -402,7 +408,11 @@ public class RestaurantService {
 
         reconcileMediaBindings(claims, List.of());
         Restaurant saved = restaurantRepository.save(restaurant);
-        locationService.enqueue(saved);
+        if (selection == null) {
+            locationService.enqueue(saved);
+        } else {
+            locationService.enqueueSelectedPlace(saved, selection.placeId(), selection.adminId());
+        }
         restaurantRepository.flush();
         // 생성된 id는 응답 body에만 있어 로그로 남겨야 추적 가능하다 (adminId는 MDC)
         log.info("어드민 식당 등록. restaurantId={}", saved.getId());
@@ -424,6 +434,9 @@ public class RestaurantService {
         Restaurant restaurant = findRestaurantForAdminUpdate(restaurantId);
 
         String previousGeocodingInput = restaurant.geocodingAddressForResolution();
+        String previousName = restaurant.getName();
+        String previousLocalName = restaurant.getLocalName();
+        String previousAddress = restaurant.getAddress();
 
         RestaurantGenre genre = command.genre() == null ? null : toGenre(command.genre());
         RestaurantPlaceType placeType = command.placeType() == null ? null : toPlaceType(command.placeType());
@@ -472,7 +485,9 @@ public class RestaurantService {
 
         boolean geocodingInputChanged = !Objects.equals(
                 previousGeocodingInput, restaurant.geocodingAddressForResolution());
-        if (geocodingInputChanged && !restaurant.isDeleted()) {
+        if ((geocodingInputChanged || !Objects.equals(previousName, restaurant.getName())
+                || !Objects.equals(previousLocalName, restaurant.getLocalName())
+                || !Objects.equals(previousAddress, restaurant.getAddress())) && !restaurant.isDeleted()) {
             locationService.enqueue(restaurant);
         }
 

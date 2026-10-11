@@ -4,6 +4,21 @@
 관리자가 Google Places 후보로 교정하는 계약이다. 후보 검색과 선택은 기존 ADMIN 권한을 사용하며,
 클라이언트가 검색어, Place ID 또는 저장 좌표를 직접 지정하지 않는다.
 
+## 등록 전 미리보기
+
+`POST /api/v1/admin/restaurants/location-preview`는 식당을 저장하지 않고 Places 후보를 반환한다.
+`name`, `localName`, `address`, 선택적인 `geocodingAddress`를 보낸다. 검색에는 현지명과 기본 주소를
+사용하며 기본 주소가 없으면 표시 주소를 사용한다. 기존 SEARCH 예산·후보 검증을 그대로 적용한다.
+후보를 고른 뒤 `selectionToken`을 식당 등록 요청의 `locationSelectionToken`으로 보낸다.
+
+- 네 입력과 인증 관리자를 서명으로 묶는다. 검색 후 입력을 바꾸거나 관리자가 달라지면 409다.
+- 변조·만료 토큰은 400이다. 실패하면 식당과 위치 작업을 모두 저장하지 않는다.
+- 등록 전후 토큰은 서로 사용할 수 없다. 원문 Place ID나 좌표를 직접 보내서 저장할 수 없다.
+- 토큰을 생략하면 기존 등록처럼 식당을 먼저 저장하고 주소로 자동 확인한다.
+- 토큰이 있으면 식당과 선택 장소의 `PLACE_DETAILS` 작업을 같은 transaction에 저장한다.
+  등록 transaction에서 Google을 호출하지 않는다. 이후 worker가 상세 확인을 완료해야 핀이 보인다.
+- 미리보기 결과를 클라이언트 영구 저장소에 저장하지 않는다. Google 지도 및 필요한 attribution을 표시한다.
+
 ## API와 상태 전이
 
 - `POST /api/v1/admin/restaurants/{restaurantId}/location/place-candidates`
@@ -17,7 +32,7 @@
 - `POST /api/v1/admin/restaurants/{restaurantId}/location/place-selection`
   - body: `{"expectedAddressRevision":2,"selectionToken":"..."}`
   - 성공은 200과 `PENDING`이다. 저장 성공일 뿐 Places Details 완료를 뜻하지 않는다.
-  - token 변조·만료는 400, token의 restaurant/revision/request와 현재 값 불일치 또는 `PENDING`은 409다.
+  - token 변조·만료는 400, token의 관리자/restaurant/revision/request와 현재 값 불일치 또는 `PENDING`은 409다.
   - 상태 조회의 `verificationMode=PLACE_DETAILS`와 이후 `READY`, `validUntil`을 확인한다.
 
 검색 후보는 `countryCode=JP`, 행정구역 `Tokyo` 또는 `東京都`, 설정된 지도 BBOX 안의 좌표를 모두
@@ -28,8 +43,9 @@ Details 성공 시 제3자 attribution의 표시명과 HTTPS URI를 좌표와 �
 
 ## 후보 결합과 저장 범위
 
-`selectionToken`은 HMAC-SHA256으로 restaurantId, addressRevision, 현재 requestId, Place ID, 발급·만료 시각을
-묶으며 유효 시간은 10분이다. 키는 후보 DB 테이블을 만들지 않고도 검색 결과를 현재 위치 상태에 결합하기
+`selectionToken`은 HMAC-SHA256으로 인증 관리자, restaurantId, addressRevision, 현재 requestId, Place ID, 발급·만료 시각을
+묶으며 유효 시간은 10분이다. 등록 전 토큰에는 식당 ID 대신 네 입력의 SHA-256을 넣는다.
+토큰 형식 변경 후 이전 토큰은 400으로 거절하므로 다시 검색해야 한다. 키는 후보 DB 테이블을 만들지 않고도 검색 결과를 현재 위치 상태에 결합하기
 위해 필요하다. 검색 응답의 표시명·주소·유형·attribution은 즉시 응답에만 사용하고 DB에 저장하지 않는다.
 
 선택 시 새 requestId와 `PLACE_DETAILS` job을 만들고 job에만 선택 Place ID를 보관한다. 잘못된 핀을
@@ -79,3 +95,18 @@ provider API key를 재사용하지 않는다.
 | Places 재시도 | 없음 | current job의 operation과 Place ID를 그대로 복제 |
 | provider 예산 | Geocoding 단일 일일·동시 한도 | SEARCH·DETAILS 일일/분당 예산을 서로 분리 |
 | provider 콘텐츠 저장 | Geocoding 좌표와 안전 코드만 저장 | 성공 좌표·Place ID·필수 attribution만 저장하고 후보명·주소는 저장하지 않음 |
+
+## 위치 확인 기록과 변경
+
+좌표 제공자인 `source`와 확인 방식인 `confirmationMethod`는 별개다. 관리자가 Places 매장을 골라도
+source는 `GOOGLE_PLACES`이며 자체 좌표로 바뀌지 않는다. `ADMIN_PLACE_SELECTION`, 인증 관리자 ID,
+선택 접수 시각, 당시 revision을 기록한다. 접수 시각은 Google 좌표 취득 완료 시각과 다르다.
+현재 위치 상태 조회에서 이 값과 `locationStatus`를 함께 확인한다. PENDING이면 지도에 새 핀을 표시하지 않는다.
+
+Geocoding의 자동 채택은 `AUTOMATIC`으로 기록한다. 기존 데이터에서 알 수 없는 관리자나 확인 시각을
+채우지 않으므로 과거 기록은 null일 수 있다. 같은 매장의 정기 갱신은 관리자 선택 기록을 보존한다.
+이름·현지명·표시 주소·위치 확인 입력이 달라지면 기존 확인을 지우고 revision을 올려 다시 확인한다.
+
+지도에서 직접 옮긴 핀을 저장하는 API는 이번 계약에 포함하지 않는다. Google 결과를 확인·보정한 좌표가
+독립적으로 확보한 자체 데이터가 되는 것은 아니므로, 해당 좌표의 보관·갱신 정책을 확인한 뒤 추가한다.
+Places 선택은 Place ID로 갱신하고, 재조회 없이 validUntil만 늘리지 않는다.
