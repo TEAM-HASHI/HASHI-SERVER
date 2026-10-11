@@ -217,7 +217,8 @@ payload 포함 가능성 때문에 cause도 외부 로그에 전달하지 않는
 환경 변수는 `HASHI_RESTAURANT_MAP_REDIS_MODE`, `..._HOST`, `..._PORT`, `..._SSL`, `..._USERNAME`,
 `..._PASSWORD`, `..._CONNECTTIMEOUT`, `..._TIMEOUT`이다. 예시는 `.env.dev.example`에 있다.
 enabled=true일 때 누락/잘못된 연결 설정은 값이나 예외 원문 없는 WARN을 남기며 앱 시작은 유지한다.
-첫 유효 지도 요청에서 전용 연결과 제한된 Lettuce 자원을 생성하고, 앱 종료 때 함께 정리한다.
+첫 유효 지도 요청 또는 활성 상태의 주기 관측에서 전용 연결과 제한된 Lettuce 자원을 생성하고,
+앱 종료 때 함께 정리한다.
 지도 factory/template은 Spring 빈으로 노출하지 않아 Boot의 기존 Redis 자동 구성을 끄지 않는다.
 비활성 상태에서는 지도 연결과 추가 Lettuce 자원을 만들지 않는다.
 
