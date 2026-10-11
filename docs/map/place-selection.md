@@ -104,6 +104,9 @@ Places Details 검증에 성공해 좌표를 저장하면 `GOOGLE_PLACES`가 된
 `confirmedAt`(선택 접수 시각), `confirmedRevision`(당시 revision)을 기록한다.
 접수 시각은 Google 좌표 취득 완료 시각과 다르다.
 현재 위치 상태 조회에서 이 값과 `locationStatus`를 함께 확인한다. PENDING이면 지도에 새 핀을 표시하지 않는다.
+관리자 응답의 `confirmedByAdminLoginId`는 `confirmedByAdminId`에 해당하는 계정의 현재 로그인 ID다.
+계정을 찾지 못하면 null이며 확인 당시 로그인 ID를 복원하는 값은 아니다. 이 표시값은 요청으로 받거나
+위치 테이블에 중복 저장하지 않는다. 일반 사용자에게 공개하는 식당 응답에는 포함하지 않는다.
 
 Geocoding의 자동 채택은 `AUTOMATIC`으로 기록한다. 기존 데이터에서 알 수 없는 관리자나 확인 시각을
 채우지 않으므로 과거 기록은 null일 수 있다. 같은 매장의 정기 갱신은 관리자 선택 기록을 보존한다.

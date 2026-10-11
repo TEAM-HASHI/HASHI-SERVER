@@ -39,14 +39,17 @@ public record RestaurantLocationResponse(
         String confirmationMethod,
         @Schema(description = "후보를 선택한 관리자 ID. 서버 인증 정보에서 기록하며 자동 검증 또는 과거 기록이 없으면 null")
         Long confirmedByAdminId,
+        @Schema(description = "확인한 관리자 계정의 현재 로그인 ID. 관리자 화면 표시용이며 확인 당시 값의 사본이 아님. 자동 검증·과거 기록 없음·계정 삭제 시 null",
+                example = "hashi_admin", nullable = true)
+        String confirmedByAdminLoginId,
         @Schema(description = "위치 확인 시각(UTC). 관리자 선택은 선택 접수 시각이며 좌표 취득 완료 시각과 다름. 이 값만으로 핀 노출을 판단하지 않음. 새 후보는 READY 완료 후 표시하며 같은 매장 갱신 중의 기존 유효 핀은 유지")
         Instant confirmedAt,
         @Schema(description = "확인 당시 식당 정보 revision. 이름·주소가 바뀌면 이전 확인 기록을 초기화")
         Long confirmedRevision) {
-    public static RestaurantLocationResponse from(RestaurantLocationInfo info) {
+    public static RestaurantLocationResponse from(RestaurantLocationInfo info, String confirmedByAdminLoginId) {
         return new RestaurantLocationResponse(info.restaurantId(), info.locationStatus(), info.addressRevision(),
                 info.source(), info.verificationMode(), info.validUntil(), info.attempt(), info.nextAttemptAt(),
                 info.failureCode(), info.canRetry(), info.confirmationMethod(), info.confirmedByAdminId(),
-                info.confirmedAt(), info.confirmedRevision());
+                confirmedByAdminLoginId, info.confirmedAt(), info.confirmedRevision());
     }
 }

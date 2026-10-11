@@ -49,7 +49,8 @@ public interface RestaurantRepository extends JpaRepository<Restaurant, Long>, J
                    date_format(l.valid_until, '%Y-%m-%dT%H:%i:%s.%f') as validUntilUtc,
                    coalesce(j.attempt, 0) as attempt,
                    date_format(l.next_attempt_at, '%Y-%m-%dT%H:%i:%s.%f') as nextAttemptAtUtc,
-                   j.failure_code as failureCode
+                   j.failure_code as failureCode,
+                   l.confirmed_by_admin_id as confirmedByAdminId
             from restaurant r
             left join restaurant_location l on l.id = r.location_id
             left join restaurant_location_job j
@@ -99,6 +100,8 @@ public interface RestaurantRepository extends JpaRepository<Restaurant, Long>, J
         String getNextAttemptAtUtc();
 
         String getFailureCode();
+
+        Long getConfirmedByAdminId();
     }
 
     @EntityGraph(attributePaths = "businessHours")

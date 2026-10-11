@@ -94,8 +94,10 @@ public class RestaurantCollectionService {
         if (restaurantCollectionRepository.existsByUserIdAndName(userId, name)) {
             throw new BusinessException(UserErrorCode.DUPLICATE_COLLECTION_NAME);
         }
+        String description = normalizeDescription(request.description());
         RestaurantCollection collection = saveNewOrConflict(RestaurantCollection.create(
-                userId, name, toColor(request.color()), normalizeDescription(request.description()),
+                userId, name, toColor(request.color()),
+                description == null || description.isEmpty() ? null : description,
                 toVisibility(request.visibility())));
         log.info("컬렉션 생성. collectionId={}, userId={}", collection.getId(), userId);
         return new RestaurantCollectionResponse(
@@ -186,7 +188,7 @@ public class RestaurantCollectionService {
         collection.update(
                 name,
                 request.color() == null ? null : toColor(request.color()),
-                request.description(),
+                normalizeDescription(request.description()),
                 request.visibility() == null ? null : toVisibility(request.visibility()));
         flushOrConflict(UserErrorCode.DUPLICATE_COLLECTION_NAME);
         return toResponse(collection, true);
@@ -356,21 +358,44 @@ public class RestaurantCollectionService {
         return ids;
     }
 
-    /** 생성·수정 모두 입력 공백을 보존한다. 공백만인 이름은 서비스에서도 거부한다(2026-10-01 결정). */
+    /** 입력 길이 제한은 DTO와 같게 적용하고, 앞뒤 공백을 제거한 이름으로 저장·중복 검사한다. */
     private String normalizeName(String name) {
-        if (name == null || name.isEmpty() || name.length() > RestaurantCollection.NAME_MAX_LENGTH
-                || name.chars().allMatch(character -> isBlankChar((char) character))) {
+        if (name == null || name.length() > RestaurantCollection.NAME_MAX_LENGTH) {
             throw new BusinessException(CommonErrorCode.INVALID_INPUT);
         }
-        return name;
+        String normalized = stripBoundaryWhitespace(name);
+        if (normalized.isEmpty()) {
+            throw new BusinessException(CommonErrorCode.INVALID_INPUT);
+        }
+        return normalized;
+    }
+
+    /** NBSP·전각 공백도 제거하며 이름·설명 안쪽의 공백은 그대로 둔다. */
+    private String stripBoundaryWhitespace(String value) {
+        int start = 0;
+        int end = value.length();
+        while (start < end && isBlankChar(value.charAt(start))) {
+            start++;
+        }
+        while (end > start && isBlankChar(value.charAt(end - 1))) {
+            end--;
+        }
+        return value.substring(start, end);
     }
 
     private static boolean isBlankChar(char character) {
-        return Character.isWhitespace(character) || Character.isSpaceChar(character);
+        return Character.isWhitespace(character) || Character.isSpaceChar(character) || character == '\u0085';
     }
 
     private String normalizeDescription(String description) {
-        return description == null || description.isEmpty() ? null : description;
+        if (description == null) {
+            return null;
+        }
+        if (description.length() > RestaurantCollection.DESCRIPTION_MAX_LENGTH) {
+            throw new BusinessException(CommonErrorCode.INVALID_INPUT);
+        }
+        // PATCH는 null이면 유지, 빈 문자열이면 삭제하므로 두 값을 구분한다.
+        return stripBoundaryWhitespace(description);
     }
 
     private CollectionColor toColor(String value) {

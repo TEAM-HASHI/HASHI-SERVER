@@ -38,12 +38,18 @@ public record RestaurantLocationReviewResponse(
                 example = "NO_RESULTS", nullable = true)
         String failureCode,
         @Schema(description = "관리자 재시도 가능 여부", example = "true")
-        boolean canRetry) {
+        boolean canRetry,
+        @Schema(description = "후보를 선택한 관리자 내부 ID. 자동 검증 또는 과거 기록이 없으면 null", nullable = true)
+        Long confirmedByAdminId,
+        @Schema(description = "확인한 관리자 계정의 현재 로그인 ID. 관리자 화면 표시용이며 확인 당시 값의 사본이 아님. 자동 검증·과거 기록 없음·계정 삭제 시 null",
+                example = "hashi_admin", nullable = true)
+        String confirmedByAdminLoginId) {
 
-    public static RestaurantLocationReviewResponse from(RestaurantLocationReviewInfo info) {
+    public static RestaurantLocationReviewResponse from(RestaurantLocationReviewInfo info, String confirmedByAdminLoginId) {
         return new RestaurantLocationReviewResponse(
                 info.restaurantId(), info.name(), info.address(), info.geocodingAddress(),
                 info.locationStatus(), info.source(), info.verificationMode(), info.addressRevision(), info.validUntil(),
-                info.attempt(), info.nextAttemptAt(), info.failureCode(), info.canRetry());
+                info.attempt(), info.nextAttemptAt(), info.failureCode(), info.canRetry(),
+                info.confirmedByAdminId(), confirmedByAdminLoginId);
     }
 }

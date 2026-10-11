@@ -2,6 +2,7 @@ package org.sopt.hashi.admin.dto;
 
 import io.swagger.v3.oas.annotations.media.Schema;
 import java.util.List;
+import java.util.Map;
 import org.sopt.hashi.restaurant.RestaurantLocationReviewPage;
 
 @Schema(description = "식당 ID 오름차순 관리자 위치 검토 목록. page는 0부터 시작")
@@ -17,9 +18,10 @@ public record RestaurantLocationReviewListResponse(
         @Schema(description = "전체 페이지 수", example = "3")
         int totalPages) {
 
-    public static RestaurantLocationReviewListResponse from(RestaurantLocationReviewPage page) {
+    public static RestaurantLocationReviewListResponse from(RestaurantLocationReviewPage page, Map<Long, String> loginIds) {
         return new RestaurantLocationReviewListResponse(
-                page.restaurants().stream().map(RestaurantLocationReviewResponse::from).toList(),
+                page.restaurants().stream().map(info -> RestaurantLocationReviewResponse.from(info,
+                        info.confirmedByAdminId() == null ? null : loginIds.get(info.confirmedByAdminId()))).toList(),
                 page.page(),
                 page.size(),
                 page.totalCount(),
