@@ -145,7 +145,7 @@ class UserProfileImageConcurrencyIntegrationTest {
     }
 
     private UpdateMyInfoRequest imageOnly(UUID assetId) {
-        return new UpdateMyInfoRequest(null, null, null, null, assetId);
+        return new UpdateMyInfoRequest(null, null, null, null, null, assetId);
     }
 
     private void awaitMySqlRowLockCompetition() throws InterruptedException, SQLException {

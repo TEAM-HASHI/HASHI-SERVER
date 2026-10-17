@@ -147,10 +147,13 @@ public class User extends BaseTimeEntity {
         return true;
     }
 
-    /** 부분 수정(PATCH) — null 필드는 기존 값을 유지한다(식당·매거진·컬렉션과 동일 정책). 영문 이름은 수정 화면 범위 밖이다(MYP-002). */
-    public void updateProfile(String nickname, LocalDate birthDate, String phone, String email) {
+    /** 부분 수정(PATCH) — null 필드는 기존 값을 유지한다(식당·매거진·컬렉션과 동일 정책). */
+    public void updateProfile(String nickname, String nameEng, LocalDate birthDate, String phone, String email) {
         if (nickname != null) {
             this.nickname = nickname;
+        }
+        if (nameEng != null) {
+            this.nameEng = nameEng;
         }
         if (birthDate != null) {
             this.birthDate = birthDate;
