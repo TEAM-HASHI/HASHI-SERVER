@@ -174,7 +174,7 @@ class UserProfileServiceTest {
         when(userRepository.existsByNicknameAndIdNot("도도", 1L)).thenReturn(false);
 
         MyInfoResponse response = userProfileService.updateMyInfo(
-                new UpdateMyInfoRequest("도도", LocalDate.of(2000, 1, 1), null, null, null));
+                new UpdateMyInfoRequest("도도", null, LocalDate.of(2000, 1, 1), null, null, null));
 
         assertThat(response.nickname()).isEqualTo("도도");
         assertThat(user.getBirthDate()).isEqualTo(LocalDate.of(2000, 1, 1));
@@ -193,7 +193,7 @@ class UserProfileServiceTest {
         when(userRepository.existsByEmailAndIdNot("taken@example.com", 1L)).thenReturn(true);
 
         assertThatThrownBy(() -> userProfileService.updateMyInfo(
-                new UpdateMyInfoRequest(null, null, null, "taken@example.com", null)))
+                new UpdateMyInfoRequest(null, null, null, null, "taken@example.com", null)))
                 .isInstanceOf(BusinessException.class)
                 .hasFieldOrPropertyWithValue("errorCode", UserErrorCode.DUPLICATE_EMAIL);
         assertThat(user.getEmail()).isEqualTo("hashi@example.com");
@@ -208,7 +208,7 @@ class UserProfileServiceTest {
         doThrow(new DataIntegrityViolationException("uk_users_nickname")).when(userRepository).flush();
 
         assertThatThrownBy(() -> userProfileService.updateMyInfo(
-                new UpdateMyInfoRequest("도도", null, null, null, null)))
+                new UpdateMyInfoRequest("도도", null, null, null, null, null)))
                 .isInstanceOf(BusinessException.class)
                 .hasFieldOrPropertyWithValue("errorCode", UserErrorCode.DUPLICATE_USER_INFO);
     }
@@ -220,7 +220,7 @@ class UserProfileServiceTest {
         User user = user(null, previous);
         when(userRepository.findByIdForUpdate(1L)).thenReturn(Optional.of(user));
 
-        userProfileService.updateMyInfo(new UpdateMyInfoRequest(null, null, null, null, replacement));
+        userProfileService.updateMyInfo(new UpdateMyInfoRequest(null, null, null, null, null, replacement));
 
         verify(mediaPort).reconcileBindings(
                 List.of(new MediaAssetUse(replacement, MediaAssetPurpose.PROFILE)),

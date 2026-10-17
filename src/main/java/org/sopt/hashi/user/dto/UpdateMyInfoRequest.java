@@ -10,13 +10,15 @@ import java.util.UUID;
 
 /**
  * 내 정보 부분 수정(PATCH) 요청 — null 필드는 변경하지 않는다(식당·매거진·컬렉션과 동일 정책).
- * 영문 이름은 수정 화면 범위 밖이라 받지 않고(MYP-002), 사진 제거는 별도 DELETE로 한다.
+ * 영문 이름은 온보딩과 같은 규칙(선택, 20자 이내)으로 받고(#257), 사진 제거는 별도 DELETE로 한다.
  * profileImageAssetId는 media에 업로드를 마친 PROFILE asset이며 보내면 기존 사진을 교체한다.
  */
 public record UpdateMyInfoRequest(
         @Schema(description = "닉네임(선택, 공백 불가)", example = "김하람")
         @Pattern(regexp = "(?sU).*\\S.*", message = "닉네임은 공백일 수 없습니다")
         @Size(max = 50, message = "닉네임은 50자 이내입니다") String nickname,
+        @Schema(description = "영문 이름(선택, 20자 이내)", example = "Haram Kim")
+        @Size(max = 20, message = "영문 이름은 20자 이내입니다") String nameEng,
         @Schema(description = "생년월일(선택)", example = "1998-01-01")
         @Past(message = "생년월일은 과거 날짜여야 합니다") LocalDate birthDate,
         @Schema(description = "연락처(선택) — 하이픈 없이 숫자 10~11자리", example = "01078757856")
