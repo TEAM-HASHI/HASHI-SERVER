@@ -1,0 +1,78 @@
+package org.sopt.hashi.auth.internal.security;
+
+import static org.mockito.BDDMockito.given;
+import static org.mockito.Mockito.verifyNoInteractions;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
+
+import java.util.List;
+import org.junit.jupiter.api.Test;
+import org.sopt.hashi.auth.internal.jwt.JwtProvider;
+import org.sopt.hashi.auth.internal.onboarding.OnboardingJwtIssuer;
+import org.sopt.hashi.auth.internal.token.OnboardingTokenStore;
+import org.sopt.hashi.auth.internal.token.TokenBlacklist;
+import org.sopt.hashi.review.code.ReviewErrorCode;
+import org.sopt.hashi.review.domain.RestaurantPhotoFilter;
+import org.sopt.hashi.review.dto.RestaurantPhotosResponse;
+import org.sopt.hashi.review.service.RestaurantPhotoService;
+import org.sopt.hashi.review.web.RestaurantPhotoController;
+import org.sopt.hashi.shared.error.BusinessException;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
+import org.springframework.context.annotation.ComponentScan.Filter;
+import org.springframework.context.annotation.FilterType;
+import org.springframework.context.annotation.Import;
+import org.springframework.http.HttpHeaders;
+import org.springframework.test.context.TestPropertySource;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
+import org.springframework.test.web.servlet.MockMvc;
+
+@WebMvcTest(controllers = RestaurantPhotoController.class,
+        excludeFilters = @Filter(type = FilterType.ASSIGNABLE_TYPE, classes = OnboardingJwtIssuer.class))
+@Import({SecurityConfig.class, JwtAuthenticationFilter.class, JwtProvider.class,
+        CookieUtil.class, OriginValidator.class, JwtAuthenticationEntryPoint.class, JwtAccessDeniedHandler.class})
+@TestPropertySource(properties = {
+        "jwt.secret=test-secret-key-must-be-at-least-32-bytes-long", "jwt.access-token-ttl=30m",
+        "jwt.refresh-token-ttl=14d", "jwt.onboarding-token-ttl=30m", "kakao.client-id=test-client-id",
+        "kakao.redirect-uri=https://app.hashi.com/callback", "hashi.cors.allowed-origins=https://app.hashi.com",
+        "springdoc.api-docs.enabled=false", "springdoc.swagger-ui.enabled=false"
+})
+class RestaurantPhotoHttpTest {
+    @Autowired MockMvc mvc;
+    @MockitoBean OnboardingTokenStore onboardingTokenStore;
+    @MockitoBean TokenBlacklist tokenBlacklist;
+    @MockitoBean RestaurantPhotoService service;
+
+    @Test
+    void 비회원_기본_조회와_빈_결과는_200이다() throws Exception {
+        given(service.getPhotos(1, RestaurantPhotoFilter.ALL, 0)).willReturn(new RestaurantPhotosResponse(
+                1, RestaurantPhotoFilter.ALL, new RestaurantPhotosResponse.Counts(0, 0, 0, 0), 0, List.of(), 0, null, false));
+        mvc.perform(get("/api/v1/restaurants/1/photos"))
+                .andExpect(status().isOk()).andExpect(header().string(HttpHeaders.CACHE_CONTROL, "no-store"))
+                .andExpect(jsonPath("$.data.filter").value("ALL"))
+                .andExpect(jsonPath("$.data.photos").isEmpty())
+                .andExpect(jsonPath("$.data.counts.all").value(0))
+                .andExpect(jsonPath("$.data.hasNext").value(false));
+    }
+
+    @Test
+    void 잘못된_필터_음수페이지_식당ID는_공통400이다() throws Exception {
+        for (String query : List.of("?filter=VIDEO", "?page=-1", "?page=x", "?page=2147483648")) {
+            mvc.perform(get("/api/v1/restaurants/1/photos" + query))
+                    .andExpect(status().isBadRequest()).andExpect(jsonPath("$.code").value("COMMON-400"));
+        }
+        mvc.perform(get("/api/v1/restaurants/0/photos"))
+                .andExpect(status().isBadRequest()).andExpect(jsonPath("$.code").value("COMMON-400"));
+        verifyNoInteractions(service);
+    }
+
+    @Test
+    void 삭제_미존재_식당의_404는_빈결과와_구분한다() throws Exception {
+        given(service.getPhotos(1, RestaurantPhotoFilter.ALL, 0))
+                .willThrow(new BusinessException(ReviewErrorCode.RESTAURANT_NOT_FOUND));
+        mvc.perform(get("/api/v1/restaurants/1/photos"))
+                .andExpect(status().isNotFound()).andExpect(jsonPath("$.code").value("RESTAURANT-004"));
+    }
+}
