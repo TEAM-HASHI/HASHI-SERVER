@@ -21,6 +21,15 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 @Testcontainers
 class NoticeMediaMigrationTest {
 
+    // Historical migrations must use their own contract, not the latest enum values.
+    private static final List<String> V36_PURPOSES = List.of(
+            "PROFILE", "REVIEW", "RESTAURANT", "RESTAURANT_MENU",
+            "MAGAZINE_BANNER", "MAGAZINE_THUMBNAIL", "MAGAZINE_CARD_NEWS");
+    private static final List<String> V36_ROLES = List.of(
+            "PROFILE_AVATAR", "RESTAURANT_THUMBNAIL", "RESTAURANT_CARD", "RESTAURANT_HERO",
+            "MENU_LIST", "MENU_DETAIL", "REVIEW_PREVIEW", "REVIEW_DETAIL",
+            "MAGAZINE_BANNER", "MAGAZINE_THUMBNAIL", "MAGAZINE_CARD_NEWS");
+
     @Container
     private static final MySQLContainer<?> MYSQL = new MySQLContainer<>("mysql:8.4")
             .withDatabaseName("hashi_notice_migration")
@@ -59,16 +68,12 @@ class NoticeMediaMigrationTest {
     @Test
     void V36에서_V36_1과_V37을_순서대로_적용해도_이미지_데이터와_공지_CHECK를_보존한다() throws SQLException {
         Flyway throughV36 = migrateFromEmpty(MigrationVersion.fromVersion("36"));
-        for (MediaPurpose purpose : MediaPurpose.values()) {
-            if (purpose != MediaPurpose.NOTICE) {
-                insertAsset(purpose.name());
-            }
+        for (String purpose : V36_PURPOSES) {
+            insertAsset(purpose);
         }
         long legacyAssetId = insertAsset(MediaPurpose.REVIEW.name());
-        for (ImageRole role : ImageRole.values()) {
-            if (role != ImageRole.NOTICE_DETAIL) {
-                insertRendition(legacyAssetId, role.name());
-            }
+        for (String role : V36_ROLES) {
+            insertRendition(legacyAssetId, role);
         }
         List<List<String>> existingAssets = rows("SELECT * FROM image_asset ORDER BY id");
         List<List<String>> existingRenditions = rows("SELECT * FROM image_rendition ORDER BY id");
@@ -79,6 +84,7 @@ class NoticeMediaMigrationTest {
         assertThat(throughV36.info().current().getVersion()).isEqualTo(MigrationVersion.fromVersion("36"));
         assertPurposeRejected(MediaPurpose.NOTICE.name());
         assertRoleRejected(legacyAssetId, ImageRole.NOTICE_DETAIL.name());
+        assertRoleRejected(legacyAssetId, ImageRole.PHOTO_DETAIL.name());
 
         Flyway upgrade = flyway(MigrationVersion.fromVersion("36.1"));
         upgrade.migrate();
@@ -93,6 +99,7 @@ class NoticeMediaMigrationTest {
         insertRendition(noticeAssetId, ImageRole.NOTICE_DETAIL.name());
         assertPurposeRejected("UNKNOWN_PURPOSE");
         assertRoleRejected(noticeAssetId, "UNKNOWN_ROLE");
+        assertRoleRejected(noticeAssetId, ImageRole.PHOTO_DETAIL.name());
         assertThat(upgrade.info().current().getVersion()).isEqualTo(MigrationVersion.fromVersion("36.1"));
         assertThat(upgrade.validateWithResult().validationSuccessful).isTrue();
         assertThat(upgrade.migrate().migrationsExecuted).isZero();
@@ -132,6 +139,7 @@ class NoticeMediaMigrationTest {
         insertRendition(noticeAssetAfterTerms, ImageRole.NOTICE_DETAIL.name());
         assertPurposeRejected("UNKNOWN_PURPOSE");
         assertRoleRejected(noticeAssetAfterTerms, "UNKNOWN_ROLE");
+        assertRoleRejected(noticeAssetAfterTerms, ImageRole.PHOTO_DETAIL.name());
         assertThat(throughV37.info().current().getVersion()).isEqualTo(MigrationVersion.fromVersion("37"));
         assertThat(throughV37.validateWithResult().validationSuccessful).isTrue();
         assertThat(throughV37.migrate().migrationsExecuted).isZero();
