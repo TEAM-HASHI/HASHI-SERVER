@@ -98,7 +98,8 @@ public class UserProfileService {
     public MyInfoResponse updateMyInfo(UpdateMyInfoRequest request) {
         User user = currentUserForUpdate();
         availabilityChecker.requireAvailable(request.nickname(), request.email(), request.phone(), user.getId());
-        user.updateProfile(request.nickname(), request.birthDate(), request.phone(), request.email());
+        user.updateProfile(request.nickname(), request.nameEng(), request.birthDate(),
+                request.phone(), request.email());
         if (request.profileImageAssetId() != null) {
             replaceProfileImage(user, request.profileImageAssetId());
         }
