@@ -1,6 +1,7 @@
 package org.sopt.hashi.auth.internal.security;
 
 import static org.mockito.BDDMockito.given;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
@@ -8,6 +9,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import java.util.List;
+import java.util.stream.IntStream;
 import org.junit.jupiter.api.Test;
 import org.sopt.hashi.auth.internal.jwt.JwtProvider;
 import org.sopt.hashi.auth.internal.onboarding.OnboardingJwtIssuer;
@@ -55,6 +57,38 @@ class RestaurantPhotoHttpTest {
                 .andExpect(jsonPath("$.data.photos").isEmpty())
                 .andExpect(jsonPath("$.data.counts.all").value(0))
                 .andExpect(jsonPath("$.data.hasNext").value(false));
+    }
+
+    @Test
+    void 비회원_리뷰사진_추가조회는_필터와_페이지를_전달하고_사진과_다음페이지를_반환한다() throws Exception {
+        List<RestaurantPhotosResponse.Photo> photos = IntStream.rangeClosed(21, 40)
+                .mapToObj(id -> new RestaurantPhotosResponse.Photo("REVIEW:" + id,
+                        RestaurantPhotoFilter.REVIEW, "https://cdn.example.com/reviews/" + id + ".jpg", null))
+                .toList();
+        given(service.getPhotos(7, RestaurantPhotoFilter.REVIEW, 1)).willReturn(new RestaurantPhotosResponse(
+                7, RestaurantPhotoFilter.REVIEW, new RestaurantPhotosResponse.Counts(46, 2, 3, 41),
+                41, photos, 1, 2, true));
+
+        mvc.perform(get("/api/v1/restaurants/7/photos").param("filter", "REVIEW").param("page", "1"))
+                .andExpect(status().isOk())
+                .andExpect(header().string(HttpHeaders.CACHE_CONTROL, "no-store"))
+                .andExpect(jsonPath("$.data.restaurantId").value(7))
+                .andExpect(jsonPath("$.data.filter").value("REVIEW"))
+                .andExpect(jsonPath("$.data.counts.all").value(46))
+                .andExpect(jsonPath("$.data.counts.representative").value(2))
+                .andExpect(jsonPath("$.data.counts.menu").value(3))
+                .andExpect(jsonPath("$.data.counts.review").value(41))
+                .andExpect(jsonPath("$.data.totalCount").value(41))
+                .andExpect(jsonPath("$.data.page").value(1))
+                .andExpect(jsonPath("$.data.nextPage").value(2))
+                .andExpect(jsonPath("$.data.hasNext").value(true))
+                .andExpect(jsonPath("$.data.photos.length()").value(20))
+                .andExpect(jsonPath("$.data.photos[0].photoId").value("REVIEW:21"))
+                .andExpect(jsonPath("$.data.photos[0].type").value("REVIEW"))
+                .andExpect(jsonPath("$.data.photos[0].imageUrl").value("https://cdn.example.com/reviews/21.jpg"))
+                .andExpect(jsonPath("$.data.photos[0].image").isEmpty())
+                .andExpect(jsonPath("$.data.photos[19].photoId").value("REVIEW:40"));
+        verify(service).getPhotos(7, RestaurantPhotoFilter.REVIEW, 1);
     }
 
     @Test
