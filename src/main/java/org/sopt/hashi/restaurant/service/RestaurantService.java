@@ -59,6 +59,8 @@ import org.sopt.hashi.restaurant.domain.RestaurantMenu;
 import org.sopt.hashi.restaurant.domain.RestaurantRepository;
 import org.sopt.hashi.restaurant.domain.RestaurantReservationPolicy;
 import org.sopt.hashi.restaurant.domain.RestaurantSort;
+import org.sopt.hashi.restaurant.domain.RestaurantSearchQuery;
+import org.sopt.hashi.restaurant.domain.RestaurantSearchPageItem;
 import org.sopt.hashi.restaurant.domain.RestaurantSpecifications;
 import org.sopt.hashi.restaurant.domain.PriceCurrency;
 import org.sopt.hashi.restaurant.dto.RestaurantListResponse;
@@ -141,25 +143,32 @@ public class RestaurantService {
         RestaurantGenre genre = parseGenre(genreValue);
         RestaurantSort sort = parseSort(sortValue);
         RestaurantListType type = parseListType(typeValue);
-        RestaurantCursor decodedCursor = RestaurantCursorCodec.decode(cursor, sort);
         int pageSize = normalizeSize(size);
-
-        Specification<Restaurant> specification = RestaurantSpecifications.notDeleted()
-                .and(RestaurantSpecifications.cursorAfter(decodedCursor))
-                .and(RestaurantSpecifications.genreEquals(genre))
-                .and(RestaurantSpecifications.curationTypeEquals(type.curationType()))
-                .and(RestaurantSpecifications.keywordContains(keyword));
-
-        List<Restaurant> restaurants = restaurantRepository.findAll(
-                specification,
-                PageRequest.of(0, pageSize + 1, toSort(sort))
-        ).getContent();
-
-        boolean hasNext = restaurants.size() > pageSize;
-        List<Restaurant> pageContent = hasNext
-                ? new ArrayList<>(restaurants.subList(0, pageSize))
-                : restaurants;
-        String nextCursor = hasNext ? RestaurantCursorCodec.encode(pageContent.getLast(), sort) : null;
+        RestaurantSearchQuery search = RestaurantSearchQuery.parse(keyword);
+        List<Restaurant> pageContent;
+        boolean hasNext;
+        String nextCursor;
+        if (search.isEmpty()) {
+            RestaurantCursor decodedCursor = RestaurantCursorCodec.decode(cursor, sort);
+            Specification<Restaurant> specification = RestaurantSpecifications.notDeleted()
+                    .and(RestaurantSpecifications.cursorAfter(decodedCursor))
+                    .and(RestaurantSpecifications.genreEquals(genre))
+                    .and(RestaurantSpecifications.curationTypeEquals(type.curationType()));
+            List<Restaurant> restaurants = restaurantRepository.findAll(
+                    specification, PageRequest.of(0, pageSize + 1, toSort(sort))).getContent();
+            hasNext = restaurants.size() > pageSize;
+            pageContent = hasNext ? new ArrayList<>(restaurants.subList(0, pageSize)) : restaurants;
+            nextCursor = hasNext ? RestaurantCursorCodec.encode(pageContent.getLast(), sort) : null;
+        } else {
+            String fingerprint = RestaurantSearchCursorCodec.fingerprint(search, genre, type, sort);
+            List<BigDecimal> after = RestaurantSearchCursorCodec.decode(cursor, fingerprint, sort, search.terms().size());
+            List<RestaurantSearchPageItem> results = restaurantRepository.search(
+                    search, genre, type.curationType(), sort, after, pageSize + 1);
+            hasNext = results.size() > pageSize;
+            List<RestaurantSearchPageItem> page = hasNext ? results.subList(0, pageSize) : results;
+            pageContent = page.stream().map(RestaurantSearchPageItem::restaurant).toList();
+            nextCursor = hasNext ? RestaurantSearchCursorCodec.encode(page.getLast().orderValues(), fingerprint) : null;
+        }
         LocalDate businessDate = LocalDate.now(japanClock);
         Map<Long, RestaurantBusinessHour> businessHours = findBusinessHours(
                 pageContent,
