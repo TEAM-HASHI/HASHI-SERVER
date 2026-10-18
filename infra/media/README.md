@@ -167,8 +167,13 @@ dev 배포와 prod artifact 생성은 `Build or Deploy Image Pipeline` workflow�
 8. 4~7단계 동안 DB의 `media_pipeline_config.issuance_enabled`는 `false`로 유지한다.
 9. worker compatibility를 확인한 뒤 `MEDIA_DEV_WORKER_EVENT_SOURCE_ENABLED=true`로 dev stack을 다시
    배포한다. 값이 없으면 worker를 켜지 않는다.
-10. 승인된 dev 절차로 upload, request, WebP 생성, result consume, READY 반영, CloudFront 전달과 DLQ
-   redrive까지 E2E를 통과한 뒤에만 dev issuance를 활성화한다.
+10. 원본 저장소·request/result queue·worker·Spring result consumer와 규격 version/digest를 먼저
+   확인한다. 이 준비가 끝나면 승인된 dev 시험 시간에만 issuance를 켜고, 시험 이미지로 upload,
+   request, WebP 생성, result consume, READY 반영과 CloudFront 전달을 확인한다. 발급이 꺼져 있으면
+   업로드 요청부터 `MEDIA-009`로 차단되므로 issuance OFF 상태에서는 이 E2E를 진행할 수 없다.
+   시험 실패 시 issuance를 다시 끄고 원인을 확인한다. 시험 asset/object는 기존 cleanup 계약에 따라
+   정리하고, DLQ redrive 검증까지 완료한 뒤 dev 클라이언트용 발급을 유지한다. 처리 환경이 준비되지
+   않은 상태에서 오류를 없애려고 issuance만 켜지는 않는다.
 11. prod는 검토된 `main` commit에서 `target=prod`,
     `production_confirmation=prepare-prod-artifact`로 workflow를 실행한다. build job은 7일 보존 GitHub
     artifact, source commit과 build ZIP SHA-256만 만들며 AWS credential을 요청하거나 production
