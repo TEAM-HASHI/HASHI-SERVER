@@ -16,6 +16,12 @@ public interface RestaurantPort {
     /** 삭제되지 않은 식당인지 확인한다 — 컬렉션 저장처럼 사용자에게 노출 가능한 식당만 받아야 하는 검증용(#216). */
     boolean existsActiveById(Long restaurantId);
 
+    /** 대표사진 참조를 displayOrder·ID 순으로 조회한다. 이미지 원본이나 Entity는 읽지 않는다. */
+    List<RestaurantPhotoSourceInfo> findRepresentativePhotoSources(Long restaurantId);
+
+    /** 메뉴사진 참조를 등록 ID 순으로 조회한다. 사진이 없는 메뉴는 제외한다. */
+    List<RestaurantPhotoSourceInfo> findMenuPhotoSources(Long restaurantId);
+
     /** 식당 요약 정보를 조회한다 — 식당명 등 표시·enrich용. 없으면 empty. */
     Optional<RestaurantInfo> findSummaryById(Long restaurantId);
 
