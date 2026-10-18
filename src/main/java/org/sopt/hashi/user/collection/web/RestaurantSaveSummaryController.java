@@ -9,6 +9,7 @@ import org.sopt.hashi.shared.response.SuccessResponse;
 import org.sopt.hashi.shared.swagger.ApiException;
 import org.sopt.hashi.shared.swagger.ApiSuccess;
 import org.sopt.hashi.user.collection.dto.MyRestaurantSavesResponse;
+import org.sopt.hashi.user.collection.dto.MySavedRestaurantCountResponse;
 import org.sopt.hashi.user.collection.dto.RestaurantSaveCountsResponse;
 import org.sopt.hashi.user.collection.service.RestaurantSaveSummaryService;
 import org.springframework.http.CacheControl;
@@ -65,5 +66,21 @@ public class RestaurantSaveSummaryController {
             @RequestParam List<Long> restaurantIds) {
         return ResponseEntity.ok().cacheControl(CacheControl.noStore())
                 .body(SuccessResponse.of(CommonSuccessCode.OK, service.getMySaves(restaurantIds)));
+    }
+
+    /** 현재 로그인 회원의 모든 컬렉션에서 중복을 제외한 저장 식당 수를 조회한다. */
+    @Operation(summary = "마이페이지 저장 식당 수 조회", description = """
+            USER 토큰으로 내 컬렉션 전체에 저장한 식당 수를 조회합니다. 마이 화면의 `내가 찜한 식당` 항목에 표시합니다.
+            같은 식당을 여러 컬렉션에 저장해도 한 번만 세고, 삭제된 식당은 컬렉션별 저장 식당 수와 같은 기준으로 제외합니다.
+            따라서 컬렉션 목록의 컬렉션별 저장 식당 수 합계보다 작을 수 있습니다.
+            비로그인은 COMMON-401, ADMIN·ONBOARDING 토큰은 COMMON-403을 반환합니다.
+            응답은 no-store입니다.
+            """)
+    @ApiException(value = CommonErrorCode.class, codes = {"UNAUTHORIZED", "FORBIDDEN"})
+    @ApiSuccess(value = CommonSuccessCode.class, codes = {"OK"})
+    @GetMapping("/api/v1/users/me/saved-restaurants/count")
+    public ResponseEntity<SuccessResponse<MySavedRestaurantCountResponse>> getMySavedRestaurantCount() {
+        return ResponseEntity.ok().cacheControl(CacheControl.noStore())
+                .body(SuccessResponse.of(CommonSuccessCode.OK, service.getMySavedRestaurantCount()));
     }
 }
