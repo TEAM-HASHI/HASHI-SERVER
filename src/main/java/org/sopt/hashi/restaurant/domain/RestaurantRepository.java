@@ -27,6 +27,8 @@ public interface RestaurantRepository extends JpaRepository<Restaurant, Long>, J
 
     List<Restaurant> findAllByIdInAndDeletedFalse(Collection<Long> ids);
 
+    long countByIdInAndDeletedFalse(Collection<Long> ids);
+
     // 어드민 등록·수정 중복 검사(#230) — 비교는 컬럼 collation(utf8mb4_unicode_ci)을 따른다(대소문자·끝 공백 무시)
     boolean existsByNameAndDeletedFalse(String name);
 

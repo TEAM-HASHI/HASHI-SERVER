@@ -44,6 +44,13 @@ public interface RestaurantPort {
      * 상세와 달리 영업시간·이미지 전체·가격대는 읽지 않는다. 삭제된 식당은 제외하고 존재하는 식당만 반환하며 순서는 보장하지 않는다.
      */
     List<RestaurantCardInfo> findActiveCards(Collection<Long> restaurantIds);
+
+    /**
+     * 주어진 ID 중 삭제되지 않은 식당 수 — 마이페이지 저장 식당 수처럼 개수만 필요한 집계용(#259).
+     * 카드 정보를 읽지 않아 findActiveCards보다 가볍다. null·중복 ID는 무시하고 입력이 비면 0이다.
+     */
+    long countActiveByIds(Collection<Long> restaurantIds);
+
     /** 리뷰 생성 시 식당 평점 합계·리뷰 수·평균을 원자적으로 증가시킨다. */
     void increaseReviewStatistics(Long restaurantId, int rating);
 
