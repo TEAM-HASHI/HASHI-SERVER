@@ -248,4 +248,26 @@ class MediaSpecRegistryTest {
         assertThat(spec.expectedRenditions(MediaPurpose.NOTICE, 100, 50))
                 .containsExactly(expected(ImageRole.NOTICE_DETAIL, 100, 50));
     }
+
+    @Test
+    void 사진_v4는_이전_role을_유지하고_식당과_메뉴에만_원본비율_role을_추가한다() {
+        MediaSpecRegistry registry = new MediaSpecRegistry(objectMapper);
+        var previous = registry.findDefinition(3).orElseThrow();
+        var current = registry.findDefinition(4).orElseThrow();
+        assertThat(current.roleSpecs()).containsAllEntriesOf(previous.roleSpecs());
+        assertThat(previous.roleSpecs()).doesNotContainKey(ImageRole.PHOTO_DETAIL);
+        for (MediaPurpose purpose : MediaPurpose.values()) {
+            if (purpose == MediaPurpose.RESTAURANT || purpose == MediaPurpose.RESTAURANT_MENU) {
+                assertThat(current.purposeRoles().get(purpose))
+                        .containsAll(previous.purposeRoles().get(purpose)).contains(ImageRole.PHOTO_DETAIL);
+                assertThat(current.expectedRenditions(purpose, 1000, 2000).stream()
+                        .filter(value -> value.role() == ImageRole.PHOTO_DETAIL).toList())
+                        .containsExactly(expected(ImageRole.PHOTO_DETAIL, 216, 432),
+                                expected(ImageRole.PHOTO_DETAIL, 432, 864),
+                                expected(ImageRole.PHOTO_DETAIL, 648, 1296));
+            } else {
+                assertThat(current.purposeRoles().get(purpose)).isEqualTo(previous.purposeRoles().get(purpose));
+            }
+        }
+    }
 }

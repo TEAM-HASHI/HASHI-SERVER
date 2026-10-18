@@ -29,7 +29,9 @@ public class MediaSpecRegistry {
         MediaSpecDefinition v1 = loadDefinition(objectMapper, V1_RESOURCE_PATH);
         MediaSpecDefinition v2 = loadDefinition(objectMapper, V2_RESOURCE_PATH);
         MediaSpecDefinition v3 = loadDefinition(objectMapper, "media-specs/v3.json");
-        this.definitions = Map.of(v1.version(), v1, v2.version(), v2, v3.version(), v3);
+        MediaSpecDefinition v4 = loadDefinition(objectMapper, "media-specs/v4.json");
+        this.definitions = Map.of(v1.version(), v1, v2.version(), v2, v3.version(), v3,
+                v4.version(), v4);
     }
 
     public Optional<MediaSpecSnapshot> find(int version) {

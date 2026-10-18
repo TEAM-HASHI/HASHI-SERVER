@@ -209,9 +209,18 @@ class MediaPortImpl implements MediaPort {
                 ? null
                 : mediaSpecRegistry.findDefinition(specVersion).orElse(null);
         ImageRole internalRole = ImageRole.valueOf(request.role().name());
-        if (definition == null
-                || !matchesPackagedDigest(asset, definition)
-                || !supports(definition, asset.getPurpose(), internalRole)) {
+        if (definition == null || !matchesPackagedDigest(asset, definition)) {
+            return java.util.Optional.empty();
+        }
+        if (!supports(definition, asset.getPurpose(), internalRole)) {
+            if (request.role() == MediaImageRole.PHOTO_DETAIL
+                    && asset.getCleanupStatus() == MediaCleanupStatus.ACTIVE
+                    && (asset.getPurpose() == MediaPurpose.RESTAURANT
+                    || asset.getPurpose() == MediaPurpose.RESTAURANT_MENU)) {
+                return java.util.Optional.of(new MediaImage(
+                        asset.getPublicId(), request.role(), MediaImageStatus.UNAVAILABLE,
+                        null, List.of()));
+            }
             return java.util.Optional.empty();
         }
 
