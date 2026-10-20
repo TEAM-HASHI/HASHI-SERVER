@@ -119,6 +119,7 @@ class RestaurantControllerTest {
 
         mockMvc.perform(get("/api/v1/restaurants/{restaurantId}/summary", 1L))
                 .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.saveCount").value(12))
                 .andExpect(jsonPath("$.data.thumbnailImage.restaurantImageId").value(101))
                 .andExpect(jsonPath("$.data.thumbnailImage.displayOrder").value(1))
                 .andExpect(jsonPath("$.data.thumbnailImage.image.assetId")

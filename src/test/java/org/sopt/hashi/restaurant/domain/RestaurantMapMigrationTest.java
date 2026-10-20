@@ -320,6 +320,37 @@ class RestaurantMapMigrationTest {
                 """, String.class);
     }
 
+    @Test
+    void 저장_수_컬럼은_기존_저장_관계를_회원_기준으로_세어_채운다() {
+        jdbc.update("""
+                INSERT INTO restaurant (id, name, local_name, summary, description, address, area,
+                    genre, food_category, place_type, price_currency, price_min, price_max,
+                    rating_sum, review_count, rating, deleted, created_at, updated_at)
+                VALUES (1, 'saved by two members', 'fixture', 'summary', 'description', 'address', 'area',
+                    'SUSHI', 'food', 'RESTAURANT', 'JPY', 100, 200, 0, 0, 0.0, FALSE, NOW(6), NOW(6)),
+                    (2, 'never saved', 'fixture', 'summary', 'description', 'address', 'area',
+                    'SUSHI', 'food', 'RESTAURANT', 'JPY', 100, 200, 0, 0, 0.0, FALSE, NOW(6), NOW(6))
+                """);
+        // 회원 1은 두 컬렉션에 같은 식당을 저장(1로 세어야 함), 회원 2는 한 번 저장 → 식당 1은 2, 식당 2는 0
+        jdbc.update("""
+                INSERT INTO restaurant_collection (id, user_id, name, color, visibility, created_at, updated_at)
+                VALUES (10, 1, 'public', 'RED', 'PUBLIC', NOW(6), NOW(6)),
+                    (11, 1, 'private', 'RED', 'PRIVATE', NOW(6), NOW(6)),
+                    (12, 2, 'other member', 'RED', 'PUBLIC', NOW(6), NOW(6))
+                """);
+        jdbc.update("""
+                INSERT INTO saved_restaurant (collection_id, restaurant_id, created_at, updated_at)
+                VALUES (10, 1, NOW(6), NOW(6)), (11, 1, NOW(6), NOW(6)), (12, 1, NOW(6), NOW(6))
+                """);
+
+        Flyway migration = flyway("43");
+        migration.migrate();
+        assertThat(migration.info().current().getVersion().getVersion()).isEqualTo("43");
+
+        assertThat(jdbc.queryForObject("SELECT save_count FROM restaurant WHERE id=1", Long.class)).isEqualTo(2L);
+        assertThat(jdbc.queryForObject("SELECT save_count FROM restaurant WHERE id=2", Long.class)).isZero();
+    }
+
     private Flyway flyway(String target) {
         return Flyway.configure().dataSource(MYSQL.getJdbcUrl(), MYSQL.getUsername(), MYSQL.getPassword())
                 .locations("classpath:db/migration").target(target).validateOnMigrate(true)
