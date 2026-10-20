@@ -22,6 +22,11 @@
 지도 과량/조회 장애는 신규 `USER-017`(503)이다. M1 초기 초안의 `USER-008`은 현재 #232에서
 이미 지원하지 않는 색상(400)으로 사용 중이므로 재사용하지 않는다. 기존 오류의 의미는 유지한다.
 
+`GET /api/v1/restaurants/{restaurantId}/summary`의 `saveCount`는 식당 상세 하단에 표시할 식당 저장 수다(#263).
+값은 `/restaurants/save-counts`와 같은 기준(회원 한 명당 최대 1)이지만 매번 세지 않고 `restaurant.save_count` 카운터를 읽는다.
+summary는 restaurant 모듈이고 저장 관계는 user 모듈이라 restaurant가 user를 조회하면 순환이 되므로,
+리뷰 통계(`rating_sum`·`review_count`)처럼 user 모듈이 `RestaurantPort.increaseSaveCount/decreaseSaveCounts`로 증감한다.
+
 ## 구현 선택
 
 - 저장한 사용자 수는 `count(distinct collection.userId)`다. 공개/비공개 모두 집계한다.
@@ -29,6 +34,11 @@
 - 내 저장 여부는 인증된 USER 본인의 소유 컬렉션에서 조회한다. 식당 ID 1~100개를
   중복 없이 양수로 요구하고 현재 존재하는 식당만 요청 순서대로 응답한다.
   RestaurantPort 실패를 빈 결과나 0/false로 변환하지 않는다. Redis 개인 캐시는 추가하지 않는다.
+- 식당 저장 수 카운터(#263): 회원의 첫 저장에 +1, 회원의 마지막 저장 관계 제거(식당 제거·컬렉션 삭제·탈퇴)에 -1이며
+  같은 회원의 컬렉션 간 이동은 변동이 없다. 증감은 원자 UPDATE(감소는 0 아래로 내려가지 않음)이고,
+  첫 저장·마지막 제거 판정은 저장·제거·삭제 트랜잭션의 첫 문장에서 회원 행을 잠가(`findByIdForUpdate`) 회원 단위로 직렬화한다.
+  잠금 순서는 회원 → 컬렉션 → 식당으로 고정하고, 탈퇴의 일괄 감소는 식당 ID 오름차순이다. 포트 호출은 같은 트랜잭션이라 함께 롤백된다.
+  V43이 컬럼을 추가하고 기존 저장 관계를 회원 distinct로 backfill한다. 대조 쿼리: `select count(distinct c.user_id) from saved_restaurant s join restaurant_collection c on c.id = s.collection_id where s.restaurant_id = ?`.
 - 집계는 user의 컬렉션/저장 관계만 조인한다. restaurant 테이블은 조인하지 않는다.
   V30의 `saved_restaurant(restaurant_id)` 인덱스로 요청 ID를 한정하며 집계와 내 저장 조회 각각 1 SQL이다.
 - 컬렉션 전체 지도는 기존 상한 1,000개를 재사용한다. 초기 조회는 상한+1까지만 읽어

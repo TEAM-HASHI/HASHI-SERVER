@@ -1,6 +1,7 @@
 package org.sopt.hashi.user.collection.service;
 
 import java.util.Collection;
+import java.util.HashSet;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
@@ -84,9 +85,7 @@ public class RestaurantCollectionService {
      */
     @Transactional
     public RestaurantCollectionResponse create(CreateRestaurantCollectionRequest request) {
-        Long userId = currentUserProvider.currentUserId();
-        userRepository.findByIdForUpdate(userId)
-                .orElseThrow(() -> new BusinessException(UserErrorCode.NOT_FOUND));
+        Long userId = lockCurrentUser();
         if (restaurantCollectionRepository.countByUserId(userId) >= MAX_COLLECTIONS_PER_USER) {
             throw new BusinessException(UserErrorCode.COLLECTION_LIMIT_EXCEEDED);
         }
@@ -194,11 +193,16 @@ public class RestaurantCollectionService {
         return toResponse(collection, true);
     }
 
-    /** 컬렉션 삭제(SAVED-007) — 컬렉션과 저장 관계만 지우고 식당 원본은 건드리지 않는다. */
+    /** 컬렉션 삭제(SAVED-007) — 컬렉션과 저장 관계만 지우고 식당 원본은 건드리지 않는다. 마지막 저장 관계가 사라진 식당은 저장 수를 줄인다. */
     @Transactional
     public void delete(Long collectionId) {
+        Long userId = lockCurrentUser();
         RestaurantCollection collection = collectionFinder.findOwnedForUpdate(collectionId);
+        Set<Long> removed = collection.getSavedRestaurants().stream()
+                .map(SavedRestaurant::getRestaurantId)
+                .collect(Collectors.toSet());
         restaurantCollectionRepository.delete(collection);
+        decreaseSaveCountsForUnsaved(userId, removed);
         log.info("컬렉션 삭제. collectionId={}, userId={}", collection.getId(), collection.getUserId());
     }
 
@@ -208,6 +212,7 @@ public class RestaurantCollectionService {
      */
     @Transactional
     public RestaurantCollectionResponse saveRestaurant(Long collectionId, SaveRestaurantRequest request) {
+        Long userId = lockCurrentUser();
         RestaurantCollection collection = collectionFinder.findOwnedForUpdate(collectionId);
         Long restaurantId = request.restaurantId();
         if (!restaurantPort.existsActiveById(restaurantId)) {
@@ -217,8 +222,12 @@ public class RestaurantCollectionService {
             throw new BusinessException(UserErrorCode.RESTAURANT_ALREADY_SAVED);
         }
         requireCapacity(collection, 1);
+        boolean isFirstSave = savedRestaurantRepository.findSavedRestaurantIds(userId, List.of(restaurantId)).isEmpty();
         collection.save(restaurantId);
         flushOrConflict(UserErrorCode.RESTAURANT_ALREADY_SAVED);
+        if (isFirstSave) {
+            restaurantPort.increaseSaveCount(restaurantId);
+        }
         return toResponse(collection, true);
     }
 
@@ -226,9 +235,11 @@ public class RestaurantCollectionService {
     @Transactional
     public RestaurantCollectionResponse removeRestaurants(Long collectionId, List<Long> restaurantIds) {
         Set<Long> targets = distinctIds(restaurantIds);
+        Long userId = lockCurrentUser();
         RestaurantCollection collection = collectionFinder.findOwnedForUpdate(collectionId);
         requireAllSaved(collection, targets);
         collection.remove(targets);
+        decreaseSaveCountsForUnsaved(userId, targets);
         return toResponse(collection, true);
     }
 
@@ -260,6 +271,36 @@ public class RestaurantCollectionService {
         targets.forEach(target::save);
         flushOrConflict(UserErrorCode.RESTAURANT_ALREADY_SAVED);
         return new MoveSavedRestaurantsResponse(toResponse(source, true), toResponse(target, true));
+    }
+
+    /**
+     * 식당 저장 수(#263)의 첫 저장·마지막 제거 판정은 같은 회원의 다른 컬렉션 쓰기와 엇갈리면 틀리므로
+     * 회원 행을 먼저 잠가 회원 단위로 직렬화한다. 잠금 순서는 회원 → 컬렉션 → 식당(포트의 UPDATE)으로 고정한다.
+     * 탈퇴(회원 행 잠금 뒤 컬렉션 삭제)와도 엇갈리지 않는다.
+     */
+    private Long lockCurrentUser() {
+        Long userId = currentUserProvider.currentUserId();
+        userRepository.findByIdForUpdate(userId)
+                .orElseThrow(() -> new BusinessException(UserErrorCode.NOT_FOUND));
+        return userId;
+    }
+
+    /** 제거한 식당 중 회원의 다른 컬렉션에도 남지 않은 것만 저장 수를 1 감소시킨다(마지막 저장 관계 삭제). */
+    private void decreaseSaveCountsForUnsaved(Long userId, Collection<Long> removedRestaurantIds) {
+        if (removedRestaurantIds.isEmpty()) {
+            return;
+        }
+        // orphanRemoval 삭제를 먼저 반영해야 남은 관계만 센다
+        restaurantCollectionRepository.flush();
+        Set<Long> stillSaved = new HashSet<>(
+                savedRestaurantRepository.findSavedRestaurantIds(userId, removedRestaurantIds));
+        List<Long> unsaved = removedRestaurantIds.stream()
+                .filter(id -> !stillSaved.contains(id))
+                .sorted()
+                .toList();
+        if (!unsaved.isEmpty()) {
+            restaurantPort.decreaseSaveCounts(unsaved);
+        }
     }
 
     private RestaurantCollectionResponse toResponse(RestaurantCollection collection, boolean owner) {

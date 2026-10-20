@@ -30,7 +30,9 @@ import org.sopt.hashi.shared.error.CommonErrorCode;
 import org.sopt.hashi.user.UserWithdrawnEvent;
 import org.sopt.hashi.user.WithdrawalBlocker;
 import org.sopt.hashi.user.code.UserErrorCode;
+import org.sopt.hashi.restaurant.RestaurantPort;
 import org.sopt.hashi.user.collection.domain.RestaurantCollectionRepository;
+import org.sopt.hashi.user.collection.domain.SavedRestaurantRepository;
 import org.sopt.hashi.user.domain.User;
 import org.sopt.hashi.user.domain.UserRepository;
 import org.springframework.context.ApplicationEventPublisher;
@@ -44,6 +46,12 @@ class UserWithdrawalServiceTest {
 
     @Mock
     private RestaurantCollectionRepository restaurantCollectionRepository;
+
+    @Mock
+    private SavedRestaurantRepository savedRestaurantRepository;
+
+    @Mock
+    private RestaurantPort restaurantPort;
 
     @Mock
     private WithdrawalBlocker withdrawalBlocker;
@@ -65,7 +73,8 @@ class UserWithdrawalServiceTest {
     @BeforeEach
     void setUp() {
         service = new UserWithdrawalService(userRepository, restaurantCollectionRepository,
-                List.of(withdrawalBlocker), mediaPort, authAccountPort, eventPublisher, currentUserProvider);
+                savedRestaurantRepository, restaurantPort, List.of(withdrawalBlocker), mediaPort,
+                authAccountPort, eventPublisher, currentUserProvider);
         given(currentUserProvider.currentUserId()).willReturn(7L);
     }
 
