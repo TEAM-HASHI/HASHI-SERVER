@@ -70,8 +70,8 @@ import org.springframework.transaction.annotation.Transactional;
 class RestaurantCollectionIntegrationTest {
 
     /** 저장·제거·삭제도 생성처럼 회원 행을 잠그므로(#263) 실제 회원 행을 만들어 쓴다. */
-    private Long ownerId;
-    private Long otherUserId;
+    protected Long ownerId;
+    protected Long otherUserId;
 
     @Autowired
     private RestaurantCollectionService collectionService;
