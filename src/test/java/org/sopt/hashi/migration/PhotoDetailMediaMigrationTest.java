@@ -21,7 +21,7 @@ class PhotoDetailMediaMigrationTest {
             .withDatabaseName("hashi_photo_migration");
 
     @Test
-    void v43은_기존_파생본과_발급설정을_유지하며_사진_role만_허용한다() {
+    void v44은_기존_파생본과_발급설정을_유지하며_사진_role만_허용한다() {
         Flyway.configure().dataSource(MYSQL.getJdbcUrl(), MYSQL.getUsername(), MYSQL.getPassword())
                 .locations("classpath:db/migration").target("42").load().migrate();
         JdbcTemplate jdbc = new JdbcTemplate(new DriverManagerDataSource(
@@ -46,8 +46,8 @@ class PhotoDetailMediaMigrationTest {
 
         var migration = Flyway.configure()
                 .dataSource(MYSQL.getJdbcUrl(), MYSQL.getUsername(), MYSQL.getPassword())
-                .locations("classpath:db/migration").target("43").load().migrate();
-        assertThat(migration.migrationsExecuted).isEqualTo(1);
+                .locations("classpath:db/migration").target("44").load().migrate();
+        assertThat(migration.migrations).anySatisfy(applied -> assertThat(applied.version).isEqualTo("44"));
         assertThat(jdbc.queryForMap("SELECT * FROM media_pipeline_config WHERE id = 1"))
                 .isEqualTo(previousConfig);
         insertRendition(jdbc, "PHOTO_DETAIL", 4);
