@@ -12,8 +12,7 @@ public record RestaurantPhotosResponse(
         Counts counts,
         @Schema(description = "현재 선택한 필터의 전체 사진 수") long totalCount,
         List<Photo> photos,
-        @Schema(description = "0부터 시작하는 현재 페이지") int page,
-        @Schema(description = "다음 요청의 page. 마지막 페이지는 null", nullable = true) Integer nextPage,
+        @Schema(description = "다음 요청에 그대로 보낼 cursor. 마지막은 null", nullable = true) String nextCursor,
         boolean hasNext
 ) {
     public record Counts(long all, long representative, long menu, long review) { }

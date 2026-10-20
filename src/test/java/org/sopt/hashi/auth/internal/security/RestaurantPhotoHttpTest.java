@@ -49,8 +49,8 @@ class RestaurantPhotoHttpTest {
 
     @Test
     void 비회원_기본_조회와_빈_결과는_200이다() throws Exception {
-        given(service.getPhotos(1, RestaurantPhotoFilter.ALL, 0)).willReturn(new RestaurantPhotosResponse(
-                1, RestaurantPhotoFilter.ALL, new RestaurantPhotosResponse.Counts(0, 0, 0, 0), 0, List.of(), 0, null, false));
+        given(service.getPhotos(1, RestaurantPhotoFilter.ALL, null)).willReturn(new RestaurantPhotosResponse(
+                1, RestaurantPhotoFilter.ALL, new RestaurantPhotosResponse.Counts(0, 0, 0, 0), 0, List.of(), null, false));
         mvc.perform(get("/api/v1/restaurants/1/photos"))
                 .andExpect(status().isOk()).andExpect(header().string(HttpHeaders.CACHE_CONTROL, "no-store"))
                 .andExpect(jsonPath("$.data.filter").value("ALL"))
@@ -60,16 +60,16 @@ class RestaurantPhotoHttpTest {
     }
 
     @Test
-    void 비회원_리뷰사진_추가조회는_필터와_페이지를_전달하고_사진과_다음페이지를_반환한다() throws Exception {
+    void 비회원_리뷰사진_추가조회는_필터와_커서를_전달하고_사진과_다음커서를_반환한다() throws Exception {
         List<RestaurantPhotosResponse.Photo> photos = IntStream.rangeClosed(21, 40)
                 .mapToObj(id -> new RestaurantPhotosResponse.Photo("REVIEW:" + id,
                         RestaurantPhotoFilter.REVIEW, "https://cdn.example.com/reviews/" + id + ".jpg", null))
                 .toList();
-        given(service.getPhotos(7, RestaurantPhotoFilter.REVIEW, 1)).willReturn(new RestaurantPhotosResponse(
+        given(service.getPhotos(7, RestaurantPhotoFilter.REVIEW, "previous-cursor")).willReturn(new RestaurantPhotosResponse(
                 7, RestaurantPhotoFilter.REVIEW, new RestaurantPhotosResponse.Counts(46, 2, 3, 41),
-                41, photos, 1, 2, true));
+                41, photos, "next-cursor", true));
 
-        mvc.perform(get("/api/v1/restaurants/7/photos").param("filter", "REVIEW").param("page", "1"))
+        mvc.perform(get("/api/v1/restaurants/7/photos").param("filter", "REVIEW").param("cursor", "previous-cursor"))
                 .andExpect(status().isOk())
                 .andExpect(header().string(HttpHeaders.CACHE_CONTROL, "no-store"))
                 .andExpect(jsonPath("$.data.restaurantId").value(7))
@@ -79,8 +79,7 @@ class RestaurantPhotoHttpTest {
                 .andExpect(jsonPath("$.data.counts.menu").value(3))
                 .andExpect(jsonPath("$.data.counts.review").value(41))
                 .andExpect(jsonPath("$.data.totalCount").value(41))
-                .andExpect(jsonPath("$.data.page").value(1))
-                .andExpect(jsonPath("$.data.nextPage").value(2))
+                .andExpect(jsonPath("$.data.nextCursor").value("next-cursor"))
                 .andExpect(jsonPath("$.data.hasNext").value(true))
                 .andExpect(jsonPath("$.data.photos.length()").value(20))
                 .andExpect(jsonPath("$.data.photos[0].photoId").value("REVIEW:21"))
@@ -88,12 +87,12 @@ class RestaurantPhotoHttpTest {
                 .andExpect(jsonPath("$.data.photos[0].imageUrl").value("https://cdn.example.com/reviews/21.jpg"))
                 .andExpect(jsonPath("$.data.photos[0].image").isEmpty())
                 .andExpect(jsonPath("$.data.photos[19].photoId").value("REVIEW:40"));
-        verify(service).getPhotos(7, RestaurantPhotoFilter.REVIEW, 1);
+        verify(service).getPhotos(7, RestaurantPhotoFilter.REVIEW, "previous-cursor");
     }
 
     @Test
-    void 잘못된_필터_음수페이지_식당ID는_공통400이다() throws Exception {
-        for (String query : List.of("?filter=VIDEO", "?page=-1", "?page=x", "?page=2147483648")) {
+    void 잘못된_필터_과도한커서_식당ID는_공통400이다() throws Exception {
+        for (String query : List.of("?filter=VIDEO", "?cursor=" + "a".repeat(513))) {
             mvc.perform(get("/api/v1/restaurants/1/photos" + query))
                     .andExpect(status().isBadRequest()).andExpect(jsonPath("$.code").value("COMMON-400"));
         }
@@ -104,7 +103,7 @@ class RestaurantPhotoHttpTest {
 
     @Test
     void 삭제_미존재_식당의_404는_빈결과와_구분한다() throws Exception {
-        given(service.getPhotos(1, RestaurantPhotoFilter.ALL, 0))
+        given(service.getPhotos(1, RestaurantPhotoFilter.ALL, null))
                 .willThrow(new BusinessException(ReviewErrorCode.RESTAURANT_NOT_FOUND));
         mvc.perform(get("/api/v1/restaurants/1/photos"))
                 .andExpect(status().isNotFound()).andExpect(jsonPath("$.code").value("RESTAURANT-004"));
