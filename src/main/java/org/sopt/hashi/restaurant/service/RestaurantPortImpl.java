@@ -139,19 +139,22 @@ class RestaurantPortImpl implements RestaurantPort {
     /** 이미지는 @BatchSize로 대표 이미지만 묶음 조회되므로 컬렉션 규모(수백 건)에서도 영업시간·카드 이미지 없이 가볍다. */
     @Override
     public List<RestaurantCardInfo> findActiveCards(Collection<Long> restaurantIds) {
-        if (restaurantIds == null || restaurantIds.isEmpty()) {
-            return List.of();
-        }
-        List<Long> ids = restaurantIds.stream()
-                .filter(Objects::nonNull)
-                .distinct()
-                .toList();
+        List<Long> ids = distinctIds(restaurantIds);
         if (ids.isEmpty()) {
             return List.of();
         }
         return restaurantRepository.findAllByIdInAndDeletedFalse(ids).stream()
                 .map(this::toCardInfo)
                 .toList();
+    }
+
+    @Override
+    public long countActiveByIds(Collection<Long> restaurantIds) {
+        List<Long> ids = distinctIds(restaurantIds);
+        if (ids.isEmpty()) {
+            return 0;
+        }
+        return restaurantRepository.countByIdInAndDeletedFalse(ids);
     }
 
     @Override
@@ -271,6 +274,17 @@ class RestaurantPortImpl implements RestaurantPort {
                 restaurant.getAddress(),
                 toThumbnailReference(restaurant)
         );
+    }
+
+    /** null·중복 ID를 걷어낸 조회용 ID 목록 — 비면 빈 목록이라 호출 측이 IN 절을 비우지 않는다. */
+    private static List<Long> distinctIds(Collection<Long> restaurantIds) {
+        if (restaurantIds == null) {
+            return List.of();
+        }
+        return restaurantIds.stream()
+                .filter(Objects::nonNull)
+                .distinct()
+                .toList();
     }
 
     private RestaurantCardInfo toCardInfo(Restaurant restaurant) {

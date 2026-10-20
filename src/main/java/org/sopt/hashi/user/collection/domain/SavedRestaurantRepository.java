@@ -25,6 +25,10 @@ public interface SavedRestaurantRepository extends JpaRepository<SavedRestaurant
             + "where s.collection.userId = :userId and s.restaurantId in :ids")
     List<Long> findSavedRestaurantIds(@Param("userId") Long userId, @Param("ids") Collection<Long> ids);
 
+    /** 회원이 하나 이상의 컬렉션에 저장한 식당 ID — 여러 컬렉션에 저장해도 한 번만 센다(#259). */
+    @Query("select distinct s.restaurantId from SavedRestaurant s where s.collection.userId = :userId")
+    List<Long> findDistinctRestaurantIdsByUserId(@Param("userId") Long userId);
+
     @Query("select s.restaurantId from SavedRestaurant s where s.collection.id = :collectionId order by s.restaurantId")
     List<Long> findMapRestaurantIds(@Param("collectionId") Long collectionId, Pageable pageable);
 
