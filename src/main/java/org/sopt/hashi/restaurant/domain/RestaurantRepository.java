@@ -19,7 +19,7 @@ import org.springframework.data.repository.query.Param;
 public interface RestaurantRepository extends JpaRepository<Restaurant, Long>, JpaSpecificationExecutor<Restaurant> {
 
     @Query("""
-            select new org.sopt.hashi.restaurant.RestaurantPhotoSourceInfo(i.id, i.fileKey, i.imageAssetId)
+            select new org.sopt.hashi.restaurant.RestaurantPhotoSourceInfo(i.id, i.fileKey, i.imageAssetId, i.displayOrder)
             from RestaurantImage i where i.restaurant.id = :restaurantId and i.restaurant.deleted = false
             order by i.displayOrder, i.id
             """)
