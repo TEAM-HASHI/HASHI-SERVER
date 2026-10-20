@@ -327,6 +327,8 @@ class RestaurantMapMigrationTest {
     }
 
     private void validateUpgradedSchema() {
+        // 엔티티는 항상 최신 migration 기준이라(#263 save_count 등) 지도 단계 검증 뒤 끝까지 올린 스키마와 대조한다
+        flyway("latest").migrate();
         var registry = new StandardServiceRegistryBuilder()
                 .applySetting("hibernate.connection.url", MYSQL.getJdbcUrl())
                 .applySetting("hibernate.connection.username", MYSQL.getUsername())
