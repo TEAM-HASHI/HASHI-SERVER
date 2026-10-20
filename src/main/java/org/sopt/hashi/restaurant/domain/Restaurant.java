@@ -109,6 +109,10 @@ public class Restaurant extends BaseTimeEntity {
     @Column(name = "review_count", nullable = false, updatable = false)
     private long reviewCount;
 
+    /** 식당을 저장한 회원 수(#263) — user 모듈이 RestaurantPort로 증감하는 카운터라 엔티티는 읽기만 한다. */
+    @Column(name = "save_count", nullable = false, updatable = false)
+    private long saveCount;
+
     @Column(name = "rating", precision = 2, scale = 1, nullable = false, updatable = false)
     private BigDecimal rating;
 
@@ -160,6 +164,7 @@ public class Restaurant extends BaseTimeEntity {
         this.maxPrice = maxPrice;
         this.ratingSum = 0;
         this.reviewCount = 0;
+        this.saveCount = 0;
         this.rating = BigDecimal.ZERO.setScale(1);
         this.deleted = false;
     }

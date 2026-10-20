@@ -4,6 +4,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.anyCollection;
 import static org.mockito.BDDMockito.given;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
 
 import ch.qos.logback.classic.Level;
 import ch.qos.logback.classic.Logger;
@@ -40,6 +42,7 @@ import org.sopt.hashi.user.collection.dto.CreateRestaurantCollectionRequest;
 import org.sopt.hashi.user.collection.dto.MoveSavedRestaurantsRequest;
 import org.sopt.hashi.user.collection.dto.RestaurantCollectionListResponse;
 import org.sopt.hashi.user.collection.dto.RestaurantCollectionListResponse.RestaurantCollectionSummaryResponse;
+import org.sopt.hashi.user.collection.dto.SaveRestaurantRequest;
 import org.sopt.hashi.user.collection.dto.SavedRestaurantListResponse;
 import org.sopt.hashi.user.collection.dto.SavedRestaurantListResponse.SavedRestaurantResponse;
 import org.sopt.hashi.user.domain.User;
@@ -69,8 +72,9 @@ import org.springframework.transaction.annotation.Transactional;
 @Transactional(propagation = Propagation.NOT_SUPPORTED)
 class RestaurantCollectionIntegrationTest {
 
-    private static final Long OWNER_ID = 1L;
-    private static final Long OTHER_USER_ID = 2L;
+    /** 저장·제거·삭제도 생성처럼 회원 행을 잠그므로(#263) 실제 회원 행을 만들어 쓴다. */
+    protected Long ownerId;
+    protected Long otherUserId;
 
     @Autowired
     private RestaurantCollectionService collectionService;
@@ -110,7 +114,9 @@ class RestaurantCollectionIntegrationTest {
 
     @BeforeEach
     void setUp() {
-        loginAs(OWNER_ID);
+        ownerId = saveUser("소유자", "01000000001", "owner@hashi.test").getId();
+        otherUserId = saveUser("다른회원", "01000000002", "other@hashi.test").getId();
+        loginAs(ownerId);
         given(mapClock.instant()).willReturn(Instant.parse("2026-10-01T00:00:00Z"));
         given(restaurantPort.findActiveCards(anyCollection())).willAnswer(invocation -> {
             Collection<Long> restaurantIds = invocation.getArgument(0);
@@ -146,8 +152,8 @@ class RestaurantCollectionIntegrationTest {
 
     @Test
     void 이동할_식당이_대상_컬렉션에_이미_있으면_두_컬렉션_모두_DB에_그대로_남는다() {
-        Long sourceId = saveCollection(OWNER_ID, "원래 컬렉션", CollectionVisibility.PUBLIC, 101L, 102L);
-        Long targetId = saveCollection(OWNER_ID, "대상 컬렉션", CollectionVisibility.PUBLIC, 102L);
+        Long sourceId = saveCollection(ownerId, "원래 컬렉션", CollectionVisibility.PUBLIC, 101L, 102L);
+        Long targetId = saveCollection(ownerId, "대상 컬렉션", CollectionVisibility.PUBLIC, 102L);
 
         assertBusinessError(
                 () -> collectionService.moveRestaurants(
@@ -160,8 +166,8 @@ class RestaurantCollectionIntegrationTest {
 
     @Test
     void 이동을_반영한_뒤_응답_구성에서_예외가_나면_이동_전체가_롤백된다() {
-        Long sourceId = saveCollection(OWNER_ID, "원래 컬렉션", CollectionVisibility.PUBLIC, 101L, 102L);
-        Long targetId = saveCollection(OWNER_ID, "대상 컬렉션", CollectionVisibility.PUBLIC);
+        Long sourceId = saveCollection(ownerId, "원래 컬렉션", CollectionVisibility.PUBLIC, 101L, 102L);
+        Long targetId = saveCollection(ownerId, "대상 컬렉션", CollectionVisibility.PUBLIC);
         given(restaurantPort.findActiveCards(anyCollection()))
                 .willThrow(new IllegalStateException("restaurant module unavailable"));
 
@@ -175,8 +181,8 @@ class RestaurantCollectionIntegrationTest {
 
     @Test
     void 타인의_비공개_컬렉션은_상세도_저장_식당_목록도_찾을_수_없다고_응답한다() {
-        Long privateId = saveCollection(OWNER_ID, "비공개 컬렉션", CollectionVisibility.PRIVATE, 101L);
-        loginAs(OTHER_USER_ID);
+        Long privateId = saveCollection(ownerId, "비공개 컬렉션", CollectionVisibility.PRIVATE, 101L);
+        loginAs(otherUserId);
 
         assertBusinessError(() -> collectionService.getCollection(privateId), UserErrorCode.COLLECTION_NOT_FOUND);
         assertBusinessError(
@@ -186,10 +192,10 @@ class RestaurantCollectionIntegrationTest {
 
     @Test
     void 내_컬렉션_목록은_최신순으로_커서를_따라_이어_조회하고_다른_사용자의_컬렉션은_섞이지_않는다() {
-        Long oldest = saveCollection(OWNER_ID, "첫째", CollectionVisibility.PUBLIC);
-        Long middle = saveCollection(OWNER_ID, "둘째", CollectionVisibility.PUBLIC);
-        Long newest = saveCollection(OWNER_ID, "셋째", CollectionVisibility.PUBLIC);
-        saveCollection(OTHER_USER_ID, "남의 컬렉션", CollectionVisibility.PUBLIC);
+        Long oldest = saveCollection(ownerId, "첫째", CollectionVisibility.PUBLIC);
+        Long middle = saveCollection(ownerId, "둘째", CollectionVisibility.PUBLIC);
+        Long newest = saveCollection(ownerId, "셋째", CollectionVisibility.PUBLIC);
+        saveCollection(otherUserId, "남의 컬렉션", CollectionVisibility.PUBLIC);
 
         RestaurantCollectionListResponse firstPage = collectionService.getMyCollections(null, null, 2);
         RestaurantCollectionListResponse secondPage = collectionService.getMyCollections(
@@ -211,7 +217,7 @@ class RestaurantCollectionIntegrationTest {
 
     @Test
     void 저장_식당_목록은_커서로_다음_페이지를_이어_조회한다() {
-        Long collectionId = saveCollection(OWNER_ID, "도쿄 맛집", CollectionVisibility.PUBLIC, 101L, 102L, 103L);
+        Long collectionId = saveCollection(ownerId, "도쿄 맛집", CollectionVisibility.PUBLIC, 101L, 102L, 103L);
 
         SavedRestaurantListResponse firstPage = queryService.getSavedRestaurants(
                 collectionId, "latest", null, null, 2);
@@ -231,9 +237,9 @@ class RestaurantCollectionIntegrationTest {
 
     @Test
     void 같은_사용자의_공개와_비공개_저장은_하나로_세고_마지막_제거만_저장수를_줄인다() {
-        Long first = saveCollection(OWNER_ID, "공개", CollectionVisibility.PUBLIC, 101L);
-        Long second = saveCollection(OWNER_ID, "비공개", CollectionVisibility.PRIVATE, 101L);
-        saveCollection(OTHER_USER_ID, "다른 회원", CollectionVisibility.PRIVATE, 101L);
+        Long first = saveCollection(ownerId, "공개", CollectionVisibility.PUBLIC, 101L);
+        Long second = saveCollection(ownerId, "비공개", CollectionVisibility.PRIVATE, 101L);
+        saveCollection(otherUserId, "다른 회원", CollectionVisibility.PRIVATE, 101L);
 
         assertThat(summaryService.getSaveCounts(List.of(101L)).restaurants().getFirst().saveCount()).isEqualTo(2);
         assertThat(summaryService.getMySaves(List.of(101L)).restaurants().getFirst().saved()).isTrue();
@@ -245,8 +251,36 @@ class RestaurantCollectionIntegrationTest {
     }
 
     @Test
+    void 식당_저장_수는_회원의_첫_저장에만_올리고_같은_회원의_다른_컬렉션_저장은_올리지_않는다() {
+        Long first = saveCollection(ownerId, "첫째", CollectionVisibility.PUBLIC);
+        Long second = saveCollection(ownerId, "둘째", CollectionVisibility.PRIVATE);
+        given(restaurantPort.existsActiveById(101L)).willReturn(true);
+
+        collectionService.saveRestaurant(first, new SaveRestaurantRequest(101L));
+        collectionService.saveRestaurant(second, new SaveRestaurantRequest(101L));
+        assertBusinessError(() -> collectionService.saveRestaurant(second, new SaveRestaurantRequest(101L)),
+                UserErrorCode.RESTAURANT_ALREADY_SAVED);
+
+        verify(restaurantPort).increaseSaveCount(101L);
+        verify(restaurantPort, never()).decreaseSaveCounts(anyCollection());
+    }
+
+    @Test
+    void 식당_저장_수는_회원의_마지막_저장_관계가_사라질_때만_내린다() {
+        Long first = saveCollection(ownerId, "첫째", CollectionVisibility.PUBLIC, 101L, 102L);
+        Long second = saveCollection(ownerId, "둘째", CollectionVisibility.PRIVATE, 101L);
+
+        collectionService.removeRestaurants(first, List.of(101L, 102L));
+        verify(restaurantPort).decreaseSaveCounts(List.of(102L));
+
+        collectionService.delete(second);
+        verify(restaurantPort).decreaseSaveCounts(List.of(101L));
+        verify(restaurantPort, never()).increaseSaveCount(101L);
+    }
+
+    @Test
     void 삭제_미존재_식당은_요약에서_제외하고_요청_순서를_유지한다() {
-        saveCollection(OWNER_ID, "저장", CollectionVisibility.PUBLIC, 101L, 102L);
+        saveCollection(ownerId, "저장", CollectionVisibility.PUBLIC, 101L, 102L);
         given(restaurantPort.findActiveCards(anyCollection())).willReturn(List.of(card(101L), card(103L)));
 
         assertThat(summaryService.getSaveCounts(List.of(103L, 102L, 101L)).restaurants())
@@ -331,8 +365,8 @@ class RestaurantCollectionIntegrationTest {
 
     @Test
     void 기존_공백_포함_이름은_자동_수정하지_않고_이름_수정시_중복이면_409이다() {
-        Long legacyId = saveCollection(OWNER_ID, " 도쿄 ", CollectionVisibility.PUBLIC);
-        saveCollection(OWNER_ID, "도쿄", CollectionVisibility.PUBLIC);
+        Long legacyId = saveCollection(ownerId, " 도쿄 ", CollectionVisibility.PUBLIC);
+        saveCollection(ownerId, "도쿄", CollectionVisibility.PUBLIC);
 
         var unchanged = collectionService.update(legacyId,
                 new org.sopt.hashi.user.collection.dto.UpdateRestaurantCollectionRequest(null, "blue", null, null));
@@ -374,7 +408,7 @@ class RestaurantCollectionIntegrationTest {
 
     @Test
     void 지도_snapshot_이후_비공개_변경과_삭제는_404이고_멤버십_변경은_409이다() {
-        Long id = saveCollection(OWNER_ID, "지도", CollectionVisibility.PUBLIC, 102L, 101L);
+        Long id = saveCollection(ownerId, "지도", CollectionVisibility.PUBLIC, 102L, 101L);
         var snapshot = snapshotStore.read(id, null);
         assertThat(snapshot.restaurantIds()).containsExactly(101L, 102L);
         snapshotStore.validate(snapshot, null);
@@ -385,14 +419,14 @@ class RestaurantCollectionIntegrationTest {
         collectionService.update(id,
                 new org.sopt.hashi.user.collection.dto.UpdateRestaurantCollectionRequest(null, null, null, "private"));
         assertBusinessError(() -> snapshotStore.validate(current, null), UserErrorCode.COLLECTION_NOT_FOUND);
-        var owned = snapshotStore.read(id, OWNER_ID);
+        var owned = snapshotStore.read(id, ownerId);
         collectionService.delete(id);
-        assertBusinessError(() -> snapshotStore.validate(owned, OWNER_ID), UserErrorCode.COLLECTION_NOT_FOUND);
+        assertBusinessError(() -> snapshotStore.validate(owned, ownerId), UserErrorCode.COLLECTION_NOT_FOUND);
     }
 
     @Test
     void 저장_23개_중_좌표없는_2개는_관계를_보존하고_핀만_빠진다() {
-        Long id = saveCollection(OWNER_ID, "전체 지도", CollectionVisibility.PUBLIC,
+        Long id = saveCollection(ownerId, "전체 지도", CollectionVisibility.PUBLIC,
                 java.util.stream.LongStream.rangeClosed(1, 23).boxed().toArray(Long[]::new));
         given(restaurantPort.findActiveMapInfos(anyCollection())).willReturn(
                 java.util.stream.LongStream.rangeClosed(1, 23)
@@ -408,7 +442,7 @@ class RestaurantCollectionIntegrationTest {
 
     @Test
     void 전체_1000개를_한_Port_호출로_조회하고_상한초과는_503이다() {
-        Long id = saveCollection(OWNER_ID, "상한 지도", CollectionVisibility.PUBLIC,
+        Long id = saveCollection(ownerId, "상한 지도", CollectionVisibility.PUBLIC,
                 java.util.stream.LongStream.rangeClosed(1, 1000).boxed().toArray(Long[]::new));
         given(restaurantPort.findActiveMapInfos(anyCollection())).willAnswer(invocation -> {
             Collection<Long> ids = invocation.getArgument(0);
@@ -417,14 +451,14 @@ class RestaurantCollectionIntegrationTest {
         assertThat(mapService.getMarkers(id).content().size()).isEqualTo(1000);
         org.mockito.Mockito.verify(restaurantPort).findActiveMapInfos(
                 java.util.stream.LongStream.rangeClosed(1, 1000).boxed().toList());
-        Long overflow = saveCollection(OWNER_ID, "과량 지도", CollectionVisibility.PUBLIC,
+        Long overflow = saveCollection(ownerId, "과량 지도", CollectionVisibility.PUBLIC,
                 java.util.stream.LongStream.rangeClosed(1, 1001).boxed().toArray(Long[]::new));
         assertBusinessError(() -> mapService.getMarkers(overflow), UserErrorCode.COLLECTION_MAP_UNAVAILABLE);
     }
 
     @Test
     void 조회중_공개범위_변경은_404이고_저장관계_이동은_409이다() {
-        Long id = saveCollection(OWNER_ID, "공유 지도", CollectionVisibility.PUBLIC, 101L);
+        Long id = saveCollection(ownerId, "공유 지도", CollectionVisibility.PUBLIC, 101L);
         org.mockito.Mockito.doAnswer(invocation -> {
             collectionService.update(id,
                     new org.sopt.hashi.user.collection.dto.UpdateRestaurantCollectionRequest(null, null, null, "private"));
@@ -434,8 +468,8 @@ class RestaurantCollectionIntegrationTest {
         // 요청 시작 시 비회원이므로 owner ID가 final 검사에 유입되지 않는다.
         given(currentUserProvider.isAuthenticatedUser()).willReturn(false);
         assertBusinessError(() -> mapService.getMarkers(id), UserErrorCode.COLLECTION_NOT_FOUND);
-        loginAs(OWNER_ID);
-        Long target = saveCollection(OWNER_ID, "이동 대상", CollectionVisibility.PUBLIC);
+        loginAs(ownerId);
+        Long target = saveCollection(ownerId, "이동 대상", CollectionVisibility.PUBLIC);
         org.mockito.Mockito.doAnswer(invocation -> {
             collectionService.moveRestaurants(id, new MoveSavedRestaurantsRequest(target, List.of(101L)));
             return List.of(mapInfo(101L, true));
@@ -445,13 +479,13 @@ class RestaurantCollectionIntegrationTest {
 
     @Test
     void 조회중_삭제와_Port_오류는_정상_핀_응답이_아니다() {
-        Long id = saveCollection(OWNER_ID, "삭제 지도", CollectionVisibility.PUBLIC, 101L);
+        Long id = saveCollection(ownerId, "삭제 지도", CollectionVisibility.PUBLIC, 101L);
         given(restaurantPort.findActiveMapInfos(anyCollection())).willAnswer(invocation -> {
             collectionService.delete(id);
             return List.of(mapInfo(101L, true));
         });
         assertBusinessError(() -> mapService.getMarkers(id), UserErrorCode.COLLECTION_NOT_FOUND);
-        Long failed = saveCollection(OWNER_ID, "실패 지도", CollectionVisibility.PUBLIC, 101L);
+        Long failed = saveCollection(ownerId, "실패 지도", CollectionVisibility.PUBLIC, 101L);
         String privateDetail = "collectionId=" + failed + " SELECT private_sql key=synthetic-secret";
         String privateCause = "private-address 35.654321 139.123456";
         var failure = new IllegalStateException(privateDetail, new IllegalArgumentException(privateCause));
@@ -486,7 +520,7 @@ class RestaurantCollectionIntegrationTest {
 
     @Test
     void Port_조회중_만료된_좌표는_응답직전_다시_제외한다() {
-        Long id = saveCollection(OWNER_ID, "만료 지도", CollectionVisibility.PUBLIC, 101L);
+        Long id = saveCollection(ownerId, "만료 지도", CollectionVisibility.PUBLIC, 101L);
         given(restaurantPort.findActiveMapInfos(anyCollection())).willAnswer(invocation -> {
             given(mapClock.instant()).willReturn(Instant.parse("2026-10-02T00:00:00Z"));
             return List.of(mapInfo(101L, true));

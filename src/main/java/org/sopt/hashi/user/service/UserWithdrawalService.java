@@ -8,11 +8,13 @@ import org.sopt.hashi.auth.CurrentUserProvider;
 import org.sopt.hashi.media.MediaAssetPurpose;
 import org.sopt.hashi.media.MediaAssetUse;
 import org.sopt.hashi.media.MediaPort;
+import org.sopt.hashi.restaurant.RestaurantPort;
 import org.sopt.hashi.shared.error.BusinessException;
 import org.sopt.hashi.user.UserWithdrawnEvent;
 import org.sopt.hashi.user.WithdrawalBlocker;
 import org.sopt.hashi.user.code.UserErrorCode;
 import org.sopt.hashi.user.collection.domain.RestaurantCollectionRepository;
+import org.sopt.hashi.user.collection.domain.SavedRestaurantRepository;
 import org.sopt.hashi.user.domain.User;
 import org.sopt.hashi.user.domain.UserRepository;
 import org.springframework.context.ApplicationEventPublisher;
@@ -32,6 +34,8 @@ public class UserWithdrawalService {
 
     private final UserRepository userRepository;
     private final RestaurantCollectionRepository restaurantCollectionRepository;
+    private final SavedRestaurantRepository savedRestaurantRepository;
+    private final RestaurantPort restaurantPort;
     private final List<WithdrawalBlocker> withdrawalBlockers;
     private final MediaPort mediaPort;
     private final AuthAccountPort authAccountPort;
@@ -40,6 +44,8 @@ public class UserWithdrawalService {
 
     public UserWithdrawalService(UserRepository userRepository,
                                  RestaurantCollectionRepository restaurantCollectionRepository,
+                                 SavedRestaurantRepository savedRestaurantRepository,
+                                 RestaurantPort restaurantPort,
                                  List<WithdrawalBlocker> withdrawalBlockers,
                                  MediaPort mediaPort,
                                  AuthAccountPort authAccountPort,
@@ -47,6 +53,8 @@ public class UserWithdrawalService {
                                  CurrentUserProvider currentUserProvider) {
         this.userRepository = userRepository;
         this.restaurantCollectionRepository = restaurantCollectionRepository;
+        this.savedRestaurantRepository = savedRestaurantRepository;
+        this.restaurantPort = restaurantPort;
         this.withdrawalBlockers = withdrawalBlockers;
         this.mediaPort = mediaPort;
         this.authAccountPort = authAccountPort;
@@ -75,8 +83,13 @@ public class UserWithdrawalService {
 
     /** 식당 컬렉션은 user 애그리거트의 하위 도메인이라 함께 지운다 — 저장 식당 매핑을 먼저 지운다(같은 애그리거트 내부 FK). */
     private void deleteCollections(Long userId) {
+        List<Long> savedRestaurantIds = savedRestaurantRepository.findDistinctRestaurantIdsByUserId(userId);
         restaurantCollectionRepository.deleteSavedRestaurantsByUserId(userId);
         restaurantCollectionRepository.deleteByUserId(userId);
+        if (!savedRestaurantIds.isEmpty()) {
+            // 회원의 저장 관계가 모두 사라지므로 저장했던 식당마다 저장 수를 1 감소시킨다(#263). ID 오름차순으로 잠근다.
+            restaurantPort.decreaseSaveCounts(savedRestaurantIds.stream().sorted().toList());
+        }
     }
 
     /** 신규 파이프라인 asset만 media에 연결 해제를 알린다 — 기존 key 사진은 User의 참조만 끊는다(물리 삭제 정책은 ADR 0001 후속). */

@@ -51,8 +51,8 @@ class CollectionMySqlIntegrationTest extends RestaurantCollectionIntegrationTest
 
     @Test
     void 반대_방향_동시_이동은_ID순_부모_잠금으로_둘다_완료한다() throws Exception {
-        RestaurantCollection first = RestaurantCollection.create(1L, "첫째", CollectionColor.RED, null, CollectionVisibility.PUBLIC);
-        RestaurantCollection second = RestaurantCollection.create(1L, "둘째", CollectionColor.RED, null, CollectionVisibility.PUBLIC);
+        RestaurantCollection first = RestaurantCollection.create(ownerId, "첫째", CollectionColor.RED, null, CollectionVisibility.PUBLIC);
+        RestaurantCollection second = RestaurantCollection.create(ownerId, "둘째", CollectionColor.RED, null, CollectionVisibility.PUBLIC);
         first.save(101L);
         second.save(102L);
         Long firstId = collections.saveAndFlush(first).getId();
@@ -80,7 +80,7 @@ class CollectionMySqlIntegrationTest extends RestaurantCollectionIntegrationTest
     @Test
     void OSIV처럼_EntityManager가_재사용돼도_최종검사는_현재_비공개_상태를_읽는다() throws Exception {
         Long id = collections.saveAndFlush(RestaurantCollection.create(
-                1L, "OSIV", CollectionColor.RED, null, CollectionVisibility.PUBLIC)).getId();
+                ownerId, "OSIV", CollectionColor.RED, null, CollectionVisibility.PUBLIC)).getId();
         var entityManager = entityManagerFactory.createEntityManager();
         TransactionSynchronizationManager.bindResource(entityManagerFactory, new EntityManagerHolder(entityManager));
         try (var executor = Executors.newSingleThreadExecutor()) {
@@ -100,7 +100,7 @@ class CollectionMySqlIntegrationTest extends RestaurantCollectionIntegrationTest
 
     @Test
     void 마지막_한자리_동시_저장은_상한을_넘기지_않는다() throws Exception {
-        RestaurantCollection collection = RestaurantCollection.create(1L, "상한", CollectionColor.RED, null, CollectionVisibility.PUBLIC);
+        RestaurantCollection collection = RestaurantCollection.create(ownerId, "상한", CollectionColor.RED, null, CollectionVisibility.PUBLIC);
         for (long id = 1; id < 1000; id++) {
             collection.save(id);
         }
@@ -130,7 +130,7 @@ class CollectionMySqlIntegrationTest extends RestaurantCollectionIntegrationTest
 
     @Test
     void 전체_ID_snapshot과_최종검사는_저장수와_무관하게_각각_두개와_한개_SQL이다() {
-        RestaurantCollection collection = RestaurantCollection.create(1L, "쿼리", CollectionColor.RED, null, CollectionVisibility.PUBLIC);
+        RestaurantCollection collection = RestaurantCollection.create(ownerId, "쿼리", CollectionColor.RED, null, CollectionVisibility.PUBLIC);
         for (long id = 1; id <= 1000; id++) {
             collection.save(id);
         }

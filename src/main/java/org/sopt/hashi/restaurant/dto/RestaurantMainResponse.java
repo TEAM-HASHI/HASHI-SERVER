@@ -10,6 +10,7 @@ public record RestaurantMainResponse(
         String localName,
         BigDecimal rating,
         Long reviewCount,
+        Long saveCount,
         String summary,
         String foodCategory,
         String address,
@@ -26,6 +27,7 @@ public record RestaurantMainResponse(
             String localName,
             BigDecimal rating,
             Long reviewCount,
+            Long saveCount,
             String summary,
             String foodCategory,
             String address,
@@ -34,7 +36,7 @@ public record RestaurantMainResponse(
             Long reservationFee
     ) {
         this(
-                restaurantId, name, localName, rating, reviewCount, summary, foodCategory,
+                restaurantId, name, localName, rating, reviewCount, saveCount, summary, foodCategory,
                 address, thumbnailUrl, null, imageUrls, List.of(), reservationFee);
     }
 }

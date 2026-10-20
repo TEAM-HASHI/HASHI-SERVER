@@ -105,6 +105,7 @@ class RestaurantControllerTest {
                 "ひまわり寿司",
                 BigDecimal.valueOf(4.8),
                 100L,
+                12L,
                 "장인의 스시를 즐겨보세요.",
                 "초밥",
                 "도쿄도 신주쿠구",
@@ -118,6 +119,7 @@ class RestaurantControllerTest {
 
         mockMvc.perform(get("/api/v1/restaurants/{restaurantId}/summary", 1L))
                 .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.saveCount").value(12))
                 .andExpect(jsonPath("$.data.thumbnailImage.restaurantImageId").value(101))
                 .andExpect(jsonPath("$.data.thumbnailImage.displayOrder").value(1))
                 .andExpect(jsonPath("$.data.thumbnailImage.image.assetId")
@@ -257,6 +259,7 @@ class RestaurantControllerTest {
                 "ひまわり寿司",
                 BigDecimal.valueOf(4.8),
                 100L,
+                12L,
                 "장인의 스시를 즐겨보세요.",
                 "초밥",
                 "도쿄도 신주쿠구",

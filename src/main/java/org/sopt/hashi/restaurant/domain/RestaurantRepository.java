@@ -254,6 +254,21 @@ public interface RestaurantRepository extends JpaRepository<Restaurant, Long>, J
             """, nativeQuery = true)
     int decreaseReviewStatistics(@Param("restaurantId") Long restaurantId, @Param("rating") int rating);
 
+    /** 식당 저장 수 +1(#263) — 원자적 UPDATE라 여러 회원의 첫 저장이 동시에 겹쳐도 누락되지 않는다. */
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
+    @Query(value = "update restaurant set save_count = save_count + 1 where id = :restaurantId", nativeQuery = true)
+    int increaseSaveCount(@Param("restaurantId") Long restaurantId);
+
+    /** 식당 저장 수 -1(#263) — 0 아래로 내려가지 않는다. 겹치는 식당을 여러 트랜잭션이 함께 줄여도 교착이 없도록 PK 오름차순으로 갱신한다. */
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
+    @Query(value = """
+            update restaurant
+            set save_count = case when save_count > 0 then save_count - 1 else 0 end
+            where id in (:restaurantIds)
+            order by id asc
+            """, nativeQuery = true)
+    int decreaseSaveCounts(@Param("restaurantIds") Collection<Long> restaurantIds);
+
     @Modifying(clearAutomatically = true, flushAutomatically = true)
     @Query(value = """
             update restaurant
