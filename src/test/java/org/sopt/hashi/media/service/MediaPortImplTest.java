@@ -698,6 +698,31 @@ class MediaPortImplTest {
     }
 
     @Test
+    void 최신_규격에서도_purpose가_지원하지_않는_role은_노출하지_않는다() {
+        UUID id = UUID.randomUUID();
+        when(imageAssetRepository.findImageProjectionsByPublicIdIn(anyCollection()))
+                .thenReturn(List.of(projection(id, MediaPurpose.MAGAZINE_BANNER, ImageProcessingStatus.READY,
+                        ImageBindingStatus.BOUND, MediaCleanupStatus.ACTIVE,
+                        1, SPEC_DIGEST, null, null, null)));
+        when(imageRenditionRepository.findActiveImageProjections(anyCollection(), anyCollection()))
+                .thenReturn(List.of());
+        assertThat(mediaPort.findImages(List.of(new MediaImageRequest(id, MediaImageRole.PHOTO_DETAIL)))).isEmpty();
+        verify(fileStorage, never()).resolveFileUrl(anyString());
+    }
+
+    @Test
+    void 구규격에서_지원하지_않는_role도_정리중인_실패자산에는_UNAVAILABLE을_노출하지_않는다() {
+        UUID id = UUID.randomUUID();
+        when(imageAssetRepository.findImageProjectionsByPublicIdIn(anyCollection()))
+                .thenReturn(List.of(projection(id, MediaPurpose.RESTAURANT, ImageProcessingStatus.FAILED,
+                        ImageBindingStatus.BOUND, MediaCleanupStatus.PURGING,
+                        1, SPEC_DIGEST, null, null, null)));
+        when(imageRenditionRepository.findActiveImageProjections(anyCollection(), anyCollection()))
+                .thenReturn(List.of());
+        assertThat(mediaPort.findImages(List.of(new MediaImageRequest(id, MediaImageRole.PHOTO_DETAIL)))).isEmpty();
+    }
+
+    @Test
     void 사진_role도_잘못된_digest와_미연결_자산을_노출하지_않는다() {
         UUID invalid = UUID.randomUUID();
         UUID unbound = UUID.randomUUID();

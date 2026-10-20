@@ -213,10 +213,8 @@ class MediaPortImpl implements MediaPort {
             return java.util.Optional.empty();
         }
         if (!supports(definition, asset.getPurpose(), internalRole)) {
-            if (request.role() == MediaImageRole.PHOTO_DETAIL
-                    && asset.getCleanupStatus() == MediaCleanupStatus.ACTIVE
-                    && (asset.getPurpose() == MediaPurpose.RESTAURANT
-                    || asset.getPurpose() == MediaPurpose.RESTAURANT_MENU)) {
+            if (asset.getCleanupStatus() == MediaCleanupStatus.ACTIVE
+                    && supports(mediaSpecRegistry.latestDefinition(), asset.getPurpose(), internalRole)) {
                 return java.util.Optional.of(new MediaImage(
                         asset.getPublicId(), request.role(), MediaImageStatus.UNAVAILABLE,
                         null, List.of()));

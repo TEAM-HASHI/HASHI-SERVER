@@ -42,6 +42,10 @@ public class MediaSpecRegistry {
         return Optional.ofNullable(definitions.get(version));
     }
 
+    public MediaSpecDefinition latestDefinition() {
+        return definitions.get(definitions.keySet().stream().mapToInt(Integer::intValue).max().orElseThrow());
+    }
+
     private MediaSpecDefinition loadDefinition(ObjectMapper objectMapper, String resourcePath) {
         try (InputStream inputStream = new ClassPathResource(resourcePath).getInputStream()) {
             byte[] bytes = inputStream.readAllBytes();
