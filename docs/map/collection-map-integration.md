@@ -27,6 +27,11 @@
 summary는 restaurant 모듈이고 저장 관계는 user 모듈이라 restaurant가 user를 조회하면 순환이 되므로,
 리뷰 통계(`rating_sum`·`review_count`)처럼 user 모듈이 `RestaurantPort.increaseSaveCount/decreaseSaveCounts`로 증감한다.
 
+`GET /api/v1/users/me/saved-restaurants/count`는 마이 화면 `내가 찜한 식당`에 표시할 USER 본인의 저장 식당 수다(#259).
+응답은 `savedRestaurantCount` 하나이며, 내 컬렉션 전체(공개·비공개)에서 중복을 제외한 식당 수다.
+같은 식당을 여러 컬렉션에 저장해도 1로 세고, 삭제된 식당은 컬렉션별 저장 식당 수와 같은 기준으로 제외한다.
+그래서 컬렉션 목록의 컬렉션별 저장 식당 수 합계보다 작을 수 있다. ADMIN/ONBOARDING은 사용할 수 없고 응답은 no-store다.
+
 ## 구현 선택
 
 - 저장한 사용자 수는 `count(distinct collection.userId)`다. 공개/비공개 모두 집계한다.
@@ -39,6 +44,9 @@ summary는 restaurant 모듈이고 저장 관계는 user 모듈이라 restaurant
   첫 저장·마지막 제거 판정은 저장·제거·삭제 트랜잭션의 첫 문장에서 회원 행을 잠가(`findByIdForUpdate`) 회원 단위로 직렬화한다.
   잠금 순서는 회원 → 컬렉션 → 식당으로 고정하고, 탈퇴의 일괄 감소는 식당 ID 오름차순이다. 포트 호출은 같은 트랜잭션이라 함께 롤백된다.
   V43이 컬럼을 추가하고 기존 저장 관계를 회원 distinct로 backfill한다. 대조 쿼리: `select count(distinct c.user_id) from saved_restaurant s join restaurant_collection c on c.id = s.collection_id where s.restaurant_id = ?`.
+- 저장 식당 수는 저장 관계에서 사용자 기준 `distinct restaurantId`를 읽은 뒤 `RestaurantPort.countActiveByIds`로
+  삭제 식당을 뺀다. 카드 정보는 읽지 않고 restaurant 테이블도 조인하지 않는다.
+  distinct ID 수는 서비스에 등록된 식당 수를 넘지 않으므로 컬렉션·저장 상한과 무관하다.
 - 집계는 user의 컬렉션/저장 관계만 조인한다. restaurant 테이블은 조인하지 않는다.
   V30의 `saved_restaurant(restaurant_id)` 인덱스로 요청 ID를 한정하며 집계와 내 저장 조회 각각 1 SQL이다.
 - 컬렉션 전체 지도는 기존 상한 1,000개를 재사용한다. 초기 조회는 상한+1까지만 읽어

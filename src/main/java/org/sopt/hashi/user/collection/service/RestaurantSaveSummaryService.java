@@ -14,6 +14,7 @@ import org.sopt.hashi.user.collection.domain.SavedRestaurantRepository;
 import org.sopt.hashi.user.collection.domain.SavedRestaurantRepository.SaveCount;
 import org.sopt.hashi.user.collection.dto.MyRestaurantSavesResponse;
 import org.sopt.hashi.user.collection.dto.MyRestaurantSavesResponse.MyRestaurantSave;
+import org.sopt.hashi.user.collection.dto.MySavedRestaurantCountResponse;
 import org.sopt.hashi.user.collection.dto.RestaurantSaveCountsResponse;
 import org.sopt.hashi.user.collection.dto.RestaurantSaveCountsResponse.RestaurantSaveCount;
 import org.springframework.stereotype.Service;
@@ -55,6 +56,16 @@ public class RestaurantSaveSummaryService {
                 : new HashSet<>(savedRepository.findSavedRestaurantIds(userId, ids));
         return new MyRestaurantSavesResponse(ids.stream()
                 .map(id -> new MyRestaurantSave(id, saved.contains(id))).toList());
+    }
+
+    /** 마이페이지 저장 식당 수 — 내 컬렉션 전체에서 중복을 제외하고, 삭제된 식당은 컬렉션별 저장 식당 수와 같은 기준으로 뺀다. */
+    public MySavedRestaurantCountResponse getMySavedRestaurantCount() {
+        if (!currentUserProvider.isAuthenticatedUser()) {
+            throw new BusinessException(CommonErrorCode.FORBIDDEN);
+        }
+        List<Long> ids = savedRepository.findDistinctRestaurantIdsByUserId(currentUserProvider.currentUserId());
+        // Port 실패는 그대로 실패한다. 삭제/미존재와 provider 장애를 0으로 혼동하지 않는다.
+        return new MySavedRestaurantCountResponse(restaurantPort.countActiveByIds(ids));
     }
 
     private List<Long> activeIds(List<Long> ids) {
