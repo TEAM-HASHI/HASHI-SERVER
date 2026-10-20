@@ -12,8 +12,10 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import java.math.BigDecimal;
 import java.time.Clock;
 import java.time.Instant;
+import java.time.LocalDate;
 import java.util.Collection;
 import java.util.List;
+import java.util.Optional;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
@@ -44,6 +46,7 @@ import org.sopt.hashi.user.collection.service.CollectionMapQueryService;
 import org.sopt.hashi.user.collection.service.CollectionMapSnapshotStore;
 import org.sopt.hashi.user.collection.service.RestaurantCollectionService;
 import org.sopt.hashi.user.collection.web.CollectionMapController;
+import org.sopt.hashi.user.domain.User;
 import org.sopt.hashi.user.domain.UserRepository;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.autoconfigure.ImportAutoConfiguration;
@@ -125,6 +128,9 @@ class CollectionMapHttpMySqlTest {
     @BeforeEach
     void setUp() {
         given(clock.instant()).willReturn(Instant.parse("2026-10-01T00:00:00Z"));
+        // 저장·제거·삭제가 회원 행을 먼저 잠그므로(#263) mock UserRepository가 회원 1을 돌려주게 한다
+        given(userRepository.findByIdForUpdate(1L)).willReturn(Optional.of(
+                User.onboard("회원1", "HASHI", LocalDate.of(1998, 1, 1), "01000000001", "user1@hashi.test", null)));
         given(restaurants.findActiveMapInfos(anyCollection())).willAnswer(invocation -> {
             Collection<Long> ids = invocation.getArgument(0);
             return ids.stream().map(this::info).toList();
