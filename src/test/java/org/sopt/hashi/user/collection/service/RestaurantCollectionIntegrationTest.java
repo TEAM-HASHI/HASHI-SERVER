@@ -4,6 +4,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.anyCollection;
 import static org.mockito.BDDMockito.given;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
 
 import ch.qos.logback.classic.Level;
 import ch.qos.logback.classic.Logger;
@@ -40,6 +42,7 @@ import org.sopt.hashi.user.collection.dto.CreateRestaurantCollectionRequest;
 import org.sopt.hashi.user.collection.dto.MoveSavedRestaurantsRequest;
 import org.sopt.hashi.user.collection.dto.RestaurantCollectionListResponse;
 import org.sopt.hashi.user.collection.dto.RestaurantCollectionListResponse.RestaurantCollectionSummaryResponse;
+import org.sopt.hashi.user.collection.dto.SaveRestaurantRequest;
 import org.sopt.hashi.user.collection.dto.SavedRestaurantListResponse;
 import org.sopt.hashi.user.collection.dto.SavedRestaurantListResponse.SavedRestaurantResponse;
 import org.sopt.hashi.user.domain.User;
@@ -245,6 +248,34 @@ class RestaurantCollectionIntegrationTest {
         collectionService.delete(second);
         assertThat(summaryService.getSaveCounts(List.of(101L)).restaurants().getFirst().saveCount()).isEqualTo(1);
         assertThat(summaryService.getMySaves(List.of(101L)).restaurants().getFirst().saved()).isFalse();
+    }
+
+    @Test
+    void 식당_저장_수는_회원의_첫_저장에만_올리고_같은_회원의_다른_컬렉션_저장은_올리지_않는다() {
+        Long first = saveCollection(ownerId, "첫째", CollectionVisibility.PUBLIC);
+        Long second = saveCollection(ownerId, "둘째", CollectionVisibility.PRIVATE);
+        given(restaurantPort.existsActiveById(101L)).willReturn(true);
+
+        collectionService.saveRestaurant(first, new SaveRestaurantRequest(101L));
+        collectionService.saveRestaurant(second, new SaveRestaurantRequest(101L));
+        assertBusinessError(() -> collectionService.saveRestaurant(second, new SaveRestaurantRequest(101L)),
+                UserErrorCode.RESTAURANT_ALREADY_SAVED);
+
+        verify(restaurantPort).increaseSaveCount(101L);
+        verify(restaurantPort, never()).decreaseSaveCounts(anyCollection());
+    }
+
+    @Test
+    void 식당_저장_수는_회원의_마지막_저장_관계가_사라질_때만_내린다() {
+        Long first = saveCollection(ownerId, "첫째", CollectionVisibility.PUBLIC, 101L, 102L);
+        Long second = saveCollection(ownerId, "둘째", CollectionVisibility.PRIVATE, 101L);
+
+        collectionService.removeRestaurants(first, List.of(101L, 102L));
+        verify(restaurantPort).decreaseSaveCounts(List.of(102L));
+
+        collectionService.delete(second);
+        verify(restaurantPort).decreaseSaveCounts(List.of(101L));
+        verify(restaurantPort, never()).increaseSaveCount(101L);
     }
 
     @Test

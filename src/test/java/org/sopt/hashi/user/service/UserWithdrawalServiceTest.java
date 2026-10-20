@@ -83,16 +83,20 @@ class UserWithdrawalServiceTest {
         UUID assetId = UUID.randomUUID();
         User user = user(assetId);
         given(userRepository.findByIdForUpdate(7L)).willReturn(Optional.of(user));
+        // 같은 식당을 여러 컬렉션에 저장한 회원 — distinct ID를 받아 ID 오름차순으로 한 번씩만 줄여야 한다(#263)
+        given(savedRestaurantRepository.findDistinctRestaurantIdsByUserId(7L)).willReturn(List.of(3L, 1L, 2L));
 
         service.withdraw();
 
         assertThat(user.isDeleted()).isTrue();
         assertThat(user.getNickname()).isEqualTo("탈퇴회원#7");
-        InOrder order = inOrder(withdrawalBlocker, restaurantCollectionRepository, mediaPort,
-                authAccountPort, eventPublisher);
+        InOrder order = inOrder(withdrawalBlocker, savedRestaurantRepository, restaurantCollectionRepository,
+                restaurantPort, mediaPort, authAccountPort, eventPublisher);
         order.verify(withdrawalBlocker).validateWithdrawable(7L);
+        order.verify(savedRestaurantRepository).findDistinctRestaurantIdsByUserId(7L);
         order.verify(restaurantCollectionRepository).deleteSavedRestaurantsByUserId(7L);
         order.verify(restaurantCollectionRepository).deleteByUserId(7L);
+        order.verify(restaurantPort).decreaseSaveCounts(List.of(1L, 2L, 3L));
         order.verify(mediaPort).reconcileBindings(
                 List.of(), List.of(new MediaAssetUse(assetId, MediaAssetPurpose.PROFILE)));
         order.verify(authAccountPort).unlinkWithdrawnAccount(7L);
