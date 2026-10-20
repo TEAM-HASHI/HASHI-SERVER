@@ -53,6 +53,12 @@ public interface RestaurantPort {
     /** 리뷰 별점 변경 시 리뷰 수는 유지하고 평점 합계·평균을 원자적으로 갱신한다. */
     void updateReviewRatingStatistics(Long restaurantId, int oldRating, int newRating);
 
+    /** 회원이 식당을 처음 저장할 때 저장 수를 1 증가시킨다(#263). 회원 한 명당 최대 1이며 첫 저장 판정은 호출 측(user)이 한다. */
+    void increaseSaveCount(Long restaurantId);
+
+    /** 회원의 마지막 저장 관계가 사라진 식당들의 저장 수를 1씩 감소시킨다(#263). 0 아래로 내려가지 않으며 중복 없는 ID를 받는다. */
+    void decreaseSaveCounts(Collection<Long> restaurantIds);
+
     /** 어드민 식당 등록 — 이미지·메뉴 사진은 업로드 완료된 S3 키로 받는다. */
     AdminRestaurantInfo createByAdmin(AdminRestaurantCommand command);
 

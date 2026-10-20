@@ -263,6 +263,7 @@ public class RestaurantService {
                 restaurant.getLocalName(),
                 restaurant.getRating(),
                 restaurant.getReviewCount(),
+                restaurant.getSaveCount(),
                 restaurant.getSummary(),
                 restaurant.getFoodCategory(),
                 restaurant.getAddress(),

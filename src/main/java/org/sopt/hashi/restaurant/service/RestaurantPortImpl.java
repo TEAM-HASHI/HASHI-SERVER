@@ -185,6 +185,25 @@ class RestaurantPortImpl implements RestaurantPort {
     }
 
     @Override
+    @Transactional
+    public void increaseSaveCount(Long restaurantId) {
+        if (restaurantRepository.increaseSaveCount(restaurantId) == 0) {
+            throw new IllegalStateException("저장 수를 갱신할 식당을 찾을 수 없습니다.");
+        }
+    }
+
+    @Override
+    @Transactional
+    public void decreaseSaveCounts(Collection<Long> restaurantIds) {
+        if (restaurantIds == null || restaurantIds.isEmpty()) {
+            return;
+        }
+        if (restaurantRepository.decreaseSaveCounts(restaurantIds) != restaurantIds.size()) {
+            throw new IllegalStateException("저장 수를 차감할 식당 일부를 찾을 수 없습니다.");
+        }
+    }
+
+    @Override
     @Transactional(isolation = Isolation.READ_COMMITTED)
     public AdminRestaurantInfo createByAdmin(AdminRestaurantCommand command) {
         return restaurantService.createByAdmin(command);
