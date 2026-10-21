@@ -10,10 +10,13 @@ import org.sopt.hashi.media.MediaImage;
  * 컬렉션 저장 식당 목록 응답(SAVED-008) — 커서 페이지네이션. nextCursor는 다음 페이지 요청에 그대로 전달하며,
  * hasNext가 false면 nextCursor는 null이다. 정렬·분류 필터가 바뀌면 커서를 버리고 처음부터 조회한다.
  * 삭제된 식당은 목록에서 제외된다.
+ * totalCount는 선택한 음식점 분류(전체·음식점·카페·주점)에 해당하는 저장 식당의 전체 수로, 상세 상단 "총 N곳" 표시용이다.
+ * 페이지와 무관하게 모든 페이지에서 같고 삭제된 식당은 세지 않으며, 분류 필터가 없으면 컬렉션 상세의 savedCount와 같다.
  */
 @JsonInclude(JsonInclude.Include.NON_NULL)
 public record SavedRestaurantListResponse(
         List<SavedRestaurantResponse> content,
+        long totalCount,
         String nextCursor,
         boolean hasNext) {
 
