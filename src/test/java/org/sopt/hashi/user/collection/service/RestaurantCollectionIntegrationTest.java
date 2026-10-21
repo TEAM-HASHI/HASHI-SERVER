@@ -236,6 +236,38 @@ class RestaurantCollectionIntegrationTest {
     }
 
     @Test
+    void 저장_식당_목록의_totalCount는_분류_필터와_삭제_제외를_적용한_전체_수이며_페이지와_무관하다() {
+        // 105는 삭제된 식당(활성 카드 없음), 짝수 ID는 카페다.
+        given(restaurantPort.findActiveCards(anyCollection())).willAnswer(invocation -> {
+            Collection<Long> restaurantIds = invocation.getArgument(0);
+            return restaurantIds.stream().filter(id -> id != 105L).sorted()
+                    .map(id -> new RestaurantCardInfo(id, "식당 " + id, "도쿄", "sushi",
+                            id % 2 == 0 ? "cafe" : "restaurant", new BigDecimal("4.5"), 10L, null))
+                    .toList();
+        });
+        Long collectionId = saveCollection(ownerId, "도쿄 맛집", CollectionVisibility.PUBLIC,
+                101L, 102L, 103L, 104L, 105L);
+
+        SavedRestaurantListResponse all = queryService.getSavedRestaurants(collectionId, null, null, null, 2);
+        SavedRestaurantListResponse cafeFirst = queryService.getSavedRestaurants(collectionId, "latest", "cafe", null, 1);
+        SavedRestaurantListResponse cafeSecond = queryService.getSavedRestaurants(
+                collectionId, "latest", "cafe", cafeFirst.nextCursor(), 1);
+        SavedRestaurantListResponse bar = queryService.getSavedRestaurants(collectionId, null, "bar", null, null);
+
+        assertThat(all.totalCount()).isEqualTo(4);
+        assertThat(all.content()).hasSize(2);
+        assertThat(all.hasNext()).isTrue();
+        assertThat(all.totalCount()).isEqualTo(collectionService.getCollection(collectionId).savedCount());
+        assertThat(cafeFirst.totalCount()).isEqualTo(2);
+        assertThat(cafeFirst.content()).extracting(SavedRestaurantResponse::restaurantId).containsExactly(104L);
+        assertThat(cafeSecond.totalCount()).isEqualTo(2);
+        assertThat(cafeSecond.content()).extracting(SavedRestaurantResponse::restaurantId).containsExactly(102L);
+        assertThat(cafeSecond.hasNext()).isFalse();
+        assertThat(bar.totalCount()).isZero();
+        assertThat(bar.content()).isEmpty();
+    }
+
+    @Test
     void 같은_사용자의_공개와_비공개_저장은_하나로_세고_마지막_제거만_저장수를_줄인다() {
         Long first = saveCollection(ownerId, "공개", CollectionVisibility.PUBLIC, 101L);
         Long second = saveCollection(ownerId, "비공개", CollectionVisibility.PRIVATE, 101L);
@@ -375,6 +407,47 @@ class RestaurantCollectionIntegrationTest {
                 new org.sopt.hashi.user.collection.dto.UpdateRestaurantCollectionRequest(" 도쿄 ", null, null, null)),
                 UserErrorCode.DUPLICATE_COLLECTION_NAME);
         assertThat(restaurantCollectionRepository.findById(legacyId).orElseThrow().getName()).isEqualTo(" 도쿄 ");
+    }
+
+    @Test
+    void 설명은_30자를_넘거나_줄바꿈이_있으면_생성과_수정_모두_거절한다() {
+        User active = saveUser("줄바꿈검증회원", "01011110006", "linebreak@hashi.test");
+        loginAs(active.getId());
+        var created = collectionService.create(new CreateRestaurantCollectionRequest(
+                "줄바꿈", "red", " 첫째 날 둘째 날 ", "public"));
+        assertThat(created.description()).isEqualTo("첫째 날 둘째 날");
+        assertBusinessError(() -> collectionService.create(new CreateRestaurantCollectionRequest(
+                "줄바꿈 생성", "red", "첫째 날\n둘째 날", "public")),
+                org.sopt.hashi.shared.error.CommonErrorCode.INVALID_INPUT);
+        assertBusinessError(() -> collectionService.update(created.collectionId(),
+                new org.sopt.hashi.user.collection.dto.UpdateRestaurantCollectionRequest(
+                        null, null, "첫째 날\r\n둘째 날", null)),
+                org.sopt.hashi.shared.error.CommonErrorCode.INVALID_INPUT);
+        assertBusinessError(() -> collectionService.update(created.collectionId(),
+                new org.sopt.hashi.user.collection.dto.UpdateRestaurantCollectionRequest(
+                        null, null, "첫째 날" + '\u2028' + "둘째 날", null)),
+                org.sopt.hashi.shared.error.CommonErrorCode.INVALID_INPUT);
+        assertBusinessError(() -> collectionService.update(created.collectionId(),
+                new org.sopt.hashi.user.collection.dto.UpdateRestaurantCollectionRequest(
+                        null, null, "나".repeat(31), null)),
+                org.sopt.hashi.shared.error.CommonErrorCode.INVALID_INPUT);
+        assertThat(restaurantCollectionRepository.findById(created.collectionId()).orElseThrow().getDescription())
+                .isEqualTo("첫째 날 둘째 날");
+
+        // 서비스 직접 호출은 @Valid를 거치지 않으므로 요청 DTO의 Bean Validation 규칙을 따로 확인한다.
+        var validator = jakarta.validation.Validation.buildDefaultValidatorFactory().getValidator();
+        assertThat(validator.validate(new CreateRestaurantCollectionRequest("검증", "red", "첫째 날\n둘째 날", "public")))
+                .extracting(violation -> violation.getMessage())
+                .containsExactly("설명에는 줄바꿈을 입력할 수 없습니다");
+        assertThat(validator.validate(new CreateRestaurantCollectionRequest("검증", "red", "나".repeat(31), "public")))
+                .extracting(violation -> violation.getMessage())
+                .containsExactly("설명은 30자 이내입니다");
+        assertThat(validator.validate(new org.sopt.hashi.user.collection.dto.UpdateRestaurantCollectionRequest(
+                null, null, "첫째 날\r\n둘째 날", null)))
+                .extracting(violation -> violation.getMessage())
+                .containsExactly("설명에는 줄바꿈을 입력할 수 없습니다");
+        assertThat(validator.validate(new CreateRestaurantCollectionRequest("검증", "red", "나".repeat(30), "public")))
+                .isEmpty();
     }
 
     @Test
