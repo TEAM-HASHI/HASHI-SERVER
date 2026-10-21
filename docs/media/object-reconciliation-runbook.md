@@ -47,21 +47,26 @@ version의 중복 삭제는 같은 결과로 수렴하며, 늦은 worker가 폐�
 | `AWS_MEDIA_RECONCILIATION_STORAGE_ATTEMPT_TIMEOUT` | `5s` | SDK 개별 시도 timeout |
 | `AWS_MEDIA_RECONCILIATION_SHUTDOWN_AWAIT` | `20s` | 전용 executor 종료 대기 설정. 상한 1분 |
 
-`enabled=false`에서는 S3를 읽지 않는다. `enabled=true`, `mode=DRY_RUN`은 version 목록을 읽으므로
-`CleanupAccessEnabled=true`로 추가된 기존 `SpringApplicationCleanupPolicy`의
-`GetBucketVersioning`, `ListBucketVersions` 권한이 필요하다. 이 flag는 삭제 권한도 함께 부여하므로
-role의 전체 유효 권한을 검토하고 Spring mode가 `DRY_RUN`인지 별도로 확인한다. 두 bucket 모두 실제로
-`Enabled`가 아니면 DRY_RUN도 목록을 시작하지 않는다. `DELETE` 전환은 별도 운영 승인이 필요하다.
+`enabled=false`에서는 S3를 읽지 않는다. `enabled=true`, `mode=DRY_RUN`에는 두 bucket의
+`GetBucketVersioning`과 해당 media prefix의 `ListBucketVersions`만 필요하다.
+DEV에서는 `ReconciliationReadAccessEnabled=true`로 추가되는
+`SpringApplicationReconciliationReadPolicy`를 사용한다. 기본값은 false이며 prod에서는
+이 정책을 만들지 않는다. 이 flag는 삭제·객체 내용 읽기·bucket 설정 변경 권한을 추가하지 않는다.
 
-단, [DEV 초기 배포 절차](../../infra/media/bootstrap/README.md)를 적용한 상태에서는
-`CleanupAccessEnabled=true`가 거부되고 Spring runtime boundary에도 위 조회 권한이 없다.
-이 단계에서는 `DRY_RUN`도 실행할 수 없으므로 `AWS_MEDIA_RECONCILIATION_ENABLED=false`를 유지한다.
-아래 단계별 확인은 조회 권한과 boundary·배포 전 검사 변경을 별도 검토·승인한 이후에 진행한다.
-환경변수 변경만으로 실행할 수 있는 절차가 아니다.
+[DEV 배포 절차](../../infra/media/bootstrap/README.md)의 순서대로 운영자가 Spring runtime
+boundary의 조회 상한을 먼저 갱신한 뒤 조회 flag로 배포한다. `CleanupAccessEnabled`와 backfill은
+여전히 false로 제한된다. IAM만 배포해도 scheduler는 켜지지 않으며 환경변수 변경만으로 권한 검사를
+우회할 수도 없다. 기존 legacy 권한은 유지되므로 role 전체의 유효 권한도 확인한다.
 
-원본과 delivery bucket은 서로 다르고 같은 region이어야 한다. 권한은 기존 cleanup policy와 동일하게
-`media/originals/*`, `media/renditions/*`의 version 목록과 exact version 삭제로 제한한다. legacy 경로,
-bucket 설정, ACL, Object Lock 우회 권한은 사용하지 않는다.
+두 bucket 모두 실제로 `Enabled`가 아니면 DRY_RUN도 목록을 시작하지 않는다. versioning 설정과
+전파 확인은 별도 운영 절차다. 기존 `SpringApplicationCleanupPolicy`는 조회와 삭제를 함께 부여하는
+정책이며 이번 DEV 점검에는 사용하지 않는다. prod의 기존 수동 권한 절차는 변경하지 않는다.
+삭제 권한 추가와 `DELETE` 전환은 별도 검토·운영 승인이 필요하다.
+
+원본과 delivery bucket은 서로 다르고 같은 region이어야 한다. 이번 DEV 조회 정책은 두 bucket의
+`GetBucketVersioning`과 `media/originals/*`, `media/renditions/*`의 `ListBucketVersions`만 허용한다.
+exact version 삭제는 향후 별도 승인된 DELETE 단계에서 cleanup 정책을 검토할 때 다룬다.
+이번 조회 점검은 legacy 경로, bucket 설정 변경, ACL, Object Lock 우회 권한을 사용하지 않는다.
 
 ### 실행 전 경로 소유권 확인
 
@@ -82,7 +87,8 @@ delivery bucket에서 이 작업이 읽지 않는 legacy 경로를 함께 사용
    비활성으로 배포하고, 다른 DB의 파일이 같은 대상 경로에 있으면 다음 단계로 진행하지 않는다.
 2. 운영 담당자가 7일 보존, 실행량, 실패 알림 수신자와 실제 Object Lock·MFA Delete·Deny를 확인한다.
    두 bucket의 versioning이 `Enabled`이고 전파가 끝났음을 실제 계정에서 확인한다.
-3. 승인된 dev에서 cleanup IAM만 적용하고 reconciliation을 `enabled=true`, `mode=DRY_RUN`으로 시작한다.
+3. 승인된 dev에서 위 조회 전용 IAM만 적용하고 reconciliation을 `enabled=true`, `mode=DRY_RUN`으로
+   시작한다. asset cleanup은 비활성 상태로 유지한다.
 4. 정상 canonical 원본, active·PROCESSING·과거 manifest 파생본이 `protect`인지 확인한다. 후보 key,
    version, asset ID를 로그·지표·PR에 복사하지 않는다.
 5. DB 없는 파일, noncanonical 원본, terminal 실패 spec을 제한된 fixture로 확인한다. DB/S3 오류와

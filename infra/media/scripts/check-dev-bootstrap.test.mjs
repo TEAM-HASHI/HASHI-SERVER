@@ -150,3 +150,16 @@ test("worker runtime ceiling is DEV-only and preflight runs before sam deploy", 
   assert.ok(preflight > workflow.indexOf("      - name: Verify AWS identity"));
   assert.ok(preflight < workflow.indexOf('          sam deploy "${deploy_args[@]}"'));
 });
+
+test("DEV workflow forwards the read-only flag with a false default and validates it", () => {
+  const workflow = read(".github/workflows/deploy-image-pipeline.yml");
+  assert.ok(workflow.includes('          MEDIA_DEV_RECONCILIATION_READ_ACCESS_ENABLED: ${{ vars.MEDIA_DEV_RECONCILIATION_READ_ACCESS_ENABLED }}\n'));
+  assert.ok(workflow.includes('          selected[MEDIA_RECONCILIATION_READ_ACCESS_ENABLED]="${MEDIA_DEV_RECONCILIATION_READ_ACCESS_ENABLED:-false}"\n'));
+  for (const loop of ["optional_name", "flag_name"]) {
+    assert.match(workflow, new RegExp(`for ${loop} in [^\\n]* MEDIA_RECONCILIATION_READ_ACCESS_ENABLED; do`));
+  }
+  assert.ok(workflow.includes('            "ReconciliationReadAccessEnabled=${MEDIA_RECONCILIATION_READ_ACCESS_ENABLED}"\n'));
+  const managed = find(executionStatements, "ManageGeneratedMediaPolicies");
+  assert.ok(actions(managed).includes("iam:CreatePolicy"));
+  assert.equal(managed.Resource["Fn::Sub"], "arn:${AWS::Partition}:iam::${AWS::AccountId}:policy/hashi-dev-media-pipeline-*");
+});

@@ -116,17 +116,24 @@ class MediaCleanupInfrastructureTest {
         Node validate = step(workflow, "deploy", "Select and validate repository configuration");
         assertThat(value(field(validate, "env", "MEDIA_DEV_CLEANUP_ACCESS_ENABLED")))
                 .isEqualTo("${{ vars.MEDIA_DEV_CLEANUP_ACCESS_ENABLED }}");
+        assertThat(value(field(validate, "env", "MEDIA_DEV_RECONCILIATION_READ_ACCESS_ENABLED")))
+                .isEqualTo("${{ vars.MEDIA_DEV_RECONCILIATION_READ_ACCESS_ENABLED }}");
         String script = value(field(validate, "run"));
         assertThat(script)
                 .contains("selected[MEDIA_CLEANUP_ACCESS_ENABLED]=\"${MEDIA_DEV_CLEANUP_ACCESS_ENABLED:-false}\"")
+                .contains("selected[MEDIA_RECONCILIATION_READ_ACCESS_ENABLED]="
+                        + "\"${MEDIA_DEV_RECONCILIATION_READ_ACCESS_ENABLED:-false}\"")
                 .contains("for optional_name in MEDIA_ALARM_NOTIFICATION_TOPIC_ARN MEDIA_WORKER_EVENT_SOURCE_ENABLED "
-                        + "MEDIA_BACKFILL_ACCESS_ENABLED MEDIA_CLEANUP_ACCESS_ENABLED; do")
+                        + "MEDIA_BACKFILL_ACCESS_ENABLED MEDIA_CLEANUP_ACCESS_ENABLED "
+                        + "MEDIA_RECONCILIATION_READ_ACCESS_ENABLED; do")
                 .contains("for flag_name in MEDIA_WORKER_EVENT_SOURCE_ENABLED "
-                        + "MEDIA_BACKFILL_ACCESS_ENABLED MEDIA_CLEANUP_ACCESS_ENABLED; do")
+                        + "MEDIA_BACKFILL_ACCESS_ENABLED MEDIA_CLEANUP_ACCESS_ENABLED "
+                        + "MEDIA_RECONCILIATION_READ_ACCESS_ENABLED; do")
                 .contains("\"${flag_value}\" != \"true\" && \"${flag_value}\" != \"false\"")
                 .contains("printf '%s=%s\\n' \"${name}\" \"${selected[${name}]}\" >> \"${GITHUB_ENV}\"");
         assertThat(value(field(step(workflow, "deploy", "Deploy dev stack"), "run")))
-                .contains("CleanupAccessEnabled=${MEDIA_CLEANUP_ACCESS_ENABLED}");
+                .contains("CleanupAccessEnabled=${MEDIA_CLEANUP_ACCESS_ENABLED}")
+                .contains("ReconciliationReadAccessEnabled=${MEDIA_RECONCILIATION_READ_ACCESS_ENABLED}");
     }
 
     @Test

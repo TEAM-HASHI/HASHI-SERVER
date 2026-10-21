@@ -37,7 +37,43 @@ function probe(options = {}) {
 
 test("accepts bounded DEV roles and the first deployment with no worker yet", () => {
   verifyDevRuntimeBoundaries(config, probe());
+  verifyDevRuntimeBoundaries({ ...config, reconciliationReadEnabled: "true" }, probe());
   verifyDevRuntimeBoundaries(config, probe({ missingWorker: "NoSuchEntity" }));
+});
+
+test("read-only opt-in does not permit cleanup, backfill or malformed flags", () => {
+  for (const value of ["", "TRUE", "true\n", true]) {
+    assert.throws(() => validateDevBindings({ ...config, reconciliationReadEnabled: value }), /read access/);
+  }
+  for (const key of ["cleanupEnabled", "backfillEnabled"]) {
+    assert.throws(() => validateDevBindings({ ...config, reconciliationReadEnabled: "true", [key]: "true" }), /does not authorize/);
+  }
+});
+
+test("Spring discovery ceiling has exact actions, buckets and media prefixes", () => {
+  const statements = boundaries.SpringRuntimeBoundary.document.Statement;
+  const original = "arn:aws:s3:::hashi-dev-media-pipeline-originalimagebucket-*";
+  const delivery = `arn:aws:s3:::${config.deliveryBucket}`;
+  const expected = [
+    ["InspectOriginalBucketVersioning", "s3:GetBucketVersioning", original, undefined],
+    ["InspectDeliveryBucketVersioning", "s3:GetBucketVersioning", delivery, undefined],
+    ["ListOriginalVersions", "s3:ListBucketVersions", original, { StringLike: { "s3:prefix": "media/originals/*" } }],
+    ["ListRenditionVersions", "s3:ListBucketVersions", delivery, { StringLike: { "s3:prefix": "media/renditions/*" } }],
+  ];
+  for (const [sid, action, resource, condition] of expected) {
+    const actual = statements.find((s) => s.Sid === sid);
+    assert.deepEqual(actual, { Sid: sid, Effect: "Allow", Action: [action], Resource: resource, ...(condition ? { Condition: condition } : {}) });
+  }
+  assert.equal(statements.filter((s) => s.Action.some((a) => ["s3:GetBucketVersioning", "s3:ListBucketVersions"].includes(a))).length, 4);
+  for (const modify of [
+    (s) => { s.Resource = "*"; },
+    (s) => { s.Condition.StringLike["s3:prefix"] = "*"; },
+    (s) => { s.Action.push("s3:DeleteObjectVersion"); },
+  ]) {
+    const changed = structuredClone(boundaries.SpringRuntimeBoundary.document);
+    modify(changed.Statement.find((s) => s.Sid === "ListRenditionVersions"));
+    assert.throws(() => validateRuntimeBoundaryDocument(changed, boundaries.SpringRuntimeBoundary.document), /reviewed DEV ceiling/);
+  }
 });
 
 for (const [key, value] of Object.entries({ deliveryBucket: "hashi-prod-delivery-example",

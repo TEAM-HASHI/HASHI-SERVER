@@ -109,6 +109,40 @@
               }
             },
             {
+              "Sid": "InspectOriginalBucketVersioning",
+              "Effect": "Allow",
+              "Action": ["s3:GetBucketVersioning"],
+              "Resource": {
+                "Fn::Sub": "arn:${AWS::Partition}:s3:::hashi-dev-media-pipeline-originalimagebucket-*"
+              }
+            },
+            {
+              "Sid": "InspectDeliveryBucketVersioning",
+              "Effect": "Allow",
+              "Action": ["s3:GetBucketVersioning"],
+              "Resource": {
+                "Fn::Sub": "arn:${AWS::Partition}:s3:::${DeliveryBucket}"
+              }
+            },
+            {
+              "Sid": "ListOriginalVersions",
+              "Effect": "Allow",
+              "Action": ["s3:ListBucketVersions"],
+              "Resource": {
+                "Fn::Sub": "arn:${AWS::Partition}:s3:::hashi-dev-media-pipeline-originalimagebucket-*"
+              },
+              "Condition": {"StringLike": {"s3:prefix": "media/originals/*"}}
+            },
+            {
+              "Sid": "ListRenditionVersions",
+              "Effect": "Allow",
+              "Action": ["s3:ListBucketVersions"],
+              "Resource": {
+                "Fn::Sub": "arn:${AWS::Partition}:s3:::${DeliveryBucket}"
+              },
+              "Condition": {"StringLike": {"s3:prefix": "media/renditions/*"}}
+            },
+            {
               "Sid": "PublishRequests",
               "Effect": "Allow",
               "Action": [

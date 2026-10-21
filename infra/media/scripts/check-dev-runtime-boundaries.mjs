@@ -12,7 +12,7 @@ const roleNames = {
 function fail(message) { throw new Error(message); }
 
 export function validateDevBindings({ accountId, region, deliveryBucket, springRoleName, artifactBucket,
-  executionRoleArn, deployRoleArn, backfillEnabled, cleanupEnabled }) {
+  executionRoleArn, deployRoleArn, backfillEnabled, cleanupEnabled, reconciliationReadEnabled = "false" }) {
   if (!/^[0-9]{12}$/.test(accountId) || !/^[a-z]{2}(-[a-z]+)+-[0-9]+$/.test(region)) {
     fail("Invalid DEV account or region.");
   }
@@ -25,6 +25,9 @@ export function validateDevBindings({ accountId, region, deliveryBucket, springR
       deployRoleArn !== `${prefix}hashi-dev-media-github-deploy`) fail("Unexpected DEV deployment roles.");
   if (backfillEnabled !== "false" || cleanupEnabled !== "false") {
     fail("DEV bootstrap does not authorize backfill or cleanup.");
+  }
+  if (!["true", "false"].includes(reconciliationReadEnabled)) {
+    fail("DEV reconciliation read access must be true or false.");
   }
 }
 
@@ -115,6 +118,7 @@ if (isCli) {
     deliveryBucket: env.MEDIA_DELIVERY_BUCKET_NAME, springRoleName: env.MEDIA_SPRING_APPLICATION_ROLE_NAME,
     artifactBucket: env.AWS_SAM_ARTIFACT_BUCKET, executionRoleArn: env.AWS_CLOUDFORMATION_EXECUTION_ROLE_ARN,
     deployRoleArn: env.AWS_DEPLOY_ROLE_ARN, backfillEnabled: env.MEDIA_BACKFILL_ACCESS_ENABLED,
-    cleanupEnabled: env.MEDIA_CLEANUP_ACCESS_ENABLED });
+    cleanupEnabled: env.MEDIA_CLEANUP_ACCESS_ENABLED,
+    reconciliationReadEnabled: env.MEDIA_RECONCILIATION_READ_ACCESS_ENABLED });
   console.log("DEV runtime boundaries and resource bindings match the reviewed bootstrap.");
 }

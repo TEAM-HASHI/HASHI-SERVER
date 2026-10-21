@@ -97,6 +97,7 @@ dev workflow에는 아래 repository variable이 필요하다.
 | `MEDIA_DEV_WORKER_EVENT_SOURCE_ENABLED` | `true` 또는 `false`. 생략 시 안전하게 `false` |
 | `MEDIA_DEV_BACKFILL_ACCESS_ENABLED` | 승인된 legacy backfill용 임시 S3 권한. 생략 시 안전하게 `false` |
 | `MEDIA_DEV_CLEANUP_ACCESS_ENABLED` | 승인된 asset 정리용 S3 권한. 생략 시 안전하게 `false` |
+| `MEDIA_DEV_RECONCILIATION_READ_ACCESS_ENABLED` | DEV 파일 대조 점검용 상태·버전 목록 조회 권한. 생략 시 `false`, 삭제 권한 없음 |
 
 stack 이름은 variable로 받지 않고 `hashi-dev-media-pipeline`, `hashi-prod-media-pipeline`으로 고정한다.
 dev workflow와 prod 운영자는 기존 stack의 `EnvironmentName` parameter와 `Project`, `Component`,
@@ -224,9 +225,18 @@ IAM 허용만으로 backfill이 실행되지는 않는다. 별도로 Spring의
 
 ### Asset 정리의 추가 권한
 
+DEV에서 삭제 없이 파일 대조부터 확인하려면 `ReconciliationReadAccessEnabled`를 사용한다.
+기본 false이며 DEV에서만 `SpringApplicationReconciliationReadPolicy`를 생성한다. 허용 작업은
+두 bucket의 `GetBucketVersioning`과 media prefix의 `ListBucketVersions`뿐이다. 운영자가 Spring
+runtime boundary를 먼저 갱신한 후 위 repository variable을 true로 배포한다. 이 변경은 scheduler,
+일반 issuance, delivery versioning을 켜지 않는다. 두 bucket의 실제 versioning과 경로 소유권을 확인한
+뒤 별도 승인된 `DRY_RUN`만 실행한다. [상세 절차](bootstrap/README.md#삭제-없는-파일-대조를-준비할-때)를 따른다.
+
 `CleanupAccessEnabled=false`가 기본값이다. 승인된 dev 배포에서
 `MEDIA_DEV_CLEANUP_ACCESS_ENABLED=true`를 명시한 경우에만 별도의
 `SpringApplicationCleanupPolicy`를 기존 Spring EC2 role에 연결한다.
+단, 현재 DEV bootstrap은 이 flag의 true를 거부한다. 삭제 활성화는 별도 권한 검토가 필요하며,
+조회 점검을 위해 이 제한을 해제하지 않는다.
 
 - original의 `media/originals/*`, delivery의 `media/renditions/*`에만 version 목록과 삭제를 허용한다.
   목록은 bucket ARN에 prefix 조건을 두고, 삭제는 해당 object ARN에 `DeleteObject`와

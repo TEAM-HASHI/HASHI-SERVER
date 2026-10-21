@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { validateWorkerIamTemplate } from "./check-worker-iam.mjs";
 
 function fail(message) {
   throw new Error(message);
@@ -93,10 +94,184 @@ function validateCleanupGuardrails(template) {
 `);
 }
 
+// Only the explicit block-style resource declarations used by this template are
+// supported. Reject unrecognized syntax/routes instead of treating them as safe.
+// This is not a YAML parser or an evaluator of existing AWS/account policies.
+function validatePolicyResourceInventory(template) {
+  const rootNames = new Set(["AWSTemplateFormatVersion", "Transform", "Description", "Parameters",
+    "Rules", "Conditions", "Resources", "Outputs"]);
+  const lines = template.split("\n");
+  const roots = new Set();
+  for (const line of lines.filter((line) => /^\S/.test(line) && !line.startsWith("#"))) {
+    const name = line.match(/^([A-Za-z][A-Za-z0-9]*):(?: |$)/)?.[1];
+    if (!rootNames.has(name) || roots.has(name)) fail("Unsupported or duplicate template root.");
+    roots.add(name);
+  }
+  if (lines.some((line) => /\t|(?:^|\s)[&*][A-Za-z0-9_-]+|(?:^|\s)<<:/.test(line))) {
+    fail("YAML aliases, anchors, merge keys and tabs require separate review.");
+  }
+  const start = lines.indexOf("Resources:");
+  const nextRoot = lines.slice(start + 1).findIndex((line) => /^\S/.test(line) && !line.startsWith("#"));
+  const content = lines.slice(start + 1, nextRoot < 0 ? undefined : start + 1 + nextRoot);
+  if (!lines.includes("Transform: AWS::Serverless-2016-10-31") || content.some((line) => {
+    if (!line.trim() || line.trimStart().startsWith("#")) return false;
+    const indent = line.length - line.trimStart().length;
+    return indent < 2 || indent % 2 !== 0;
+  })) fail("Unsupported transform or resource indentation.");
+  const headers = content.flatMap((line, index) => /^  \S/.test(line) ? [index] : []);
+  const knownIam = new Map([
+    ["ImageTransformFunctionRole", "AWS::IAM::Role"],
+    ["SpringApplicationMediaPolicy", "AWS::IAM::ManagedPolicy"],
+    ["SpringApplicationBackfillPolicy", "AWS::IAM::ManagedPolicy"],
+    ["SpringApplicationReconciliationReadPolicy", "AWS::IAM::ManagedPolicy"],
+    ["SpringApplicationCleanupPolicy", "AWS::IAM::ManagedPolicy"],
+  ]);
+  const otherTypes = new Set(["AWS::S3::Bucket", "AWS::SQS::Queue", "AWS::Logs::LogGroup", "AWS::CloudWatch::Alarm"]);
+  const resourceIds = new Set();
+  for (const [i, index] of headers.entries()) {
+    const id = content[index].match(/^  ([A-Za-z][A-Za-z0-9]*):$/)?.[1];
+    if (!id || resourceIds.has(id)) fail("Unsupported or duplicate resource declaration.");
+    resourceIds.add(id);
+    const block = content.slice(index + 1, headers[i + 1]);
+    const attributes = new Set();
+    for (const line of block.filter((line) => /^    \S/.test(line))) {
+      const key = line.match(/^    ([A-Za-z]+):(?: |$)/)?.[1];
+      if (!["Type", "Condition", "Properties", "DeletionPolicy", "UpdateReplacePolicy", "DependsOn"].includes(key)
+          || attributes.has(key)) fail("Unsupported or duplicate resource attribute.");
+      attributes.add(key);
+    }
+    const types = block.flatMap((line) => line.match(/^    Type: (AWS::[A-Za-z0-9]+::[A-Za-z0-9]+)$/)?.slice(1) ?? []);
+    if (types.length !== 1) fail("Resource Type must use the reviewed explicit block syntax.");
+    const type = types[0];
+    if (knownIam.has(id)) {
+      if (type !== knownIam.get(id)) fail("Reviewed IAM resource type changed.");
+    } else if (!otherTypes.has(type)
+        && !(id === "OriginalImageBucketPolicy" && type === "AWS::S3::BucketPolicy")
+        && !(id === "ImageTransformFunction" && type === "AWS::Serverless::Function")) {
+      fail("Unreviewed IAM, resource-policy or generated policy route.");
+    }
+    if (id === "ImageTransformFunctionRole") {
+      const propertyKeys = block.filter((line) => /^      \S/.test(line)).map((line) =>
+        line.match(/^      ([A-Za-z]+):(?: |$)/)?.[1]);
+      if (propertyKeys.length !== 5 || new Set(propertyKeys).size !== 5
+          || !propertyKeys.every((key) => ["RoleName", "PermissionsBoundary", "AssumeRolePolicyDocument", "Policies", "Tags"].includes(key))) {
+        fail("Worker role properties must use the reviewed unique keys.");
+      }
+    }
+  }
+  for (const id of knownIam.keys()) if (!resourceIds.has(id)) fail("Missing reviewed IAM resource.");
+  validateWorkerIamTemplate(template);
+}
+
+function validateExistingSpringPolicies(template) {
+  requireReviewedBlock(template, "Parameters", "BackfillAccessEnabled", `  BackfillAccessEnabled:
+    Type: String
+    Default: "false"
+    AllowedValues:
+      - "true"
+      - "false"
+    Description: Temporary read and version-list permissions for an approved legacy backfill
+`);
+  requireReviewedBlock(template, "Conditions", "IsBackfillAccessEnabled", `  IsBackfillAccessEnabled: !Equals
+    - !Ref BackfillAccessEnabled
+    - "true"
+`);
+  requireReviewedBlock(template, "Resources", "SpringApplicationMediaPolicy", `  SpringApplicationMediaPolicy:
+    Type: AWS::IAM::ManagedPolicy
+    Properties:
+      Description: Least-privilege media upload and queue access for the HASHI Spring application
+      Roles:
+        - !Ref SpringApplicationRoleName
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Sid: CreatePrivateOriginals
+            Effect: Allow
+            Action:
+              - s3:PutObject
+            Resource: !Sub "\${OriginalImageBucket.Arn}/media/originals/*"
+          - Sid: InspectPrivateOriginals
+            Effect: Allow
+            Action:
+              - s3:GetObject
+              - s3:GetObjectVersion
+            Resource: !Sub "\${OriginalImageBucket.Arn}/media/originals/*"
+          - Sid: PublishTransformRequests
+            Effect: Allow
+            Action:
+              - sqs:GetQueueAttributes
+              - sqs:GetQueueUrl
+              - sqs:SendMessage
+            Resource: !GetAtt TransformRequestQueue.Arn
+          - Sid: ConsumeTransformResults
+            Effect: Allow
+            Action:
+              - sqs:ChangeMessageVisibility
+              - sqs:DeleteMessage
+              - sqs:GetQueueAttributes
+              - sqs:GetQueueUrl
+              - sqs:ReceiveMessage
+            Resource: !GetAtt TransformResultQueue.Arn
+`);
+  requireReviewedBlock(template, "Resources", "SpringApplicationBackfillPolicy", `  SpringApplicationBackfillPolicy:
+    Type: AWS::IAM::ManagedPolicy
+    Condition: IsBackfillAccessEnabled
+    Properties:
+      Description: Temporary legacy read and private copy discovery for HASHI backfill
+      Roles:
+        - !Ref SpringApplicationRoleName
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Sid: ReadLegacySourceVersions
+            Effect: Allow
+            Action:
+              - s3:GetObject
+              - s3:GetObjectVersion
+            Resource: !Sub "arn:\${AWS::Partition}:s3:::\${DeliveryBucketName}/*"
+          - Sid: FindExistingPrivateCopies
+            Effect: Allow
+            Action:
+              - s3:ListBucketVersions
+            Resource: !GetAtt OriginalImageBucket.Arn
+            Condition:
+              StringLike:
+                s3:prefix: "media/originals/*"
+          - Sid: ReplacePrivateCopyTags
+            Effect: Allow
+            Action:
+              - s3:PutObjectTagging
+            Resource: !Sub "\${OriginalImageBucket.Arn}/media/originals/*"
+`);
+  requireReviewedBlock(template, "Resources", "OriginalImageBucketPolicy", `  OriginalImageBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      Bucket: !Ref OriginalImageBucket
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Sid: DenyInsecureTransport
+            Effect: Deny
+            Principal: "*"
+            Action: s3:*
+            Resource:
+              - !GetAtt OriginalImageBucket.Arn
+              - !Sub "\${OriginalImageBucket.Arn}/*"
+            Condition:
+              Bool:
+                aws:SecureTransport: "false"
+`);
+}
+
 export function validateTemplateGuardrails(rawTemplate, rawBoundaryTemplate, rawProdParameters) {
   const template = rawTemplate.replaceAll("\r\n", "\n");
   const boundary = rawBoundaryTemplate.replaceAll("\r\n", "\n");
   validateCleanupGuardrails(template);
+  validateReconciliationReadGuardrails(template);
+  validatePolicyResourceInventory(template);
+  validateExistingSpringPolicies(template);
   const requiredAlarmRule = `Rules:
   ProductionAlarmTopicRequired:
     RuleCondition: !Equals
@@ -157,6 +332,64 @@ export function validateTemplateGuardrails(rawTemplate, rawBoundaryTemplate, raw
   if (!alarm || typeof alarm.ParameterValue !== "string" || alarm.ParameterValue.length === 0) {
     fail("Production parameter example must require an explicit alarm topic replacement.");
   }
+}
+
+export function validateReconciliationReadGuardrails(template) {
+  requireReviewedBlock(template, "Parameters", "ReconciliationReadAccessEnabled", `  ReconciliationReadAccessEnabled:
+    Type: String
+    Default: "false"
+    AllowedValues:
+      - "true"
+      - "false"
+    Description: DEV-only version discovery without deletion for approved reconciliation dry runs
+`);
+  requireReviewedBlock(template, "Conditions", "IsDev", `  IsDev: !Equals
+    - !Ref EnvironmentName
+    - dev
+`);
+  requireReviewedBlock(template, "Conditions", "IsDevReconciliationReadAccessEnabled", `  IsDevReconciliationReadAccessEnabled: !And
+    - !Condition IsDev
+    - !Equals
+      - !Ref ReconciliationReadAccessEnabled
+      - "true"
+`);
+  requireReviewedBlock(template, "Resources", "SpringApplicationReconciliationReadPolicy", `  SpringApplicationReconciliationReadPolicy:
+    Type: AWS::IAM::ManagedPolicy
+    Condition: IsDevReconciliationReadAccessEnabled
+    Properties:
+      Description: DEV-only version discovery for HASHI media reconciliation dry runs
+      Roles:
+        - !Ref SpringApplicationRoleName
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Sid: InspectPrivateOriginalBucketVersioning
+            Effect: Allow
+            Action:
+              - s3:GetBucketVersioning
+            Resource: !GetAtt OriginalImageBucket.Arn
+          - Sid: InspectDeliveryBucketVersioning
+            Effect: Allow
+            Action:
+              - s3:GetBucketVersioning
+            Resource: !Sub "arn:\${AWS::Partition}:s3:::\${DeliveryBucketName}"
+          - Sid: ListPrivateOriginalVersions
+            Effect: Allow
+            Action:
+              - s3:ListBucketVersions
+            Resource: !GetAtt OriginalImageBucket.Arn
+            Condition:
+              StringLike:
+                s3:prefix: "media/originals/*"
+          - Sid: ListRenditionVersions
+            Effect: Allow
+            Action:
+              - s3:ListBucketVersions
+            Resource: !Sub "arn:\${AWS::Partition}:s3:::\${DeliveryBucketName}"
+            Condition:
+              StringLike:
+                s3:prefix: "media/renditions/*"
+`);
 }
 
 const isCli =

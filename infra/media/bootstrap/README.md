@@ -1,7 +1,8 @@
 # DEV media bootstrap
 
-이 절차는 DEV 전용이다. prod, backfill, cleanup, reconciliation(DB 미참조 파일 대조),
-운영 데이터 삭제를 승인하지 않는다. reconciliation은 `DRY_RUN`도 이번 범위에 포함하지 않는다.
+이 절차는 DEV 전용이다. prod, backfill, cleanup과 파일 삭제를 승인하지 않는다.
+reconciliation(DB 미참조 파일 대조)의 조회 권한은 아래 후속 점검 절차로만 추가한다.
+권한 배포만으로 `DRY_RUN`이나 삭제가 시작되지는 않는다.
 예제에는 실제 계정 ID, bucket 이름, distribution ID와 credential을 저장하지 않는다.
 `dev-runtime-boundaries.json`과 `dev-deployment-roles.json`은 별도 운영자 stack이며
 GitHub media deploy 역할에 이 stack들의 변경 권한을 주지 않는다.
@@ -33,15 +34,41 @@ GitHub media deploy 역할에 이 stack들의 변경 권한을 주지 않는다.
 정책 비교의 목적은 기존 권한을 그대로 보존하면서 새 media 권한의 최대 범위를 검증하는 것이다.
 boundary는 자체적으로 권한을 부여하지 않는다. 기존 delivery `DeleteObject` 상한을 보존하는 것은
 새 삭제 권한 부여나 삭제 실행 승인이 아니다. original 삭제, delivery `DeleteObjectVersion`,
-backfill용 version 목록/읽기/tagging, `sts:AssumeRole`, IAM 변경은 runtime 상한에 없다.
+backfill용 version 읽기/tagging, `sts:AssumeRole`, IAM 변경은 runtime 상한에 없다.
 
 reconciliation은 삭제하지 않는 `DRY_RUN`에서도 `s3:GetBucketVersioning`과
-`s3:ListBucketVersions`를 사용한다. 현재 Spring runtime boundary에는 이 권한이 없고,
-배포 전 검사도 `CleanupAccessEnabled=true`를 거부하므로 실행할 수 없다.
-초기 배포에서는 `AWS_MEDIA_RECONCILIATION_ENABLED=false`를 유지한다.
-후속 검증 전에 필요한 조회 권한과 boundary·배포 전 검사 변경을 별도로 검토·승인해야 한다.
+`s3:ListBucketVersions`를 사용한다. Spring runtime boundary는 두 DEV bucket의 상태 조회와
+`media/originals/*`, `media/renditions/*`의 버전 목록 조회만 상한으로 허용한다. boundary 자체는
+권한을 부여하지 않으며, 별도 `ReconciliationReadAccessEnabled=true` 정책이 있어야 사용할 수 있다.
+배포 전 검사는 여전히 `CleanupAccessEnabled=true`와 backfill을 거부한다.
+초기 배포에서는 조회 flag와 `AWS_MEDIA_RECONCILIATION_ENABLED` 모두 `false`를 유지한다.
 환경변수만 켜거나 권한 검사를 건너뛰지 않는다. 자세한 실행 조건은
 [파일 대조 runbook](../../../docs/media/object-reconciliation-runbook.md)을 따른다.
+
+### 삭제 없는 파일 대조를 준비할 때
+
+소스 머지만으로 AWS 권한이나 Spring 설정이 바뀌지는 않는다. 새 boundary를 적용한 뒤에는
+이전 소스의 배포 검사가 불일치로 중단되므로, 갱신된 소스를 사용하는 배포로 이어서 진행한다.
+조회 점검 준비가 끝나도 일반 issuance를 바로 켜지 않는다. 정리 기능과 실패 복구의 별도 검증이 필요하다.
+
+1. 검토된 commit과 DEV 전용 bucket·DB·role 소유권을 다시 확인한다. 서로 다른 DB가 동일한
+   media 경로를 공유하면 중단한다. 일반 issuance와 두 정리 scheduler는 OFF로 유지한다.
+2. 운영자가 `hashi-dev-media-runtime-boundaries` stack의 변경 계획을 확인하고 먼저 갱신한다.
+   Spring boundary에 위 조회 상한만 추가되는지, worker와 기존 정책은 그대로인지 확인한다.
+   기존 boundary를 삭제하거나 다른 policy로 바꾸지 않는다.
+3. `MEDIA_DEV_RECONCILIATION_READ_ACCESS_ENABLED=true`로 검토된 develop 배포를 실행한다.
+   `MEDIA_DEV_CLEANUP_ACCESS_ENABLED=false`, `MEDIA_DEV_BACKFILL_ACCESS_ENABLED=false`는 유지한다.
+   preflight는 갱신된 boundary 문서와 attachment를 exact 비교하므로 순서가 다르면 배포를 중단한다.
+4. 새 `SpringApplicationReconciliationReadPolicy`가 원본·delivery의 상태 조회와 media prefix의
+   버전 목록만 허용하는지 확인한다. 이 정책은 삭제·객체 내용 읽기·versioning 변경 권한을 주지 않는다.
+   기존 legacy delivery `DeleteObject` 권한은 보존되므로 role 전체가 읽기 전용이라는 뜻은 아니다.
+5. 두 bucket의 versioning이 실제로 `Enabled`이고 전파가 끝났는지 별도로 확인한다.
+   이번 template은 기존 delivery bucket의 versioning을 켜지 않는다. 이후 승인된 시험에서만
+   Spring을 `AWS_MEDIA_RECONCILIATION_ENABLED=true`, `AWS_MEDIA_RECONCILIATION_MODE=DRY_RUN`으로
+   설정한다. `AWS_MEDIA_CLEANUP_ENABLED=false`와 일반 issuance OFF는 유지한다.
+6. 중단할 때는 Spring scheduler를 끄고 진행 중 실행 종료를 확인한 뒤 조회 flag를 false로 재배포한다.
+   이 stack의 조회 정책만 회수되며 기존 정책·boundary는 제거하지 않는다. 실제 삭제 권한과 DELETE
+   실행은 별도 작업·승인 대상이다.
 
 ## 운영자 적용 순서
 
@@ -65,7 +92,8 @@ reconciliation은 삭제하지 않는 `DRY_RUN`에서도 `s3:GetBucketVersioning
    생성된 두 role과 모든 bootstrap stack의 보호/소유 정보를 기록하고 termination protection을 켠다.
 5. DEV repository variables를 해당 output/확인된 dependency로 설정한다. 최초에는
    `MEDIA_DEV_WORKER_EVENT_SOURCE_ENABLED=false`, `MEDIA_DEV_BACKFILL_ACCESS_ENABLED=false`,
-   `MEDIA_DEV_CLEANUP_ACCESS_ENABLED=false`를 유지한다. alarm topic을 지정한다면 먼저
+   `MEDIA_DEV_CLEANUP_ACCESS_ENABLED=false`, `MEDIA_DEV_RECONCILIATION_READ_ACCESS_ENABLED=false`를
+   유지한다. alarm topic을 지정한다면 먼저
    confirmed subscription을 확보한다. 구독 없는 topic을 설정하면 기존 preflight가 실패한다.
 6. 검토된 `develop` HEAD에서 workflow를 실행한다. preflight는 두 runtime boundary의 실제
    default policy document를 source 렌더링 결과와 비교하고 Spring/기존 worker의 부착 ARN까지
@@ -121,6 +149,12 @@ preflight를 건너뛰거나 deploy role에 `PutRolePermissionsBoundary`를 부�
   계약 변경이 필요하다. production의 기존 수동 배포/flag 계약은 변경하지 않는다.
 
 ## 로컬 검증
+
+template 검사는 이 저장소의 명시적인 block-style YAML만 지원한다. Spring의 기본·backfill·조회·정리
+정책과 각 조건을 함께 확인하고, 별도 IAM 정책/role이나 우회 attachment가 추가되면 중단한다.
+alias·anchor·merge key·flow-style resource 등 지원하지 않는 표현도 건너뛰지 않고 거부한다.
+새 리소스 종류나 정책 구성이 필요하면 검사 기준과 테스트를 함께 검토해야 한다. 일반 YAML 파서나
+실제 계정 전체의 유효 권한 분석을 대신하지 않으므로 AWS 적용 전 정책·boundary 확인은 여전히 필요하다.
 
 ```bash
 node --test infra/media/scripts/*.test.mjs

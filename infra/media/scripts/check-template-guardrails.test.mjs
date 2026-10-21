@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import test from "node:test";
 
-import { validateTemplateGuardrails } from "./check-template-guardrails.mjs";
+import { validateTemplateGuardrails, validateReconciliationReadGuardrails } from "./check-template-guardrails.mjs";
 
 const template = fs.readFileSync("infra/media/template.yaml", "utf8").replaceAll("\r\n", "\n");
 const boundary = fs.readFileSync(
@@ -11,11 +11,104 @@ const boundary = fs.readFileSync(
 );
 const prodParameters = fs.readFileSync("infra/media/parameters/prod.example.json", "utf8");
 
+test("reconciliation read policy is disabled by default and gated by DEV plus explicit opt-in", () => {
+  assert.doesNotThrow(() => validateReconciliationReadGuardrails(template));
+});
+
+for (const [name, from, to] of [
+  ["enabled default", 'ReconciliationReadAccessEnabled:\n    Type: String\n    Default: "false"', 'ReconciliationReadAccessEnabled:\n    Type: String\n    Default: "true"'],
+  ["production target", '  IsDev: !Equals\n    - !Ref EnvironmentName\n    - dev', '  IsDev: !Equals\n    - !Ref EnvironmentName\n    - prod'],
+  ["missing DEV condition", '    - !Condition IsDev\n', ''],
+  ["either condition", '  IsDevReconciliationReadAccessEnabled: !And', '  IsDevReconciliationReadAccessEnabled: !Or'],
+  ["unconditional policy", '    Condition: IsDevReconciliationReadAccessEnabled\n', ''],
+]) {
+  test(`rejects reconciliation read gate drift: ${name}`, () => {
+    assert.ok(template.includes(from));
+    assert.throws(() => validateReconciliationReadGuardrails(template.replace(from, to)));
+  });
+}
+
+for (const [name, change] of [
+  ["delete action", (p) => p.replace('s3:GetBucketVersioning', 's3:DeleteObjectVersion')],
+  ["object download", (p) => p.replace('s3:GetBucketVersioning', 's3:GetObjectVersion')],
+  ["wildcard action", (p) => p.replace('s3:ListBucketVersions', 's3:*')],
+  ["wildcard bucket", (p) => p.replace('!GetAtt OriginalImageBucket.Arn', '"*"')],
+  ["broad original prefix", (p) => p.replace('"media/originals/*"', '"*"')],
+  ["broad rendition prefix", (p) => p.replace('"media/renditions/*"', '"media/*"')],
+  ["legacy prefix", (p) => p.replace('"media/renditions/*"', '"legacy/*"')],
+  ["other role", (p) => p.replace('!Ref SpringApplicationRoleName', 'other-role')],
+]) {
+  test(`rejects reconciliation read authority drift: ${name}`, () => {
+    const start=template.indexOf('  SpringApplicationReconciliationReadPolicy:');
+    const end=template.indexOf('  SpringApplicationCleanupPolicy:', start);
+    const policy=template.slice(start,end);
+    const changed=change(policy);
+    assert.notEqual(policy,changed);
+    assert.throws(() => validateReconciliationReadGuardrails(template.slice(0,start)+changed+template.slice(end)));
+  });
+}
+
 function changeCleanupPolicy(change) {
   const start = template.indexOf("  SpringApplicationCleanupPolicy:");
   const end = template.indexOf("  TransformRequestAgeAlarm:", start);
   assert.ok(start >= 0 && end > start);
   return template.slice(0, start) + change(template.slice(start, end)) + template.slice(end);
+}
+
+const extraGrant = `  UnexpectedSpringGrant:
+    Type: AWS::IAM::ManagedPolicy
+    Properties:
+      Roles:
+        - !Ref SpringApplicationRoleName
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Action: s3:ListBucketVersions
+            Resource: !GetAtt OriginalImageBucket.Arn
+
+`;
+
+for (const [name, resource] of [
+  ["separate unconditional managed policy", extraGrant],
+  ["inline IAM policy", extraGrant.replace("AWS::IAM::ManagedPolicy", "AWS::IAM::Policy")],
+  ["wildcard action", extraGrant.replace("s3:ListBucketVersions", '"*"')],
+  ["wildcard S3 action", extraGrant.replace("s3:ListBucketVersions", "s3:*")],
+  ["NotAction", extraGrant.replace("Action: s3:ListBucketVersions", "NotAction: iam:PassRole")],
+  ["quoted type", extraGrant.replace("Type: AWS::IAM::ManagedPolicy", "Type: 'AWS::IAM::ManagedPolicy'")],
+  ["quoted resource key", extraGrant.replace("UnexpectedSpringGrant:", "'UnexpectedSpringGrant':")],
+  ["flow resource", "  Extra: {Type: 'AWS::IAM::ManagedPolicy', Properties: {Roles: [!Ref SpringApplicationRoleName]}}\n"],
+  ["flow properties", "  Extra:\n    Type: AWS::IAM::ManagedPolicy\n    Properties: {Roles: [!Ref SpringApplicationRoleName]}\n"],
+  ["alias resource", "  Extra: *grant\n"],
+  ["anchor resource", extraGrant.replace("UnexpectedSpringGrant:", "UnexpectedSpringGrant: &grant")],
+  ["merge resource", "  Extra:\n    <<: *grant\n"],
+  ["alternate indentation", extraGrant.split("\n").map((line) => line ? " " + line : line).join("\n")],
+  ["additional IAM role", "  ExtraRole:\n    Type: AWS::IAM::Role\n    Properties:\n      RoleName: !Ref SpringApplicationRoleName\n"],
+  ["nested stack", "  ExtraStack:\n    Type: AWS::CloudFormation::Stack\n    Properties:\n      TemplateURL: https://example.invalid/stack.yaml\n"],
+  ["extra bucket policy", extraGrant.replace("AWS::IAM::ManagedPolicy", "AWS::S3::BucketPolicy")],
+]) {
+  test(`rejects alternate Spring permission route: ${name}`, () => {
+    const changed = template.replace("  TransformRequestAgeAlarm:", resource + "  TransformRequestAgeAlarm:");
+    assert.throws(() => validateTemplateGuardrails(changed, boundary, prodParameters));
+  });
+}
+
+for (const [name, from, to] of [
+  ["base policy discovery action", "\n              - s3:PutObject\n", "\n              - s3:PutObject\n              - s3:ListBucketVersions\n"],
+  ["base policy wildcard action", "\n              - s3:PutObject\n", '\n              - "*"\n'],
+  ["base policy NotAction", "          - Sid: CreatePrivateOriginals\n            Effect: Allow\n            Action:", "          - Sid: CreatePrivateOriginals\n            Effect: Allow\n            NotAction:"],
+  ["base policy duplicate Roles", "Description: Least-privilege media upload and queue access for the HASHI Spring application", "Description: Least-privilege media upload and queue access for the HASHI Spring application\n      Roles: [!Ref SpringApplicationRoleName]"],
+  ["unconditional backfill", "    Condition: IsBackfillAccessEnabled\n", ""],
+  ["backfill true default", '  BackfillAccessEnabled:\n    Type: String\n    Default: "false"', '  BackfillAccessEnabled:\n    Type: String\n    Default: "true"'],
+  ["backfill redirected condition", "  IsBackfillAccessEnabled: !Equals\n    - !Ref BackfillAccessEnabled", "  IsBackfillAccessEnabled: !Equals\n    - !Ref WorkerEventSourceEnabled"],
+  ["original bucket grant", "          - Sid: DenyInsecureTransport\n            Effect: Deny", "          - Sid: DenyInsecureTransport\n            Effect: Allow"],
+  ["worker role duplicate name", '      RoleName: !Sub "hashi-${EnvironmentName}-media-image-transform-lambda"', '      RoleName: !Sub "hashi-${EnvironmentName}-media-image-transform-lambda"\n      RoleName: !Ref SpringApplicationRoleName'],
+  ["other transform", "Transform: AWS::Serverless-2016-10-31", "Transform: CustomPolicyTransform"],
+]) {
+  test(`rejects permission changes outside read policy: ${name}`, () => {
+    assert.ok(template.includes(from));
+    assert.throws(() => validateTemplateGuardrails(template.replace(from, to), boundary, prodParameters));
+  });
 }
 
 test("accepts the reviewed production alarm and PassRole guardrails", () => {
