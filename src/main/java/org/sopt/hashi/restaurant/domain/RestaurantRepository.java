@@ -5,6 +5,7 @@ import java.time.DayOfWeek;
 import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
+import org.sopt.hashi.restaurant.RestaurantPhotoSourceInfo;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.EntityGraph;
@@ -16,6 +17,21 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
 public interface RestaurantRepository extends JpaRepository<Restaurant, Long>, JpaSpecificationExecutor<Restaurant> {
+
+    @Query("""
+            select new org.sopt.hashi.restaurant.RestaurantPhotoSourceInfo(i.id, i.fileKey, i.imageAssetId, i.displayOrder)
+            from RestaurantImage i where i.restaurant.id = :restaurantId and i.restaurant.deleted = false
+            order by i.displayOrder, i.id
+            """)
+    List<RestaurantPhotoSourceInfo> findRepresentativePhotoSources(Long restaurantId);
+
+    @Query("""
+            select new org.sopt.hashi.restaurant.RestaurantPhotoSourceInfo(m.id, m.imageKey, m.imageAssetId)
+            from RestaurantMenu m where m.restaurant.id = :restaurantId and m.restaurant.deleted = false
+              and (m.imageAssetId is not null or (m.imageKey is not null and m.imageKey <> ''))
+            order by m.id
+            """)
+    List<RestaurantPhotoSourceInfo> findMenuPhotoSources(Long restaurantId);
 
     Optional<Restaurant> findByIdAndDeletedFalse(Long id);
 

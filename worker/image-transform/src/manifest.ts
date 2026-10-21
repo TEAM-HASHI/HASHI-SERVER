@@ -110,7 +110,9 @@ export function loadMediaSpec(specVersion: number, specsDirectory?: string): Loa
     const supportedPurposes = specVersion === 1 ? SUPPORTED_PURPOSES_V1
       : specVersion === 2 ? SUPPORTED_PURPOSES_V2 : [...SUPPORTED_PURPOSES_V2, "NOTICE"];
     const supportedRoles = specVersion === 1 ? SUPPORTED_ROLES_V1
-      : specVersion === 2 ? SUPPORTED_ROLES_V2 : [...SUPPORTED_ROLES_V2, "NOTICE_DETAIL"];
+      : specVersion === 2 ? SUPPORTED_ROLES_V2
+      : specVersion === 3 ? [...SUPPORTED_ROLES_V2, "NOTICE_DETAIL"]
+      : [...SUPPORTED_ROLES_V2, "NOTICE_DETAIL", "PHOTO_DETAIL"];
     assertExactKeys(manifest.purposes, supportedPurposes, "purposes");
     assertExactKeys(manifest.roles, supportedRoles, "roles");
     assertUniqueCandidateWidths(manifest);

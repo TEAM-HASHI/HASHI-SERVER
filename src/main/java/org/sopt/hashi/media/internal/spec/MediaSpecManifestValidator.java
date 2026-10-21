@@ -157,7 +157,8 @@ final class MediaSpecManifestValidator {
     private static Set<String> expectedRoleNames(int specVersion) {
         Set<String> names = new HashSet<>();
         for (ImageRole value : ImageRole.values()) {
-            if ((specVersion < 3 && value == ImageRole.NOTICE_DETAIL)
+            if ((specVersion < 4 && value == ImageRole.PHOTO_DETAIL)
+                    || (specVersion < 3 && value == ImageRole.NOTICE_DETAIL)
                     || (specVersion == 1 && value == ImageRole.MAGAZINE_CARD_NEWS)) {
                 continue;
             }

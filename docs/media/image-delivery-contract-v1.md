@@ -292,7 +292,9 @@ asset 전체 정리 실행은 기본 비활성이고 DRY_RUN으로 시작한다.
 최대 50개 asset이며, 작업 중단 시 같은 purgeToken으로 재개한다. 설정·승인·실패 복구 절차는
 [asset cleanup runbook](asset-cleanup-runbook.md)을 따른다. 이 실행기는 DB 미참조 파일이나 실패한
 재변환 spec의 [object-only reconciliation](object-reconciliation-runbook.md)을 대체하지 않는다.
-두 작업과 dev E2E 전에는 issuance를 켜지 않는다.
+두 작업과 dev E2E를 마치기 전에는 일반 업로드용 issuance를 켜지 않는다. 단, 처리 환경과 규격을
+사전 확인한 승인된 dev E2E 시간에는 시험 업로드를 위해 일시적으로 켜야 한다. 시험 실패 시 다시
+끄며, 상세 순서는 [인프라 배포 절차](../../infra/media/README.md#검증과-배포-순서)를 따른다.
 
 ### 6.4 specVersion 활성화
 
@@ -1461,3 +1463,20 @@ benchmark에 따라 memory, timeout과 concurrency를 조정한다. 출력 bytes
 - actor와 purpose별 asset 생성, byte, 동시 처리와 polling 제한 값
 - media event publisher 전용 executor의 pool, queue, shutdown 대기 값과 재발행 주기
 - issuance 활성화 전 cleanup과 reconciliation의 보존 기간, 실행 주기, 실패 alarm과 복구 절차
+
+
+### 식당 사진 탭의 원본 비율 파생본 (spec v4)
+
+사진 탭은 대표 이미지와 메뉴 이미지에 `PHOTO_DETAIL`을 요청한다. 기존
+`RESTAURANT_HERO`와 `MENU_DETAIL`은 화면에 맞게 잘린 이미지이므로 사진 탭의 대체본으로 쓰지 않는다.
+v4는 RESTAURANT와 RESTAURANT_MENU purpose에만 이 role을 추가한다.
+리뷰 사진의 기존 경로와 매거진·공지 규격은 변경하지 않는다.
+
+- WebP quality 82, 긴 변 432/864/1296px 범위 안에 원본 비율을 유지한다. 작은 원본은 확대하지 않는다.
+- v1~v3 파일과 digest, 기존 role의 변환 방식은 유지한다.
+- 기존 spec의 연결된 자산에 이 role이 없으면 `UNAVAILABLE`과 빈 source를 반환한다.
+  이는 변환 작업이 진행 중이라는 뜻이 아니다. 클라이언트는 로딩을 계속 돌리지 않고 이미지 없음 상태를 표시한다.
+- 원본 저장소 URL이나 잘린 파생본으로 대신 응답하지 않는다. 연결되지 않거나 정리된 자산은 제외한다.
+- V44은 DB의 role 허용 목록만 넓힌다. 발급 활성화, 현재 spec 변경, 기존 자산 재처리는 실행하지 않는다.
+- 신규 발급에 v4를 사용하려면 V44 적용, v4를 포함한 서버와 워커 배포·검증을 먼저 마친 뒤
+  운영 절차에 따라 current spec version/digest를 함께 전환한다. 기존 자산은 별도 재처리가 완료돼야 새 파생본이 생긴다.

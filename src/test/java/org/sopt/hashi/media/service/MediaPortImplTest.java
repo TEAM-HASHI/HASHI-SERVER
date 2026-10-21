@@ -677,4 +677,90 @@ class MediaPortImplTest {
         @Override
         public String getObjectKey() { return objectKey; }
     }
+
+    @ParameterizedTest
+    @EnumSource(value = MediaPurpose.class, names = {"RESTAURANT", "RESTAURANT_MENU"})
+    void 이전_spec의_사진은_원본이나_crop_대신_UNAVAILABLE을_반환한다(MediaPurpose purpose) {
+        UUID id = UUID.randomUUID();
+        MediaImageRequest request = new MediaImageRequest(id, MediaImageRole.PHOTO_DETAIL);
+        when(imageAssetRepository.findImageProjectionsByPublicIdIn(anyCollection()))
+                .thenReturn(List.of(projection(id, purpose, ImageProcessingStatus.READY,
+                        ImageBindingStatus.BOUND, MediaCleanupStatus.ACTIVE,
+                        1, SPEC_DIGEST, null, null, null)));
+        when(imageRenditionRepository.findActiveImageProjections(anyCollection(), anyCollection()))
+                .thenReturn(List.of());
+        assertThat(mediaPort.findImages(List.of(request)).get(request)).satisfies(image -> {
+            assertThat(image.status()).isEqualTo(MediaImageStatus.UNAVAILABLE);
+            assertThat(image.defaultSource()).isNull();
+            assertThat(image.sourceSets()).isEmpty();
+        });
+        verify(fileStorage, never()).resolveFileUrl(anyString());
+    }
+
+    @Test
+    void 최신_규격에서도_purpose가_지원하지_않는_role은_노출하지_않는다() {
+        UUID id = UUID.randomUUID();
+        when(imageAssetRepository.findImageProjectionsByPublicIdIn(anyCollection()))
+                .thenReturn(List.of(projection(id, MediaPurpose.MAGAZINE_BANNER, ImageProcessingStatus.READY,
+                        ImageBindingStatus.BOUND, MediaCleanupStatus.ACTIVE,
+                        1, SPEC_DIGEST, null, null, null)));
+        when(imageRenditionRepository.findActiveImageProjections(anyCollection(), anyCollection()))
+                .thenReturn(List.of());
+        assertThat(mediaPort.findImages(List.of(new MediaImageRequest(id, MediaImageRole.PHOTO_DETAIL)))).isEmpty();
+        verify(fileStorage, never()).resolveFileUrl(anyString());
+    }
+
+    @Test
+    void 구규격에서_지원하지_않는_role도_정리중인_실패자산에는_UNAVAILABLE을_노출하지_않는다() {
+        UUID id = UUID.randomUUID();
+        when(imageAssetRepository.findImageProjectionsByPublicIdIn(anyCollection()))
+                .thenReturn(List.of(projection(id, MediaPurpose.RESTAURANT, ImageProcessingStatus.FAILED,
+                        ImageBindingStatus.BOUND, MediaCleanupStatus.PURGING,
+                        1, SPEC_DIGEST, null, null, null)));
+        when(imageRenditionRepository.findActiveImageProjections(anyCollection(), anyCollection()))
+                .thenReturn(List.of());
+        assertThat(mediaPort.findImages(List.of(new MediaImageRequest(id, MediaImageRole.PHOTO_DETAIL)))).isEmpty();
+    }
+
+    @Test
+    void 사진_role도_잘못된_digest와_미연결_자산을_노출하지_않는다() {
+        UUID invalid = UUID.randomUUID();
+        UUID unbound = UUID.randomUUID();
+        when(imageAssetRepository.findImageProjectionsByPublicIdIn(anyCollection()))
+                .thenReturn(List.of(
+                        projection(invalid, MediaPurpose.RESTAURANT, ImageProcessingStatus.READY,
+                                ImageBindingStatus.BOUND, MediaCleanupStatus.ACTIVE,
+                                1, "0".repeat(64), null, null, null),
+                        projection(unbound, MediaPurpose.RESTAURANT, ImageProcessingStatus.READY,
+                                ImageBindingStatus.UNBOUND, MediaCleanupStatus.ACTIVE,
+                                1, SPEC_DIGEST, null, null, null)));
+        when(imageRenditionRepository.findActiveImageProjections(anyCollection(), anyCollection()))
+                .thenReturn(List.of());
+        assertThat(mediaPort.findImages(List.of(
+                new MediaImageRequest(invalid, MediaImageRole.PHOTO_DETAIL),
+                new MediaImageRequest(unbound, MediaImageRole.PHOTO_DETAIL)))).isEmpty();
+        verify(fileStorage, never()).resolveFileUrl(anyString());
+    }
+
+    @Test
+    void 사진_v4의_원본비율_기본_파생본을_반환한다() {
+        UUID id = UUID.randomUUID();
+        var spec = new MediaSpecRegistry(new ObjectMapper()).findDefinition(4).orElseThrow();
+        MediaImageRequest request = new MediaImageRequest(id, MediaImageRole.PHOTO_DETAIL);
+        when(imageAssetRepository.findImageProjectionsByPublicIdIn(anyCollection()))
+                .thenReturn(List.of(new TestAssetImageProjection(id, MediaPurpose.RESTAURANT,
+                        ImageProcessingStatus.READY, ImageBindingStatus.BOUND, MediaCleanupStatus.ACTIVE,
+                        4, spec.digest(), null, null, null, 1000, 2000)));
+        when(imageRenditionRepository.findActiveImageProjections(anyCollection(), anyCollection()))
+                .thenReturn(List.of(rendition(id, ImageRole.PHOTO_DETAIL, 216, 432),
+                        rendition(id, ImageRole.PHOTO_DETAIL, 432, 864),
+                        rendition(id, ImageRole.PHOTO_DETAIL, 648, 1296)));
+        when(fileStorage.resolveFileUrl(anyString())).thenAnswer(invocation -> "https://cdn.test/" + invocation.getArgument(0));
+        assertThat(mediaPort.findImages(List.of(request)).get(request)).satisfies(image -> {
+            assertThat(image.status()).isEqualTo(MediaImageStatus.READY);
+            assertThat(image.defaultSource().width()).isEqualTo(432);
+            assertThat(image.defaultSource().height()).isEqualTo(864);
+            assertThat(image.sourceSets()).hasSize(1);
+        });
+    }
 }

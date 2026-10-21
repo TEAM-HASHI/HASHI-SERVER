@@ -11,6 +11,7 @@ assert.equal(process.arch, "x64", "Lambda package smoke test must run on x64");
 assert.equal(existsSync(resolve(packageRoot, "media-specs", "v1.json")), true);
 assert.equal(existsSync(resolve(packageRoot, "media-specs", "v2.json")), true);
 assert.equal(existsSync(resolve(packageRoot, "media-specs", "v3.json")), true);
+assert.equal(existsSync(resolve(packageRoot, "media-specs", "v4.json")), true);
 assert.equal(existsSync(resolve(packageRoot, "node_modules", "typescript")), false);
 
 const sharp = packageRequire("sharp");

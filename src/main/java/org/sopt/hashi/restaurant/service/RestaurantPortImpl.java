@@ -19,6 +19,7 @@ import org.sopt.hashi.restaurant.RestaurantCardInfo;
 import org.sopt.hashi.restaurant.RestaurantDetailInfo;
 import org.sopt.hashi.restaurant.RestaurantInfo;
 import org.sopt.hashi.restaurant.RestaurantMapInfo;
+import org.sopt.hashi.restaurant.RestaurantPhotoSourceInfo;
 import org.sopt.hashi.restaurant.RestaurantPort;
 import org.sopt.hashi.restaurant.RestaurantLocationInfo;
 import org.sopt.hashi.restaurant.RestaurantLocationReviewPage;
@@ -79,6 +80,16 @@ class RestaurantPortImpl implements RestaurantPort {
 
     private PlacesLocationService requirePlacesLocationService() {
         return Objects.requireNonNull(placesLocationService, "PlacesLocationService is unavailable");
+    }
+
+    @Override
+    public List<RestaurantPhotoSourceInfo> findRepresentativePhotoSources(Long restaurantId) {
+        return restaurantRepository.findRepresentativePhotoSources(restaurantId);
+    }
+
+    @Override
+    public List<RestaurantPhotoSourceInfo> findMenuPhotoSources(Long restaurantId) {
+        return restaurantRepository.findMenuPhotoSources(restaurantId);
     }
 
     @Override
