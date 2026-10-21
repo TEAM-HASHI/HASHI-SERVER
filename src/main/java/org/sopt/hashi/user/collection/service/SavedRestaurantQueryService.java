@@ -49,6 +49,7 @@ public class SavedRestaurantQueryService {
     /**
      * 저장 식당 목록 — 공개 컬렉션은 누구나, 비공개는 소유자만 조회한다.
      * placeType은 "restaurant"·"cafe"·"bar" 중 하나이며 없으면 전체다. 삭제된 식당은 제외한다.
+     * totalCount는 분류 필터까지 적용한 뒤 커서·페이지 크기를 적용하기 전의 건수다.
      */
     public SavedRestaurantListResponse getSavedRestaurants(Long collectionId, String sortValue, String placeType,
                                                            String cursorValue, Integer size) {
@@ -60,10 +61,12 @@ public class SavedRestaurantQueryService {
         List<SavedRestaurant> saved = savedRestaurantRepository.findAllByCollection_IdOrderByIdDesc(collection.getId());
         Map<Long, RestaurantCardInfo> cards = enricher.findActiveCards(
                 saved.stream().map(SavedRestaurant::getRestaurantId).collect(Collectors.toSet()));
-        List<SavedRestaurantItem> rows = saved.stream()
+        List<SavedRestaurantItem> filtered = saved.stream()
                 .filter(item -> cards.containsKey(item.getRestaurantId()))
                 .map(item -> new SavedRestaurantItem(item, cards.get(item.getRestaurantId())))
                 .filter(placeTypeFilter(placeType))
+                .toList();
+        List<SavedRestaurantItem> rows = filtered.stream()
                 .sorted(comparator(sort))
                 .filter(afterCursor(cursor))
                 .limit(pageSize + 1L)
@@ -77,6 +80,7 @@ public class SavedRestaurantQueryService {
 
         return new SavedRestaurantListResponse(
                 page.stream().map(item -> toResponse(item, thumbnails)).toList(),
+                filtered.size(),
                 nextCursor,
                 hasNext);
     }

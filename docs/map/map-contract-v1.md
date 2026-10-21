@@ -17,7 +17,7 @@
 | [MAP_RESTAURANT_DETAIL](https://github.com/TEAM-HASHI/HASHI-PLAN/blob/6f2c99c3d089ddb65f015121312e19f66572ea03/02_PRODUCT_SPEC/MAP/MAP_RESTAURANT_DETAIL/MAP_RESTAURANT_DETAIL.md) | 상세 복귀 시 지도 상태 유지, 삭제·비노출 식당 선택 차단 |
 | [DEC-001](https://github.com/TEAM-HASHI/HASHI-PLAN/blob/6f2c99c3d089ddb65f015121312e19f66572ea03/07_DECISIONS/DEC-001_MAP_INITIAL_CLUSTERING.md) | 행정구가 아닌 관광 지역 초기 클러스터, 이후 동적 클러스터 없음 |
 | [SAVED_COLLECTION](https://github.com/TEAM-HASHI/HASHI-PLAN/blob/6f2c99c3d089ddb65f015121312e19f66572ea03/02_PRODUCT_SPEC/SAVED/SAVED_COLLECTION/SAVED_COLLECTION.md) | 유효 좌표만 핀, 좌표 없는 공개 식당은 목록 유지, 같은 사용자의 마지막 저장 관계 해제 때만 전체 저장 수 감소 |
-| [SAVED_COLLECTION_SAVE](https://github.com/TEAM-HASHI/HASHI-PLAN/blob/6f2c99c3d089ddb65f015121312e19f66572ea03/02_PRODUCT_SPEC/SAVED/SAVED_COLLECTION_SAVE/SAVED_COLLECTION_SAVE.md) | 저장 버튼은 컬렉션 선택 모달을 열고, 비로그인 사용자는 로그인 후 원래 지도 상태로 돌아온다. 이름·설명의 공백 처리는 아래의 2026-10-12 확인 규칙을 적용한다. |
+| [SAVED_COLLECTION_SAVE](https://github.com/TEAM-HASHI/HASHI-PLAN/blob/f11be8fabc1b7d1f1a6daa6e86c54a39db26409d/02_PRODUCT_SPEC/SAVED/SAVED_COLLECTION_SAVE/SAVED_COLLECTION_SAVE.md) | 저장 버튼은 컬렉션 선택 모달을 열고, 비로그인 사용자는 로그인 후 원래 지도 상태로 돌아온다. 이름·설명의 공백 처리는 아래의 2026-10-12 확인 규칙을 적용한다. |
 
 선택 컬렉션의 **모든 유효 핀을 목록과 독립 로드**하는 것은 이번 작업의 명시 요구다.
 지역 매핑·검색 진입 카메라·지역 필터 해제·세션 수명·전송 방식 등 아래의 세부 기술 규칙은
@@ -258,11 +258,11 @@ saved는 현재 사용자의 소유 컬렉션에 하나 이상 저장됐는지�
 `SAVED_COLLECTION_SAVE`를 열어 대상 컬렉션 하나를 선택하게 한다. 비로그인 사용자는 로그인 완료 뒤
 저장 직전의 지도·선택 식당·목록 상태로 돌아오며 자동 저장이나 자동 모달 재열기는 하지 않는다.
 컬렉션 생성·수정에서 이름과 설명의 앞뒤 공백은 제거하고 중간 공백은 유지한다.
-공백만 있는 이름은 거부하고, 이름 20자·설명 100자 제한은 제거 전 입력값에 적용한다.
+공백만 있는 이름은 거부하고, 이름 20자·설명 30자(공백 포함) 제한은 제거 전 입력값에 적용하며 설명의 줄바꿈은 거절한다.
 공백 제거 후 이름으로 중복을 검사하며 기존 DB collation은 유지한다.
 PATCH에서 null은 유지하고 설명에 빈 문자열·공백만 보내면 삭제한다.
-이 규칙은 2026-10-12 수정 화면 확인과 사용자 결정으로 이전 공백 보존 결정을 대체한 것이다.
-위에 연결한 고정 PLAN 문서에 소급 적용된 것으로 해석하지 않는다.
+이 규칙은 2026-10-12 수정 화면 확인과 사용자 결정으로 이전 공백 보존 결정을 대체한 것이며,
+HASHI-PLAN f11be8f(2026-10-20)가 SAVE·MANAGE 명세를 같은 규칙으로 갱신했다.
 공유 링크를 복사해도 공개 범위는 바뀌지 않으며, 명시적인 소유자 PATCH만 공개 상태를 변경한다.
 
 ### 전체 마커 응답과 실패

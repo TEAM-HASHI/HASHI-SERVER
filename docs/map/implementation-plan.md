@@ -68,7 +68,7 @@ production 테스트를 추가하지 않는다.
 | COL-03 / M6 | 익명 공개 열람 성공, 비공개 타인/익명 404, 소유 USER 성공. ADMIN/ONBOARDING의 내 저장·편집 접근 차단. 쓰기 matcher 비공개 유지 |
 | COL-04 / M6 | 내부 두 번째 bulk 실패·응답 전 권한 철회/삭제·소속 version 변경. 부분 200 없음, 404면 FE 기존 핀 제거, 409면 전체 재조회 |
 | COL-05 / M6·M7 | 공개 집계/개인 상태 중 하나만 실패해도 false/0으로 대입하지 않음. 0개 핀 성공과 전체 조회 오류 구분. 전체 capacity 초과는 명시적 실패 |
-| COL-06 / M6 | 생성·수정 이름/설명의 앞뒤 공백 제거·중간 공백 유지. 공백만인 이름 거부, 제거 후 이름으로 중복 검사. PATCH 설명 null 유지·빈 문자열/공백 삭제. 입력 길이 20/100자 제한 유지(2026-10-12 결정) |
+| COL-06 / M6 | 생성·수정 이름/설명의 앞뒤 공백 제거·중간 공백 유지. 공백만인 이름 거부, 제거 후 이름으로 중복 검사. PATCH 설명 null 유지·빈 문자열/공백 삭제. 입력 길이 20/30자(설명은 공백 포함, 줄바꿈 불가) 제한(HASHI-PLAN f11be8f, #269) |
 | API-01 / M4·M6 | SuccessResponse/ErrorResponse·HTTP/code·errors·nextCursor 생략·UTC data 시각·no-store 직렬화와 실제 SecurityFilterChain 검증 |
 | API-02 / M2~M6 | RestaurantPort 밖 도메인 내부 참조/순환 없음. 지도 페이지·collection bulk의 ID 수 증가에 item별 DB/media 호출이 늘지 않음 |
 
