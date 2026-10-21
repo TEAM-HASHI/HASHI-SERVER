@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import test from "node:test";
+import { renderRuntimeBoundaries } from "./check-dev-runtime-boundaries.mjs";
 
 const read = (file) => fs.readFileSync(file, "utf8").replaceAll("\r\n", "\n");
 const roles = JSON.parse(read("infra/media/bootstrap/dev-deployment-roles.json"));
@@ -11,6 +12,57 @@ const executionStatements = execution.Policies[0].PolicyDocument.Statement;
 const deployStatements = deploy.Policies[0].PolicyDocument.Statement;
 const find = (list, sid) => list.find((s) => s.Sid === sid);
 const actions = (statement) => [statement.Action].flat();
+
+// Only the reviewed single-line !Sub name declarations are supported here.
+function devResourceName(template, logicalId, property) {
+  const header = `  ${logicalId}:\n`;
+  const start = template.indexOf(header);
+  assert.ok(start >= 0, `Missing ${logicalId}`);
+  const remainder = template.slice(start + header.length);
+  const end = remainder.search(/^(?:  [A-Za-z0-9]+:|\S)/m);
+  const block = end < 0 ? remainder : remainder.slice(0, end);
+  const names = [...block.matchAll(new RegExp(`^      ${property}: !Sub "([^"\\n]+)"$`, "gm"))];
+  assert.equal(names.length, 1, `Expected one !Sub ${logicalId}.${property}`);
+  const name = names[0][1].replaceAll("${EnvironmentName}", "dev");
+  assert.ok(!name.includes("${"), `Unsupported substitution in ${logicalId}.${property}`);
+  return name;
+}
+
+function assertDevResourceBoundaryNames(template) {
+  const account = "123456789012";
+  const region = "ap-northeast-2";
+  const boundaries = renderRuntimeBoundaries(account, region, "hashi-dev-delivery-example");
+  const resource = (boundary, sid) => find(boundaries[boundary].document.Statement, sid).Resource;
+  const requestArn = `arn:aws:sqs:${region}:${account}:${devResourceName(template, "TransformRequestQueue", "QueueName")}`;
+  const resultArn = `arn:aws:sqs:${region}:${account}:${devResourceName(template, "TransformResultQueue", "QueueName")}`;
+  const logGroup = devResourceName(template, "ImageTransformFunctionLogGroup", "LogGroupName");
+  assert.equal(resource("WorkerRuntimeBoundary", "ConsumeRequests"), requestArn, "Worker request boundary mismatch");
+  assert.equal(resource("SpringRuntimeBoundary", "PublishRequests"), requestArn, "Spring request boundary mismatch");
+  assert.equal(resource("WorkerRuntimeBoundary", "PublishResults"), resultArn, "Worker result boundary mismatch");
+  assert.equal(resource("SpringRuntimeBoundary", "ConsumeResults"), resultArn, "Spring result boundary mismatch");
+  assert.equal(resource("WorkerRuntimeBoundary", "WriteWorkerLogs"),
+    `arn:aws:logs:${region}:${account}:log-group:${logGroup}:*`, "Worker log boundary mismatch");
+  assert.equal(logGroup, `/aws/lambda/${devResourceName(template, "ImageTransformFunction", "FunctionName")}`,
+    "Function and log group mismatch");
+}
+
+test("DEV queue and log names match both runtime boundaries", () => {
+  assertDevResourceBoundaryNames(read("infra/media/template.yaml"));
+});
+
+for (const declaration of [
+  'QueueName: !Sub "hashi-${EnvironmentName}-media-transform-request"',
+  'QueueName: !Sub "hashi-${EnvironmentName}-media-transform-result"',
+  'LogGroupName: !Sub "/aws/lambda/hashi-${EnvironmentName}-image-transform"',
+  'FunctionName: !Sub "hashi-${EnvironmentName}-image-transform"',
+]) {
+  test(`rejects template name drift: ${declaration}`, () => {
+    const template = read("infra/media/template.yaml");
+    assert.ok(template.includes(declaration));
+    const changed = template.replace(declaration, `${declaration.slice(0, -1)}-renamed"`);
+    assert.throws(() => assertDevResourceBoundaryNames(changed), /mismatch/);
+  });
+}
 
 test("bootstrap reuses one same-account OIDC provider and exact develop subject", () => {
   assert.ok(Object.values(roles.Resources).every((r) => r.Type !== "AWS::IAM::OIDCProvider"));
