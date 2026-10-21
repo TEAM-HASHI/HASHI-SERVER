@@ -13,6 +13,21 @@ const deployStatements = deploy.Policies[0].PolicyDocument.Statement;
 const find = (list, sid) => list.find((s) => s.Sid === sid);
 const actions = (statement) => [statement.Action].flat();
 
+test("both deployment roles allow only the named SAM transform", () => {
+  for (const statements of [executionStatements, deployStatements]) {
+    const transform = find(statements, "ApplyServerlessTransform");
+    assert.ok(transform, "CloudFormation execution also needs SAM transform access");
+    assert.equal(transform.Effect, "Allow");
+    assert.equal(transform.Action, "cloudformation:CreateChangeSet");
+    assert.deepEqual(transform.Resource, {
+      "Fn::Sub": "arn:${AWS::Partition}:cloudformation:${AWS::Region}:aws:transform/Serverless-2016-10-31",
+    });
+    assert.equal(transform.Condition, undefined);
+  }
+  const executionChangesets = executionStatements.filter((s) => actions(s).includes("cloudformation:CreateChangeSet"));
+  assert.equal(executionChangesets.length, 1, "Execution must not gain stack changeset access");
+});
+
 // Only the reviewed single-line !Sub name declarations are supported here.
 function devResourceName(template, logicalId, property) {
   const header = `  ${logicalId}:\n`;
