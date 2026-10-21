@@ -16,7 +16,7 @@ import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
-public interface RestaurantRepository extends JpaRepository<Restaurant, Long>, JpaSpecificationExecutor<Restaurant> {
+public interface RestaurantRepository extends JpaRepository<Restaurant, Long>, JpaSpecificationExecutor<Restaurant>, RestaurantSearchRepository {
 
     @Query("""
             select new org.sopt.hashi.restaurant.RestaurantPhotoSourceInfo(i.id, i.fileKey, i.imageAssetId, i.displayOrder)

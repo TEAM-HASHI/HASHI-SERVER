@@ -1,7 +1,5 @@
 package org.sopt.hashi.restaurant.domain;
 
-import jakarta.persistence.criteria.Join;
-import jakarta.persistence.criteria.JoinType;
 import jakarta.persistence.criteria.SetJoin;
 import org.springframework.data.jpa.domain.Specification;
 
@@ -66,24 +64,4 @@ public final class RestaurantSpecifications {
         };
     }
 
-    public static Specification<Restaurant> keywordContains(String keyword) {
-        String likeKeyword = RestaurantSearchKeyword.containsPattern(RestaurantSearchKeyword.normalize(keyword));
-        return (root, query, criteriaBuilder) -> {
-            if (likeKeyword == null) {
-                return criteriaBuilder.conjunction();
-            }
-            if (query != null) {
-                query.distinct(true);
-            }
-
-            Join<Restaurant, RestaurantMenu> menus = root.join("menus", JoinType.LEFT);
-
-            return criteriaBuilder.or(
-                    criteriaBuilder.like(criteriaBuilder.lower(root.get("name")), likeKeyword,
-                            RestaurantSearchKeyword.LIKE_ESCAPE),
-                    criteriaBuilder.like(criteriaBuilder.lower(menus.get("name")), likeKeyword,
-                            RestaurantSearchKeyword.LIKE_ESCAPE)
-            );
-        };
-    }
 }

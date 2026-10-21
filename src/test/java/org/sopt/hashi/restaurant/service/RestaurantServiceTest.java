@@ -764,7 +764,7 @@ class RestaurantServiceTest {
                 .willAnswer(invocation -> "https://cdn.example.com/" + invocation.getArgument(0));
 
         RestaurantListResponse response = restaurantService.getRestaurants(
-                "스시",
+                null,
                 "sushi",
                 "popular",
                 "sns-hot",
