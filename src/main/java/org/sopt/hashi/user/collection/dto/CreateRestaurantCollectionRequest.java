@@ -23,7 +23,7 @@ public record CreateRestaurantCollectionRequest(
         @NotBlank(message = "색상은 필수입니다") String color,
         @Schema(description = "설명(선택). 입력값은 공백을 포함해 최대 30자이며 앞뒤 공백은 제거하고 중간 공백은 유지합니다. "
                 + "줄바꿈 문자는 입력할 수 없습니다. 생략·null·빈 문자열·공백만 입력하면 설명 없이 저장합니다.",
-                example = "여행 가기 전에 저장해둔 맛집들 중에서 꼭 가보고 싶은 곳")
+                example = "여행 전 꼭 가보고 싶은 맛집 모음")
         @Pattern(regexp = RestaurantCollection.DESCRIPTION_NO_LINE_BREAK_REGEX, message = "설명에는 줄바꿈을 입력할 수 없습니다")
         @Size(max = RestaurantCollection.DESCRIPTION_MAX_LENGTH, message = "설명은 30자 이내입니다") String description,
         @Schema(description = "공개 범위(public·private)", example = "public")
