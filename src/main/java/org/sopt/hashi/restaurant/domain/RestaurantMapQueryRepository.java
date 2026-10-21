@@ -32,10 +32,6 @@ public class RestaurantMapQueryRepository {
             and l.obtained_at < l.valid_until
             and l.valid_until > cast(:now as datetime(6))
             """;
-    private static final String REGION_CONTAINS_LOCATION = """
-            l.latitude between g.south and g.north and l.longitude between g.west and g.east
-            """;
-
     private final EntityManager entityManager;
 
     public RestaurantMapQueryRepository(EntityManager entityManager) {
@@ -94,26 +90,30 @@ public class RestaurantMapQueryRepository {
                 .toList();
     }
 
-    /** 활성 지역은 0건도 포함한다. 범위 밖 매핑 수는 잘못된 운영 설정을 식별하는 데 사용한다. */
-    public List<MapRegionSummary> findActiveRegions(Instant now) {
+    /** 소속은 수동 지정 ID로 판단하며 지원 영역 안의 유효 위치만 집계한다. */
+    public List<MapRegionSummary> findActiveRegions(Instant now, MapQueryBounds supported) {
         Query query = entityManager.createNativeQuery("""
                 select g.id, g.name, g.cluster_latitude, g.cluster_longitude,
-                       g.south, g.north, g.west, g.east, g.display_order,
-                """ + "sum(case when " + REGION_CONTAINS_LOCATION + " then 1 else 0 end), "
-                + "sum(case when l.id is not null and not (" + REGION_CONTAINS_LOCATION
-                + ") then 1 else 0 end) " + """
+                       g.south, g.north, g.west, g.east, g.display_order, count(l.id),
+                       least(g.south, coalesce(min(l.latitude), g.south)),
+                       greatest(g.north, coalesce(max(l.latitude), g.north)),
+                       least(g.west, coalesce(min(l.longitude), g.west)),
+                       greatest(g.east, coalesce(max(l.longitude), g.east))
                 from map_region g
                 left join restaurant r on r.map_region_id = g.id and r.deleted = false
                 left join restaurant_location l on l.id = r.location_id and
                 """ + USABLE_LOCATION + """
+                and l.latitude between :south and :north and l.longitude between :west and :east
                 where g.active = true
                 group by g.id, g.name, g.cluster_latitude, g.cluster_longitude,
                          g.south, g.north, g.west, g.east, g.display_order
                 order by g.display_order, g.id
-                """).setParameter("now", utc(now));
+                """).setParameter("now", utc(now))
+                .setParameter("south", supported.south()).setParameter("north", supported.north())
+                .setParameter("west", supported.west()).setParameter("east", supported.east());
         return rows(query).stream().map(row -> new MapRegionSummary(number(row[0]), (String) row[1],
                 (BigDecimal) row[2], (BigDecimal) row[3], bounds(row, 4), ((Number) row[8]).intValue(),
-                number(row[9]), number(row[10]))).toList();
+                number(row[9]), bounds(row, 10))).toList();
     }
 
     private List<RestaurantMapCandidate> candidateRows(MapSearchCriteria criteria, Instant now,
@@ -145,8 +145,7 @@ public class RestaurantMapQueryRepository {
                 """);
         if (criteria.mapRegionId() != null) {
             sql.append(" and r.map_region_id = :regionId")
-                    .append(" and exists (select 1 from map_region g where g.id = r.map_region_id and g.active = true and ")
-                    .append(REGION_CONTAINS_LOCATION).append(")");
+                    .append(" and exists (select 1 from map_region g where g.id = r.map_region_id and g.active = true)");
         }
         if (criteria.genre() != null) {
             sql.append(" and r.genre = :genre");

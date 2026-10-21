@@ -76,8 +76,8 @@ class RestaurantMapControllerTest {
 
     @Test
     void 익명_관광지역_응답은_실제_보안필터와_wrapper_직렬화_no_store를_지킨다() throws Exception {
-        given(repository.findActiveRegions(any())).willReturn(List.of(new MapRegionSummary(1L, "합성 지역",
-                new BigDecimal(".5"), new BigDecimal(".5"), MapQueryBounds.parse("0", "1", "0", "1"), 0, 0, 0)));
+        given(repository.findActiveRegions(any(), any())).willReturn(List.of(new MapRegionSummary(1L, "합성 지역",
+                new BigDecimal(".5"), new BigDecimal(".5"), MapQueryBounds.parse("0", "1", "0", "1"), 0, 0, MapQueryBounds.parse("0", "1", "0", "1"))));
         mvc.perform(get("/api/v1/restaurants/map/regions"))
                 .andExpect(status().isOk()).andExpect(header().string("Cache-Control", "no-store"))
                 .andExpect(jsonPath("$.success").value(true)).andExpect(jsonPath("$.code").value("COMMON-200"))
@@ -120,11 +120,11 @@ class RestaurantMapControllerTest {
     @Test
     @ExtendWith(OutputCaptureExtension.class)
     void 지역설정_미완료와_DB_실패는_503_코드로_구분하고_안전한_진단만_남긴다(CapturedOutput output) throws Exception {
-        given(repository.findActiveRegions(any())).willReturn(List.of());
+        given(repository.findActiveRegions(any(), any())).willReturn(List.of());
         mvc.perform(get("/api/v1/restaurants/map/regions")).andExpect(status().isServiceUnavailable())
                 .andExpect(jsonPath("$.code").value("RESTAURANT-017"));
         String secret = "synthetic-sql-search-coordinate-credential";
-        given(repository.findActiveRegions(any())).willThrow(new DataAccessResourceFailureException(
+        given(repository.findActiveRegions(any(), any())).willThrow(new DataAccessResourceFailureException(
                 secret, new IllegalStateException("synthetic-private-cause")));
         String body = mvc.perform(get("/api/v1/restaurants/map/regions")).andExpect(status().isServiceUnavailable())
                 .andExpect(header().string("Cache-Control", "no-store"))

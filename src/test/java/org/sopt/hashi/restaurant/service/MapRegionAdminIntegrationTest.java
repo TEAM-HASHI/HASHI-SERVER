@@ -191,13 +191,16 @@ class MapRegionAdminIntegrationTest {
     }
 
     @Test
-    void 지역_할당은_카메라_경계로_제한하지_않되_공개_집계는_현재_카메라_안에서만_센다() throws Exception {
+    void 수동_소속은_기본화면_밖도_집계하고_확장된_화면에서_조회한다() throws Exception {
         String bounds = body("좁은 지역", 0, true).replace("\"north\":1", "\"north\":0.4")
                 .replace("\"latitude\":0.5", "\"latitude\":0.2");
         long region = upsert("NARROW", bounds).path("mapRegionId").asLong();
         assign(fixture(), region);
         assertThat(success(get("/api/v1/restaurants/map/regions")).path("regions").get(0)
-                .path("restaurantCount").asLong()).isZero();
+                .path("restaurantCount").asLong()).isEqualTo(1);
+        assertThat(success(query(region)).path("content").size()).isEqualTo(1);
+        assertThat(success(get("/api/v1/restaurants/map/regions")).path("regions").get(0)
+                .path("cameraBounds").path("north").asDouble()).isEqualTo(0.5);
         assertThat(success(query(null)).path("content").size()).isEqualTo(1);
         assertThat(success(get("/api/v1/restaurants/map").param("mapRegionId", Long.toString(region))
                 .param("south", "0").param("north", "0.4").param("west", "0").param("east", "1"))
@@ -226,6 +229,28 @@ class MapRegionAdminIntegrationTest {
     }
 
     @Test
+    void 현재_지역은_미배정과_비활성_지정도_조회하고_다른_지역_지정은_교체한다() throws Exception {
+        long id = fixture();
+        assertThat(success(admin(get(ASSIGN, id))).get("mapRegionId").isNull()).isTrue();
+        long first = upsert("FIRST", body("첫 지역", 0, false)).path("mapRegionId").asLong();
+        long second = upsert("SECOND", body("두 번째 지역", 1, true)).path("mapRegionId").asLong();
+        assign(id, first);
+        assertThat(success(admin(get(ASSIGN, id))).path("mapRegionId").asLong()).isEqualTo(first);
+        assign(id, second);
+        mvc.perform(admin(get(ASSIGN, id))).andExpect(status().isOk())
+                .andExpect(header().string("Cache-Control", "no-store"))
+                .andExpect(jsonPath("$.data.restaurantId").value(id))
+                .andExpect(jsonPath("$.data.mapRegionId").value(second));
+        assign(id, null);
+        assertThat(success(admin(get(ASSIGN, id))).get("mapRegionId").isNull()).isTrue();
+        jdbc.update("update restaurant set deleted=true where id=?", id);
+        mvc.perform(admin(get(ASSIGN, id))).andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code").value("RESTAURANT-004"));
+        mvc.perform(admin(get(ASSIGN, 999999))).andExpect(status().isNotFound());
+        mvc.perform(admin(get(ASSIGN, 0))).andExpect(status().isBadRequest());
+    }
+
+    @Test
     void 없는_지역과_삭제된_식당은_404이며_필드_누락과_음수_ID는_해제하지_않는다() throws Exception {
         long id = fixture();
         long region = upsert("AREA", body("지역", 0, false)).path("mapRegionId").asLong();
@@ -244,8 +269,8 @@ class MapRegionAdminIntegrationTest {
 
     @ParameterizedTest
     @ValueSource(strings = {"ANONYMOUS", "USER", "ONBOARDING"})
-    void 실제_필터는_관리자가_아닌_모든_주체의_세_API를_차단한다(String role) throws Exception {
-        List<MockHttpServletRequestBuilder> requests = List.of(get(REGIONS),
+    void 실제_필터는_관리자가_아닌_모든_주체의_지역_API를_차단한다(String role) throws Exception {
+        List<MockHttpServletRequestBuilder> requests = List.of(get(REGIONS), get(ASSIGN, 1),
                 put(REGIONS + "/FORBIDDEN").contentType(MediaType.APPLICATION_JSON).content(body("금지", 0, false)),
                 put(ASSIGN, 1).contentType(MediaType.APPLICATION_JSON).content("{\"mapRegionId\":null}"));
         for (var request : requests) {

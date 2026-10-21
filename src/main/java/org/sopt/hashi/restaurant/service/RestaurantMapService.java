@@ -11,7 +11,6 @@ import java.util.Objects;
 import java.util.function.Function;
 import java.util.function.Supplier;
 import java.util.stream.Collectors;
-import lombok.extern.slf4j.Slf4j;
 import org.sopt.hashi.restaurant.RestaurantMapInfo;
 import org.sopt.hashi.restaurant.code.RestaurantErrorCode;
 import org.sopt.hashi.restaurant.domain.MapQueryBounds;
@@ -36,7 +35,6 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Isolation;
 import org.springframework.transaction.annotation.Transactional;
 
-@Slf4j
 @Service
 @Transactional(readOnly = true)
 public class RestaurantMapService {
@@ -56,22 +54,19 @@ public class RestaurantMapService {
 
     public RestaurantMapRegionsResponse getRegions() {
         var configuration = properties.requireConfiguration();
-        List<MapRegionSummary> regions = read(() -> repository.findActiveRegions(clock.instant()));
+        List<MapRegionSummary> regions = read(
+                () -> repository.findActiveRegions(clock.instant(), configuration.supportedBounds()));
         if (regions.isEmpty()) {
             throw new BusinessException(RestaurantErrorCode.MAP_CONFIGURATION_UNAVAILABLE);
         }
         for (MapRegionSummary region : regions) {
             validateRegionConfiguration(region.bounds(), configuration.supportedBounds());
-            if (region.outsideBoundsCount() > 0) {
-                log.warn("Map region mapping outside bounds: regionId={}, count={}",
-                        region.id(), region.outsideBoundsCount());
-            }
         }
         return new RestaurantMapRegionsResponse(BoundsResponse.from(configuration.initialBounds()),
                 new QueryLimitsResponse(BoundsResponse.from(configuration.supportedBounds()), 1, 1),
                 regions.stream().map(region -> new RegionResponse(region.id(), region.name(),
                         region.restaurantCount(), new PositionResponse(region.latitude(), region.longitude()),
-                        BoundsResponse.from(region.bounds()), region.displayOrder())).toList());
+                        BoundsResponse.from(region.cameraBounds()), region.displayOrder())).toList());
     }
 
     public RestaurantMapLocationResponse getLocation(Long restaurantId) {

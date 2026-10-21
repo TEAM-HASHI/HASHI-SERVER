@@ -12,7 +12,7 @@
 ## 연결 순서
 
 1. `GET /api/v1/restaurants/map/regions`에서 `initialBounds`, `queryLimits`, `regions`를 받는다. 지역의 `mapRegionId`, `clusterPosition`, `cameraBounds`, `restaurantCount`를 사용한다. 샘플 `areaCode`를 서버 ID로 변환한다고 가정하지 않는다.
-2. 지역 선택 시 cameraBounds를 맞추고 `GET /api/v1/restaurants/map?south=...&north=...&west=...&east=...&mapRegionId=...`를 요청한다. cameraBounds는 대표 화면이며 식당의 소속 경계를 계산하는 다각형이 아니다. 소속은 관리자 API로 지정한다.
+2. 지역 선택 시 cameraBounds를 맞추고 `GET /api/v1/restaurants/map?south=...&north=...&west=...&east=...&mapRegionId=...`를 요청한다. 공개 cameraBounds는 기본 화면과 지원 영역 안의 유효 소속 식당을 포함한 범위다. 식당 소속은 관리자 API로 하나만 지정하며 좌표로 계산하지 않는다. 범위가 queryLimits를 넘으면 확대하거나 나누어 요청한다. 관리자 등록·수정 연동 순서는 [관리자 지역 API](admin-regions.md)를 따른다.
 3. 새 조회는 네 bounds가 필수이며 `mapRegionId`, `keyword`, `genre`, `placeType`, `sort`를 선택적으로 보낸다. sort/분류의 wire 값은 서버 계약과 생성된 API 타입을 따른다.
 4. 추가 조회는 `cursor`만 보낸다. bounds나 필터를 섞으면 400이다. `content`와 핀을 함께 추가하고 hasNext=false면 중단한다.
 5. 같은 bounds·필터에서 정렬만 바꾸면 `querySessionId`와 `sort`만 보내 기존 추천 동점 순서를 유지한다. 카메라가 움직였거나 검색·카테고리·지역 조건이 달라졌다면 새 bounds/조건으로 새 조회를 만든다. 기존 sessionId에 새 필터를 섞지 않는다.

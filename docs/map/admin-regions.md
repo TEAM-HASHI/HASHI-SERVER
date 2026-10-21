@@ -6,13 +6,14 @@
 
 ## API와 입력 순서
 
-세 API는 기존 `/api/v1/admin/**` 규칙에 따라 ADMIN만 접근한다. 응답은 `COMMON-200`과
+모든 API는 기존 `/api/v1/admin/**` 규칙에 따라 ADMIN만 접근한다. 응답은 `COMMON-200`과
 `SuccessResponse`, `Cache-Control: no-store`를 사용한다.
 
 | 요청 | 역할 |
 | --- | --- |
 | `GET /api/v1/admin/map-regions?page=0&size=20` | 비활성 지역까지 `displayOrder`, ID 순으로 조회 |
 | `PUT /api/v1/admin/map-regions/{code}` | 같은 code의 지역을 생성하거나 전체 설정 교체 |
+| `GET /api/v1/admin/restaurants/{restaurantId}/map-region` | 현재 단일 소속 조회. 미배정은 null |
 | `PUT /api/v1/admin/restaurants/{restaurantId}/map-region` | 식당의 지역 소속 지정·변경·해제 |
 
 목록은 `content`, `page`, `size`, `totalCount`, `totalPages`를 반환한다. 총건수 필드명은 다른 ADMIN 목록과 같다.
@@ -75,10 +76,24 @@ restaurant 모듈에서 처리하고 Entity를 응답에 노출하지 않는다.
 
 ## 공개 지도에 미치는 영향
 
-cameraBounds는 지역을 눌렀을 때 보여줄 화면이고 자동 소속 판정 경계가 아니다. 밖에 있는
-식당도 관리자가 지정할 수 있다. 다만 현재 공개 집계는 **그 지역 소속이면서 cameraBounds 안에
-있는 유효 식당**만 센다. 범위 밖 소속의 지역 ID·건수는 기존 조회 로직이 운영 확인용으로 기록한다.
-일반 BBOX 조회에는 미분류 식당도 포함된다.
+관리자는 식당당 관광 지역 하나를 선택한다. 좌표나 경계로 소속을 계산하지 않는다.
+관리자 API의 cameraBounds는 기본 화면이며, 공개 집계는 **수동 지정된 지역 소속 중 지원 영역 안의 유효 위치를 가진 식당**을 센다.
+기본 화면 밖 식당도 포함한다. 공개 API의 cameraBounds는 기본 화면과 집계 대상 식당의 좌표를 모두 포함하도록 확장한다.
+0건이면 기본 화면을 유지한다. 삭제·위치 미확인·만료·지원 영역 밖 식당은 집계하지 않는다.
+일반 BBOX 조회에는 미분류 식당도 포함된다. `/map`은 지역 선택 후에도 요청 viewport 조건을 유지한다.
+확장 화면이 queryLimits의 최대 폭을 넘는 경우 전체 범위를 `/map`에 그대로 보내지 않고 확대하거나 나누어 조회한다.
+
+### 등록·수정 화면 연동
+
+1. `GET /api/v1/admin/map-regions?size=100`으로 선택 목록을 읽는다. 활성 지역을 선택지로 사용한다.
+2. 수정 화면은 `GET /api/v1/admin/restaurants/{restaurantId}/map-region`으로 현재 선택값을 읽는다.
+   응답은 `{"restaurantId":1001,"mapRegionId":12}`이며, 미배정은 명시적인 null이다.
+   비활성 지역의 기존 지정도 반환하므로 이름을 표시하고 활성 지역으로 변경하도록 안내할 수 있다.
+3. 신규 식당은 등록 성공 후 받은 ID로, 기존 식당은 해당 ID로 `PUT /api/v1/admin/restaurants/{restaurantId}/map-region`을 호출한다.
+   `{"mapRegionId":12}`는 기존 소속을 교체하고 `{"mapRegionId":null}`은 해제한다. 복수 선택은 없다.
+4. 식당 저장과 소속 저장은 별도 요청이다. 두 번째 요청이 실패하면 식당이 저장되지 않았다고 안내하지 말고 지역 저장을 재시도한다.
+   지역 지정은 주소·좌표 확인을 실행하지 않으며 위치 미확인 식당에도 가능하다.
+5. 현재 선택값 GET은 ADMIN 전용·no-store이며 없는 식당과 삭제된 식당은 `RESTAURANT-004`를 반환한다.
 
 지역 조회에는 활성 지역만 나온다. 모두 비활성이면 현재 공개 계약대로 `503 RESTAURANT-017`이다.
 기존 지역 조회 세션에서 소속이 해제된 식당은 다음 페이지 재검사 때 빠진다. 새로 소속된 식당은

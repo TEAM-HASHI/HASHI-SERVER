@@ -37,7 +37,10 @@ public class RestaurantMapController {
             codes = {"MAP_CONFIGURATION_UNAVAILABLE", "MAP_QUERY_UNAVAILABLE"})
     @Operation(summary = "지도 관광 지역 조회", description = """
             최초 카메라 범위, 서버가 허용하는 조회 범위와 크기, 활성 관광 지역의 클러스터 위치와
-            카메라 범위를 반환한다. 식당 수가 0인 활성 지역도 포함하며 응답은 캐시하지 않는다.
+            카메라 범위를 반환한다. 식당 수는 수동 지정된 지역 소속 중 지원 영역의 유효 위치만 센다.
+            기본 화면 밖 식당도 집계하며 카메라 범위는 기본 화면과 집계 대상 식당을 포함하도록 확장한다.
+            확장 범위가 queryLimits의 최대 폭을 넘으면 확대하거나 나누어 조회해야 한다.
+            식당 수가 0인 활성 지역은 기본 화면 범위로 포함하며 응답은 캐시하지 않는다.
             """)
     @GetMapping("/map/regions")
     public SuccessResponse<RestaurantMapRegionsResponse> getRegions(HttpServletResponse response) {

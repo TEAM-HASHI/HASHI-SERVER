@@ -272,6 +272,11 @@ class RestaurantPortImpl implements RestaurantPort {
     }
 
     @Override
+    public Long getMapRegionByAdmin(Long restaurantId) {
+        return mapRegionAdminService.getAssignment(restaurantId);
+    }
+
+    @Override
     @Transactional(isolation = Isolation.READ_COMMITTED)
     public Long assignMapRegionByAdmin(Long restaurantId, Long mapRegionId) {
         return mapRegionAdminService.assign(restaurantId, mapRegionId);

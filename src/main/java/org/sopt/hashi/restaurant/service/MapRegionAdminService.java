@@ -57,6 +57,16 @@ public class MapRegionAdminService {
         return toInfo(regions.findByCode(code).orElseThrow());
     }
 
+    public Long getAssignment(Long restaurantId) {
+        if (restaurantId == null || restaurantId <= 0) {
+            throw new BusinessException(CommonErrorCode.INVALID_INPUT);
+        }
+        return restaurants.findById(restaurantId)
+                .filter(found -> !found.isDeleted())
+                .orElseThrow(() -> new BusinessException(RestaurantErrorCode.NOT_FOUND))
+                .getMapRegionId();
+    }
+
     @Transactional(isolation = Isolation.READ_COMMITTED)
     public Long assign(Long restaurantId, Long mapRegionId) {
         boolean invalidIds = restaurantId == null || restaurantId <= 0 || (mapRegionId != null && mapRegionId <= 0);
