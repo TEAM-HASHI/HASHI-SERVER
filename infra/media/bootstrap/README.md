@@ -150,6 +150,12 @@ preflight를 건너뛰거나 deploy role에 `PutRolePermissionsBoundary`를 부�
 
 ## 로컬 검증
 
+template 검사는 이 저장소의 명시적인 block-style YAML만 지원한다. Spring의 기본·backfill·조회·정리
+정책과 각 조건을 함께 확인하고, 별도 IAM 정책/role이나 우회 attachment가 추가되면 중단한다.
+alias·anchor·merge key·flow-style resource 등 지원하지 않는 표현도 건너뛰지 않고 거부한다.
+새 리소스 종류나 정책 구성이 필요하면 검사 기준과 테스트를 함께 검토해야 한다. 일반 YAML 파서나
+실제 계정 전체의 유효 권한 분석을 대신하지 않으므로 AWS 적용 전 정책·boundary 확인은 여전히 필요하다.
+
 ```bash
 node --test infra/media/scripts/*.test.mjs
 node infra/media/scripts/check-worker-iam.mjs infra/media/template.yaml

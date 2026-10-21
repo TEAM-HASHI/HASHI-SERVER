@@ -63,9 +63,10 @@ boundary의 조회 상한을 먼저 갱신한 뒤 조회 flag로 배포한다. `
 정책이며 이번 DEV 점검에는 사용하지 않는다. prod의 기존 수동 권한 절차는 변경하지 않는다.
 삭제 권한 추가와 `DELETE` 전환은 별도 검토·운영 승인이 필요하다.
 
-원본과 delivery bucket은 서로 다르고 같은 region이어야 한다. 권한은 기존 cleanup policy와 동일하게
-`media/originals/*`, `media/renditions/*`의 version 목록과 exact version 삭제로 제한한다. legacy 경로,
-bucket 설정, ACL, Object Lock 우회 권한은 사용하지 않는다.
+원본과 delivery bucket은 서로 다르고 같은 region이어야 한다. 이번 DEV 조회 정책은 두 bucket의
+`GetBucketVersioning`과 `media/originals/*`, `media/renditions/*`의 `ListBucketVersions`만 허용한다.
+exact version 삭제는 향후 별도 승인된 DELETE 단계에서 cleanup 정책을 검토할 때 다룬다.
+이번 조회 점검은 legacy 경로, bucket 설정 변경, ACL, Object Lock 우회 권한을 사용하지 않는다.
 
 ### 실행 전 경로 소유권 확인
 
