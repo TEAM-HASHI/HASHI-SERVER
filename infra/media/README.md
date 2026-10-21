@@ -22,6 +22,11 @@ template과 배포 경로만 있으며, 이 문서만으로 실제 dev 또는 pr
 
 ## 보안 기준
 
+DEV 최초 IAM 준비는 [DEV bootstrap runbook](bootstrap/README.md)을 먼저 따른다.
+새 DEV 배포 경로는 worker/Spring runtime boundary를 필수로 검증하며 backfill/cleanup은 OFF로
+고정한다. 아래의 기존 DEV backfill/cleanup 활성화 설명은 이 bootstrap 상한을 변경하는 별도
+승인·검토 전에는 적용할 수 없다. production 수동 배포의 기존 계약은 그대로 유지한다.
+
 - original bucket은 Block Public Access, BucketOwnerEnforced, versioning, SSE-S3와 TLS 강제를 사용한다.
 - original bucket은 CloudFront origin이 아니며 public URL을 제공하지 않는다.
 - 브라우저 CORS는 `UploadAllowedOrigins`의 exact origin만 허용한다. wildcard는 dev workflow와 prod

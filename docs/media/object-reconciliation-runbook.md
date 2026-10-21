@@ -53,6 +53,12 @@ version의 중복 삭제는 같은 결과로 수렴하며, 늦은 worker가 폐�
 role의 전체 유효 권한을 검토하고 Spring mode가 `DRY_RUN`인지 별도로 확인한다. 두 bucket 모두 실제로
 `Enabled`가 아니면 DRY_RUN도 목록을 시작하지 않는다. `DELETE` 전환은 별도 운영 승인이 필요하다.
 
+단, [DEV 초기 배포 절차](../../infra/media/bootstrap/README.md)를 적용한 상태에서는
+`CleanupAccessEnabled=true`가 거부되고 Spring runtime boundary에도 위 조회 권한이 없다.
+이 단계에서는 `DRY_RUN`도 실행할 수 없으므로 `AWS_MEDIA_RECONCILIATION_ENABLED=false`를 유지한다.
+아래 단계별 확인은 조회 권한과 boundary·배포 전 검사 변경을 별도 검토·승인한 이후에 진행한다.
+환경변수 변경만으로 실행할 수 있는 절차가 아니다.
+
 원본과 delivery bucket은 서로 다르고 같은 region이어야 한다. 권한은 기존 cleanup policy와 동일하게
 `media/originals/*`, `media/renditions/*`의 version 목록과 exact version 삭제로 제한한다. legacy 경로,
 bucket 설정, ACL, Object Lock 우회 권한은 사용하지 않는다.

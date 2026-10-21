@@ -1,0 +1,154 @@
+{
+  "AWSTemplateFormatVersion": "2010-09-09",
+  "Description": "Operator-owned DEV runtime permission ceilings; policies alone grant no permissions",
+  "Parameters": {
+    "DeliveryBucket": {
+      "Type": "String",
+      "AllowedPattern": "^hashi-dev-[a-z0-9-]+$"
+    }
+  },
+  "Resources": {
+    "WorkerRuntimeBoundary": {
+      "Type": "AWS::IAM::ManagedPolicy",
+      "DeletionPolicy": "Retain",
+      "UpdateReplacePolicy": "Retain",
+      "Properties": {
+        "ManagedPolicyName": "hashi-dev-media-worker-runtime-boundary",
+        "PolicyDocument": {
+          "Version": "2012-10-17",
+          "Statement": [
+            {
+              "Sid": "WriteWorkerLogs",
+              "Effect": "Allow",
+              "Action": [
+                "logs:CreateLogStream",
+                "logs:PutLogEvents"
+              ],
+              "Resource": {
+                "Fn::Sub": "arn:${AWS::Partition}:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/lambda/hashi-dev-image-transform:*"
+              }
+            },
+            {
+              "Sid": "ConsumeRequests",
+              "Effect": "Allow",
+              "Action": [
+                "sqs:ReceiveMessage",
+                "sqs:DeleteMessage",
+                "sqs:GetQueueAttributes"
+              ],
+              "Resource": {
+                "Fn::Sub": "arn:${AWS::Partition}:sqs:${AWS::Region}:${AWS::AccountId}:hashi-dev-media-transform-request"
+              }
+            },
+            {
+              "Sid": "ReadOriginalVersion",
+              "Effect": "Allow",
+              "Action": [
+                "s3:GetObjectVersion"
+              ],
+              "Resource": {
+                "Fn::Sub": "arn:${AWS::Partition}:s3:::hashi-dev-media-pipeline-originalimagebucket-*/media/originals/*"
+              }
+            },
+            {
+              "Sid": "CreateRenditions",
+              "Effect": "Allow",
+              "Action": [
+                "s3:GetObject",
+                "s3:PutObject"
+              ],
+              "Resource": {
+                "Fn::Sub": "arn:${AWS::Partition}:s3:::${DeliveryBucket}/media/renditions/*"
+              }
+            },
+            {
+              "Sid": "PublishResults",
+              "Effect": "Allow",
+              "Action": [
+                "sqs:SendMessage"
+              ],
+              "Resource": {
+                "Fn::Sub": "arn:${AWS::Partition}:sqs:${AWS::Region}:${AWS::AccountId}:hashi-dev-media-transform-result"
+              }
+            }
+          ]
+        }
+      }
+    },
+    "SpringRuntimeBoundary": {
+      "Type": "AWS::IAM::ManagedPolicy",
+      "DeletionPolicy": "Retain",
+      "UpdateReplacePolicy": "Retain",
+      "Properties": {
+        "ManagedPolicyName": "hashi-dev-media-spring-runtime-boundary",
+        "PolicyDocument": {
+          "Version": "2012-10-17",
+          "Statement": [
+            {
+              "Sid": "PreserveExistingDevDeliveryAccess",
+              "Effect": "Allow",
+              "Action": [
+                "s3:PutObject",
+                "s3:GetObject",
+                "s3:DeleteObject"
+              ],
+              "Resource": {
+                "Fn::Sub": "arn:${AWS::Partition}:s3:::${DeliveryBucket}/*"
+              }
+            },
+            {
+              "Sid": "UploadAndInspectOriginals",
+              "Effect": "Allow",
+              "Action": [
+                "s3:PutObject",
+                "s3:GetObject",
+                "s3:GetObjectVersion"
+              ],
+              "Resource": {
+                "Fn::Sub": "arn:${AWS::Partition}:s3:::hashi-dev-media-pipeline-originalimagebucket-*/media/originals/*"
+              }
+            },
+            {
+              "Sid": "PublishRequests",
+              "Effect": "Allow",
+              "Action": [
+                "sqs:GetQueueAttributes",
+                "sqs:GetQueueUrl",
+                "sqs:SendMessage"
+              ],
+              "Resource": {
+                "Fn::Sub": "arn:${AWS::Partition}:sqs:${AWS::Region}:${AWS::AccountId}:hashi-dev-media-transform-request"
+              }
+            },
+            {
+              "Sid": "ConsumeResults",
+              "Effect": "Allow",
+              "Action": [
+                "sqs:ChangeMessageVisibility",
+                "sqs:DeleteMessage",
+                "sqs:GetQueueAttributes",
+                "sqs:GetQueueUrl",
+                "sqs:ReceiveMessage"
+              ],
+              "Resource": {
+                "Fn::Sub": "arn:${AWS::Partition}:sqs:${AWS::Region}:${AWS::AccountId}:hashi-dev-media-transform-result"
+              }
+            }
+          ]
+        }
+      }
+    }
+  },
+  "Outputs": {
+    "WorkerRuntimeBoundaryArn": {
+      "Value": {
+        "Ref": "WorkerRuntimeBoundary"
+      }
+    },
+    "SpringRuntimeBoundaryArn": {
+      "Value": {
+        "Ref": "SpringRuntimeBoundary"
+      }
+    }
+  }
+}
