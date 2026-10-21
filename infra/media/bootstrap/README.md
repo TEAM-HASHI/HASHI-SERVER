@@ -100,6 +100,10 @@ preflight를 건너뛰거나 deploy role에 `PutRolePermissionsBoundary`를 부�
 
 ## 상한과 배포 권한
 
+- SAM template을 변환할 때 GitHub 배포 역할뿐 아니라 CloudFormation 실행 역할에도
+  `cloudformation:CreateChangeSet`이 필요하다. 두 역할 모두 현재 리전의 AWS 관리
+  `Serverless-2016-10-31` transform만 허용한다. 실행 역할에 다른 stack의 변경 권한을
+  추가하는 것은 아니다. 기존 bootstrap을 적용했다면 역할 stack을 먼저 갱신한 뒤 재배포한다.
 - Execution role은 worker 생성 및 boundary 재설정 시 exact worker boundary ARN만 허용한다.
   boundary 삭제 권한은 없고, runtime boundary 정책의 ARN은 이 역할이 관리할 수 있는
   `hashi-dev-media-pipeline-*` policy 범위 밖이다. worker inline policy를 바꾸더라도 DEV
