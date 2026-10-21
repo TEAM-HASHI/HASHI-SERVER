@@ -28,6 +28,10 @@ public class AdminMapRegionService {
         return AdminMapRegionResponse.from(port.upsertMapRegionByAdmin(code, command));
     }
 
+    public AdminMapRegionResponse.Assignment getAssignment(Long restaurantId) {
+        return new AdminMapRegionResponse.Assignment(restaurantId, port.getMapRegionByAdmin(restaurantId));
+    }
+
     public AdminMapRegionResponse.Assignment assign(Long restaurantId, SetRestaurantMapRegionRequest request) {
         return new AdminMapRegionResponse.Assignment(restaurantId,
                 port.assignMapRegionByAdmin(restaurantId, request.mapRegionId()));

@@ -105,6 +105,9 @@ public interface RestaurantPort {
     /** 안정적인 code로 전체 설정을 교체한다. 동일 요청 재전송·동시 생성에도 ID는 유지한다. */
     AdminMapRegionInfo upsertMapRegionByAdmin(String code, AdminMapRegionCommand command);
 
+    /** 현재 단일 소속을 조회한다. 미배정은 null, 없는/삭제 식당은 거절한다. */
+    Long getMapRegionByAdmin(Long restaurantId);
+
     /** 없는/삭제 식당은 거절하고, 존재하는 비활성 지역도 지정 가능하다. null은 소속 해제다. */
     Long assignMapRegionByAdmin(Long restaurantId, Long mapRegionId);
 

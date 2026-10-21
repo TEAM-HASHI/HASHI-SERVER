@@ -62,7 +62,7 @@ public class AdminMapRegionController {
             description = "ADMIN 전용입니다. code가 멱등 키이므로 같은 code로 다시 PUT하면 기존 mapRegionId와 식당 배정을 "
                     + "유지한 채 name, clusterPosition, cameraBounds, displayOrder, active를 모두 교체합니다. "
                     + "clusterPosition은 클라이언트가 지역을 선택할 때 사용할 대표 중심점이며 cameraBounds 안에 있어야 합니다. "
-                    + "cameraBounds는 지역 필터와 공개 집계에서 식당 좌표를 재검사하는 범위이고 식당 소속을 자동 배정하지 않습니다. "
+                    + "cameraBounds는 기본 화면 범위이며 소속 판별 경계가 아닙니다. 공개 지역 조회는 지원 영역 내 유효 식당을 포함하도록 화면을 확장합니다. "
                     + "대표 좌표와 모든 경계는 소수 6자리로 정확히 표현되어야 합니다. 서버는 값을 반올림하지 않으며 "
                     + "35.6595001처럼 추가 정밀도가 필요한 값은 400입니다. "
                     + "active=true이면 cameraBounds가 서버 지원 범위 안에 있고 위도·경도 폭이 각각 1도 이하여야 합니다. "
@@ -92,10 +92,24 @@ public class AdminMapRegionController {
         return SuccessResponse.of(CommonSuccessCode.OK, service.upsert(code, request));
     }
 
+    @GetMapping("/restaurants/{restaurantId}/map-region")
+    @Operation(summary = "식당의 현재 관광 지역 조회",
+            description = "ADMIN 전용입니다. 수정 화면에서 현재 선택값을 복원할 때 사용합니다. "
+                    + "미배정은 mapRegionId:null이며 비활성 지역에 배정된 경우에도 해당 ID를 반환합니다. "
+                    + "지역 이름과 활성 여부는 관리자 관광 지역 목록에서 확인합니다.")
+    @ApiSuccess(value = CommonSuccessCode.class, codes = "OK")
+    @ApiException(value = CommonErrorCode.class, codes = {"INVALID_INPUT", "UNAUTHORIZED", "FORBIDDEN"})
+    @ApiErrorResponse(status = HttpStatus.NOT_FOUND, code = "RESTAURANT-004", message = "식당을 찾을 수 없습니다.")
+    public SuccessResponse<AdminMapRegionResponse.Assignment> getAssignment(
+            @PathVariable @Positive Long restaurantId, HttpServletResponse response) {
+        response.setHeader("Cache-Control", "no-store");
+        return SuccessResponse.of(CommonSuccessCode.OK, service.getAssignment(restaurantId));
+    }
+
     /** 지역 소속을 명시적으로 지정한다. mapRegionId:null은 해제이며 cameraBounds로 자동 분류하지 않는다. */
     @PutMapping("/restaurants/{restaurantId}/map-region")
     @Operation(summary = "식당 관광 지역 배정 또는 해제",
-            description = "ADMIN 전용입니다. 식당 소속은 좌표나 cameraBounds에서 계산하지 않고 mapRegionId로 직접 지정합니다. "
+            description = "ADMIN 전용입니다. 식당당 관광 지역 하나만 지정합니다. 기존 지정값은 교체되며 복수 선택은 지원하지 않습니다. 소속은 좌표나 cameraBounds에서 계산하지 않습니다. 신규 등록 후 반환된 restaurantId로 호출합니다. "
                     + "비활성 지역에도 공개 전에 미리 배정할 수 있습니다. mapRegionId:null은 소속만 해제하며 주소와 좌표는 유지합니다.")
     @ApiSuccess(value = CommonSuccessCode.class, codes = "OK")
     @ApiException(value = CommonErrorCode.class, codes = {"INVALID_INPUT", "UNAUTHORIZED", "FORBIDDEN"})

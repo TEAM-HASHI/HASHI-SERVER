@@ -27,7 +27,6 @@ import org.hibernate.resource.jdbc.spi.StatementInspector;
 import org.hibernate.stat.Statistics;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.Arguments;
 import org.junit.jupiter.params.provider.EnumSource;
@@ -65,8 +64,6 @@ import org.springframework.beans.factory.support.BeanDefinitionRegistry;
 import org.springframework.beans.factory.config.BeanFactoryPostProcessor;
 import org.springframework.boot.autoconfigure.orm.jpa.HibernatePropertiesCustomizer;
 import org.springframework.boot.test.context.TestConfiguration;
-import org.springframework.boot.test.system.CapturedOutput;
-import org.springframework.boot.test.system.OutputCaptureExtension;
 import org.springframework.boot.testcontainers.service.connection.ServiceConnection;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Import;
@@ -573,6 +570,10 @@ class RestaurantMapQueryIntegrationTest {
         Restaurant expired = ready("expired", ".5", ".5");
         expired.assignMapRegion(first.getId());
         ready("unclassified", ".5", ".5");
+        Restaurant unsupported = ready("unsupported", "2.1", ".5");
+        unsupported.assignMapRegion(first.getId());
+        Restaurant unresolved = restaurants.save(restaurant("unresolved", RestaurantGenre.ETC, RestaurantPlaceType.RESTAURANT));
+        unresolved.assignMapRegion(first.getId());
         entityManager.flush();
         jdbc.update("update restaurant_location set valid_until=? where id=?", UTC_NOW, expired.getLocation().getId());
         flushAndReset();
@@ -587,8 +588,7 @@ class RestaurantMapQueryIntegrationTest {
     }
 
     @Test
-    @ExtendWith(OutputCaptureExtension.class)
-    void 지역_범위밖_매핑은_count에서_제외하되_다른_지역과_유효count를_반환하고_이상건수를_기록한다(CapturedOutput output) {
+    void 확장_화면이_조회한도를_넘으면_기본화면을_반환하되_소속집계와_viewport는_유지한다() {
         MapRegion region = activeRegion("MISMATCH", 0);
         MapRegion other = activeRegion("OTHER", 1);
         Restaurant valid = ready("inside", ".5", ".5");
@@ -596,19 +596,27 @@ class RestaurantMapQueryIntegrationTest {
         Restaurant outside = ready("outside", "1.1", ".5");
         outside.assignMapRegion(region.getId());
         flushAndReset();
-        var summary = queries.findActiveRegions(NOW).getFirst();
-        assertThat(summary.restaurantCount()).isEqualTo(1);
-        assertThat(summary.outsideBoundsCount()).isEqualTo(1);
+        var summary = queries.findActiveRegions(NOW, properties.requireConfiguration().supportedBounds()).getFirst();
+        assertThat(summary.restaurantCount()).isEqualTo(2);
+        assertThat(summary.cameraBounds().north()).isEqualByComparingTo("1.1");
         var response = service.getRegions();
         assertThat(response.regions()).extracting(RegionResponse::mapRegionId).containsExactly(region.getId(), other.getId());
-        assertThat(response.regions()).extracting(RegionResponse::restaurantCount).containsExactly(1L, 0L);
+        assertThat(response.regions()).extracting(RegionResponse::restaurantCount).containsExactly(2L, 0L);
         var widerBounds = MapQueryBounds.parse("0.2", "1.2", "0", "1");
         var regionalCriteria = MapSearchCriteria.of(widerBounds, region.getId(), null, null, null);
         assertThat(service.findCandidates(regionalCriteria, 10).candidates())
-                .extracting(RestaurantMapCandidate::restaurantId).containsExactly(valid.getId());
+                .extracting(RestaurantMapCandidate::restaurantId).containsExactly(valid.getId(), outside.getId());
         assertThat(service.findMatchingCandidates(regionalCriteria, List.of(valid.getId(), outside.getId())))
+                .extracting(RestaurantMapCandidate::restaurantId).containsExactly(valid.getId(), outside.getId());
+        assertThat(service.findCandidates(MapSearchCriteria.of(BOUNDS, region.getId(), null, null, null), 10).candidates())
                 .extracting(RestaurantMapCandidate::restaurantId).containsExactly(valid.getId());
-        assertThat(output).contains("Map region mapping outside bounds: regionId=" + region.getId() + ", count=1");
+        var camera = response.regions().getFirst().cameraBounds();
+        var returnedBounds = new MapQueryBounds(camera.south(), camera.north(), camera.west(), camera.east());
+        returnedBounds.validateQueryWithin(properties.requireConfiguration().supportedBounds());
+        assertThat(returnedBounds.north()).isEqualByComparingTo("1");
+        assertThat(service.findCandidates(MapSearchCriteria.of(returnedBounds, region.getId(), null, null, null), 10).candidates())
+                .extracting(RestaurantMapCandidate::restaurantId).containsExactly(valid.getId());
+        assertThat(response.regions().get(1).cameraBounds().north()).isEqualByComparingTo("1");
     }
 
     @Test

@@ -11,7 +11,7 @@ public record AdminMapRegionResponse(
         @Schema(description = "생성·전체 교체의 멱등 키", example = "TOKYO_SHIBUYA") String code,
         @Schema(description = "클라이언트 표시명", example = "시부야") String name,
         @Schema(description = "지역 선택 시 지도의 대표 중심점") Position clusterPosition,
-        @Schema(description = "지역 필터·공개 집계의 좌표 경계") Bounds cameraBounds,
+        @Schema(description = "관리자가 설정한 기본 화면 범위. 공개 지역 조회의 확장 cameraBounds와 다를 수 있음") Bounds cameraBounds,
         @Schema(description = "공개 지역 목록 표시 순서", example = "10") int displayOrder,
         @Schema(description = "공개 지역 목록과 지역 지도 조회에 노출되는지 여부", example = "true") boolean active) {
     public static AdminMapRegionResponse from(AdminMapRegionInfo info) {

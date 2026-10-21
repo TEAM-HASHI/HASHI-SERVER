@@ -56,22 +56,32 @@ public class RestaurantMapService {
 
     public RestaurantMapRegionsResponse getRegions() {
         var configuration = properties.requireConfiguration();
-        List<MapRegionSummary> regions = read(() -> repository.findActiveRegions(clock.instant()));
+        List<MapRegionSummary> regions = read(
+                () -> repository.findActiveRegions(clock.instant(), configuration.supportedBounds()));
         if (regions.isEmpty()) {
             throw new BusinessException(RestaurantErrorCode.MAP_CONFIGURATION_UNAVAILABLE);
         }
         for (MapRegionSummary region : regions) {
             validateRegionConfiguration(region.bounds(), configuration.supportedBounds());
-            if (region.outsideBoundsCount() > 0) {
-                log.warn("Map region mapping outside bounds: regionId={}, count={}",
-                        region.id(), region.outsideBoundsCount());
-            }
         }
         return new RestaurantMapRegionsResponse(BoundsResponse.from(configuration.initialBounds()),
                 new QueryLimitsResponse(BoundsResponse.from(configuration.supportedBounds()), 1, 1),
                 regions.stream().map(region -> new RegionResponse(region.id(), region.name(),
                         region.restaurantCount(), new PositionResponse(region.latitude(), region.longitude()),
-                        BoundsResponse.from(region.bounds()), region.displayOrder())).toList());
+                        BoundsResponse.from(cameraBounds(region, configuration.supportedBounds())),
+                        region.displayOrder())).toList());
+    }
+
+    /** 기본 화면은 먼저 검증한다. 모든 식당을 담은 화면이 조회 한도를 넘으면 기본 화면으로 돌아간다. */
+    private MapQueryBounds cameraBounds(MapRegionSummary region, MapQueryBounds supported) {
+        try {
+            region.cameraBounds().validateQueryWithin(supported);
+            return region.cameraBounds();
+        } catch (BusinessException exception) {
+            log.warn("Map region camera bounds fallback: regionId={}, reason={}",
+                    region.id(), exception.getErrorCode().getCode());
+            return region.bounds();
+        }
     }
 
     public RestaurantMapLocationResponse getLocation(Long restaurantId) {

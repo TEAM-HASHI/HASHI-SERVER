@@ -65,7 +65,7 @@ public class RestaurantMapPageController {
                     description = "새 조회 필수. 현재 viewport의 동쪽 경도",
                     schema = @Schema(type = "number", example = "139.1")),
             @Parameter(name = "mapRegionId", in = ParameterIn.QUERY,
-                    description = "새 조회 선택. 활성 관광 지역 ID",
+                    description = "새 조회 선택. 수동 배정된 활성 관광 지역 ID. 요청 viewport 조건도 함께 적용하며 지역 기본 화면으로 추가 제한하지 않음",
                     schema = @Schema(type = "integer", format = "int64", example = "1")),
             @Parameter(name = "keyword", in = ParameterIn.QUERY, description = "새 조회 선택, 최대 30자. "
                     + "일반 검색은 공백 구분 OR 토큰으로 식당명·메뉴명·해시태그를 찾는다. "
