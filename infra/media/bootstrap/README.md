@@ -1,6 +1,7 @@
 # DEV media bootstrap
 
-이 절차는 DEV 전용이다. prod, backfill, cleanup, 운영 데이터 삭제를 승인하지 않는다.
+이 절차는 DEV 전용이다. prod, backfill, cleanup, reconciliation(DB 미참조 파일 대조),
+운영 데이터 삭제를 승인하지 않는다. reconciliation은 `DRY_RUN`도 이번 범위에 포함하지 않는다.
 예제에는 실제 계정 ID, bucket 이름, distribution ID와 credential을 저장하지 않는다.
 `dev-runtime-boundaries.json`과 `dev-deployment-roles.json`은 별도 운영자 stack이며
 GitHub media deploy 역할에 이 stack들의 변경 권한을 주지 않는다.
@@ -33,6 +34,14 @@ GitHub media deploy 역할에 이 stack들의 변경 권한을 주지 않는다.
 boundary는 자체적으로 권한을 부여하지 않는다. 기존 delivery `DeleteObject` 상한을 보존하는 것은
 새 삭제 권한 부여나 삭제 실행 승인이 아니다. original 삭제, delivery `DeleteObjectVersion`,
 backfill용 version 목록/읽기/tagging, `sts:AssumeRole`, IAM 변경은 runtime 상한에 없다.
+
+reconciliation은 삭제하지 않는 `DRY_RUN`에서도 `s3:GetBucketVersioning`과
+`s3:ListBucketVersions`를 사용한다. 현재 Spring runtime boundary에는 이 권한이 없고,
+배포 전 검사도 `CleanupAccessEnabled=true`를 거부하므로 실행할 수 없다.
+초기 배포에서는 `AWS_MEDIA_RECONCILIATION_ENABLED=false`를 유지한다.
+후속 검증 전에 필요한 조회 권한과 boundary·배포 전 검사 변경을 별도로 검토·승인해야 한다.
+환경변수만 켜거나 권한 검사를 건너뛰지 않는다. 자세한 실행 조건은
+[파일 대조 runbook](../../../docs/media/object-reconciliation-runbook.md)을 따른다.
 
 ## 운영자 적용 순서
 
@@ -69,6 +78,25 @@ backfill용 version 목록/읽기/tagging, `sts:AssumeRole`, IAM 변경은 runti
 Spring boundary가 없거나 modified policy이면 workflow는 stack을 변경하지 않는다. 해결을 위해
 preflight를 건너뛰거나 deploy role에 `PutRolePermissionsBoundary`를 부여하지 않는다.
 운영자가 boundary를 복구/변경할 때도 같은 비교·승인을 반복한다. 자동 boundary 제거 rollback은 없다.
+
+### 기존 worker 역할에 boundary가 없는 경우
+
+이전 배포에서 남은 worker 역할이 있더라도 boundary가 없으면 배포 전 검사는 중단한다.
+운영자는 다음 순서로 확인하고 복구한다.
+
+1. 대상 account·region과 역할이 DEV worker 전용인지, 소유 CloudFormation stack과 실제 사용처를
+   확인한다. 다른 stack 소유이거나 소유권이 불명확하면 중단한다. 역할만 남았고 해당 stack이 없다면
+   boundary 부착만으로 최초 생성 시 이름 충돌이 해결되지는 않는다. 삭제·import로 우회하지 않고
+   역할 소유권 정리 방법을 별도로 검토한다.
+2. trust policy, inline·attached policy 전체와 현재 유효 권한을 조회하고 worker runtime boundary와
+   비교한다. 현재 기능에 필요한 권한이 제한되지 않는지 확인한다. 다른 boundary가 이미 있다면
+   자동으로 교체하지 않고 별도로 검토한다.
+3. 검토와 승인이 끝난 경우에만 운영자 세션으로 해당 DEV 역할에
+   `hashi-dev-media-worker-runtime-boundary`를 부착한다. 배포 역할의 권한을 넓히지 않는다.
+4. 부착 ARN과 정책 내용이 source와 같은지 확인한 뒤 배포 전 검사부터 다시 실행한다.
+   CloudFormation이 관리하는 역할이면 template의 boundary 선언과 실제 설정도 일치하는지 확인한다.
+
+이 절차는 복구 방법을 설명할 뿐 역할의 권한을 자동으로 변경하거나 worker 실행을 활성화하지 않는다.
 
 ## 상한과 배포 권한
 
