@@ -310,12 +310,12 @@ class RestaurantCollectionIntegrationTest {
         User active = saveUser("공백검증회원", "01011110003", "whitespace@hashi.test");
         loginAs(active.getId());
         var created = collectionService.create(new org.sopt.hashi.user.collection.dto.CreateRestaurantCollectionRequest(
-                "\u00a0  도쿄  맛집\u3000", "red", "\t 여행  첫날 \u0085", "public"));
+                "\u00a0  도쿄  맛집\u3000", "red", "\t 여행  첫날 \u00a0", "public"));
         assertThat(created.name()).isEqualTo("도쿄  맛집");
         assertThat(created.description()).isEqualTo("여행  첫날");
         var updated = collectionService.update(created.collectionId(),
                 new org.sopt.hashi.user.collection.dto.UpdateRestaurantCollectionRequest(
-                        "\u3000 교토  맛집\u00a0", null, "\n 첫째  날\u3000", null));
+                        "\u3000 교토  맛집\u00a0", null, "\t 첫째  날\u3000", null));
         assertThat(updated.name()).isEqualTo("교토  맛집");
         assertThat(updated.description()).isEqualTo("첫째  날");
         var stored = restaurantCollectionRepository.findById(created.collectionId()).orElseThrow();
@@ -382,7 +382,7 @@ class RestaurantCollectionIntegrationTest {
         User active = saveUser("길이검증회원", "01011110005", "length@hashi.test");
         loginAs(active.getId());
         String maxName = "가".repeat(20);
-        String maxDescription = "나".repeat(100);
+        String maxDescription = "나".repeat(30);
         var created = collectionService.create(new CreateRestaurantCollectionRequest(
                 maxName, "red", maxDescription, "public"));
         assertThat(created.name()).isEqualTo(maxName);

@@ -7,6 +7,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
+import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import lombok.extern.slf4j.Slf4j;
 import org.sopt.hashi.auth.CurrentUserProvider;
@@ -54,6 +55,8 @@ public class RestaurantCollectionService {
     static final int MAX_SAVED_RESTAURANTS_PER_COLLECTION = 1000;
     /** 커버 그리드는 색상 1칸 + 대표 이미지 3칸이다(SAVED 시안). */
     static final int COVER_IMAGE_COUNT = 3;
+    private static final Pattern DESCRIPTION_WITHOUT_LINE_BREAK =
+            Pattern.compile(RestaurantCollection.DESCRIPTION_NO_LINE_BREAK_REGEX);
 
     private final RestaurantCollectionRepository restaurantCollectionRepository;
     private final SavedRestaurantRepository savedRestaurantRepository;
@@ -432,7 +435,8 @@ public class RestaurantCollectionService {
         if (description == null) {
             return null;
         }
-        if (description.length() > RestaurantCollection.DESCRIPTION_MAX_LENGTH) {
+        if (description.length() > RestaurantCollection.DESCRIPTION_MAX_LENGTH
+                || !DESCRIPTION_WITHOUT_LINE_BREAK.matcher(description).matches()) {
             throw new BusinessException(CommonErrorCode.INVALID_INPUT);
         }
         // PATCH는 null이면 유지, 빈 문자열이면 삭제하므로 두 값을 구분한다.

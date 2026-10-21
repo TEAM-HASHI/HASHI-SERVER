@@ -37,7 +37,10 @@ import org.sopt.hashi.BaseTimeEntity;
 public class RestaurantCollection extends BaseTimeEntity {
 
     public static final int NAME_MAX_LENGTH = 20;
-    public static final int DESCRIPTION_MAX_LENGTH = 100;
+    /** 설명 입력 상한(공백 포함, 앞뒤 공백 제거 전 기준). DB 컬럼은 V30의 VARCHAR(100)을 그대로 둔다. */
+    public static final int DESCRIPTION_MAX_LENGTH = 30;
+    /** 줄바꿈 없는 설명만 허용 — Java 정규식 \R(CRLF·LF·CR·VT·FF·NEL·LS·PS)에 해당하는 문자를 모두 금지한다. */
+    public static final String DESCRIPTION_NO_LINE_BREAK_REGEX = "[^\\n\\r\\u000B\\u000C\\u0085\\u2028\\u2029]*";
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
@@ -53,7 +56,7 @@ public class RestaurantCollection extends BaseTimeEntity {
     @Column(name = "color", length = 20, nullable = false)
     private CollectionColor color;
 
-    @Column(name = "description", length = DESCRIPTION_MAX_LENGTH)
+    @Column(name = "description", length = 100)
     private String description;
 
     @Enumerated(EnumType.STRING)

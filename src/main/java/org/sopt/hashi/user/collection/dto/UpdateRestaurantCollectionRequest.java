@@ -7,7 +7,7 @@ import org.sopt.hashi.user.collection.domain.RestaurantCollection;
 
 /**
  * 컬렉션 부분 수정(PATCH) 요청(SAVED-007) — null 필드는 변경하지 않는다.
- * 이름·설명은 앞뒤 공백을 제거하고, 설명은 빈 문자열이나 공백만 보내면 지운다.
+ * 이름·설명은 앞뒤 공백을 제거하고, 설명은 빈 문자열이나 공백만 보내면 지운다. 설명은 공백 포함 30자, 줄바꿈 불가.
  * 공유 전 "공개 후 공유"도 visibility 변경으로 처리한다.
  */
 public record UpdateRestaurantCollectionRequest(
@@ -19,8 +19,10 @@ public record UpdateRestaurantCollectionRequest(
         @Schema(description = "커버 색상(red·orange·yellow·green·blue·purple, 선택)", example = "blue")
         @Pattern(regexp = "(?sU).*\\S.*", message = "색상은 공백일 수 없습니다") String color,
         @Schema(description = "설명(선택). 생략·null이면 유지하고 빈 문자열·공백만 입력하면 삭제합니다. "
-                + "입력값은 공백을 포함해 최대 100자이며 앞뒤 공백은 제거하고 중간 공백은 유지합니다.", example = "도쿄여행 야호")
-        @Size(max = RestaurantCollection.DESCRIPTION_MAX_LENGTH, message = "설명은 100자 이내입니다") String description,
+                + "입력값은 공백을 포함해 최대 30자이며 앞뒤 공백은 제거하고 중간 공백은 유지합니다. "
+                + "줄바꿈 문자는 입력할 수 없습니다.", example = "도쿄여행 야호")
+        @Pattern(regexp = RestaurantCollection.DESCRIPTION_NO_LINE_BREAK_REGEX, message = "설명에는 줄바꿈을 입력할 수 없습니다")
+        @Size(max = RestaurantCollection.DESCRIPTION_MAX_LENGTH, message = "설명은 30자 이내입니다") String description,
         @Schema(description = "공개 범위(public·private, 선택)", example = "private")
         @Pattern(regexp = "(?sU).*\\S.*", message = "공개 범위는 공백일 수 없습니다") String visibility) {
 }
