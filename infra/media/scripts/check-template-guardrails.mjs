@@ -97,6 +97,7 @@ export function validateTemplateGuardrails(rawTemplate, rawBoundaryTemplate, raw
   const template = rawTemplate.replaceAll("\r\n", "\n");
   const boundary = rawBoundaryTemplate.replaceAll("\r\n", "\n");
   validateCleanupGuardrails(template);
+  validateReconciliationReadGuardrails(template);
   const requiredAlarmRule = `Rules:
   ProductionAlarmTopicRequired:
     RuleCondition: !Equals
@@ -157,6 +158,64 @@ export function validateTemplateGuardrails(rawTemplate, rawBoundaryTemplate, raw
   if (!alarm || typeof alarm.ParameterValue !== "string" || alarm.ParameterValue.length === 0) {
     fail("Production parameter example must require an explicit alarm topic replacement.");
   }
+}
+
+export function validateReconciliationReadGuardrails(template) {
+  requireReviewedBlock(template, "Parameters", "ReconciliationReadAccessEnabled", `  ReconciliationReadAccessEnabled:
+    Type: String
+    Default: "false"
+    AllowedValues:
+      - "true"
+      - "false"
+    Description: DEV-only version discovery without deletion for approved reconciliation dry runs
+`);
+  requireReviewedBlock(template, "Conditions", "IsDev", `  IsDev: !Equals
+    - !Ref EnvironmentName
+    - dev
+`);
+  requireReviewedBlock(template, "Conditions", "IsDevReconciliationReadAccessEnabled", `  IsDevReconciliationReadAccessEnabled: !And
+    - !Condition IsDev
+    - !Equals
+      - !Ref ReconciliationReadAccessEnabled
+      - "true"
+`);
+  requireReviewedBlock(template, "Resources", "SpringApplicationReconciliationReadPolicy", `  SpringApplicationReconciliationReadPolicy:
+    Type: AWS::IAM::ManagedPolicy
+    Condition: IsDevReconciliationReadAccessEnabled
+    Properties:
+      Description: DEV-only version discovery for HASHI media reconciliation dry runs
+      Roles:
+        - !Ref SpringApplicationRoleName
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Sid: InspectPrivateOriginalBucketVersioning
+            Effect: Allow
+            Action:
+              - s3:GetBucketVersioning
+            Resource: !GetAtt OriginalImageBucket.Arn
+          - Sid: InspectDeliveryBucketVersioning
+            Effect: Allow
+            Action:
+              - s3:GetBucketVersioning
+            Resource: !Sub "arn:\${AWS::Partition}:s3:::\${DeliveryBucketName}"
+          - Sid: ListPrivateOriginalVersions
+            Effect: Allow
+            Action:
+              - s3:ListBucketVersions
+            Resource: !GetAtt OriginalImageBucket.Arn
+            Condition:
+              StringLike:
+                s3:prefix: "media/originals/*"
+          - Sid: ListRenditionVersions
+            Effect: Allow
+            Action:
+              - s3:ListBucketVersions
+            Resource: !Sub "arn:\${AWS::Partition}:s3:::\${DeliveryBucketName}"
+            Condition:
+              StringLike:
+                s3:prefix: "media/renditions/*"
+`);
 }
 
 const isCli =

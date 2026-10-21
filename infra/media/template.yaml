@@ -78,6 +78,14 @@ Parameters:
       - "false"
     Description: Version-list and delete permissions for approved media cleanup only
 
+  ReconciliationReadAccessEnabled:
+    Type: String
+    Default: "false"
+    AllowedValues:
+      - "true"
+      - "false"
+    Description: DEV-only version discovery without deletion for approved reconciliation dry runs
+
   WorkerLogRetentionDays:
     Type: Number
     Default: 30
@@ -118,6 +126,11 @@ Conditions:
   IsCleanupAccessEnabled: !Equals
     - !Ref CleanupAccessEnabled
     - "true"
+  IsDevReconciliationReadAccessEnabled: !And
+    - !Condition IsDev
+    - !Equals
+      - !Ref ReconciliationReadAccessEnabled
+      - "true"
 
 Resources:
   OriginalImageBucket:
@@ -430,6 +443,43 @@ Resources:
             Action:
               - s3:PutObjectTagging
             Resource: !Sub "${OriginalImageBucket.Arn}/media/originals/*"
+
+  SpringApplicationReconciliationReadPolicy:
+    Type: AWS::IAM::ManagedPolicy
+    Condition: IsDevReconciliationReadAccessEnabled
+    Properties:
+      Description: DEV-only version discovery for HASHI media reconciliation dry runs
+      Roles:
+        - !Ref SpringApplicationRoleName
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Sid: InspectPrivateOriginalBucketVersioning
+            Effect: Allow
+            Action:
+              - s3:GetBucketVersioning
+            Resource: !GetAtt OriginalImageBucket.Arn
+          - Sid: InspectDeliveryBucketVersioning
+            Effect: Allow
+            Action:
+              - s3:GetBucketVersioning
+            Resource: !Sub "arn:${AWS::Partition}:s3:::${DeliveryBucketName}"
+          - Sid: ListPrivateOriginalVersions
+            Effect: Allow
+            Action:
+              - s3:ListBucketVersions
+            Resource: !GetAtt OriginalImageBucket.Arn
+            Condition:
+              StringLike:
+                s3:prefix: "media/originals/*"
+          - Sid: ListRenditionVersions
+            Effect: Allow
+            Action:
+              - s3:ListBucketVersions
+            Resource: !Sub "arn:${AWS::Partition}:s3:::${DeliveryBucketName}"
+            Condition:
+              StringLike:
+                s3:prefix: "media/renditions/*"
 
   SpringApplicationCleanupPolicy:
     Type: AWS::IAM::ManagedPolicy

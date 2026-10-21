@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import test from "node:test";
 
-import { validateTemplateGuardrails } from "./check-template-guardrails.mjs";
+import { validateTemplateGuardrails, validateReconciliationReadGuardrails } from "./check-template-guardrails.mjs";
 
 const template = fs.readFileSync("infra/media/template.yaml", "utf8").replaceAll("\r\n", "\n");
 const boundary = fs.readFileSync(
@@ -10,6 +10,43 @@ const boundary = fs.readFileSync(
   "utf8",
 );
 const prodParameters = fs.readFileSync("infra/media/parameters/prod.example.json", "utf8");
+
+test("reconciliation read policy is disabled by default and gated by DEV plus explicit opt-in", () => {
+  assert.doesNotThrow(() => validateReconciliationReadGuardrails(template));
+});
+
+for (const [name, from, to] of [
+  ["enabled default", 'ReconciliationReadAccessEnabled:\n    Type: String\n    Default: "false"', 'ReconciliationReadAccessEnabled:\n    Type: String\n    Default: "true"'],
+  ["production target", '  IsDev: !Equals\n    - !Ref EnvironmentName\n    - dev', '  IsDev: !Equals\n    - !Ref EnvironmentName\n    - prod'],
+  ["missing DEV condition", '    - !Condition IsDev\n', ''],
+  ["either condition", '  IsDevReconciliationReadAccessEnabled: !And', '  IsDevReconciliationReadAccessEnabled: !Or'],
+  ["unconditional policy", '    Condition: IsDevReconciliationReadAccessEnabled\n', ''],
+]) {
+  test(`rejects reconciliation read gate drift: ${name}`, () => {
+    assert.ok(template.includes(from));
+    assert.throws(() => validateReconciliationReadGuardrails(template.replace(from, to)));
+  });
+}
+
+for (const [name, change] of [
+  ["delete action", (p) => p.replace('s3:GetBucketVersioning', 's3:DeleteObjectVersion')],
+  ["object download", (p) => p.replace('s3:GetBucketVersioning', 's3:GetObjectVersion')],
+  ["wildcard action", (p) => p.replace('s3:ListBucketVersions', 's3:*')],
+  ["wildcard bucket", (p) => p.replace('!GetAtt OriginalImageBucket.Arn', '"*"')],
+  ["broad original prefix", (p) => p.replace('"media/originals/*"', '"*"')],
+  ["broad rendition prefix", (p) => p.replace('"media/renditions/*"', '"media/*"')],
+  ["legacy prefix", (p) => p.replace('"media/renditions/*"', '"legacy/*"')],
+  ["other role", (p) => p.replace('!Ref SpringApplicationRoleName', 'other-role')],
+]) {
+  test(`rejects reconciliation read authority drift: ${name}`, () => {
+    const start=template.indexOf('  SpringApplicationReconciliationReadPolicy:');
+    const end=template.indexOf('  SpringApplicationCleanupPolicy:', start);
+    const policy=template.slice(start,end);
+    const changed=change(policy);
+    assert.notEqual(policy,changed);
+    assert.throws(() => validateReconciliationReadGuardrails(template.slice(0,start)+changed+template.slice(end)));
+  });
+}
 
 function changeCleanupPolicy(change) {
   const start = template.indexOf("  SpringApplicationCleanupPolicy:");
