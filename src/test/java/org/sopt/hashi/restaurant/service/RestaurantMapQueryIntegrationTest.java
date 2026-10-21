@@ -588,7 +588,7 @@ class RestaurantMapQueryIntegrationTest {
     }
 
     @Test
-    void 기본_화면밖_소속식당도_집계하고_화면을_확장하되_요청_viewport는_유지한다() {
+    void 확장_화면이_조회한도를_넘으면_기본화면을_반환하되_소속집계와_viewport는_유지한다() {
         MapRegion region = activeRegion("MISMATCH", 0);
         MapRegion other = activeRegion("OTHER", 1);
         Restaurant valid = ready("inside", ".5", ".5");
@@ -610,8 +610,13 @@ class RestaurantMapQueryIntegrationTest {
                 .extracting(RestaurantMapCandidate::restaurantId).containsExactly(valid.getId(), outside.getId());
         assertThat(service.findCandidates(MapSearchCriteria.of(BOUNDS, region.getId(), null, null, null), 10).candidates())
                 .extracting(RestaurantMapCandidate::restaurantId).containsExactly(valid.getId());
-        assertCode(() -> service.findCandidates(MapSearchCriteria.of(summary.cameraBounds(), region.getId(), null, null, null), 10),
-                RestaurantErrorCode.MAP_BOUNDS_INVALID);
+        var camera = response.regions().getFirst().cameraBounds();
+        var returnedBounds = new MapQueryBounds(camera.south(), camera.north(), camera.west(), camera.east());
+        returnedBounds.validateQueryWithin(properties.requireConfiguration().supportedBounds());
+        assertThat(returnedBounds.north()).isEqualByComparingTo("1");
+        assertThat(service.findCandidates(MapSearchCriteria.of(returnedBounds, region.getId(), null, null, null), 10).candidates())
+                .extracting(RestaurantMapCandidate::restaurantId).containsExactly(valid.getId());
+        assertThat(response.regions().get(1).cameraBounds().north()).isEqualByComparingTo("1");
     }
 
     @Test

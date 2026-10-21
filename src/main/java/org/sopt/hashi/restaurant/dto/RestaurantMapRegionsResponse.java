@@ -43,7 +43,9 @@ public record RestaurantMapRegionsResponse(
             @Schema(description = "수동 지정된 지역 소속 중 지원 영역 안의 현재 표시 가능 식당 수", example = "24")
             long restaurantCount,
             @Schema(description = "관광 지역 클러스터 표시 위치") PositionResponse clusterPosition,
-            @Schema(description = "기본 화면과 집계 대상 식당을 포함한 범위. queryLimits 최대 폭을 넘으면 확대하거나 나누어 조회") BoundsResponse cameraBounds,
+            @Schema(description = "조회 한도 안에서 기본 화면과 집계 대상 식당을 포함한 범위. "
+                    + "확장 범위가 한도를 넘으면 기본 화면을 반환하므로 전체 식당이 한 화면에 보이지 않을 수 있음")
+            BoundsResponse cameraBounds,
             @Schema(description = "클러스터 표시 순서", example = "1") int displayOrder) {
     }
 }

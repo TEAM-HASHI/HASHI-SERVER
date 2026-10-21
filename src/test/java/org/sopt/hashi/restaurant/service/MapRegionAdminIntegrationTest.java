@@ -208,6 +208,28 @@ class MapRegionAdminIntegrationTest {
     }
 
     @Test
+    void 확장한도가_넘어도_반환된_기본화면으로_목록을_조회할_수_있다() throws Exception {
+        long region = upsert("WIDE", body("넓은 지역", 0, true)).path("mapRegionId").asLong();
+        long inside = fixture();
+        long outside = fixture();
+        assign(inside, region);
+        assign(outside, region);
+        jdbc.update("update restaurant_location set latitude=1.1 where id=(select location_id from restaurant where id=?)", outside);
+        JsonNode response = success(get("/api/v1/restaurants/map/regions")).path("regions").get(0);
+        assertThat(response.path("restaurantCount").asInt()).isEqualTo(2);
+        JsonNode bounds = response.path("cameraBounds");
+        JsonNode first = success(get("/api/v1/restaurants/map").param("mapRegionId", Long.toString(region))
+                .param("south", bounds.path("south").asText()).param("north", bounds.path("north").asText())
+                .param("west", bounds.path("west").asText()).param("east", bounds.path("east").asText()));
+        assertThat(first.path("content").size()).isEqualTo(1);
+        assertThat(first.path("content").get(0).path("restaurantId").asLong()).isEqualTo(inside);
+        JsonNode moved = success(get("/api/v1/restaurants/map").param("mapRegionId", Long.toString(region))
+                .param("south", "1").param("north", "2").param("west", "0").param("east", "1"));
+        assertThat(moved.path("content").size()).isEqualTo(1);
+        assertThat(moved.path("content").get(0).path("restaurantId").asLong()).isEqualTo(outside);
+    }
+
+    @Test
     void 비활성화와_소속_해제는_기존_조회_세션의_다음_페이지에도_반영된다() throws Exception {
         long region = upsert("AREA", body("지역", 0, true)).path("mapRegionId").asLong();
         List<Long> ids = new ArrayList<>();

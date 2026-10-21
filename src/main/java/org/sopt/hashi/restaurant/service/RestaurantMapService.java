@@ -11,6 +11,7 @@ import java.util.Objects;
 import java.util.function.Function;
 import java.util.function.Supplier;
 import java.util.stream.Collectors;
+import lombok.extern.slf4j.Slf4j;
 import org.sopt.hashi.restaurant.RestaurantMapInfo;
 import org.sopt.hashi.restaurant.code.RestaurantErrorCode;
 import org.sopt.hashi.restaurant.domain.MapQueryBounds;
@@ -35,6 +36,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Isolation;
 import org.springframework.transaction.annotation.Transactional;
 
+@Slf4j
 @Service
 @Transactional(readOnly = true)
 public class RestaurantMapService {
@@ -66,7 +68,20 @@ public class RestaurantMapService {
                 new QueryLimitsResponse(BoundsResponse.from(configuration.supportedBounds()), 1, 1),
                 regions.stream().map(region -> new RegionResponse(region.id(), region.name(),
                         region.restaurantCount(), new PositionResponse(region.latitude(), region.longitude()),
-                        BoundsResponse.from(region.cameraBounds()), region.displayOrder())).toList());
+                        BoundsResponse.from(cameraBounds(region, configuration.supportedBounds())),
+                        region.displayOrder())).toList());
+    }
+
+    /** 기본 화면은 먼저 검증한다. 모든 식당을 담은 화면이 조회 한도를 넘으면 기본 화면으로 돌아간다. */
+    private MapQueryBounds cameraBounds(MapRegionSummary region, MapQueryBounds supported) {
+        try {
+            region.cameraBounds().validateQueryWithin(supported);
+            return region.cameraBounds();
+        } catch (BusinessException exception) {
+            log.warn("Map region camera bounds fallback: regionId={}, reason={}",
+                    region.id(), exception.getErrorCode().getCode());
+            return region.bounds();
+        }
     }
 
     public RestaurantMapLocationResponse getLocation(Long restaurantId) {
