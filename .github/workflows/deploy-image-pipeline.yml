@@ -103,6 +103,8 @@ jobs:
           node --test infra/media/scripts/check-delivery-lifecycle.test.mjs
           node --test infra/media/scripts/check-worker-iam.test.mjs
           node infra/media/scripts/check-worker-iam.mjs infra/media/template.yaml
+          node --test infra/media/scripts/check-dev-runtime-boundaries.test.mjs
+          node --test infra/media/scripts/check-dev-bootstrap.test.mjs
 
       - name: Install and test worker
         working-directory: worker/image-transform
@@ -140,6 +142,8 @@ jobs:
           sam validate --lint --region ap-northeast-2 --template-file infra/media/template.yaml
           sam validate --lint --region ap-northeast-2 \
             --template-file infra/media/bootstrap/cloudformation-execution-boundary.yaml
+          sam validate --lint --region ap-northeast-2 --template-file infra/media/bootstrap/dev-runtime-boundaries.json
+          sam validate --lint --region ap-northeast-2 --template-file infra/media/bootstrap/dev-deployment-roles.json
           sam build --template-file infra/media/template.yaml --build-dir .aws-sam/media-build
 
       - name: Upload immutable Lambda build artifact
@@ -459,6 +463,8 @@ jobs:
           fi
 
           aws iam get-role --role-name "${MEDIA_SPRING_APPLICATION_ROLE_NAME}" >/dev/null
+
+          node infra/media/scripts/check-dev-runtime-boundaries.mjs
 
           node infra/media/scripts/check-cloudformation-pass-role.mjs \
             "${AWS_CLOUDFORMATION_EXECUTION_ROLE_ARN}" \

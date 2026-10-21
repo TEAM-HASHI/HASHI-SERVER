@@ -102,6 +102,9 @@ Rules:
         AssertDescription: AlarmNotificationTopicArn is required for production
 
 Conditions:
+  IsDev: !Equals
+    - !Ref EnvironmentName
+    - dev
   HasAlarmNotificationTopic: !Not
     - !Equals
       - !Ref AlarmNotificationTopicArn
@@ -262,6 +265,10 @@ Resources:
     Type: AWS::IAM::Role
     Properties:
       RoleName: !Sub "hashi-${EnvironmentName}-media-image-transform-lambda"
+      PermissionsBoundary: !If
+        - IsDev
+        - !Sub "arn:${AWS::Partition}:iam::${AWS::AccountId}:policy/hashi-dev-media-worker-runtime-boundary"
+        - !Ref AWS::NoValue
       AssumeRolePolicyDocument:
         Version: "2012-10-17"
         Statement:

@@ -105,6 +105,8 @@ jobs:
           node infra/media/scripts/check-deploy-workflow-trust.mjs .github/workflows/deploy-image-pipeline.yml
           node --test infra/media/scripts/check-worker-iam.test.mjs
           node infra/media/scripts/check-worker-iam.mjs infra/media/template.yaml
+          node --test infra/media/scripts/check-dev-runtime-boundaries.test.mjs
+          node --test infra/media/scripts/check-dev-bootstrap.test.mjs
 
       - name: Install exact worker dependencies
         working-directory: worker/image-transform
@@ -121,6 +123,8 @@ jobs:
           sam validate --lint --region ap-northeast-2 --template-file infra/media/template.yaml
           sam validate --lint --region ap-northeast-2 \
             --template-file infra/media/bootstrap/cloudformation-execution-boundary.yaml
+          sam validate --lint --region ap-northeast-2 --template-file infra/media/bootstrap/dev-runtime-boundaries.json
+          sam validate --lint --region ap-northeast-2 --template-file infra/media/bootstrap/dev-deployment-roles.json
 
       - name: Build SAM stack
         run: >-

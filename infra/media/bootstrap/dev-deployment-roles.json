@@ -1,0 +1,654 @@
+{
+  "AWSTemplateFormatVersion": "2010-09-09",
+  "Description": "HASHI dev-only media deployment roles; no production resources",
+  "Parameters": {
+    "ArtifactBucket": {
+      "Type": "String",
+      "AllowedPattern": "^hashi-dev-media-artifacts-[0-9]{12}$"
+    },
+    "DeliveryBucket": {
+      "Type": "String",
+      "AllowedPattern": "^hashi-dev-[a-z0-9-]+$"
+    },
+    "DistributionId": {
+      "Type": "String"
+    },
+    "OriginAccessControlId": {
+      "Type": "String"
+    },
+    "SpringRoleName": {
+      "Type": "String",
+      "AllowedValues": [
+        "hashi-dev-ec2-role"
+      ]
+    },
+    "GitHubOidcProviderHost": {
+      "Type": "String",
+      "AllowedValues": ["token.actions.githubusercontent.com"],
+      "Description": "Existing account-global GitHub OIDC provider; create once outside this stack if absent"
+    }
+  },
+  "Resources": {
+    "ExecutionRole": {
+      "Type": "AWS::IAM::Role",
+      "Properties": {
+        "RoleName": "hashi-dev-media-cloudformation-execution",
+        "PermissionsBoundary": {
+          "Fn::Sub": "arn:${AWS::Partition}:iam::${AWS::AccountId}:policy/hashi-dev-media-cloudformation-execution-boundary"
+        },
+        "AssumeRolePolicyDocument": {
+          "Version": "2012-10-17",
+          "Statement": [
+            {
+              "Effect": "Allow",
+              "Principal": {
+                "Service": "cloudformation.amazonaws.com"
+              },
+              "Action": "sts:AssumeRole"
+            }
+          ]
+        },
+        "Policies": [
+          {
+            "PolicyName": "hashi-dev-media-resource-management",
+            "PolicyDocument": {
+              "Version": "2012-10-17",
+              "Statement": [
+                {
+                  "Sid": "OriginalBucketConfiguration",
+                  "Effect": "Allow",
+                  "Action": [
+                    "s3:CreateBucket",
+                    "s3:GetBucketLocation",
+                    "s3:ListBucket",
+                    "s3:GetBucketPolicy",
+                    "s3:PutBucketPolicy",
+                    "s3:GetBucketPublicAccessBlock",
+                    "s3:PutBucketPublicAccessBlock",
+                    "s3:GetBucketOwnershipControls",
+                    "s3:PutBucketOwnershipControls",
+                    "s3:GetEncryptionConfiguration",
+                    "s3:PutEncryptionConfiguration",
+                    "s3:GetBucketVersioning",
+                    "s3:PutBucketVersioning",
+                    "s3:GetBucketCORS",
+                    "s3:PutBucketCORS",
+                    "s3:GetLifecycleConfiguration",
+                    "s3:PutLifecycleConfiguration",
+                    "s3:GetBucketTagging",
+                    "s3:PutBucketTagging"
+                  ],
+                  "Resource": {
+                    "Fn::Sub": "arn:${AWS::Partition}:s3:::hashi-dev-media-pipeline-originalimagebucket-*"
+                  }
+                },
+                {
+                  "Sid": "ReadPackagedCode",
+                  "Effect": "Allow",
+                  "Action": "s3:GetObject",
+                  "Resource": {
+                    "Fn::Sub": "arn:${AWS::Partition}:s3:::${ArtifactBucket}/media-pipeline/dev/*"
+                  }
+                },
+                {
+                  "Sid": "ManageWorkerRole",
+                  "Effect": "Allow",
+                  "Action": [
+                    "iam:DeleteRole",
+                    "iam:GetRole",
+                    "iam:UpdateAssumeRolePolicy",
+                    "iam:PutRolePolicy",
+                    "iam:DeleteRolePolicy",
+                    "iam:GetRolePolicy",
+                    "iam:ListRolePolicies",
+                    "iam:ListAttachedRolePolicies",
+                    "iam:TagRole",
+                    "iam:UntagRole"
+                  ],
+                  "Resource": {
+                    "Fn::Sub": "arn:${AWS::Partition}:iam::${AWS::AccountId}:role/hashi-dev-media-image-transform-lambda"
+                  }
+                },
+                {
+                  "Sid": "ManageGeneratedMediaPolicies",
+                  "Effect": "Allow",
+                  "Action": [
+                    "iam:CreatePolicy",
+                    "iam:DeletePolicy",
+                    "iam:GetPolicy",
+                    "iam:GetPolicyVersion",
+                    "iam:CreatePolicyVersion",
+                    "iam:DeletePolicyVersion",
+                    "iam:ListPolicyVersions",
+                    "iam:ListEntitiesForPolicy",
+                    "iam:TagPolicy",
+                    "iam:UntagPolicy"
+                  ],
+                  "Resource": {
+                    "Fn::Sub": "arn:${AWS::Partition}:iam::${AWS::AccountId}:policy/hashi-dev-media-pipeline-*"
+                  }
+                },
+                {
+                  "Sid": "AttachOnlyGeneratedPoliciesToDevSpring",
+                  "Effect": "Allow",
+                  "Action": [
+                    "iam:AttachRolePolicy",
+                    "iam:DetachRolePolicy"
+                  ],
+                  "Resource": {
+                    "Fn::Sub": "arn:${AWS::Partition}:iam::${AWS::AccountId}:role/${SpringRoleName}"
+                  },
+                  "Condition": {
+                    "ArnLike": {
+                      "iam:PolicyARN": {
+                        "Fn::Sub": "arn:${AWS::Partition}:iam::${AWS::AccountId}:policy/hashi-dev-media-pipeline-*"
+                      }
+                    }
+                  }
+                },
+                {
+                  "Sid": "InspectSpringRole",
+                  "Effect": "Allow",
+                  "Action": [
+                    "iam:GetRole",
+                    "iam:ListAttachedRolePolicies"
+                  ],
+                  "Resource": {
+                    "Fn::Sub": "arn:${AWS::Partition}:iam::${AWS::AccountId}:role/${SpringRoleName}"
+                  }
+                },
+                {
+                  "Sid": "PassWorkerOnlyToLambda",
+                  "Effect": "Allow",
+                  "Action": "iam:PassRole",
+                  "Resource": {
+                    "Fn::Sub": "arn:${AWS::Partition}:iam::${AWS::AccountId}:role/hashi-dev-media-image-transform-lambda"
+                  },
+                  "Condition": {
+                    "StringEquals": {
+                      "iam:PassedToService": "lambda.amazonaws.com"
+                    }
+                  }
+                },
+                {
+                  "Sid": "ManageImageFunction",
+                  "Effect": "Allow",
+                  "Action": [
+                    "lambda:CreateFunction",
+                    "lambda:DeleteFunction",
+                    "lambda:GetFunction",
+                    "lambda:GetFunctionConfiguration",
+                    "lambda:UpdateFunctionCode",
+                    "lambda:UpdateFunctionConfiguration",
+                    "lambda:PublishVersion",
+                    "lambda:ListVersionsByFunction",
+                    "lambda:CreateAlias",
+                    "lambda:GetAlias",
+                    "lambda:UpdateAlias",
+                    "lambda:DeleteAlias",
+                    "lambda:ListAliases",
+                    "lambda:GetFunctionConcurrency",
+                    "lambda:PutFunctionConcurrency",
+                    "lambda:DeleteFunctionConcurrency",
+                    "lambda:TagResource",
+                    "lambda:UntagResource",
+                    "lambda:ListTags",
+                    "lambda:GetPolicy"
+                  ],
+                  "Resource": [
+                    {
+                      "Fn::Sub": "arn:${AWS::Partition}:lambda:${AWS::Region}:${AWS::AccountId}:function:hashi-dev-image-transform"
+                    },
+                    {
+                      "Fn::Sub": "arn:${AWS::Partition}:lambda:${AWS::Region}:${AWS::AccountId}:function:hashi-dev-image-transform:*"
+                    }
+                  ]
+                },
+                {
+                  "Sid": "CreateOnlyImageEventSource",
+                  "Effect": "Allow",
+                  "Action": "lambda:CreateEventSourceMapping",
+                  "Resource": "*",
+                  "Condition": {
+                    "ArnLike": {
+                      "lambda:FunctionArn": {
+                        "Fn::Sub": "arn:${AWS::Partition}:lambda:${AWS::Region}:${AWS::AccountId}:function:hashi-dev-image-transform:*"
+                      }
+                    }
+                  }
+                },
+                {
+                  "Sid": "ManageOnlyImageEventSource",
+                  "Effect": "Allow",
+                  "Action": [
+                    "lambda:UpdateEventSourceMapping",
+                    "lambda:DeleteEventSourceMapping"
+                  ],
+                  "Resource": {
+                    "Fn::Sub": "arn:${AWS::Partition}:lambda:${AWS::Region}:${AWS::AccountId}:event-source-mapping:*"
+                  },
+                  "Condition": {
+                    "ArnLike": {
+                      "lambda:FunctionArn": {
+                        "Fn::Sub": "arn:${AWS::Partition}:lambda:${AWS::Region}:${AWS::AccountId}:function:hashi-dev-image-transform:*"
+                      }
+                    }
+                  }
+                },
+                {
+                  "Sid": "ReadEventSourceState",
+                  "Effect": "Allow",
+                  "Action": [
+                    "lambda:GetEventSourceMapping",
+                    "lambda:ListTags"
+                  ],
+                  "Resource": {
+                    "Fn::Sub": "arn:${AWS::Partition}:lambda:${AWS::Region}:${AWS::AccountId}:event-source-mapping:*"
+                  }
+                },
+                {
+                  "Sid": "ManageMediaQueues",
+                  "Effect": "Allow",
+                  "Action": [
+                    "sqs:CreateQueue",
+                    "sqs:DeleteQueue",
+                    "sqs:GetQueueAttributes",
+                    "sqs:GetQueueUrl",
+                    "sqs:SetQueueAttributes",
+                    "sqs:TagQueue",
+                    "sqs:UntagQueue",
+                    "sqs:ListQueueTags"
+                  ],
+                  "Resource": {
+                    "Fn::Sub": "arn:${AWS::Partition}:sqs:${AWS::Region}:${AWS::AccountId}:hashi-dev-media-transform-*"
+                  }
+                },
+                {
+                  "Sid": "ManageMediaLogs",
+                  "Effect": "Allow",
+                  "Action": [
+                    "logs:CreateLogGroup",
+                    "logs:DeleteLogGroup",
+                    "logs:PutRetentionPolicy",
+                    "logs:DeleteRetentionPolicy",
+                    "logs:TagResource",
+                    "logs:UntagResource",
+                    "logs:ListTagsForResource",
+                    "logs:TagLogGroup",
+                    "logs:UntagLogGroup",
+                    "logs:ListTagsLogGroup"
+                  ],
+                  "Resource": [
+                    {
+                      "Fn::Sub": "arn:${AWS::Partition}:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/lambda/hashi-dev-image-transform"
+                    },
+                    {
+                      "Fn::Sub": "arn:${AWS::Partition}:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/lambda/hashi-dev-image-transform:*"
+                    }
+                  ]
+                },
+                {
+                  "Sid": "DescribeLogGroups",
+                  "Effect": "Allow",
+                  "Action": "logs:DescribeLogGroups",
+                  "Resource": "*"
+                },
+                {
+                  "Sid": "ManageMediaAlarms",
+                  "Effect": "Allow",
+                  "Action": [
+                    "cloudwatch:PutMetricAlarm",
+                    "cloudwatch:DeleteAlarms",
+                    "cloudwatch:DescribeAlarms",
+                    "cloudwatch:TagResource",
+                    "cloudwatch:UntagResource",
+                    "cloudwatch:ListTagsForResource"
+                  ],
+                  "Resource": {
+                    "Fn::Sub": "arn:${AWS::Partition}:cloudwatch:${AWS::Region}:${AWS::AccountId}:alarm:hashi-dev-media-pipeline-*"
+                  }
+                },
+                {
+                  "Sid": "CreateBoundedWorkerRole",
+                  "Effect": "Allow",
+                  "Action": [
+                    "iam:CreateRole",
+                    "iam:PutRolePermissionsBoundary"
+                  ],
+                  "Resource": {
+                    "Fn::Sub": "arn:${AWS::Partition}:iam::${AWS::AccountId}:role/hashi-dev-media-image-transform-lambda"
+                  },
+                  "Condition": {
+                    "ArnEquals": {
+                      "iam:PermissionsBoundary": {
+                        "Fn::Sub": "arn:${AWS::Partition}:iam::${AWS::AccountId}:policy/hashi-dev-media-worker-runtime-boundary"
+                      }
+                    }
+                  }
+                },
+                {
+                  "Sid": "TagDevEventSource",
+                  "Effect": "Allow",
+                  "Action": "lambda:TagResource",
+                  "Resource": {
+                    "Fn::Sub": "arn:${AWS::Partition}:lambda:${AWS::Region}:${AWS::AccountId}:event-source-mapping:*"
+                  },
+                  "Condition": {
+                    "StringEquals": {
+                      "aws:RequestTag/Project": "HASHI",
+                      "aws:RequestTag/Environment": "dev",
+                      "aws:RequestTag/Component": "media"
+                    },
+                    "StringEqualsIfExists": {
+                      "aws:ResourceTag/Environment": "dev",
+                      "aws:ResourceTag/Project": "HASHI",
+                      "aws:ResourceTag/Component": "media"
+                    }
+                  }
+                },
+                {
+                  "Sid": "TagExistingDevEventSource",
+                  "Effect": "Allow",
+                  "Action": "lambda:TagResource",
+                  "Resource": {
+                    "Fn::Sub": "arn:${AWS::Partition}:lambda:${AWS::Region}:${AWS::AccountId}:event-source-mapping:*"
+                  },
+                  "Condition": {
+                    "StringEquals": {
+                      "aws:ResourceTag/Project": "HASHI",
+                      "aws:ResourceTag/Environment": "dev",
+                      "aws:ResourceTag/Component": "media"
+                    },
+                    "StringEqualsIfExists": {
+                      "aws:RequestTag/Project": "HASHI",
+                      "aws:RequestTag/Environment": "dev",
+                      "aws:RequestTag/Component": "media"
+                    }
+                  }
+                },
+                {
+                  "Sid": "UntagDevEventSource",
+                  "Effect": "Allow",
+                  "Action": "lambda:UntagResource",
+                  "Resource": {
+                    "Fn::Sub": "arn:${AWS::Partition}:lambda:${AWS::Region}:${AWS::AccountId}:event-source-mapping:*"
+                  },
+                  "Condition": {
+                    "StringEquals": {
+                      "aws:ResourceTag/Project": "HASHI",
+                      "aws:ResourceTag/Environment": "dev",
+                      "aws:ResourceTag/Component": "media"
+                    }
+                  }
+                }
+              ]
+            }
+          }
+        ],
+        "Tags": [
+          {
+            "Key": "Project",
+            "Value": "HASHI"
+          },
+          {
+            "Key": "Environment",
+            "Value": "dev"
+          },
+          {
+            "Key": "Component",
+            "Value": "media-bootstrap"
+          }
+        ]
+      }
+    },
+    "DeployRole": {
+      "Type": "AWS::IAM::Role",
+      "Properties": {
+        "RoleName": "hashi-dev-media-github-deploy",
+        "AssumeRolePolicyDocument": {
+          "Version": "2012-10-17",
+          "Statement": [
+            {
+              "Effect": "Allow",
+              "Principal": {
+                "Federated": {
+                  "Fn::Sub": "arn:${AWS::Partition}:iam::${AWS::AccountId}:oidc-provider/${GitHubOidcProviderHost}"
+                }
+              },
+              "Action": "sts:AssumeRoleWithWebIdentity",
+              "Condition": {
+                "StringEquals": {
+                  "token.actions.githubusercontent.com:aud": "sts.amazonaws.com",
+                  "token.actions.githubusercontent.com:sub": "repo:TEAM-HASHI/HASHI-SERVER:ref:refs/heads/develop"
+                }
+              }
+            }
+          ]
+        },
+        "Policies": [
+          {
+            "PolicyName": "hashi-dev-media-deploy",
+            "PolicyDocument": {
+              "Version": "2012-10-17",
+              "Statement": [
+                {
+                  "Sid": "InspectBuckets",
+                  "Effect": "Allow",
+                  "Action": [
+                    "s3:ListBucket",
+                    "s3:GetBucketLocation",
+                    "s3:GetBucketPublicAccessBlock",
+                    "s3:GetLifecycleConfiguration"
+                  ],
+                  "Resource": [
+                    {
+                      "Fn::Sub": "arn:${AWS::Partition}:s3:::${ArtifactBucket}"
+                    },
+                    {
+                      "Fn::Sub": "arn:${AWS::Partition}:s3:::${DeliveryBucket}"
+                    }
+                  ]
+                },
+                {
+                  "Sid": "PublishCode",
+                  "Effect": "Allow",
+                  "Action": [
+                    "s3:GetObject",
+                    "s3:PutObject"
+                  ],
+                  "Resource": {
+                    "Fn::Sub": "arn:${AWS::Partition}:s3:::${ArtifactBucket}/media-pipeline/dev/*"
+                  }
+                },
+                {
+                  "Sid": "InspectDelivery",
+                  "Effect": "Allow",
+                  "Action": "cloudfront:GetDistribution",
+                  "Resource": {
+                    "Fn::Sub": "arn:${AWS::Partition}:cloudfront::${AWS::AccountId}:distribution/${DistributionId}"
+                  }
+                },
+                {
+                  "Sid": "InspectOriginAccess",
+                  "Effect": "Allow",
+                  "Action": "cloudfront:GetOriginAccessControl",
+                  "Resource": {
+                    "Fn::Sub": "arn:${AWS::Partition}:cloudfront::${AWS::AccountId}:origin-access-control/${OriginAccessControlId}"
+                  }
+                },
+                {
+                  "Sid": "InspectRoles",
+                  "Effect": "Allow",
+                  "Action": "iam:GetRole",
+                  "Resource": [
+                    {
+                      "Fn::Sub": "arn:${AWS::Partition}:iam::${AWS::AccountId}:role/${SpringRoleName}"
+                    },
+                    {
+                      "Fn::GetAtt": [
+                        "ExecutionRole",
+                        "Arn"
+                      ]
+                    },
+                    {
+                      "Fn::Sub": "arn:${AWS::Partition}:iam::${AWS::AccountId}:role/hashi-dev-media-image-transform-lambda"
+                    }
+                  ]
+                },
+                {
+                  "Sid": "InspectBoundary",
+                  "Effect": "Allow",
+                  "Action": [
+                    "iam:GetPolicy",
+                    "iam:GetPolicyVersion"
+                  ],
+                  "Resource": [
+                    {
+                      "Fn::Sub": "arn:${AWS::Partition}:iam::${AWS::AccountId}:policy/hashi-dev-media-cloudformation-execution-boundary"
+                    },
+                    {
+                      "Fn::Sub": "arn:${AWS::Partition}:iam::${AWS::AccountId}:policy/hashi-dev-media-worker-runtime-boundary"
+                    },
+                    {
+                      "Fn::Sub": "arn:${AWS::Partition}:iam::${AWS::AccountId}:policy/hashi-dev-media-spring-runtime-boundary"
+                    }
+                  ]
+                },
+                {
+                  "Sid": "SimulateExecutionRole",
+                  "Effect": "Allow",
+                  "Action": "iam:SimulatePrincipalPolicy",
+                  "Resource": {
+                    "Fn::GetAtt": [
+                      "ExecutionRole",
+                      "Arn"
+                    ]
+                  }
+                },
+                {
+                  "Sid": "PassExecutionRoleOnlyToCloudFormation",
+                  "Effect": "Allow",
+                  "Action": "iam:PassRole",
+                  "Resource": {
+                    "Fn::GetAtt": [
+                      "ExecutionRole",
+                      "Arn"
+                    ]
+                  },
+                  "Condition": {
+                    "StringEquals": {
+                      "iam:PassedToService": "cloudformation.amazonaws.com"
+                    }
+                  }
+                },
+                {
+                  "Sid": "CreateUpdateDevStackWithExactRole",
+                  "Effect": "Allow",
+                  "Action": [
+                    "cloudformation:CreateStack",
+                    "cloudformation:UpdateStack",
+                    "cloudformation:CreateChangeSet"
+                  ],
+                  "Resource": {
+                    "Fn::Sub": "arn:${AWS::Partition}:cloudformation:${AWS::Region}:${AWS::AccountId}:stack/hashi-dev-media-pipeline/*"
+                  },
+                  "Condition": {
+                    "ArnEquals": {
+                      "cloudformation:RoleARN": {
+                        "Fn::GetAtt": [
+                          "ExecutionRole",
+                          "Arn"
+                        ]
+                      }
+                    }
+                  }
+                },
+                {
+                  "Sid": "ApplyServerlessTransform",
+                  "Effect": "Allow",
+                  "Action": "cloudformation:CreateChangeSet",
+                  "Resource": {
+                    "Fn::Sub": "arn:${AWS::Partition}:cloudformation:${AWS::Region}:aws:transform/Serverless-2016-10-31"
+                  }
+                },
+                {
+                  "Sid": "InspectAndExecuteDevStack",
+                  "Effect": "Allow",
+                  "Action": [
+                    "cloudformation:DescribeStacks",
+                    "cloudformation:DescribeStackEvents",
+                    "cloudformation:DescribeStackResources",
+                    "cloudformation:ListStackResources",
+                    "cloudformation:GetTemplate",
+                    "cloudformation:GetTemplateSummary",
+                    "cloudformation:DescribeChangeSet",
+                    "cloudformation:ExecuteChangeSet",
+                    "cloudformation:DeleteChangeSet",
+                    "cloudformation:UpdateTerminationProtection"
+                  ],
+                  "Resource": {
+                    "Fn::Sub": "arn:${AWS::Partition}:cloudformation:${AWS::Region}:${AWS::AccountId}:stack/hashi-dev-media-pipeline/*"
+                  }
+                },
+                {
+                  "Sid": "InspectDevAlarmTopic",
+                  "Effect": "Allow",
+                  "Action": [
+                    "sns:GetTopicAttributes",
+                    "sns:ListSubscriptionsByTopic"
+                  ],
+                  "Resource": {
+                    "Fn::Sub": "arn:${AWS::Partition}:sns:${AWS::Region}:${AWS::AccountId}:hashi-dev-media-alarms"
+                  }
+                },
+                {
+                  "Sid": "TagExactDevStack",
+                  "Effect": "Allow",
+                  "Action": [
+                    "cloudformation:TagResource",
+                    "cloudformation:UntagResource"
+                  ],
+                  "Resource": {
+                    "Fn::Sub": "arn:${AWS::Partition}:cloudformation:${AWS::Region}:${AWS::AccountId}:stack/hashi-dev-media-pipeline/*"
+                  }
+                }
+              ]
+            }
+          }
+        ],
+        "Tags": [
+          {
+            "Key": "Project",
+            "Value": "HASHI"
+          },
+          {
+            "Key": "Environment",
+            "Value": "dev"
+          },
+          {
+            "Key": "Component",
+            "Value": "media-bootstrap"
+          }
+        ]
+      }
+    }
+  },
+  "Outputs": {
+    "ExecutionRoleArn": {
+      "Value": {
+        "Fn::GetAtt": [
+          "ExecutionRole",
+          "Arn"
+        ]
+      }
+    },
+    "DeployRoleArn": {
+      "Value": {
+        "Fn::GetAtt": [
+          "DeployRole",
+          "Arn"
+        ]
+      }
+    }
+  }
+}
