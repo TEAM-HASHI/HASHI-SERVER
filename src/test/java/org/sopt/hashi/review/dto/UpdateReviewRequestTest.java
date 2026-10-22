@@ -28,7 +28,7 @@ class UpdateReviewRequestTest {
 
         assertThat(violations)
                 .extracting(violation -> violation.getPropertyPath().toString())
-                .containsExactlyInAnyOrder("rating", "keywordCodes", "content", "imageFileKeys");
+                .containsExactlyInAnyOrder("rating", "keywordCodes", "content", "imageSourceValid");
     }
 
     @Test
@@ -80,5 +80,19 @@ class UpdateReviewRequestTest {
                 "직원분들이 친절하고 음식이 정말 맛있었습니다.",
                 imageFileKeys
         );
+    }
+
+    @Test
+    void 새_이미지_wrapper는_정확히_하나의_source와_상호배타_목록을_요구한다() {
+        var id = java.util.UUID.randomUUID();
+        assertThat(validator.validate(new UpdateReviewRequest(5, List.of("GOOD_VALUE"),
+                "충분히 긴 리뷰 내용입니다.", null, List.of(new UpdateReviewRequest.Image(null, id))))).isEmpty();
+        for (var image : List.of(new UpdateReviewRequest.Image(null, null),
+                new UpdateReviewRequest.Image(1L, id), new UpdateReviewRequest.Image(0L, null))) {
+            assertThat(validator.validate(new UpdateReviewRequest(5, List.of("GOOD_VALUE"),
+                    "충분히 긴 리뷰 내용입니다.", null, List.of(image)))).isNotEmpty();
+        }
+        assertThat(validator.validate(new UpdateReviewRequest(5, List.of("GOOD_VALUE"),
+                "충분히 긴 리뷰 내용입니다.", List.of(), List.of()))).isNotEmpty();
     }
 }

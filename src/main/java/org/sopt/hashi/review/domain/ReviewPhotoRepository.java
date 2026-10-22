@@ -4,6 +4,7 @@ import java.util.Collection;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
+import java.util.UUID;
 import org.springframework.jdbc.core.namedparam.MapSqlParameterSource;
 import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
 import org.springframework.stereotype.Repository;
@@ -16,6 +17,8 @@ public class ReviewPhotoRepository {
             where r.restaurant_id = :restaurantId and r.deleted = false
             """;
     private static final String ORDER = "r.created_at desc, r.id desc, i.display_order, i.id";
+    private static final String IDENTITY = "cast(case when i.image_asset_id is not null "
+            + "then concat('asset:', i.image_asset_id) else concat('key:', i.file_key) end as binary)";
     private final NamedParameterJdbcTemplate jdbc;
 
     public ReviewPhotoRepository(NamedParameterJdbcTemplate jdbc) {
@@ -23,16 +26,16 @@ public class ReviewPhotoRepository {
     }
 
     public long count(long restaurantId, boolean distinct, Collection<String> excludedKeys) {
-        String expression = distinct ? "count(distinct cast(i.file_key as binary))" : "count(*)";
+        String expression = distinct ? "count(distinct " + IDENTITY + ")" : "count(*)";
         return jdbc.queryForObject("select " + expression + " " + FROM + exclusions(excludedKeys),
                 parameters(restaurantId, excludedKeys), Long.class);
     }
 
     public List<Photo> find(long restaurantId, boolean distinct, Collection<String> excludedKeys,
                             Position after, int limit) {
-        String projection = "i.id, i.file_key, r.created_at, r.id as review_id, i.display_order";
+        String projection = "i.id, i.file_key, i.image_asset_id, r.created_at, r.id as review_id, i.display_order";
         String inner = distinct
-                ? "select " + projection + ", row_number() over(partition by cast(i.file_key as binary) order by "
+                ? "select " + projection + ", row_number() over(partition by " + IDENTITY + " order by "
                         + ORDER + ") as duplicate_rank " + FROM + exclusions(excludedKeys)
                 : "select " + projection + ", 1 as duplicate_rank " + FROM + exclusions(excludedKeys);
         String seek = seekAfter(after);
@@ -47,6 +50,8 @@ public class ReviewPhotoRepository {
                 (rs, row) -> {
                     var createdAt = rs.getTimestamp("created_at");
                     return new Photo(rs.getLong("id"), rs.getString("file_key"),
+                            rs.getString("image_asset_id") == null ? null
+                                    : UUID.fromString(rs.getString("image_asset_id")),
                             new Position(createdAt == null ? null : createdAt.toLocalDateTime(),
                                     rs.getLong("review_id"), rs.getInt("display_order"), rs.getLong("id")));
                 });
@@ -85,7 +90,7 @@ public class ReviewPhotoRepository {
     }
 
     private static String exclusions(Collection<String> keys) {
-        return keys.isEmpty() ? "" : " and cast(i.file_key as binary) not in (:excludedKeys)";
+        return keys.isEmpty() ? "" : " and (i.file_key is null or cast(i.file_key as binary) not in (:excludedKeys))";
     }
 
     private static MapSqlParameterSource parameters(long restaurantId, Collection<String> keys) {
@@ -94,5 +99,9 @@ public class ReviewPhotoRepository {
 
     public record Position(java.time.LocalDateTime createdAt, long reviewId, int displayOrder, long imageId) { }
 
-    public record Photo(long id, String fileKey, Position position) { }
+    public record Photo(long id, String fileKey, UUID imageAssetId, Position position) {
+        public Photo(long id, String fileKey, Position position) {
+            this(id, fileKey, null, position);
+        }
+    }
 }

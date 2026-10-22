@@ -32,6 +32,27 @@ class RestaurantPhotoServiceTest {
     private final RestaurantPhotoService service = new RestaurantPhotoService(restaurants, reviews, media, storage);
 
     @Test
+    void 리뷰_asset은_DETAIL로_bulk조회하고_누락된_슬롯도_원본없이_유지한다() {
+        UUID readyId = UUID.randomUUID();
+        UUID missingId = UUID.randomUUID();
+        when(restaurants.existsActiveById(1L)).thenReturn(true);
+        when(reviews.find(1L, false, List.of(), null, 21)).thenReturn(List.of(
+                new ReviewPhotoRepository.Photo(10L, null, readyId,
+                        new ReviewPhotoRepository.Position(null, 5L, 0, 10L)),
+                new ReviewPhotoRepository.Photo(11L, "private-key", missingId,
+                        new ReviewPhotoRepository.Position(null, 5L, 1, 11L))));
+        var request = new MediaImageRequest(readyId, MediaImageRole.REVIEW_DETAIL);
+        when(media.findImages(anyCollection())).thenReturn(Map.of(request, ready(readyId, request.role())));
+        var response = service.getPhotos(1L, RestaurantPhotoFilter.REVIEW, null);
+        assertThat(response.photos()).hasSize(2);
+        assertThat(response.photos().getFirst().image().role()).isEqualTo(MediaImageRole.REVIEW_DETAIL);
+        assertThat(response.photos().get(1).imageUrl()).isNull();
+        org.mockito.Mockito.verify(media).findImages(List.of(request,
+                new MediaImageRequest(missingId, MediaImageRole.REVIEW_DETAIL)));
+        verifyNoInteractions(storage);
+    }
+
+    @Test
     void 혼합_진행은_대표1_리뷰3이며_한_출처가_끝나면_나머지_후_메뉴이다() {
         assertThat(RestaurantPhotoService.nextSource(0, false, true, true)).isEqualTo(RestaurantPhotoFilter.REPRESENTATIVE);
         for (int phase = 1; phase <= 3; phase++) {

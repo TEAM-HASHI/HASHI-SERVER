@@ -6,10 +6,8 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
-import java.util.Set;
 import java.util.function.Function;
 import java.util.stream.Collectors;
-import java.util.stream.IntStream;
 import lombok.extern.slf4j.Slf4j;
 import org.sopt.hashi.auth.CurrentUserProvider;
 import org.sopt.hashi.media.ImageReference;
@@ -52,7 +50,6 @@ public class MyReviewService {
     private static final int DEFAULT_PAGE_SIZE = 10;
     private static final int MAX_PAGE_SIZE = 50;
     private static final String WITHDRAWN_REVIEWER_NICKNAME = "탈퇴한 회원";
-    private static final String REVIEW_IMAGE_PREFIX = "uploads/reviews/";
 
     private final ReviewRepository reviewRepository;
     private final ReservationPort reservationPort;
@@ -136,10 +133,12 @@ public class MyReviewService {
         String reviewerNickname = userPort.findById(userId)
                 .map(UserInfo::nickname)
                 .orElse(WITHDRAWN_REVIEWER_NICKNAME);
-        MediaProjection mediaProjection = loadThumbnailProjection(
-                referenceList(restaurant.thumbnailImageReference()));
+        MediaProjection mediaProjection = loadProjection(
+                referenceList(restaurant.thumbnailImageReference()), review.getImages());
         ProjectedImage thumbnail = projectThumbnail(
                 restaurant.thumbnailImageReference(), mediaProjection);
+        var images = ReviewImageProjection.project(review.getImages(), MediaImageRole.REVIEW_DETAIL,
+                mediaProjection.images(), fileStorage);
 
         return new MyReviewDetailResponse(
                 review.getId(),
@@ -154,7 +153,8 @@ public class MyReviewService {
                 review.getRating(),
                 review.getContent(),
                 keywordLabels(review),
-                imageUrls(review),
+                ReviewImageProjection.urls(images),
+                images,
                 review.getCreatedAt()
         );
     }
@@ -166,8 +166,8 @@ public class MyReviewService {
                 .getReviewInfoByIdAndUserId(review.getReservationId(), userId);
         RestaurantInfo restaurant = restaurantPort.findSummaryById(review.getRestaurantId())
                 .orElseThrow(() -> new BusinessException(ReviewErrorCode.RESTAURANT_NOT_FOUND));
-        MediaProjection mediaProjection = loadThumbnailProjection(
-                referenceList(restaurant.thumbnailImageReference()));
+        MediaProjection mediaProjection = loadProjection(
+                referenceList(restaurant.thumbnailImageReference()), review.getImages());
         ProjectedImage thumbnail = projectThumbnail(
                 restaurant.thumbnailImageReference(), mediaProjection);
 
@@ -186,7 +186,7 @@ public class MyReviewService {
                 review.getContent(),
                 selectedKeywordCodes(review),
                 ReviewContextResponse.keywordOptions(),
-                editImages(review)
+                editImages(review, mediaProjection)
         );
     }
 
@@ -199,13 +199,16 @@ public class MyReviewService {
     public void updateMyReview(Long reviewId, UpdateReviewRequest request) {
         Long userId = currentUserProvider.currentUserId();
         List<String> keywordCodes = parseKeywordCodes(request.keywordCodes());
-        List<String> imageFileKeys = validateImageFileKeys(request.imageFileKeys());
+        ReviewImageWritePlan.validateUpdateInput(request);
         Review review = getOwnedActiveReviewForUpdate(reviewId, userId);
         int oldRating = review.getRating();
-        List<ReviewImage> images = parseImages(imageFileKeys, review);
+        ReviewImageWritePlan imagePlan = ReviewImageWritePlan.update(review.getImages(), request);
+        if (!imagePlan.claims().isEmpty() || !imagePlan.retires().isEmpty()) {
+            mediaPort.reconcileBindings(imagePlan.claims(), imagePlan.retires());
+        }
 
         review.updateRatingAndContent(request.rating(), request.content());
-        replaceEditableCollectionsWithFlush(review, keywordCodes, images);
+        replaceEditableCollectionsWithFlush(review, keywordCodes, imagePlan.images());
 
         if (oldRating != request.rating()) {
             restaurantPort.updateReviewRatingStatistics(
@@ -223,6 +226,7 @@ public class MyReviewService {
         int rating = review.getRating();
 
         review.softDelete();
+        // 콘텐츠 soft delete 동안 association과 BOUND를 보존한다(이미지 제거·교체와 구분).
         reviewRepository.flush();
         restaurantPort.decreaseReviewStatistics(restaurantId, rating);
         // 삭제는 식당 통계 감소에 연쇄되고, 재작성 시 보상 미지급 판정의 근거가 되는 전이라 남긴다
@@ -278,19 +282,19 @@ public class MyReviewService {
                 .toList();
     }
 
-    private List<String> imageUrls(Review review) {
-        return review.getImages().stream()
-                .map(image -> fileStorage.resolveFileUrl(image.getFileKey()))
-                .toList();
-    }
-
-    private List<ReviewEditImageResponse> editImages(Review review) {
-        return review.getImages().stream()
-                .map(image -> new ReviewEditImageResponse(
-                        image.getFileKey(),
-                        fileStorage.resolveFileUrl(image.getFileKey()),
-                        image.getDisplayOrder()))
-                .toList();
+    private List<ReviewEditImageResponse> editImages(Review review, MediaProjection projection) {
+        var projected = ReviewImageProjection.project(review.getImages(), MediaImageRole.REVIEW_DETAIL,
+                projection.images(), fileStorage);
+        List<ReviewEditImageResponse> result = new ArrayList<>();
+        for (int index = 0; index < review.getImages().size(); index++) {
+            var image = review.getImages().get(index);
+            var selected = projected.get(index);
+            result.add(new ReviewEditImageResponse(
+                    image.getImageAssetId() == null ? image.getFileKey() : null,
+                    selected.displayUrl(), image.getDisplayOrder(), image.getId(),
+                    image.getImageAssetId(), selected.image()));
+        }
+        return List.copyOf(result);
     }
 
     private List<String> parseKeywordCodes(List<String> requestedCodes) {
@@ -307,50 +311,17 @@ public class MyReviewService {
                 .toList();
     }
 
-    private List<String> validateImageFileKeys(List<String> imageFileKeys) {
-        if (imageFileKeys == null
-                || imageFileKeys.size() > 10
-                || imageFileKeys.stream().anyMatch(
-                        fileKey -> fileKey == null || fileKey.length() > 500)
-                || new HashSet<>(imageFileKeys).size() != imageFileKeys.size()) {
-            throw new BusinessException(CommonErrorCode.INVALID_INPUT);
-        }
-        return imageFileKeys;
-    }
-
-    private List<ReviewImage> parseImages(List<String> imageFileKeys, Review review) {
-        Set<String> existingFileKeys = review.getImages().stream()
-                .map(ReviewImage::getFileKey)
-                .collect(Collectors.toCollection(HashSet::new));
-        return IntStream.range(0, imageFileKeys.size())
-                .mapToObj(index -> ReviewImage.create(
-                        validateReviewImageKey(imageFileKeys.get(index), existingFileKeys),
-                        index))
-                .toList();
-    }
-
-    private String validateReviewImageKey(String fileKey, Set<String> existingFileKeys) {
-        boolean invalidNewKey = !existingFileKeys.contains(fileKey)
-                && (!fileKey.startsWith(REVIEW_IMAGE_PREFIX)
-                || fileKey.contains("..")
-                || fileKey.contains("\\"));
-        if (invalidNewKey) {
-            throw new BusinessException(CommonErrorCode.INVALID_INPUT);
-        }
-        return fileKey;
-    }
-
-    // review_keyword PK와 review_image 순서 유니크 제약 때문에 delete를 먼저 flush한 뒤 재구성한다.
+    // 키워드는 재구성하고 이미지 순서는 일시 NULL로 비워 retained association ID를 보존한다.
     private void replaceEditableCollectionsWithFlush(
             Review review,
             List<String> keywordCodes,
             List<ReviewImage> images
     ) {
         review.replaceKeywords(List.of());
-        review.replaceImages(List.of());
+        review.stageImageOrderChange();
         reviewRepository.flush();
         review.replaceKeywords(keywordCodes);
-        review.replaceImages(images);
+        review.applyImages(images);
         reviewRepository.flush();
     }
 
@@ -390,14 +361,19 @@ public class MyReviewService {
     }
 
     private MediaProjection loadThumbnailProjection(Collection<ImageReference> references) {
-        List<MediaImageRequest> requests = references.stream()
+        return loadProjection(references, List.of());
+    }
+
+    private MediaProjection loadProjection(Collection<ImageReference> references, List<ReviewImage> images) {
+        List<MediaImageRequest> requests = new ArrayList<>(references.stream()
                 .filter(Objects::nonNull)
                 .map(ImageReference::assetId)
                 .filter(Objects::nonNull)
                 .map(assetId -> new MediaImageRequest(
                         assetId, MediaImageRole.RESTAURANT_THUMBNAIL))
                 .distinct()
-                .toList();
+                .toList());
+        requests.addAll(ReviewImageProjection.requests(images, MediaImageRole.REVIEW_DETAIL));
         if (requests.isEmpty()) {
             return MediaProjection.empty();
         }

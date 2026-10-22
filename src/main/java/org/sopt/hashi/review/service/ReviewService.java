@@ -85,7 +85,7 @@ public class ReviewService {
                 .collect(Collectors.toMap(UserProfileInfo::id, Function.identity()));
         MediaProjection profileProjection = loadProfileProjection(reviewerProfiles.values().stream()
                 .map(UserProfileInfo::profileImageReference)
-                .toList());
+                .toList(), pageContent);
 
         return new RestaurantReviewResponse(
                 restaurantId,
@@ -181,6 +181,8 @@ public class ReviewService {
                 ? ProjectedImage.empty()
                 : projectProfileImage(
                         reviewerProfile.profileImageReference(), profileProjection);
+        var images = ReviewImageProjection.project(review.getImages(), MediaImageRole.REVIEW_PREVIEW,
+                profileProjection.images(), fileStorage);
         return new ReviewSummaryResponse(
                 review.getId(),
                 reviewerProfile == null ? WITHDRAWN_REVIEWER_NICKNAME : reviewerProfile.nickname(),
@@ -191,22 +193,23 @@ public class ReviewService {
                 review.getKeywords().stream()
                         .map(ReviewKeyword::labelOfStoredValue)
                         .toList(),
-                review.getImages().stream()
-                        .map(image -> fileStorage.resolveFileUrl(image.getFileKey()))
-                        .toList(),
+                ReviewImageProjection.urls(images),
+                images,
                 review.getImages().size(),
                 review.getCreatedAt()
         );
     }
 
-    private MediaProjection loadProfileProjection(List<ImageReference> references) {
-        List<MediaImageRequest> requests = references.stream()
+    private MediaProjection loadProfileProjection(List<ImageReference> references, List<Review> reviews) {
+        List<MediaImageRequest> requests = new ArrayList<>(references.stream()
                 .filter(Objects::nonNull)
                 .map(ImageReference::assetId)
                 .filter(Objects::nonNull)
                 .map(assetId -> new MediaImageRequest(assetId, MediaImageRole.PROFILE_AVATAR))
                 .distinct()
-                .toList();
+                .toList());
+        requests.addAll(ReviewImageProjection.requests(reviews.stream()
+                .flatMap(review -> review.getImages().stream()).toList(), MediaImageRole.REVIEW_PREVIEW));
         return requests.isEmpty()
                 ? MediaProjection.empty()
                 : new MediaProjection(mediaPort.findImages(requests));

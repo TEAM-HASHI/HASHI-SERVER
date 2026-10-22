@@ -498,6 +498,33 @@ class MyReviewServiceTest {
         return review(userId, REVIEW_ID);
     }
 
+    @Test
+    void 내_상세와_수정컨텍스트는_asset원본_없이_DETAIL과_안정_ID를_반환한다() {
+        Review review = review(USER_ID);
+        UUID asset = UUID.randomUUID();
+        ReviewImage image = ReviewImage.createAsset(asset, 0);
+        ReflectionTestUtils.setField(image, "id", 70L);
+        ReflectionTestUtils.setField(image, "fileKey", "private-original");
+        review.replaceImages(List.of(image));
+        given(currentUserProvider.currentUserId()).willReturn(USER_ID);
+        given(reviewRepository.findByIdAndUserIdAndDeletedFalse(REVIEW_ID, USER_ID)).willReturn(Optional.of(review));
+        given(reservationPort.getReviewInfoByIdAndUserId(RESERVATION_ID, USER_ID)).willReturn(reservation());
+        given(restaurantPort.findSummaryById(RESTAURANT_ID)).willReturn(Optional.of(restaurant()));
+        var request = new MediaImageRequest(asset, MediaImageRole.REVIEW_DETAIL);
+        var rendition = new MediaImage(asset, request.role(), MediaImageStatus.PROCESSING, null, List.of());
+        given(mediaPort.findImages(List.of(request))).willReturn(Map.of(request, rendition));
+        var detail = myReviewService.getMyReview(REVIEW_ID);
+        assertThat(detail.imageUrls()).isEmpty();
+        assertThat(detail.images().getFirst().reviewImageId()).isEqualTo(70L);
+        assertThat(detail.images().getFirst().image()).isEqualTo(rendition);
+        var edit = myReviewService.getMyReviewEditContext(REVIEW_ID).images().getFirst();
+        assertThat(edit.reviewImageId()).isEqualTo(70L);
+        assertThat(edit.imageAssetId()).isEqualTo(asset);
+        assertThat(edit.fileKey()).isNull();
+        assertThat(edit.imageUrl()).isNull();
+        verifyNoInteractions(fileStorage);
+    }
+
     private Review review(Long userId, Long reviewId) {
         return review(userId, reviewId, RESERVATION_ID, RESTAURANT_ID);
     }

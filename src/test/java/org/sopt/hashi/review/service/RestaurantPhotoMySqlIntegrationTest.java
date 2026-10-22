@@ -214,6 +214,23 @@ class RestaurantPhotoMySqlIntegrationTest {
                 .isInstanceOf(BusinessException.class);
     }
 
+    @Test
+    void key없는_asset도_전체탭_개수와_중복제거_커서에서_빠지지_않는다() {
+        Review legacy = createReview(List.of("representative-key"), false);
+        Review assetReview = Review.create(System.nanoTime(), restaurant.getId(), 1L, 5, "asset fixture");
+        var first = java.util.UUID.randomUUID();
+        var second = java.util.UUID.randomUUID();
+        assetReview.replaceImages(List.of(ReviewImage.createAsset(first, 0), ReviewImage.createAsset(second, 1)));
+        reviews.saveAndFlush(assetReview);
+        assertThat(photos.count(restaurant.getId(), false, List.of())).isEqualTo(3);
+        assertThat(photos.count(restaurant.getId(), true, List.of("representative-key"))).isEqualTo(2);
+        var page1 = photos.find(restaurant.getId(), true, List.of("representative-key"), null, 1);
+        var page2 = photos.find(restaurant.getId(), true, List.of("representative-key"), page1.getFirst().position(), 1);
+        assertThat(page1.getFirst().imageAssetId()).isEqualTo(first);
+        assertThat(page2.getFirst().imageAssetId()).isEqualTo(second);
+        assertThat(page1.getFirst().id()).isNotEqualTo(page2.getFirst().id());
+    }
+
     private Review createReview(List<String> keys, boolean deleted) {
         Review review = Review.create(System.nanoTime(), restaurant.getId(), 1L, 5, "fixture");
         List<ReviewImage> images = new ArrayList<>();

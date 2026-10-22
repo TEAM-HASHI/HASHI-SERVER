@@ -2,9 +2,9 @@ package org.sopt.hashi.review.service;
 
 import java.util.HashSet;
 import java.util.List;
-import java.util.stream.IntStream;
 import lombok.extern.slf4j.Slf4j;
 import org.sopt.hashi.auth.CurrentUserProvider;
+import org.sopt.hashi.media.MediaPort;
 import org.sopt.hashi.point.PointPort;
 import org.sopt.hashi.reservation.ReservationPort;
 import org.sopt.hashi.reservation.ReservationReviewInfo;
@@ -12,7 +12,6 @@ import org.sopt.hashi.reservation.ReservationStatus;
 import org.sopt.hashi.restaurant.RestaurantPort;
 import org.sopt.hashi.review.code.ReviewErrorCode;
 import org.sopt.hashi.review.domain.Review;
-import org.sopt.hashi.review.domain.ReviewImage;
 import org.sopt.hashi.review.domain.ReviewKeyword;
 import org.sopt.hashi.review.domain.ReviewRepository;
 import org.sopt.hashi.review.dto.CreateReviewRequest;
@@ -28,14 +27,13 @@ import org.springframework.transaction.annotation.Transactional;
 @Service
 public class ReviewWriteService {
 
-    private static final String REVIEW_IMAGE_PREFIX = "uploads/reviews/";
-
     private final ReviewRepository reviewRepository;
     private final ReservationPort reservationPort;
     private final RestaurantPort restaurantPort;
     private final PointPort pointPort;
     private final UserPort userPort;
     private final CurrentUserProvider currentUserProvider;
+    private final MediaPort mediaPort;
 
     public ReviewWriteService(
             ReviewRepository reviewRepository,
@@ -43,7 +41,8 @@ public class ReviewWriteService {
             RestaurantPort restaurantPort,
             PointPort pointPort,
             UserPort userPort,
-            CurrentUserProvider currentUserProvider
+            CurrentUserProvider currentUserProvider,
+            MediaPort mediaPort
     ) {
         this.reviewRepository = reviewRepository;
         this.reservationPort = reservationPort;
@@ -51,6 +50,7 @@ public class ReviewWriteService {
         this.pointPort = pointPort;
         this.userPort = userPort;
         this.currentUserProvider = currentUserProvider;
+        this.mediaPort = mediaPort;
     }
 
     @Transactional
@@ -64,7 +64,8 @@ public class ReviewWriteService {
         validateNoReviewHistory(reservation.id());
 
         List<String> keywordCodes = parseKeywordCodes(request.keywordCodes());
-        List<ReviewImage> images = parseImages(request.imageFileKeys());
+        ReviewImageWritePlan imagePlan = ReviewImageWritePlan.create(
+                request.imageFileKeys(), request.imageAssetIds());
 
         Review review = Review.create(
                 reservation.id(),
@@ -74,9 +75,12 @@ public class ReviewWriteService {
                 request.content()
         );
         review.replaceKeywords(keywordCodes);
-        review.replaceImages(images);
+        review.replaceImages(imagePlan.images());
 
         lockActiveReviewer(userId);
+        if (!imagePlan.claims().isEmpty()) {
+            mediaPort.reconcileBindings(imagePlan.claims(), List.of());
+        }
         Review savedReview = save(review);
         restaurantPort.increaseReviewStatistics(reservation.restaurantId(), request.rating());
         long earnedPoint = pointPort.earnReviewReward(userId, reservation.id());
@@ -127,26 +131,6 @@ public class ReviewWriteService {
                         .orElseThrow(() -> new BusinessException(ReviewErrorCode.UNSUPPORTED_KEYWORD)))
                 .map(Enum::name)
                 .toList();
-    }
-
-    private List<ReviewImage> parseImages(List<String> imageFileKeys) {
-        if (imageFileKeys == null) {
-            return List.of();
-        }
-        return IntStream.range(0, imageFileKeys.size())
-                .mapToObj(index -> ReviewImage.create(
-                        validateReviewImageKey(imageFileKeys.get(index)),
-                        index))
-                .toList();
-    }
-
-    private String validateReviewImageKey(String fileKey) {
-        if (!fileKey.startsWith(REVIEW_IMAGE_PREFIX)
-                || fileKey.contains("..")
-                || fileKey.contains("\\")) {
-            throw new BusinessException(CommonErrorCode.INVALID_INPUT);
-        }
-        return fileKey;
     }
 
     private Review save(Review review) {

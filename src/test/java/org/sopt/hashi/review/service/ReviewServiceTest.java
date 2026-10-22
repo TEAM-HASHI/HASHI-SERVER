@@ -155,6 +155,28 @@ class ReviewServiceTest {
     }
 
     @Test
+    void 리뷰_목록은_전체_첨부슬롯을_PREVIEW로_한번에_조회한다() {
+        Review review = createReview(10L, 7L, 5, LocalDateTime.now());
+        UUID assetId = UUID.randomUUID();
+        ReviewImage image = ReviewImage.createAsset(assetId, 0);
+        ReflectionTestUtils.setField(image, "id", 90L);
+        review.replaceImages(List.of(image));
+        given(restaurantPort.existsById(RESTAURANT_ID)).willReturn(true);
+        given(reviewRepository.findLatestPage(RESTAURANT_ID, null, null, PageRequest.of(0, 6)))
+                .willReturn(List.of(review));
+        var request = new MediaImageRequest(assetId, MediaImageRole.REVIEW_PREVIEW);
+        given(mediaPort.findImages(List.of(request))).willReturn(Map.of(request,
+                new MediaImage(assetId, request.role(), MediaImageStatus.PROCESSING, null, List.of())));
+        var result = reviewService.getRestaurantReviews(RESTAURANT_ID, null, null, null).content().getFirst();
+        assertThat(result.imageCount()).isOne();
+        assertThat(result.previewImageUrls()).isEmpty();
+        assertThat(result.previewImages().getFirst().reviewImageId()).isEqualTo(90L);
+        assertThat(result.previewImages().getFirst().image().status()).isEqualTo(MediaImageStatus.PROCESSING);
+        verify(mediaPort).findImages(List.of(request));
+        verifyNoInteractions(fileStorage);
+    }
+
+    @Test
     void 높은_평점순으로_조회하면_커서_평점과_ID로_다음_페이지를_조회한다() {
         Review cursorReview = createReview(10L, 1L, 4, LocalDateTime.of(2026, 7, 1, 12, 0));
 

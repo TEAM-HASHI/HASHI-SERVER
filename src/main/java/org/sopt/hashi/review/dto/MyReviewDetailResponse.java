@@ -20,6 +20,16 @@ public record MyReviewDetailResponse(
         String content,
         List<String> keywords,
         List<String> imageUrls,
+        List<ReviewImageResponse> images,
         LocalDateTime createdAt
 ) {
+    public MyReviewDetailResponse(Long reviewId, Long restaurantId, String restaurantName,
+                                 String restaurantThumbnailUrl, MediaImage restaurantThumbnailImage,
+                                 LocalDateTime visitedAt, Integer adultCount, Integer childCount,
+                                 String reviewerNickname, int rating, String content, List<String> keywords,
+                                 List<String> imageUrls, LocalDateTime createdAt) {
+        this(reviewId, restaurantId, restaurantName, restaurantThumbnailUrl, restaurantThumbnailImage,
+                visitedAt, adultCount, childCount, reviewerNickname, rating, content, keywords,
+                imageUrls, List.of(), createdAt);
+    }
 }

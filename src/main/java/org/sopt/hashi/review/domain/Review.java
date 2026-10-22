@@ -107,6 +107,26 @@ public class Review extends BaseTimeEntity {
         this.content = content;
     }
 
+    /** UNIQUE(review_id, display_order)를 유지한 채 ID를 보존하여 순서를 교환한다. */
+    public void stageImageOrderChange() {
+        images.forEach(ReviewImage::stageOrderChange);
+    }
+
+    public void applyImages(List<ReviewImage> finalImages) {
+        if (finalImages.size() > 10 || finalImages.stream().distinct().count() != finalImages.size()) {
+            throw new IllegalArgumentException("review images must be distinct and at most ten");
+        }
+        images.removeIf(image -> !finalImages.contains(image));
+        for (int index = 0; index < finalImages.size(); index++) {
+            ReviewImage image = finalImages.get(index);
+            image.setDisplayOrder(index);
+            if (!images.contains(image)) {
+                addImage(image);
+            }
+        }
+        images.sort(java.util.Comparator.comparingInt(ReviewImage::getDisplayOrder));
+    }
+
     public int getRating() {
         return rating.value();
     }

@@ -96,6 +96,11 @@ public class RestaurantPhotoService {
                         filter == RestaurantPhotoFilter.ALL ? excludedReviewKeys : List.of(),
                         position.review(), PAGE_SIZE + 1)
                 : List.of();
+        List<MediaImageRequest> reviewRequests = reviewPhotos.stream()
+                .map(ReviewPhotoRepository.Photo::imageAssetId).filter(Objects::nonNull)
+                .map(assetId -> new MediaImageRequest(assetId, MediaImageRole.REVIEW_DETAIL)).distinct().toList();
+        Map<MediaImageRequest, MediaImage> reviewImages = reviewRequests.isEmpty()
+                ? Map.of() : media.findImages(reviewRequests);
         List<Photo> result = new ArrayList<>();
         var current = position;
         var next = position;
@@ -116,7 +121,7 @@ public class RestaurantPhotoService {
                         current.review(), 1, false);
             } else if (type == RestaurantPhotoFilter.REVIEW && hasReview) {
                 var photo = reviewPhotos.get(reviewIndex++);
-                result.add(reviewPhoto(photo));
+                result.add(reviewPhoto(photo, reviewImages));
                 current = new RestaurantPhotoCursorCodec.Cursor(current.representativeOrder(),
                         current.representativeId(), current.menuId(), photo.position(),
                         (current.phase() + 1) % 4, false);
@@ -158,9 +163,14 @@ public class RestaurantPhotoService {
         return new Photo(type.name() + ":" + source.id(), type, selected.url(), selected.image());
     }
 
-    private Photo reviewPhoto(ReviewPhotoRepository.Photo photo) {
+    private Photo reviewPhoto(ReviewPhotoRepository.Photo photo, Map<MediaImageRequest, MediaImage> images) {
+        String legacyUrl = photo.imageAssetId() == null ? storage.resolveFileUrl(photo.fileKey()) : null;
+        MediaImage rendition = photo.imageAssetId() == null ? null
+                : images.get(new MediaImageRequest(photo.imageAssetId(), MediaImageRole.REVIEW_DETAIL));
+        MediaImageSelection selected = MediaImageSelection.from(
+                new ImageReference(photo.imageAssetId(), legacyUrl), rendition);
         return new Photo("REVIEW:" + photo.id(), RestaurantPhotoFilter.REVIEW,
-                storage.resolveFileUrl(photo.fileKey()), null);
+                selected.url(), selected.image());
     }
 
     private Map<MediaImageRequest, MediaImage> loadImages(List<RestaurantPhotoSourceInfo> representative,

@@ -1,6 +1,8 @@
 package org.sopt.hashi.review.dto;
 
 import io.swagger.v3.oas.annotations.media.Schema;
+import com.fasterxml.jackson.annotation.JsonIgnore;
+import jakarta.validation.constraints.AssertTrue;
 import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotBlank;
@@ -8,6 +10,7 @@ import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Positive;
 import jakarta.validation.constraints.Size;
 import java.util.List;
+import java.util.UUID;
 
 /** 리뷰 작성 요청. 작성자는 인증 컨텍스트에서 확인하므로 요청에 포함하지 않는다. */
 public record CreateReviewRequest(
@@ -36,6 +39,20 @@ public record CreateReviewRequest(
         @Schema(description = "리뷰 이미지 S3 key 목록(선택, 최대 10개)", example = "[\"uploads/reviews/a1b2c3-1.jpg\"]")
         @Size(max = 10, message = "리뷰 이미지는 최대 10개까지 등록할 수 있습니다")
         List<@NotBlank(message = "이미지 파일 key는 비어 있을 수 없습니다")
-                @Size(max = 500, message = "이미지 파일 key는 500자 이하여야 합니다") String> imageFileKeys
+                @Size(max = 500, message = "이미지 파일 key는 500자 이하여야 합니다") String> imageFileKeys,
+
+        @Schema(description = "리뷰 asset ID 목록(최대 10개). imageFileKeys와 함께 보낼 수 없습니다")
+        @Size(max = 10, message = "리뷰 이미지는 최대 10개까지 등록할 수 있습니다")
+        List<@NotNull UUID> imageAssetIds
 ) {
+    public CreateReviewRequest(Long reservationId, Integer rating, List<String> keywordCodes,
+                               String content, List<String> imageFileKeys) {
+        this(reservationId, rating, keywordCodes, content, imageFileKeys, null);
+    }
+
+    @JsonIgnore
+    @AssertTrue(message = "이미지 파일 key와 asset ID를 함께 보낼 수 없습니다")
+    public boolean isImageSourceValid() {
+        return imageFileKeys == null || imageAssetIds == null;
+    }
 }

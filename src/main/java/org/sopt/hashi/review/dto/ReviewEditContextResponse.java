@@ -3,6 +3,7 @@ package org.sopt.hashi.review.dto;
 import com.fasterxml.jackson.annotation.JsonInclude;
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.UUID;
 import org.sopt.hashi.media.MediaImage;
 import org.sopt.hashi.review.dto.ReviewContextResponse.ReviewKeywordOption;
 
@@ -30,7 +31,13 @@ public record ReviewEditContextResponse(
     public record ReviewEditImageResponse(
             String fileKey,
             String imageUrl,
-            int displayOrder
+            int displayOrder,
+            Long reviewImageId,
+            UUID imageAssetId,
+            MediaImage image
     ) {
+        public ReviewEditImageResponse(String fileKey, String imageUrl, int displayOrder) {
+            this(fileKey, imageUrl, displayOrder, null, null, null);
+        }
     }
 }

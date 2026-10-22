@@ -142,6 +142,34 @@ class MyReviewControllerTest {
     }
 
     @Test
+    void 새_images_요청을_바인딩하고_기존필드와_혼용은_거절한다() throws Exception {
+        mockMvc.perform(patch("/api/v1/reviews/20")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"rating":4,"keywordCodes":["GOOD_VALUE"],
+                                 "content":"충분히 긴 수정 리뷰 내용입니다.","images":[{"reviewImageId":50}]}
+                                """))
+                .andExpect(status().isOk());
+        verify(myReviewService).updateMyReview(20L, new UpdateReviewRequest(4, List.of("GOOD_VALUE"),
+                "충분히 긴 수정 리뷰 내용입니다.", null, List.of(new UpdateReviewRequest.Image(50L, null))));
+        mockMvc.perform(patch("/api/v1/reviews/20")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"rating":4,"keywordCodes":["GOOD_VALUE"],
+                                 "content":"충분히 긴 수정 리뷰 내용입니다.","images":[],"imageFileKeys":[]}
+                                """))
+                .andExpect(status().isBadRequest());
+        mockMvc.perform(patch("/api/v1/reviews/20")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"rating":4,"keywordCodes":["GOOD_VALUE"],
+                                 "content":"충분히 긴 수정 리뷰 내용입니다.","images":[{}]}
+                                """))
+                .andExpect(status().isBadRequest());
+        org.mockito.Mockito.verifyNoMoreInteractions(myReviewService);
+    }
+
+    @Test
     void 타인이나_삭제된_리뷰_수정은_기존_404_계약을_반환한다() throws Exception {
         willThrow(new BusinessException(ReviewErrorCode.NOT_FOUND))
                 .given(myReviewService)

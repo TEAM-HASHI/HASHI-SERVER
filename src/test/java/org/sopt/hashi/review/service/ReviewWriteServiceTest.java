@@ -18,6 +18,7 @@ import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.sopt.hashi.auth.CurrentUserProvider;
+import org.sopt.hashi.media.MediaPort;
 import org.sopt.hashi.point.PointPort;
 import org.sopt.hashi.reservation.ReservationPort;
 import org.sopt.hashi.reservation.ReservationReviewInfo;
@@ -58,6 +59,9 @@ class ReviewWriteServiceTest {
     @Mock
     private CurrentUserProvider currentUserProvider;
 
+    @Mock
+    private MediaPort mediaPort;
+
     private ReviewWriteService reviewWriteService;
 
     @BeforeEach
@@ -68,7 +72,8 @@ class ReviewWriteServiceTest {
                 restaurantPort,
                 pointPort,
                 userPort,
-                currentUserProvider
+                currentUserProvider,
+                mediaPort
         );
     }
 
