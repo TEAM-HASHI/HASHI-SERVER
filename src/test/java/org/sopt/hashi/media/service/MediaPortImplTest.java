@@ -131,6 +131,29 @@ class MediaPortImplTest {
         verify(imageAssetRepository, never()).findIdentitiesByPublicIdIn(anyCollection());
     }
 
+    @ParameterizedTest
+    @EnumSource(value = ImageProcessingStatus.class, names = {"PROCESSING", "READY"})
+    void 리뷰_수정용_claim은_READY만_허용한다(ImageProcessingStatus status) {
+        UUID id = UUID.randomUUID();
+        ImageAsset candidate = asset(id, MediaPurpose.REVIEW, MediaOwnerType.USER, 7L,
+                status, ImageBindingStatus.UNBOUND, MediaCleanupStatus.ACTIVE);
+        when(currentActorProvider.currentActor()).thenReturn(new CurrentActor(ActorType.USER, 7L));
+        when(purposeAccessPolicy.isAllowed(ActorType.USER, MediaPurpose.REVIEW)).thenReturn(true);
+        when(imageAssetRepository.findIdentitiesByPublicIdIn(anyCollection()))
+                .thenReturn(List.of(identity(1L, id)));
+        when(imageAssetRepository.findAllByIdInForUpdate(List.of(1L))).thenReturn(List.of(candidate));
+        if (status == ImageProcessingStatus.READY) {
+            mediaPort.reconcileBindings(List.of(new MediaAssetUse(id, MediaAssetPurpose.REVIEW, true)), List.of());
+            verify(candidate).bind();
+        } else {
+            assertThatThrownBy(() -> mediaPort.reconcileBindings(
+                    List.of(new MediaAssetUse(id, MediaAssetPurpose.REVIEW, true)), List.of()))
+                    .isInstanceOf(BusinessException.class)
+                    .hasFieldOrPropertyWithValue("errorCode", MediaErrorCode.INVALID_STATE);
+            verify(candidate, never()).bind();
+        }
+    }
+
     @Test
     void 검증이_하나라도_실패하면_어떤_asset도_변경하지_않는다() {
         UUID validId = UUID.randomUUID();
