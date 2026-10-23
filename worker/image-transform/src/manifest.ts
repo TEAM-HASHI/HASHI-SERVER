@@ -28,7 +28,7 @@ export interface MediaSpecManifest {
   readonly $schema?: string;
   readonly manifestSchemaVersion: 1;
   readonly specVersion: number;
-  readonly processorRevision: "sharp-webp-v1" | "sharp-webp-v2";
+  readonly processorRevision: "sharp-webp-v1" | "sharp-webp-v2" | "sharp-webp-v3";
   readonly output: {
     readonly format: "webp";
     readonly mimeType: "image/webp";
@@ -48,6 +48,15 @@ export interface LoadedMediaSpec {
 }
 
 const cache = new Map<string, LoadedMediaSpec>();
+// Old manifests stay readable, but this artifact cannot reproduce their native encoder.
+export const EXECUTABLE_SPEC_VERSIONS = Object.freeze([5] as const);
+
+export function assertExecutableSpec(spec: LoadedMediaSpec): void {
+  if (!EXECUTABLE_SPEC_VERSIONS.some(version => version === spec.manifest.specVersion)
+    || spec.manifest.processorRevision !== "sharp-webp-v3") {
+    throw new ContractMismatchError("Worker cannot execute the requested processor revision");
+  }
+}
 const SUPPORTED_PURPOSES_V1 = [
   "PROFILE",
   "REVIEW",
@@ -72,8 +81,8 @@ const SUPPORTED_ROLES_V1 = [
 const SUPPORTED_ROLES_V2 = [...SUPPORTED_ROLES_V1, "MAGAZINE_CARD_NEWS"] as const;
 
 export function loadMediaSpec(specVersion: number, specsDirectory?: string): LoadedMediaSpec {
-  if (!Number.isSafeInteger(specVersion) || specVersion < 1) {
-    throw new ContractMismatchError("specVersion must be a positive integer");
+  if (!Number.isSafeInteger(specVersion) || specVersion < 1 || specVersion > 5) {
+    throw new ContractMismatchError("specVersion is outside the packaged versions");
   }
 
   const directory = specsDirectory ?? findSpecsDirectory(specVersion);
@@ -103,7 +112,8 @@ export function loadMediaSpec(specVersion: number, specsDirectory?: string): Loa
     if (manifest.specVersion !== specVersion) {
       throw new ContractMismatchError("Manifest version does not match its file name");
     }
-    const expectedRevision = specVersion === 1 ? "sharp-webp-v1" : "sharp-webp-v2";
+    const expectedRevision = specVersion === 1 ? "sharp-webp-v1"
+      : specVersion <= 4 ? "sharp-webp-v2" : "sharp-webp-v3";
     if (manifest.processorRevision !== expectedRevision) {
       throw new ContractMismatchError("Worker does not support the manifest processor revision");
     }

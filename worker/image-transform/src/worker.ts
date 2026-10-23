@@ -5,7 +5,7 @@ import {
   type ProcessedImage,
   type ProcessImageInput,
 } from "./image-processor";
-import { loadMediaSpec } from "./manifest";
+import { assertExecutableSpec, loadMediaSpec } from "./manifest";
 import { renditionObjectKey } from "./object-key";
 import type { ImageObjectStorage, TransformResultPublisher } from "./ports";
 import {
@@ -26,6 +26,7 @@ export class ImageTransformWorker {
   async processMessage(body: string): Promise<void> {
     const request = parseTransformRequest(body);
     const spec = loadMediaSpec(request.specVersion);
+    assertExecutableSpec(spec);
     if (spec.digest !== request.specDigest) {
       throw new ContractMismatchError("Request spec digest differs from packaged manifest");
     }

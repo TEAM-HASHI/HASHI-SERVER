@@ -22,7 +22,8 @@ import java.util.Optional;
 import java.util.UUID;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
-import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.ArgumentCaptor;
 import org.sopt.hashi.auth.ActorType;
 import org.sopt.hashi.auth.CurrentActor;
@@ -145,8 +146,9 @@ class MediaCardNewsModuleIntegrationTest {
         verify(fileStorage, never()).createPresignedUploadUrl(anyString(), anyString(), anyLong());
     }
 
-    @Test
-    void 카드뉴스는_v2_활성화_후에만_생성하고_변환을_요청한다(Scenario scenario) {
+    @ParameterizedTest
+    @ValueSource(ints = {2, 5})
+    void 카드뉴스는_DB에서_활성화한_규격으로_생성하고_변환을_요청한다(int version, Scenario scenario) {
         UUID assetId = UUID.randomUUID();
         long bytes = 10L * 1024 * 1024;
         List<PreparedMediaAsset> uploads = uploads(assetId, bytes);
@@ -157,26 +159,27 @@ class MediaCardNewsModuleIntegrationTest {
                 .hasFieldOrPropertyWithValue("errorCode", MediaErrorCode.PIPELINE_UNAVAILABLE);
         assertThat(assets.findByPublicId(assetId)).isEmpty();
 
-        activateSpec(2);
+        activateSpec(version);
         transactionService.createAssets(ADMIN, MediaPurpose.MAGAZINE_CARD_NEWS, uploads);
-        completeAndVerifyRequest(scenario, assetId, bytes);
+        completeAndVerifyRequest(scenario, assetId, bytes, version);
 
         ImageAsset asset = assets.findByPublicId(assetId).orElseThrow();
         assertThat(asset.getPurpose()).isEqualTo(MediaPurpose.MAGAZINE_CARD_NEWS);
-        assertThat(asset.getLastIssuedSpecVersion()).isEqualTo(2);
+        assertThat(asset.getLastIssuedSpecVersion()).isEqualTo(version);
         assertThat(asset.getProcessingStatus()).isEqualTo(ImageProcessingStatus.PROCESSING);
     }
 
-    @Test
-    void 가로폭이_같은_긴_카드뉴스_결과는_하나만_저장하고_READY로_조회한다(Scenario scenario) {
-        activateSpec(2);
+    @ParameterizedTest
+    @ValueSource(ints = {2, 5})
+    void 가로폭이_같은_긴_카드뉴스_결과는_하나만_저장하고_READY로_조회한다(int version, Scenario scenario) {
+        activateSpec(version);
         UUID assetId = UUID.randomUUID();
         long bytes = 1024;
         transactionService.createAssets(ADMIN, MediaPurpose.MAGAZINE_CARD_NEWS, uploads(assetId, bytes));
-        MediaTransformRequest request = completeAndVerifyRequest(scenario, assetId, bytes);
-        String renditionKey = "media/renditions/%s/v2/magazine-card-news/1.webp".formatted(assetId);
+        MediaTransformRequest request = completeAndVerifyRequest(scenario, assetId, bytes, version);
+        String renditionKey = "media/renditions/%s/v%d/magazine-card-news/1.webp".formatted(assetId, version);
         MediaTransformSucceededResult result = new MediaTransformSucceededResult(
-                request.contractVersion(), request.jobId(), assetId, 2, request.specDigest(),
+                request.contractVersion(), request.jobId(), assetId, version, request.specDigest(),
                 request.sourceVersionId(), request.sourceETag(),
                 new MediaVerifiedSource("image/png", bytes, 1, 1200, CHECKSUM),
                 List.of(new MediaRenditionResult(
@@ -186,7 +189,7 @@ class MediaCardNewsModuleIntegrationTest {
 
         ImageAsset asset = assets.findByPublicId(assetId).orElseThrow();
         assertThat(asset.getProcessingStatus()).isEqualTo(ImageProcessingStatus.READY);
-        assertThat(asset.getActiveSpecVersion()).isEqualTo(2);
+        assertThat(asset.getActiveSpecVersion()).isEqualTo(version);
         assertThat(jdbc.queryForObject(
                 "SELECT COUNT(*) FROM image_rendition WHERE image_asset_id = ?", Integer.class, asset.getId()))
                 .isEqualTo(1);
@@ -205,7 +208,7 @@ class MediaCardNewsModuleIntegrationTest {
         assertThat(image.defaultSource().url()).isEqualTo("https://cdn.hashi.test/" + renditionKey);
     }
 
-    private MediaTransformRequest completeAndVerifyRequest(Scenario scenario, UUID assetId, long bytes) {
+    private MediaTransformRequest completeAndVerifyRequest(Scenario scenario, UUID assetId, long bytes, int version) {
         OriginalObjectMetadata source = new OriginalObjectMetadata(
                 objectKey(assetId), "version-1", "\"etag-1\"", "image/png", bytes);
         scenario.stimulate(() -> transactionService.completeAssets(
@@ -213,13 +216,13 @@ class MediaCardNewsModuleIntegrationTest {
                 .andWaitForEventOfType(MediaProcessingRequestedEvent.class)
                 .matching(event -> event.assetId().equals(assetId))
                 .toArriveAndVerify(event -> assertThat(event.jobId())
-                        .isEqualTo(MediaProcessingJobId.from(assetId, "version-1", 2)));
+                        .isEqualTo(MediaProcessingJobId.from(assetId, "version-1", version)));
         ArgumentCaptor<MediaTransformRequest> request = ArgumentCaptor.forClass(MediaTransformRequest.class);
         verify(publisher, timeout(10_000)).publish(request.capture());
         assertThat(request.getValue().assetId()).isEqualTo(assetId);
         assertThat(request.getValue().purpose()).isEqualTo(MediaPurpose.MAGAZINE_CARD_NEWS);
-        assertThat(request.getValue().specVersion()).isEqualTo(2);
-        assertThat(request.getValue().specDigest()).isEqualTo(specs.find(2).orElseThrow().digest());
+        assertThat(request.getValue().specVersion()).isEqualTo(version);
+        assertThat(request.getValue().specDigest()).isEqualTo(specs.find(version).orElseThrow().digest());
         assertThat(request.getValue().originalKey()).isEqualTo(objectKey(assetId));
         assertThat(request.getValue().declaredByteSize()).isEqualTo(bytes);
         return request.getValue();

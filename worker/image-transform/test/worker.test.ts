@@ -16,13 +16,52 @@ import type {
 } from "../src/ports";
 import type { TransformResult } from "../src/queue-contract";
 import { ImageTransformWorker } from "../src/worker";
+import { handleSqsEvent } from "../src/handler";
+import type { SQSEvent } from "aws-lambda";
 import { createWarningCorruptJpeg } from "./image-fixtures";
 
 const ASSET_ID = "a3af06f1-4ef2-46f8-a489-2347fb840447";
-const JOB_ID = "ebb9b9d8-c427-564b-a70e-0fd4e1925e5a";
-const SPEC_DIGEST = "1b5759a9285732133699114e21101b3b9b43b5cd8e208bf1246d059f4293634f";
+const JOB_ID = mediaProcessingJobId(ASSET_ID, "version-1", 5);
+const SPEC_DIGEST = loadMediaSpec(5).digest;
 const VERSION_ID = "version-1";
 const ETAG = '"etag-value"';
+
+for (const version of [1, 2, 3, 4]) {
+  test(`v${version} 작업은 원본을 읽거나 결과를 발행하지 않고 재시도한다`, async () => {
+    const source = await jpegSource(100, 100);
+    const storage = new FakeStorage(original(source));
+    const publisher = new FakePublisher();
+    const worker = new ImageTransformWorker(storage, publisher);
+    const body = requestBody(source, {
+      specVersion: version,
+      specDigest: loadMediaSpec(version).digest,
+      jobId: mediaProcessingJobId(ASSET_ID, VERSION_ID, version),
+    });
+
+    await assert.rejects(worker.processMessage(body), ContractMismatchError);
+    const response = await handleSqsEvent({ Records: [{ messageId: "old-job", body }] } as SQSEvent, worker);
+    assert.deepEqual(response, { batchItemFailures: [{ itemIdentifier: "old-job" }] });
+    assert.equal(storage.readRequests.length, 0);
+    assert.equal(storage.writes.length, 0);
+    assert.equal(publisher.results.length, 0);
+    await assert.rejects(processImage({
+      bytes: source, declaredByteSize: source.length, declaredContentType: "image/jpeg",
+      purpose: "PROFILE", spec: loadMediaSpec(version),
+    }), ContractMismatchError);
+  });
+}
+
+test("v5도 digest가 다르면 원본 조회 전에 거부한다", async () => {
+  const source = await jpegSource(100, 100);
+  const storage = new FakeStorage(original(source));
+  const publisher = new FakePublisher();
+  const worker = new ImageTransformWorker(storage, publisher);
+  await assert.rejects(worker.processMessage(requestBody(source, { specDigest: loadMediaSpec(4).digest })),
+    ContractMismatchError);
+  assert.equal(storage.readRequests.length, 0);
+  assert.equal(storage.writes.length, 0);
+  assert.equal(publisher.results.length, 0);
+});
 
 const SVG_SOURCE = Buffer.from(
   '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16">'
@@ -62,13 +101,13 @@ test("가늘고 긴 카드뉴스의 같은 저장 키는 한 번만 기록하고
   const worker = new ImageTransformWorker(storage, publisher);
   await worker.processMessage(requestBody(source, {
     purpose: "MAGAZINE_CARD_NEWS",
-    specVersion: 2,
-    specDigest: loadMediaSpec(2).digest,
-    jobId: mediaProcessingJobId(ASSET_ID, VERSION_ID, 2),
+    specVersion: 5,
+    specDigest: loadMediaSpec(5).digest,
+    jobId: mediaProcessingJobId(ASSET_ID, VERSION_ID, 5),
   }));
 
   assert.deepEqual(storage.writes.map(({ objectKey }) => objectKey),
-    [`media/renditions/${ASSET_ID}/v2/magazine-card-news/1.webp`]);
+    [`media/renditions/${ASSET_ID}/v5/magazine-card-news/1.webp`]);
   assert.equal(publisher.results.length, 1);
   const result = publisher.results[0]!;
   assert.equal(result.status, "SUCCEEDED");
@@ -97,8 +136,8 @@ test("reads the fixed source, writes deterministic renditions and publishes succ
   assert.deepEqual(
     storage.writes.map((write) => write.objectKey),
     [
-      `media/renditions/${ASSET_ID}/v1/profile-avatar/48.webp`,
-      `media/renditions/${ASSET_ID}/v1/profile-avatar/96.webp`,
+      `media/renditions/${ASSET_ID}/v5/profile-avatar/48.webp`,
+      `media/renditions/${ASSET_ID}/v5/profile-avatar/96.webp`,
     ],
   );
   assert.ok(storage.writes.every((write) => write.jobId === JOB_ID));
@@ -118,13 +157,13 @@ test("reads the fixed source, writes deterministic renditions and publishes succ
           role: "PROFILE_AVATAR",
           width: 48,
           height: 48,
-          objectKey: `media/renditions/${ASSET_ID}/v1/profile-avatar/48.webp`,
+          objectKey: `media/renditions/${ASSET_ID}/v5/profile-avatar/48.webp`,
         },
         {
           role: "PROFILE_AVATAR",
           width: 96,
           height: 96,
-          objectKey: `media/renditions/${ASSET_ID}/v1/profile-avatar/96.webp`,
+          objectKey: `media/renditions/${ASSET_ID}/v5/profile-avatar/96.webp`,
         },
       ],
     );
@@ -145,7 +184,7 @@ test("publishes a sanitized permanent failure without writing renditions", async
       contractVersion: 1,
       jobId: JOB_ID,
       assetId: ASSET_ID,
-      specVersion: 1,
+      specVersion: 5,
       specDigest: SPEC_DIGEST,
       sourceVersionId: VERSION_ID,
       sourceETag: ETAG,
@@ -203,7 +242,7 @@ test("1x1 배너는 파생 이미지를 저장하지 않고 SOURCE_TOO_SMALL 실
       contractVersion: 1,
       jobId: JOB_ID,
       assetId: ASSET_ID,
-      specVersion: 1,
+      specVersion: 5,
       specDigest: SPEC_DIGEST,
       sourceVersionId: VERSION_ID,
       sourceETag: ETAG,
@@ -318,7 +357,7 @@ function requestBody(source: Buffer, overrides: Record<string, unknown> = {}): s
     jobId: JOB_ID,
     assetId: ASSET_ID,
     purpose: "PROFILE",
-    specVersion: 1,
+    specVersion: 5,
     specDigest: SPEC_DIGEST,
     originalKey: `media/originals/${ASSET_ID}/original`,
     sourceVersionId: VERSION_ID,

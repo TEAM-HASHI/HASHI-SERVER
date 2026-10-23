@@ -20,6 +20,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.EnumSource;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.sopt.hashi.auth.ActorType;
@@ -574,14 +575,20 @@ class MediaPortImplTest {
             int width,
             int height
     ) {
+        return rendition(assetId, role, width, height, 1);
+    }
+
+    private RenditionImageProjection rendition(
+            UUID assetId, ImageRole role, int width, int height, int version
+    ) {
         return new TestRenditionImageProjection(
                 assetId,
                 role,
                 "image/webp",
                 width,
                 height,
-                "media/renditions/%s/v1/%s/%d.webp".formatted(
-                        assetId, role.name().toLowerCase(), width)
+                "media/renditions/%s/v%d/%s/%d.webp".formatted(
+                        assetId, version, role.name().toLowerCase().replace('_', '-'), width)
         );
     }
 
@@ -742,24 +749,26 @@ class MediaPortImplTest {
         verify(fileStorage, never()).resolveFileUrl(anyString());
     }
 
-    @Test
-    void 사진_v4의_원본비율_기본_파생본을_반환한다() {
+    @ParameterizedTest
+    @ValueSource(ints = {4, 5})
+    void active_version의_원본비율_기본_파생본을_반환한다(int version) {
         UUID id = UUID.randomUUID();
-        var spec = new MediaSpecRegistry(new ObjectMapper()).findDefinition(4).orElseThrow();
+        var spec = new MediaSpecRegistry(new ObjectMapper()).findDefinition(version).orElseThrow();
         MediaImageRequest request = new MediaImageRequest(id, MediaImageRole.PHOTO_DETAIL);
         when(imageAssetRepository.findImageProjectionsByPublicIdIn(anyCollection()))
                 .thenReturn(List.of(new TestAssetImageProjection(id, MediaPurpose.RESTAURANT,
                         ImageProcessingStatus.READY, ImageBindingStatus.BOUND, MediaCleanupStatus.ACTIVE,
-                        4, spec.digest(), null, null, null, 1000, 2000)));
+                        version, spec.digest(), null, null, null, 1000, 2000)));
         when(imageRenditionRepository.findActiveImageProjections(anyCollection(), anyCollection()))
-                .thenReturn(List.of(rendition(id, ImageRole.PHOTO_DETAIL, 216, 432),
-                        rendition(id, ImageRole.PHOTO_DETAIL, 432, 864),
-                        rendition(id, ImageRole.PHOTO_DETAIL, 648, 1296)));
+                .thenReturn(List.of(rendition(id, ImageRole.PHOTO_DETAIL, 216, 432, version),
+                        rendition(id, ImageRole.PHOTO_DETAIL, 432, 864, version),
+                        rendition(id, ImageRole.PHOTO_DETAIL, 648, 1296, version)));
         when(fileStorage.resolveFileUrl(anyString())).thenAnswer(invocation -> "https://cdn.test/" + invocation.getArgument(0));
         assertThat(mediaPort.findImages(List.of(request)).get(request)).satisfies(image -> {
             assertThat(image.status()).isEqualTo(MediaImageStatus.READY);
             assertThat(image.defaultSource().width()).isEqualTo(432);
             assertThat(image.defaultSource().height()).isEqualTo(864);
+            assertThat(image.defaultSource().url()).contains("/v" + version + "/photo-detail/432.webp");
             assertThat(image.sourceSets()).hasSize(1);
         });
     }

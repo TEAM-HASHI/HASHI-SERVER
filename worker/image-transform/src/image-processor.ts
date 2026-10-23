@@ -4,6 +4,7 @@ import sharp, { type Metadata } from "sharp";
 
 import { ContractMismatchError, PermanentImageError } from "./errors";
 import {
+  assertExecutableSpec,
   type LoadedMediaSpec,
   type MediaSpecManifest,
   type RenditionDimensions,
@@ -85,6 +86,7 @@ export async function processImage(
   input: ProcessImageInput,
   encoder: RenditionEncoder = encodeWebpRendition,
 ): Promise<ProcessedImage> {
+  assertExecutableSpec(input.spec);
   const roles = requiredRoles(input.spec.manifest, input.purpose);
   const source = await inspectSource(
     input.bytes,

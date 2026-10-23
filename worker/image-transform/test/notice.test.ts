@@ -5,8 +5,8 @@ import { loadMediaSpec } from "../src/manifest";
 import { processImage } from "../src/image-processor";
 import { PermanentImageError } from "../src/errors";
 
-test("공지 spec v3는 원본 비율을 유지하고 기존 v1/v2 purpose를 보존한다", async () => {
-  const spec = loadMediaSpec(3);
+test("공지 변환은 원본 비율을 유지하고 기존 v1/v2 purpose를 보존한다", async () => {
+  const spec = loadMediaSpec(5);
   assert.deepEqual(spec.manifest.purposes.NOTICE, ["NOTICE_DETAIL"]);
   assert.deepEqual(spec.manifest.purposes.MAGAZINE_CARD_NEWS, loadMediaSpec(2).manifest.purposes.MAGAZINE_CARD_NEWS);
   for (const [width, height] of [[2000, 1000], [1000, 2000], [100, 50]]) {
@@ -20,7 +20,7 @@ test("공지 spec v3는 원본 비율을 유지하고 기존 v1/v2 purpose를 �
 });
 
 test("공지 원본은 10MiB까지 허용하고 초과·GIF를 거절한다", async () => {
-  const spec = loadMediaSpec(3);
+  const spec = loadMediaSpec(5);
   const bytes = Buffer.alloc(10 * 1024 * 1024);
   bytes.set([0xff, 0xd8, 0xff]);
   await assert.rejects(processImage({bytes, declaredByteSize: bytes.length, declaredContentType: "image/jpeg", purpose: "NOTICE", spec}),

@@ -21,7 +21,7 @@ for (const purpose of ["RESTAURANT", "RESTAURANT_MENU"]) {
     test(purpose + " PHOTO_DETAIL retains " + width + "x" + height + " without crop or enlargement", async () => {
       const bytes = await sharp({create: {width, height, channels: 3, background: "#557799"}}).png().toBuffer();
       const result = await processImage({bytes, declaredByteSize: bytes.length,
-        declaredContentType: "image/png", purpose, spec: loadMediaSpec(4)});
+        declaredContentType: "image/png", purpose, spec: loadMediaSpec(5)});
       const photos = result.renditions.filter(value => value.role === "PHOTO_DETAIL");
       assert.ok(photos.length > 0);
       for (const photo of photos) {

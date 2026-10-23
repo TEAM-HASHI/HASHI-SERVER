@@ -12,6 +12,7 @@ final class MediaSpecManifestValidator {
     private static final int MANIFEST_SCHEMA_VERSION = 1;
     private static final String PROCESSOR_REVISION_V1 = "sharp-webp-v1";
     private static final String PROCESSOR_REVISION_V2 = "sharp-webp-v2";
+    private static final String PROCESSOR_REVISION_V3 = "sharp-webp-v3";
     private static final Set<String> ROOT_REQUIRED_FIELDS = Set.of(
             "manifestSchemaVersion", "specVersion", "processorRevision",
             "output", "purposes", "roles");
@@ -37,7 +38,8 @@ final class MediaSpecManifestValidator {
                 MANIFEST_SCHEMA_VERSION);
         requireInt(manifest, "specVersion", expectedSpecVersion, expectedSpecVersion);
         requireText(manifest, "processorRevision",
-                expectedSpecVersion == 1 ? PROCESSOR_REVISION_V1 : PROCESSOR_REVISION_V2);
+                expectedSpecVersion == 1 ? PROCESSOR_REVISION_V1
+                        : expectedSpecVersion <= 4 ? PROCESSOR_REVISION_V2 : PROCESSOR_REVISION_V3);
         if (manifest.has("$schema") && !manifest.path("$schema").isTextual()) {
             throw invalid("media manifest $schema must be text");
         }
