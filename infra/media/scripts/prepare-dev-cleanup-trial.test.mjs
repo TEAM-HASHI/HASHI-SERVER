@@ -13,7 +13,7 @@ const manifest = { asset_id: asset, complete: true, content_is_synthetic_text_no
   objects: [
     { location: "original", bucket: config.originalBucket, key: `media/originals/${asset}/original`,
       version_id: "originalVersion1", verified: true, last_modified_utc: "2030-01-03T00:00:00.000Z" },
-    { location: "rendition", bucket: config.deliveryBucket, key: `media/renditions/${asset}/v4/card_news/1080.webp`,
+    { location: "rendition", bucket: config.deliveryBucket, key: `media/renditions/${asset}/v1/profile-avatar/128.webp`,
       version_id: "renditionVersion2", verified: true, last_modified_utc: "2030-01-02T00:00:00.000Z" },
   ] };
 
@@ -52,6 +52,10 @@ test("보호기간 전, 불명확한 파일과 추가 대상을 거부한다", (
     (m) => { m.objects[0].version_id = "${aws:username}"; },
     (m) => { m.objects[0].key += "*"; },
     (m) => { m.objects[1].key = `media/renditions/${asset}/v4/../1.webp`; },
+    (m) => { m.objects[1].key = `media/renditions/${asset}/v1/profile_avatar/128.webp`; },
+    (m) => { m.objects[1].key = `media/renditions/${asset}/v1/unknown-role/128.webp`; },
+    (m) => { m.objects[1].key = `media/renditions/${asset}/v4/profile-avatar/128.webp`; },
+    (m) => { m.objects[1].key = `media/renditions/${asset}/v1/profile-avatar/256.webp`; },
     (m) => { m.objects[1].key = m.objects[1].key.replace(asset, "22222222-2222-4222-8222-222222222222"); },
     (m) => { m.objects[1].bucket = "hashi-prod-delivery"; },
     (m) => { m.objects[1].verified = false; },

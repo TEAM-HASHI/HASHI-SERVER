@@ -32,10 +32,11 @@ export function prepareDevCleanupTrial(config, manifest, actualBoundary, now = n
     locations.add(object.location);
     const expectedBucket = object.location === "original" ? config.originalBucket : config.deliveryBucket;
     const originalKey = `media/originals/${manifest.asset_id}/original`;
-    const renditionPattern = new RegExp(`^media/renditions/${manifest.asset_id}/v[1-9][0-9]*/[a-z][a-z0-9_]*/[1-9][0-9]*\\.webp$`);
+    // This trial uses the canonical v1 profile-avatar fixture, not arbitrary rendition roles.
+    const renditionKey = `media/renditions/${manifest.asset_id}/v1/profile-avatar/128.webp`;
     const age = time - Date.parse(object.last_modified_utc);
     if (object.bucket !== expectedBucket || object.verified !== true ||
-        (object.location === "original" ? object.key !== originalKey : !renditionPattern.test(object.key ?? "")) ||
+        (object.location === "original" ? object.key !== originalKey : object.key !== renditionKey) ||
         typeof object.version_id !== "string" || object.version_id === "null" ||
         !/^[A-Za-z0-9+/_=.-]{1,1024}$/.test(object.version_id) || !Number.isFinite(age) || age < 7 * DAY) fail();
     return { Sid: object.location === "original" ? "DeleteTrialOriginalVersion" : "DeleteTrialRenditionVersion",

@@ -8,6 +8,7 @@
 
 - `CleanupAccessEnabled=false`, backfill 비활성 상태를 유지한다.
 - DB에 없는 새 시험 asset 하나의 원본 version 하나와 파생 version 하나만 허용한다.
+- 파생본은 실제 시험 fixture인 `v1/profile-avatar/128.webp`만 받는다. 임의 용도나 크기로 범위를 넓히지 않는다.
 - 원본과 파생본 모두 S3 `LastModified` 기준 7일이 지나야 한다. 파일 시간을 바꾸거나 기간을 줄이지 않는다.
 - `s3:DeleteObjectVersion`만 추가하며 각 statement에 정확한 key, `s3:VersionId`와 소유 계정을 함께 지정한다.
 - 추가 권한은 5~60분 뒤 만료한다. 기존 legacy 권한을 없애거나 좁히는 도구가 아니므로
