@@ -17,7 +17,9 @@ class CreateReviewRequestTest {
             assertThat(validator.validate(request(null, null))).isEmpty();
             assertThat(validator.validate(request(List.of(), List.of())))
                     .extracting(violation -> violation.getPropertyPath().toString()).contains("imageSourceValid");
-            assertThat(validator.validate(request(null, java.util.Arrays.asList((UUID) null)))).isNotEmpty();
+            assertThat(validator.validate(request(null, java.util.Arrays.asList((UUID) null))))
+                    .extracting(violation -> violation.getMessage())
+                    .containsExactly("이미지 asset ID는 비어 있을 수 없습니다");
         }
     }
 

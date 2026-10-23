@@ -13,10 +13,11 @@
   순서의 전체 목록이다. 둘 중 정확히 한 필드를 전달해야 한다.
 - `images` 원소는 `{ "reviewImageId": 501 }` 또는 `{ "imageAssetId": "UUID" }` 중 하나다.
   기존 ID는 해당 리뷰에 속한 것만 유지하며 중복 ID/asset은 거부한다. 신규 asset은 READY여야 한다.
-- key 없는 신규 asset 슬롯이 있으면 구버전 `imageFileKeys` 수정은 400으로 거부한다.
+- asset이 하나라도 연결된 리뷰는 구버전 `imageFileKeys` 수정(빈 배열 포함)을 400으로 거부한다.
   구버전 화면에서 보이지 않는 사진을 본문 수정 중 삭제하는 것을 막기 위해 `images`를 요구한다.
-  legacy-only 리뷰의 수정과 빈 배열 제거 의미는 그대로다. key가 함께 남은 backfill 참조는
-  기존 key 재전송 시 association과 asset을 보존한다.
+  legacy-only 리뷰의 수정과 빈 배열 제거 의미는 그대로다. key가 함께 남은 backfill 참조도
+  수정 컨텍스트에서 key를 숨기므로 `images`의 `reviewImageId`로 유지해야 한다.
+  리뷰 backfill 실행기는 아직 없으며, 향후 추가할 때도 이 수정 계약을 따라야 한다.
 - 유지한 사진은 ID와 binding을 보존하고, 추가한 사진만 claim하고 제거한 사진만 retire한다.
   리뷰 잠금, 이미지 변경, media 전이, 별점 통계 갱신은 한 로컬 트랜잭션이다.
 - 리뷰 자체의 soft delete는 association과 BOUND를 보존한다. 사진 제거/교체와 구분하며,

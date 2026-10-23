@@ -66,9 +66,9 @@ record ReviewImageWritePlan(List<ReviewImage> images, List<MediaAssetUse> claims
                 }
             }
         } else {
-            // 구버전 클라이언트에는 key 없는 신규 asset 슬롯이 보이지 않아 의도치 않게 제거할 수 있다.
-            // 그런 리뷰는 retained ID를 명시할 수 있는 images 계약으로만 수정한다.
-            if (existing.stream().anyMatch(image -> image.getImageAssetId() != null && image.getFileKey() == null)) {
+            // 수정 컨텍스트는 key가 남은 backfill을 포함해 모든 asset 슬롯의 key를 숨긴다.
+            // 구버전 요청이 보이지 않는 사진을 제거하지 않도록 images의 명시적 ID만 허용한다.
+            if (existing.stream().anyMatch(image -> image.getImageAssetId() != null)) {
                 throw invalid();
             }
             Map<String, ArrayDeque<ReviewImage>> byKey = new HashMap<>();

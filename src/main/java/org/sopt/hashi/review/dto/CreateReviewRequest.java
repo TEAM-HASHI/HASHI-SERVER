@@ -43,7 +43,7 @@ public record CreateReviewRequest(
 
         @Schema(description = "리뷰 asset ID 목록(최대 10개). imageFileKeys와 함께 보낼 수 없습니다")
         @Size(max = 10, message = "리뷰 이미지는 최대 10개까지 등록할 수 있습니다")
-        List<@NotNull UUID> imageAssetIds
+        List<@NotNull(message = "이미지 asset ID는 비어 있을 수 없습니다") UUID> imageAssetIds
 ) {
     public CreateReviewRequest(Long reservationId, Integer rating, List<String> keywordCodes,
                                String content, List<String> imageFileKeys) {

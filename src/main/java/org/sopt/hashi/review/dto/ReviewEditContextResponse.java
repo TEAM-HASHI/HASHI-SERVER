@@ -7,7 +7,7 @@ import java.util.UUID;
 import org.sopt.hashi.media.MediaImage;
 import org.sopt.hashi.review.dto.ReviewContextResponse.ReviewKeywordOption;
 
-/** 리뷰 수정 화면 초기값. 저장에 필요한 keyword code와 이미지 fileKey를 함께 반환한다. */
+/** 리뷰 수정 초기값. asset 사진은 reviewImageId로 유지하고 fileKey는 legacy 사진에만 반환한다. */
 @JsonInclude(JsonInclude.Include.NON_NULL)
 public record ReviewEditContextResponse(
         Long reviewId,

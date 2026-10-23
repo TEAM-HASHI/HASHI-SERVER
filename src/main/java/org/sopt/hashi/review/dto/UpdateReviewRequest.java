@@ -33,7 +33,7 @@ public record UpdateReviewRequest(
         @Size(min = 10, max = 1000, message = "리뷰 내용은 10자 이상 1000자 이하여야 합니다")
         String content,
 
-        @Schema(description = "수정 후 남길 리뷰 이미지 S3 key 전체 목록(최대 10개, 중복 불가, 빈 배열은 전체 삭제)",
+        @Schema(description = "asset 연결이 없는 리뷰의 최종 S3 key 목록(최대 10개, 중복 불가, 빈 배열은 전체 삭제)",
                 example = "[\"uploads/reviews/a1b2c3-1.jpg\"]")
         @Size(max = 10, message = "리뷰 이미지는 최대 10개까지 등록할 수 있습니다")
         List<@NotBlank(message = "이미지 파일 key는 비어 있을 수 없습니다")
@@ -41,7 +41,7 @@ public record UpdateReviewRequest(
 
         @Schema(description = "최종 이미지 순서. 기존 reviewImageId 또는 새 imageAssetId 중 하나. imageFileKeys와 배타적")
         @Size(max = 10, message = "리뷰 이미지는 최대 10개까지 등록할 수 있습니다")
-        List<@NotNull @Valid Image> images
+        List<@NotNull(message = "이미지 항목은 비어 있을 수 없습니다") @Valid Image> images
 ) {
     public UpdateReviewRequest(Integer rating, List<String> keywordCodes, String content,
                                List<String> imageFileKeys) {
@@ -54,7 +54,7 @@ public record UpdateReviewRequest(
         return (imageFileKeys == null) != (images == null);
     }
 
-    public record Image(@Positive Long reviewImageId, UUID imageAssetId) {
+    public record Image(@Positive(message = "리뷰 이미지 ID는 양수여야 합니다") Long reviewImageId, UUID imageAssetId) {
         @JsonIgnore
         @AssertTrue(message = "기존 리뷰 이미지 ID 또는 신규 asset ID 중 하나만 전달해야 합니다")
         public boolean isSourceValid() {

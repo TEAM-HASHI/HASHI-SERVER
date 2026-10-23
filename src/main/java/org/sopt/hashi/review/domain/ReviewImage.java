@@ -47,7 +47,7 @@ public class ReviewImage extends BaseTimeEntity {
 
     private ReviewImage(String fileKey, int displayOrder) {
         this.fileKey = fileKey;
-        this.displayOrder = displayOrder;
+        setDisplayOrder(displayOrder);
     }
 
     public static ReviewImage create(String fileKey, int displayOrder) {

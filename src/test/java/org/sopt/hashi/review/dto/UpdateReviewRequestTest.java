@@ -83,6 +83,16 @@ class UpdateReviewRequestTest {
     }
 
     @Test
+    void 새_이미지_항목과_ID_검증은_한글_메시지를_반환한다() {
+        assertThat(validator.validate(new UpdateReviewRequest(5, List.of("GOOD_VALUE"),
+                "충분히 긴 리뷰 내용입니다.", null, java.util.Arrays.asList((UpdateReviewRequest.Image) null))))
+                .extracting(ConstraintViolation::getMessage).containsExactly("이미지 항목은 비어 있을 수 없습니다");
+        assertThat(validator.validate(new UpdateReviewRequest(5, List.of("GOOD_VALUE"),
+                "충분히 긴 리뷰 내용입니다.", null, List.of(new UpdateReviewRequest.Image(0L, null)))))
+                .extracting(ConstraintViolation::getMessage).containsExactly("리뷰 이미지 ID는 양수여야 합니다");
+    }
+
+    @Test
     void 새_이미지_wrapper는_정확히_하나의_source와_상호배타_목록을_요구한다() {
         var id = java.util.UUID.randomUUID();
         assertThat(validator.validate(new UpdateReviewRequest(5, List.of("GOOD_VALUE"),

@@ -68,12 +68,18 @@ class ReviewImageWritePlanTest {
     }
 
     @Test
-    void 기존_key를_다시_보내면_backfill_asset과_association을_보존한다() {
+    void key가_남은_backfill도_ID로만_유지하고_legacy_수정은_거부한다() {
         ReviewImage existing = ReviewImage.create("legacy/kept.jpg", 0);
         ReflectionTestUtils.setField(existing, "id", 1L);
         ReflectionTestUtils.setField(existing, "imageAssetId", UUID.randomUUID());
-        var plan = ReviewImageWritePlan.update(List.of(existing), new UpdateReviewRequest(
-                5, List.of("GOOD_VALUE"), "충분히 긴 리뷰 내용입니다.", List.of("legacy/kept.jpg")));
+        for (List<String> keys : List.of(List.of("legacy/kept.jpg"), List.<String>of())) {
+            assertThatThrownBy(() -> ReviewImageWritePlan.update(List.of(existing), new UpdateReviewRequest(
+                    5, List.of("GOOD_VALUE"), "충분히 긴 리뷰 내용입니다.", keys)))
+                    .isInstanceOfSatisfying(BusinessException.class, exception -> assertThat(exception.getErrorCode())
+                            .isEqualTo(org.sopt.hashi.shared.error.CommonErrorCode.INVALID_INPUT));
+        }
+        var plan = ReviewImageWritePlan.update(List.of(existing), request(
+                List.of(new UpdateReviewRequest.Image(1L, null))));
         assertThat(plan.images()).containsExactly(existing);
         assertThat(plan.claims()).isEmpty();
         assertThat(plan.retires()).isEmpty();
