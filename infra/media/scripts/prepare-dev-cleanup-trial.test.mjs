@@ -1,5 +1,10 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+import { spawnSync } from "node:child_process";
 import { renderRuntimeBoundaries, validateRuntimeBoundaryDocument } from "./check-dev-runtime-boundaries.mjs";
 import { prepareDevCleanupTrial } from "./prepare-dev-cleanup-trial.mjs";
 
@@ -79,4 +84,55 @@ test("현재 boundary가 검토된 정책과 다르면 새 권한을 준비하�
   assert.throws(() => prepareDevCleanupTrial(config, manifest, changed, now), /reviewed DEV ceiling/);
   assert.throws(() => prepareDevCleanupTrial({ ...config, validForMinutes: 0 }, manifest, boundary, now));
   assert.throws(() => prepareDevCleanupTrial({ ...config, deliveryBucket: config.originalBucket }, manifest, boundary, now));
+});
+
+test("CLI는 실패 단계와 원인을 알리되 비공개 경로나 입력값을 출력하지 않는다", () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "hashi-private-trial-"));
+  const script = fileURLToPath(new URL("./prepare-dev-cleanup-trial.mjs", import.meta.url));
+  const files = ["private-config.json", "private-manifest.json", "private-boundary.json", "private-output.json"]
+    .map((name) => path.join(directory, name));
+  const oldManifest = structuredClone(manifest);
+  oldManifest.objects.forEach((object) => { object.last_modified_utc = "2020-01-01T00:00:00.000Z"; });
+  const reset = () => {
+    [config, oldManifest, boundary].forEach((value, index) => fs.writeFileSync(files[index], JSON.stringify(value)));
+    fs.rmSync(files[3], { force: true });
+  };
+  const run = (args, expected) => {
+    const result = spawnSync(process.execPath, [script, ...args], { encoding: "utf8", windowsHide: true });
+    assert.equal(result.error, undefined);
+    assert.equal(result.status, 1);
+    assert.match(result.stderr, expected);
+    assert.doesNotMatch(result.stdout + result.stderr, /private-config|private-manifest|private-boundary|private-output|SECRET_INPUT/);
+    assert.ok(!result.stderr.includes(directory));
+  };
+  try {
+    reset();
+    run([], /at arguments: expected config/);
+    run([path.join(directory, "SECRET_INPUT.json"), ...files.slice(1)], /at config input: file or parent directory not found/);
+    for (const [index, stage] of [[0, "config"], [1, "manifest"], [2, "boundary"]]) {
+      reset();
+      fs.writeFileSync(files[index], '{"SECRET_INPUT": invalid}');
+      run(files, new RegExp(`at ${stage} input: invalid JSON`));
+    }
+    reset();
+    fs.writeFileSync(files[0], JSON.stringify({ ...config, environment: "SECRET_INPUT" }));
+    run(files, /at scope, age and boundary validation: input does not match/);
+    reset();
+    const changedBoundary = structuredClone(boundary);
+    changedBoundary.Statement[0].Resource = "SECRET_INPUT";
+    fs.writeFileSync(files[2], JSON.stringify(changedBoundary));
+    run(files, /at scope, age and boundary validation: input does not match/);
+    reset();
+    fs.writeFileSync(files[3], "SECRET_INPUT");
+    run(files, /at output creation: output already exists/);
+    assert.equal(fs.readFileSync(files[3], "utf8"), "SECRET_INPUT");
+    reset();
+    run([...files.slice(0, 3), path.join(directory, "SECRET_INPUT", "output.json")], /at output creation: file or parent directory not found/);
+    reset();
+    const success = spawnSync(process.execPath, [script, ...files], { encoding: "utf8", windowsHide: true });
+    assert.equal(success.status, 0, success.stderr);
+    assert.equal(JSON.parse(fs.readFileSync(files[3], "utf8")).grant.Statement.length, 2);
+  } finally {
+    fs.rmSync(directory, { recursive: true, force: true });
+  }
 });

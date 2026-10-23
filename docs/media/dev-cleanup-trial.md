@@ -8,7 +8,9 @@
 
 - `CleanupAccessEnabled=false`, backfill 비활성 상태를 유지한다.
 - DB에 없는 새 시험 asset 하나의 원본 version 하나와 파생 version 하나만 허용한다.
-- 파생본은 실제 시험 fixture인 `v1/profile-avatar/128.webp`만 받는다. 임의 용도나 크기로 범위를 넓히지 않는다.
+- 파생본 경로는 수동 업로드한 합성 텍스트 객체의 고정 key인 `v1/profile-avatar/128.webp`만 받는다.
+  worker가 만든 사진이나 PROFILE_AVATAR의 정식 출력 폭이 아니다. 실제 규격 폭(48/96/192/288)에
+  맞추려고 key를 바꾸거나 삭제 허용 범위를 넓히지 않는다.
 - 원본과 파생본 모두 S3 `LastModified` 기준 7일이 지나야 한다. 파일 시간을 바꾸거나 기간을 줄이지 않는다.
 - `s3:DeleteObjectVersion`만 추가하며 각 statement에 정확한 key, `s3:VersionId`와 소유 계정을 함께 지정한다.
 - 추가 권한은 5~60분 뒤 만료한다. 기존 legacy 권한을 없애거나 좁히는 도구가 아니므로
@@ -55,6 +57,10 @@ node infra/media/scripts/prepare-dev-cleanup-trial.mjs <config.json> <private-ma
 권한 적용 직전에 현재 boundary와 출력의 restoreBoundary가 여전히 같은지 재확인한다.
 동시에 배포하거나 다른 담당자가 IAM을 바꾸는 동안에는 적용하지 않는다.
 
+실패 시 CLI는 인자, config/manifest/boundary 읽기, 검증, 출력 생성 중 어느 단계인지 표시한다.
+JSON 형식 오류, 파일 없음, 접근 거부, 출력 파일 중복도 구분한다. 경로·입력값이 들어갈 수 있는
+오류 원문은 출력하지 않는다. 검증 실패라면 위의 계정·대상·7일 보관 조건과 boundary를 확인한다.
+
 실제 적용은 별도 운영 단계다. 변경 전 IAM policy version과 role 연결을 비공개로 보존한 다음
 검토한 `trialBoundary`와 exact grant만 DEV role에 적용한다. 일반 배포 검사는 임시 boundary를
 정상 baseline과 다르다고 거절한다. 이는 의도한 안전장치이며 검사나 배포 workflow를 우회하지 않는다.
@@ -92,6 +98,15 @@ config는 `environment=dev`, 현재 ISO 시각 `baselineAt`, epoch seconds `proc
 위 키별 숫자를 담은 `baselines`를 받는다. 실제 scan interval과 work budget을 합한 시간보다
 완료 유예 시간을 길게 정하고 이 범위에 들어오지 않으면 시험을 시작하지 않는다.
 후보 수는 반복 관측 횟수이므로 동일 파일 재순회도 포함한다. 실제 삭제와 후보 수를 합산하지 않는다.
+
+`baselineAt`은 기준값을 실제 수집한 시각이며, 알림 생성 시점보다 미래이거나 **60초를 초과해
+오래되면 거부**한다. 9개 값을 수동으로 옮기지 말고, 운영 환경에 맞춘 수집 스크립트에서
+다음 단계를 한 번에 실행한다. 아래 생성기는 Prometheus 조회를 대신하지 않는다.
+
+1. 수집 시작 시각을 기록하고 같은 DEV 대상의 9개 counter, `process_start_time_seconds`, `up`을 읽는다.
+2. 응답 오류나 `up != 1`, 수집 도중 프로세스 시작 시각 변경이 있으면 중단한다.
+3. 수집 시작 시각을 `baselineAt`으로 사용해 비공개 config를 만들고 바로 아래 명령을 실행한다.
+4. 수집·생성에 60초를 넘겼으면 값을 다시 수집한다. 오래된 값에 시각만 새로 붙이지 않는다.
 
 ```text
 node infra/media/scripts/prepare-dev-cleanup-alerts.mjs <private-alert-config.json> <new-private-grafana-rules.json>

@@ -32,7 +32,7 @@ export function prepareDevCleanupTrial(config, manifest, actualBoundary, now = n
     locations.add(object.location);
     const expectedBucket = object.location === "original" ? config.originalBucket : config.deliveryBucket;
     const originalKey = `media/originals/${manifest.asset_id}/original`;
-    // This trial uses the canonical v1 profile-avatar fixture, not arbitrary rendition roles.
+    // Fixed key of a manually uploaded synthetic text fixture, not a PROFILE_AVATAR output size.
     const renditionKey = `media/renditions/${manifest.asset_id}/v1/profile-avatar/128.webp`;
     const age = time - Date.parse(object.last_modified_utc);
     if (object.bucket !== expectedBucket || object.verified !== true ||
@@ -55,15 +55,32 @@ export function prepareDevCleanupTrial(config, manifest, actualBoundary, now = n
 
 const isCli = process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url);
 if (isCli) {
+  let stage = "arguments";
   try {
     const [configPath, manifestPath, boundaryPath, outputPath] = process.argv.slice(2);
     if (!configPath || !manifestPath || !boundaryPath || !outputPath || process.argv.length !== 6) fail();
-    const read = (p) => JSON.parse(fs.readFileSync(p, "utf8").replace(/^\uFEFF/, ""));
-    const result = prepareDevCleanupTrial(read(configPath), read(manifestPath), read(boundaryPath));
+    const read = (p, label) => {
+      stage = label;
+      return JSON.parse(fs.readFileSync(p, "utf8").replace(/^\uFEFF/, ""));
+    };
+    const config = read(configPath, "config input");
+    const manifest = read(manifestPath, "manifest input");
+    const boundary = read(boundaryPath, "boundary input");
+    stage = "scope, age and boundary validation";
+    const result = prepareDevCleanupTrial(config, manifest, boundary);
+    stage = "output creation";
     fs.writeFileSync(outputPath, `${JSON.stringify(result, null, 2)}\n`, { flag: "wx", mode: 0o600 });
     console.log("Prepared a private DEV trial bundle; no AWS request or deletion was performed.");
-  } catch {
-    console.error("DEV trial preparation failed. Check scope, age, reviewed boundary and a new private output path.");
+  } catch (error) {
+    // Never echo raw messages: filesystem errors contain paths and JSON errors may contain input values.
+    const reasons = { ENOENT: "file or parent directory not found", EACCES: "file access denied",
+      EPERM: "file access denied", EEXIST: "output already exists; choose a new output file" };
+    const reason = error instanceof SyntaxError ? "invalid JSON"
+      : Object.hasOwn(reasons, error?.code) ? reasons[error.code]
+      : stage === "arguments" ? "expected config, manifest, boundary and output arguments"
+      : stage === "scope, age and boundary validation" ? "input does not match the approved trial conditions"
+      : "unexpected preparation failure";
+    console.error(`DEV trial preparation failed at ${stage}: ${reason}.`);
     process.exitCode = 1;
   }
 }
