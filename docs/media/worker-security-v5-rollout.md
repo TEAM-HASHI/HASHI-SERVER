@@ -41,7 +41,10 @@ Spring에 v5 파일이 추가됐다는 이유만으로 발급 규격이 바뀌�
 
 1. 개발 환경임을 확인하고 현재 config의 version·digest·lock version과 배포 artifact를 기록한다.
    신규 발급을 조건부 갱신(CAS)으로 OFF로 바꾼다. OFF가 이미 적용돼 있으면 그대로 유지한다.
-   일반 API 외에 backfill·upgrade 작업도 새 job을 발급하지 않는지 확인한다.
+   일반 API 외에 기존 사진 전환(backfill)에서도 새 job을 발급하지 않는지 확인한다.
+   현재 backfill은 `MediaBackfillTransactionService`에서 같은 발급 설정을 확인한다.
+   `beginUpgradeProcessing()`은 Entity 메서드와 테스트만 있고, 실제 서비스에서 호출하는 실행기는 없다.
+   향후 재변환 실행기를 추가하면 이 OFF 설정을 확인하도록 연결하고, 이 점검 대상에도 포함한다.
 2. **기존 worker를 유지한 채** 구 규격의 진행 중 target/currentJobId, 미완료 EPR,
    request/result queue와 각 DLQ를 확인한다. 단순히 SQS의 한 번 측정값이 0이라는 이유로
    완료로 판단하지 않는다. 늦은 재시도·visibility timeout과 메시지 보존 기간도 고려한다.
