@@ -23,11 +23,11 @@ const value = (metric) => `(sum(${scoped(metric)}) or vector(0))`;
 // Counter baselines retain the first failure even when a lazily created meter has only one sample.
 // A restart invalidates the baselines and must stop the trial, rather than silently resetting them.
 export function prepareDevCleanupAlerts(config, now = new Date()) {
-  const starts = Math.floor(now.getTime() / 1000);
-  const baselineAt = Date.parse(config.baselineAt) / 1000;
-  if (config.environment !== "dev" || !Number.isFinite(starts) || !Number.isFinite(baselineAt) ||
-      baselineAt > starts || starts - baselineAt > 60 || !Number.isFinite(config.processStartedAt) ||
-      config.processStartedAt <= 0 || config.processStartedAt > baselineAt ||
+  const nowMs = now.getTime();
+  const baselineAtMs = Date.parse(config.baselineAt);
+  if (config.environment !== "dev" || !Number.isFinite(nowMs) || !Number.isFinite(baselineAtMs) ||
+      baselineAtMs > nowMs || nowMs - baselineAtMs > 60_000 || !Number.isFinite(config.processStartedAt) ||
+      config.processStartedAt <= 0 || config.processStartedAt > baselineAtMs / 1000 ||
       !Number.isInteger(config.validForMinutes) || config.validForMinutes < 5 || config.validForMinutes > 60 ||
       !Number.isInteger(config.completionGraceMinutes) || config.completionGraceMinutes < 1 ||
       config.completionGraceMinutes >= config.validForMinutes ||
@@ -35,6 +35,7 @@ export function prepareDevCleanupAlerts(config, now = new Date()) {
       !Number.isInteger(config.candidateLimit) || config.candidateLimit < 0 || config.candidateLimit > 100 ||
       !Number.isInteger(config.deletedLimit) || config.deletedLimit < 0 || config.deletedLimit > 2 ||
       !config.baselines || Object.keys(trialCounters).some((k) => !Number.isFinite(config.baselines[k]) || config.baselines[k] < 0)) fail();
+  const starts = Math.floor(nowMs / 1000);
   const expires = starts + config.validForMinutes * 60;
   const delta = (key) => `(${value(trialCounters[key])} - ${config.baselines[key]})`;
   const countKey = config.component === "cleanup" ? "cleanupCompleted" : "reconciliationCompleted";

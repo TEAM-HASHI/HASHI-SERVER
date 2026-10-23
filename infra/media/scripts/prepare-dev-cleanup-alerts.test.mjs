@@ -45,6 +45,52 @@ test("운영 환경과 오래된 기준값 및 허용 범위를 넘는 삭제 �
   }
 });
 
+test("같은 초 안에서 먼저 수집한 기준값을 허용하고 PromQL 시각은 초 단위로 유지한다", () => {
+  const current = new Date("2030-01-10T12:00:00.900Z");
+  const result = prepareDevCleanupAlerts({ ...config, baselineAt: "2030-01-10T12:00:00.100Z" }, current);
+  const starts = Math.floor(current.getTime() / 1000);
+  const expires = starts + config.validForMinutes * 60;
+  for (const rule of result.groups[0].rules) {
+    assert.ok(rule.data[0].model.expr.includes(`vector(time()) >= ${starts})`));
+    assert.ok(rule.data[0].model.expr.includes(`vector(time()) < ${expires})`));
+  }
+  const completion = result.groups[0].rules.find((rule) => rule.uid.endsWith("completion"));
+  assert.ok(completion.data[0].model.expr.includes(`vector(time()) >= ${starts + config.completionGraceMinutes * 60})`));
+});
+
+test("밀리초까지 현재 시각과 같은 기준값을 허용한다", () => {
+  const current = new Date("2030-01-10T12:00:00.900Z");
+  assert.doesNotThrow(() => prepareDevCleanupAlerts({ ...config, baselineAt: current.toISOString() }, current));
+});
+
+test("현재보다 1밀리초라도 미래인 기준값을 거부한다", () => {
+  const current = new Date("2030-01-10T12:00:00.900Z");
+  assert.throws(() => prepareDevCleanupAlerts({ ...config, baselineAt: "2030-01-10T12:00:00.901Z" }, current));
+});
+
+test("정확히 60초 지난 기준값은 허용한다", () => {
+  const current = new Date("2030-01-10T12:00:00.900Z");
+  assert.doesNotThrow(() => prepareDevCleanupAlerts({ ...config, baselineAt: "2030-01-10T11:59:00.900Z" }, current));
+});
+
+test("60초보다 1밀리초라도 오래된 기준값은 거부한다", () => {
+  const current = new Date("2030-01-10T12:00:00.900Z");
+  assert.throws(() => prepareDevCleanupAlerts({ ...config, baselineAt: "2030-01-10T11:59:00.899Z" }, current));
+});
+
+test("해석할 수 없는 기준 시각과 현재 시각은 거부한다", () => {
+  assert.throws(() => prepareDevCleanupAlerts({ ...config, baselineAt: "invalid" }, now));
+  assert.throws(() => prepareDevCleanupAlerts(config, new Date("invalid")));
+});
+
+test("프로세스 시작 시각은 기존 epoch seconds 단위로 비교한다", () => {
+  const current = new Date("2030-01-10T12:00:00.900Z");
+  const baselineAt = "2030-01-10T12:00:00.100Z";
+  const processStartedAt = Date.parse(baselineAt) / 1000;
+  assert.doesNotThrow(() => prepareDevCleanupAlerts({ ...config, baselineAt, processStartedAt }, current));
+  assert.throws(() => prepareDevCleanupAlerts({ ...config, baselineAt, processStartedAt: processStartedAt + 0.001 }, current));
+});
+
 test("정리와 대조 실행의 완료 기준을 구분하고 과거 누적 실패는 기준값으로 제외한다", () => {
   const result = prepareDevCleanupAlerts({ ...config, component: "cleanup", baselines: { ...config.baselines, cleanupFailure: 7 } }, now);
   assert.match(result.groups[0].rules.find((r) => r.uid.endsWith("completion")).data[0].model.expr, /hashi_media_cleanup_scan_duration_seconds_count/);
