@@ -107,6 +107,15 @@ jobs:
           node infra/media/scripts/check-worker-iam.mjs infra/media/template.yaml
           node --test infra/media/scripts/check-dev-runtime-boundaries.test.mjs
           node --test infra/media/scripts/check-dev-bootstrap.test.mjs
+          node --test infra/media/scripts/prepare-dev-cleanup-trial.test.mjs
+          node --test infra/media/scripts/prepare-dev-cleanup-alerts.test.mjs
+
+      - name: Test DEV cleanup alert expressions
+        run: |
+          node infra/media/scripts/write-dev-cleanup-promql-tests.mjs "${RUNNER_TEMP}/media-trial-promql.json"
+          docker run --rm --network none --entrypoint /bin/promtool \
+            -v "${RUNNER_TEMP}/media-trial-promql.json:/test.json:ro" \
+            prom/prometheus:v2.53.1 test rules /test.json
 
       - name: Install exact worker dependencies
         working-directory: worker/image-transform

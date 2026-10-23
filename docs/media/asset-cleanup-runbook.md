@@ -28,6 +28,10 @@
 전체 정리와 object-only reconciliation, 개발 환경 통합 검증이 끝나기 전에는
 `media_pipeline_config.issuance_enabled=false`를 유지한다.
 
+DEV의 exact-version 시험 권한과 알림 준비는 [개발 정리 시험](dev-cleanup-trial.md)을 참고한다.
+이 권한으로 전체 asset 정리를 켜지 않는다. 파일 삭제 권한이 부족한 상태에서 다른 asset까지
+PURGING으로 변경할 수 있으므로 전체 정리 DELETE는 별도 범위 확인이 필요하다.
+
 ## 권한과 실행 설정
 
 삭제에는 서로 다른 두 설정이 필요하다.

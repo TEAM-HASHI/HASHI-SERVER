@@ -63,6 +63,10 @@ boundary의 조회 상한을 먼저 갱신한 뒤 조회 flag로 배포한다. `
 정책이며 이번 DEV 점검에는 사용하지 않는다. prod의 기존 수동 권한 절차는 변경하지 않는다.
 삭제 권한 추가와 `DELETE` 전환은 별도 검토·운영 승인이 필요하다.
 
+DEV에서 새 시험 파일 두 개만 확인할 때는 [제한된 정리 시험 절차](dev-cleanup-trial.md)를 따른다.
+이 절차는 정확한 key/version과 만료 시각을 제한하며 기존 전체 정리 flag를 켜지 않는다.
+권한 파일 생성, 실제 적용, 알림 수신과 Spring 실행 검증은 각각 구분해 기록한다.
+
 원본과 delivery bucket은 서로 다르고 같은 region이어야 한다. 이번 DEV 조회 정책은 두 bucket의
 `GetBucketVersioning`과 `media/originals/*`, `media/renditions/*`의 `ListBucketVersions`만 허용한다.
 exact version 삭제는 향후 별도 승인된 DELETE 단계에서 cleanup 정책을 검토할 때 다룬다.
