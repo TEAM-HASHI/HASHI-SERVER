@@ -96,3 +96,11 @@ test("인프라 검증은 스택 빌드 전에 로컬 패키지 검증 순서를
 test("인프라 검증은 검증 책임과 변경 감지에 관한 테스트를 실행한다", () => {
   assert.match(runCommands(infra), /node --test infra\/media\/scripts\/check-ci-triggers\.test\.mjs/);
 });
+
+test("개발 정리 시험 정책과 알림은 Node 및 실제 PromQL 검사로 검증한다", () => {
+  const commands = runCommands(infra);
+  assert.match(commands, /node --test infra\/media\/scripts\/prepare-dev-cleanup-trial\.test\.mjs/);
+  assert.match(commands, /node --test infra\/media\/scripts\/prepare-dev-cleanup-alerts\.test\.mjs/);
+  assert.match(commands, /write-dev-cleanup-promql-tests\.mjs/);
+  assert.match(commands, /prom\/prometheus:v2\.53\.1 test rules/);
+});
