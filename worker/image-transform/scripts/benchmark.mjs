@@ -9,7 +9,6 @@ import { fileURLToPath } from "node:url";
 // Input creation, file reading and manifest loading are outside the elapsed timer.
 const require = createRequire(import.meta.url);
 const workerDirectory = resolve(dirname(fileURLToPath(import.meta.url)), "..");
-const expectedRenditionCount = 9;
 
 async function main() {
   if (process.argv.length !== 3) {
@@ -21,7 +20,10 @@ async function main() {
   const { loadMediaSpec } = require("../dist/src/manifest.js");
   const { detectSourceMimeType } = require("../dist/src/mime.js");
   const bytes = readFileSync(process.argv[2]);
-  const spec = loadMediaSpec(1, resolve(workerDirectory, "..", "..", "media-specs"));
+  const spec = loadMediaSpec(5, resolve(workerDirectory, "..", "..", "media-specs"));
+  const expectedRenditionCount = spec.manifest.purposes.RESTAURANT.reduce(
+    (total, role) => total + spec.manifest.roles[role].candidates.length, 0,
+  );
   const declaredContentType = detectSourceMimeType(bytes);
   const rssBeforeTransformBytes = process.memoryUsage().rss;
   const startedAt = performance.now();
