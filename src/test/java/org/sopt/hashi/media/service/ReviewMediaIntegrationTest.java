@@ -6,9 +6,13 @@ import static org.mockito.Mockito.when;
 import static org.mockito.Mockito.doThrow;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import java.sql.DriverManager;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.UUID;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.sopt.hashi.auth.ActorType;
@@ -16,6 +20,7 @@ import org.sopt.hashi.auth.CurrentActor;
 import org.sopt.hashi.auth.CurrentActorProvider;
 import org.sopt.hashi.auth.CurrentUserProvider;
 import org.sopt.hashi.config.JpaAuditingConfig;
+import org.sopt.hashi.media.code.MediaErrorCode;
 import org.sopt.hashi.media.domain.ImageAsset;
 import org.sopt.hashi.media.domain.ImageAssetRepository;
 import org.sopt.hashi.media.domain.ImageFormat;
@@ -37,6 +42,7 @@ import org.sopt.hashi.review.dto.UpdateReviewRequest;
 import org.sopt.hashi.review.service.MyReviewService;
 import org.sopt.hashi.review.service.ReviewWriteService;
 import org.sopt.hashi.shared.error.BusinessException;
+import org.sopt.hashi.shared.error.CommonErrorCode;
 import org.sopt.hashi.shared.storage.FileStorage;
 import org.sopt.hashi.user.UserPort;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -45,6 +51,7 @@ import org.springframework.boot.test.autoconfigure.orm.jpa.DataJpaTest;
 import org.springframework.boot.testcontainers.service.connection.ServiceConnection;
 import org.springframework.context.annotation.Import;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.transaction.annotation.Propagation;
@@ -62,6 +69,7 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 @TestPropertySource(properties = {"spring.flyway.enabled=true", "spring.jpa.hibernate.ddl-auto=validate"})
 @Transactional(propagation = Propagation.NOT_SUPPORTED)
 @Testcontainers
+@DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_CLASS)
 class ReviewMediaIntegrationTest {
     @Container @ServiceConnection
     static final MySQLContainer<?> MYSQL = new MySQLContainer<>("mysql:8.4");
@@ -120,13 +128,18 @@ class ReviewMediaIntegrationTest {
     }
 
     @Test
-    void 타인_다른목적_이미연결_asset은_리뷰생성을_거부한다() {
-        for (var invalid : List.of(asset(true, 8L, MediaPurpose.REVIEW, false),
-                asset(true, 7L, MediaPurpose.PROFILE, false), asset(true, 7L, MediaPurpose.REVIEW, true))) {
-            assertThatThrownBy(() -> writeReviews.create(create(List.of(invalid.getPublicId()))))
-                    .isInstanceOf(BusinessException.class);
-        }
-        assertThat(reviews.count()).isZero();
+    void 타인_asset은_존재를_노출하지_않고_거부한다() {
+        assertCreateRejected(asset(true, 8L, MediaPurpose.REVIEW, false), MediaErrorCode.ASSET_NOT_FOUND);
+    }
+
+    @Test
+    void 다른목적_asset은_상태오류로_거부한다() {
+        assertCreateRejected(asset(true, 7L, MediaPurpose.PROFILE, false), MediaErrorCode.INVALID_STATE);
+    }
+
+    @Test
+    void 이미연결_asset은_중복연결_오류로_거부한다() {
+        assertCreateRejected(asset(true, 7L, MediaPurpose.REVIEW, true), MediaErrorCode.ALREADY_BOUND);
     }
 
     @Test
@@ -181,12 +194,170 @@ class ReviewMediaIntegrationTest {
         var originalIds = imageIds(review.getId());
         assertThatThrownBy(() -> myReviews.updateMyReview(review.getId(), update(5,
                 List.of(new UpdateReviewRequest.Image(null, added.getPublicId())))))
-                .isInstanceOf(BusinessException.class);
+                .isInstanceOfSatisfying(BusinessException.class, exception ->
+                        assertThat(exception.getErrorCode()).isEqualTo(MediaErrorCode.INVALID_STATE));
         assertThat(imageIds(review.getId())).isEqualTo(originalIds);
+        assertThat(binding(old)).isEqualTo("BOUND");
+        assertThat(binding(added)).isEqualTo("UNBOUND");
         myReviews.deleteMyReview(review.getId());
         assertThat(binding(old)).isEqualTo("BOUND");
         assertThat(imageIds(review.getId())).isEqualTo(originalIds);
         assertThat(jdbc.queryForObject("select deleted from review where id=?", Boolean.class, review.getId())).isTrue();
+    }
+
+    @Test
+    void key가_남은_asset도_legacy_수정으로_제거할_수_없고_ID로_유지한다() {
+        var old = asset(true, 7L, MediaPurpose.REVIEW, true);
+        Review review = review(List.of(old));
+        var originalIds = imageIds(review.getId());
+        jdbc.update("update review_image set file_key=? where id=?", "uploads/reviews/legacy.jpg", originalIds.getFirst());
+        for (List<String> keys : List.of(List.of("uploads/reviews/legacy.jpg"), List.<String>of())) {
+            assertThatThrownBy(() -> myReviews.updateMyReview(review.getId(), new UpdateReviewRequest(
+                    3, List.of("GOOD_VALUE"), "수정 후에도 충분히 긴 내용입니다.", keys)))
+                    .isInstanceOfSatisfying(BusinessException.class, exception ->
+                            assertThat(exception.getErrorCode()).isEqualTo(CommonErrorCode.INVALID_INPUT));
+            assertThat(imageIds(review.getId())).isEqualTo(originalIds);
+            assertThat(binding(old)).isEqualTo("BOUND");
+            assertThat(jdbc.queryForObject("select rating from review where id=?", Integer.class, review.getId()))
+                    .isEqualTo(5);
+        }
+        myReviews.updateMyReview(review.getId(), update(5,
+                List.of(new UpdateReviewRequest.Image(originalIds.getFirst(), null))));
+        assertThat(imageIds(review.getId())).isEqualTo(originalIds);
+        assertThat(binding(old)).isEqualTo("BOUND");
+    }
+
+    @Test
+    void 다른_리뷰가_동시에_같은_asset을_요청하면_한쪽만_생성된다() throws Exception {
+        var shared = asset(true, 7L, MediaPurpose.REVIEW, false);
+        when(reservations.getReviewInfoByIdAndUserId(101L, 7L)).thenReturn(
+                new ReservationReviewInfo(101L, 7L, ReservationType.STANDARD, 10L, null, null,
+                        LocalDateTime.now(), 2, 0, 0, ReservationStatus.VISITED));
+        CountDownLatch firstWritten = new CountDownLatch(1);
+        CountDownLatch allowCommit = new CountDownLatch(1);
+        try (var executor = Executors.newFixedThreadPool(2)) {
+            var first = executor.submit(() -> transactions.execute(status -> {
+                long id = writeReviews.create(create(List.of(shared.getPublicId()))).reviewId();
+                firstWritten.countDown();
+                await(allowCommit);
+                return id;
+            }));
+            try {
+                assertThat(firstWritten.await(15, TimeUnit.SECONDS)).isTrue();
+                var second = executor.submit(() -> {
+                    assertThatThrownBy(() -> writeReviews.create(new CreateReviewRequest(
+                            101L, 5, List.of("GOOD_VALUE"), "동시에 요청한 다른 리뷰입니다.", null,
+                            List.of(shared.getPublicId()))))
+                            .isInstanceOfSatisfying(BusinessException.class, exception ->
+                                    assertThat(exception.getErrorCode()).isEqualTo(MediaErrorCode.ALREADY_BOUND));
+                });
+                try {
+                    awaitRowLock("image_asset");
+                } finally {
+                    allowCommit.countDown();
+                }
+                long winner = first.get(20, TimeUnit.SECONDS);
+                second.get(20, TimeUnit.SECONDS);
+                assertThat(reviews.count()).isEqualTo(1);
+                assertThat(jdbc.queryForObject("select review_id from review_image where image_asset_id=?",
+                        Long.class, shared.getPublicId().toString())).isEqualTo(winner);
+                assertThat(binding(shared)).isEqualTo("BOUND");
+                assertFinalOrders();
+            } finally {
+                allowCommit.countDown();
+            }
+        }
+    }
+
+    @Test
+    void 같은_리뷰의_동시수정은_최신_사진을_기준으로_연결과_순서를_맞춘다() throws Exception {
+        var retained = asset(true, 7L, MediaPurpose.REVIEW, true);
+        var removed = asset(true, 7L, MediaPurpose.REVIEW, true);
+        var firstAdded = asset(true, 7L, MediaPurpose.REVIEW, false);
+        var lastAdded = asset(true, 7L, MediaPurpose.REVIEW, false);
+        Review review = review(List.of(retained, removed));
+        var originalIds = imageIds(review.getId());
+        CountDownLatch firstWritten = new CountDownLatch(1);
+        CountDownLatch allowCommit = new CountDownLatch(1);
+        try (var executor = Executors.newFixedThreadPool(2)) {
+            var first = executor.submit(() -> transactions.executeWithoutResult(status -> {
+                myReviews.updateMyReview(review.getId(), update(5, List.of(
+                        new UpdateReviewRequest.Image(originalIds.getFirst(), null),
+                        new UpdateReviewRequest.Image(null, firstAdded.getPublicId()))));
+                firstWritten.countDown();
+                await(allowCommit);
+            }));
+            try {
+                assertThat(firstWritten.await(15, TimeUnit.SECONDS)).isTrue();
+                var second = executor.submit(() -> myReviews.updateMyReview(review.getId(), update(5, List.of(
+                        new UpdateReviewRequest.Image(null, lastAdded.getPublicId()),
+                        new UpdateReviewRequest.Image(originalIds.getFirst(), null)))));
+                try {
+                    awaitRowLock("review");
+                } finally {
+                    allowCommit.countDown();
+                }
+                first.get(20, TimeUnit.SECONDS);
+                second.get(20, TimeUnit.SECONDS);
+                assertThat(imageIds(review.getId())).hasSize(2);
+                assertThat(imageIds(review.getId()).get(1)).isEqualTo(originalIds.getFirst());
+                assertThat(jdbc.queryForList("select image_asset_id from review_image where review_id=? order by display_order",
+                        String.class, review.getId())).containsExactly(lastAdded.getPublicId().toString(),
+                        retained.getPublicId().toString());
+                assertThat(binding(retained)).isEqualTo("BOUND");
+                assertThat(binding(removed)).isEqualTo("RETIRED");
+                assertThat(binding(firstAdded)).isEqualTo("RETIRED");
+                assertThat(binding(lastAdded)).isEqualTo("BOUND");
+                assertFinalOrders();
+            } finally {
+                allowCommit.countDown();
+            }
+        }
+    }
+
+    private void assertCreateRejected(ImageAsset invalid, MediaErrorCode expected) {
+        String previousBinding = binding(invalid);
+        assertThatThrownBy(() -> writeReviews.create(create(List.of(invalid.getPublicId()))))
+                .isInstanceOfSatisfying(BusinessException.class, exception ->
+                        assertThat(exception.getErrorCode()).isEqualTo(expected));
+        assertThat(binding(invalid)).isEqualTo(previousBinding);
+        assertThat(reviews.count()).isZero();
+        assertThat(jdbc.queryForObject("select count(*) from review_image", Integer.class)).isZero();
+    }
+
+    private void awaitRowLock(String table) throws Exception {
+        try (var connection = DriverManager.getConnection(MYSQL.getJdbcUrl(), "root", MYSQL.getPassword());
+             var statement = connection.prepareStatement("""
+                     select count(*) from performance_schema.data_lock_waits waits
+                     join performance_schema.data_locks requested
+                       on requested.engine = waits.engine
+                      and requested.engine_lock_id = waits.requesting_engine_lock_id
+                     where requested.object_schema = database() and requested.object_name = ?
+                     """)) {
+            statement.setString(1, table);
+            long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(10);
+            while (System.nanoTime() < deadline) {
+                try (var result = statement.executeQuery()) {
+                    result.next();
+                    if (result.getInt(1) > 0) {
+                        return;
+                    }
+                }
+                Thread.sleep(50);
+            }
+        }
+        throw new AssertionError("MySQL " + table + " 잠금 대기를 확인하지 못했습니다");
+    }
+
+    private void await(CountDownLatch latch) {
+        try {
+            if (!latch.await(20, TimeUnit.SECONDS)) {
+                throw new AssertionError("첫 요청의 커밋 대기 시간이 초과되었습니다");
+            }
+        } catch (InterruptedException exception) {
+            Thread.currentThread().interrupt();
+            throw new AssertionError("커밋 대기 중 중단됐습니다", exception);
+        }
     }
 
     private void assertFinalOrders() {
