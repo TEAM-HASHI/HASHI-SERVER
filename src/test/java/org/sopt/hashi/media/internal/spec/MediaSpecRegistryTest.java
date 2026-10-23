@@ -22,6 +22,36 @@ class MediaSpecRegistryTest {
     private final ObjectMapper objectMapper = new ObjectMapper();
 
     @Test
+    void v5는_기존_규격을_보존하고_변환_엔진_세대만_구분한다() throws IOException {
+        MediaSpecRegistry registry = new MediaSpecRegistry(objectMapper);
+        var previous = registry.findDefinition(4).orElseThrow();
+        var current = registry.findDefinition(5).orElseThrow();
+        assertThat(previous.digest()).isEqualTo(
+                "3f292e8387bc18a39cb662f7ba9dff9e76f3c1e686601192c5dc8d2194a2728a");
+        assertThat(current.digest()).isEqualTo(
+                "448810cc6b305d979f0afd931f05e6efc906132fee7320ec575b71f81d46f18c");
+        assertThat(current.purposeRoles()).isEqualTo(previous.purposeRoles());
+        assertThat(current.roleSpecs()).isEqualTo(previous.roleSpecs());
+        assertThat(registry.latestDefinition()).isEqualTo(current);
+        assertThat(registry.findDefinition(6)).isEmpty();
+        for (MediaPurpose purpose : MediaPurpose.values()) {
+            assertThat(current.expectedRenditions(purpose, 1000, 2000))
+                    .isEqualTo(previous.expectedRenditions(purpose, 1000, 2000));
+        }
+        try (InputStream before = new ClassPathResource("media-specs/v4.json").getInputStream();
+             InputStream after = new ClassPathResource("media-specs/v5.json").getInputStream()) {
+            ObjectNode expected = (ObjectNode) objectMapper.readTree(before);
+            expected.put("specVersion", 5).put("processorRevision", "sharp-webp-v3");
+            ObjectNode manifest = (ObjectNode) objectMapper.readTree(after);
+            assertThat(manifest).isEqualTo(expected);
+            manifest.put("processorRevision", "sharp-webp-v2");
+            assertThatThrownBy(() -> MediaSpecManifestValidator.validate(manifest, 5))
+                    .isInstanceOf(IllegalArgumentException.class)
+                    .hasMessageContaining("processorRevision");
+        }
+    }
+
+    @Test
     void v1_manifest의_정확한_LF_bytes_digest를_사용한다() {
         MediaSpecRegistry registry = new MediaSpecRegistry(objectMapper);
 

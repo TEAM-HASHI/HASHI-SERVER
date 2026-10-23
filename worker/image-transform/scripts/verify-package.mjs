@@ -12,13 +12,18 @@ assert.equal(existsSync(resolve(packageRoot, "media-specs", "v1.json")), true);
 assert.equal(existsSync(resolve(packageRoot, "media-specs", "v2.json")), true);
 assert.equal(existsSync(resolve(packageRoot, "media-specs", "v3.json")), true);
 assert.equal(existsSync(resolve(packageRoot, "media-specs", "v4.json")), true);
+assert.equal(existsSync(resolve(packageRoot, "media-specs", "v5.json")), true);
 assert.equal(existsSync(resolve(packageRoot, "node_modules", "typescript")), false);
 
 const sharp = packageRequire("sharp");
 const lambdaHandler = packageRequire("./dist/handler.js");
 const manifestModule = packageRequire("./dist/manifest.js");
+const { processImage } = packageRequire("./dist/image-processor.js");
 
-assert.equal(sharp.versions.sharp, "0.35.4");
+assert.equal(sharp.versions.sharp, "0.35.5");
+assert.equal(sharp.versions.rsvg, "2.63.2");
+assert.equal(sharp.versions.vips, "8.18.7");
+assert.equal(packageRequire("fast-uri/package.json").version, "3.1.9");
 assert.equal(typeof lambdaHandler.handler, "function");
 process.env.MEDIA_SPECS_DIRECTORY = resolve(packageRoot, "media-specs");
 const spec = manifestModule.loadMediaSpec(1);
@@ -34,6 +39,36 @@ assert.equal(
 
 const noticeSpec = manifestModule.loadMediaSpec(3);
 assert.equal(noticeSpec.digest, "ab130db4caea347d5945531e22c9f2b783a95ad1a9c9fa7b5741a6adcd16b97a");
+assert.equal(manifestModule.loadMediaSpec(4).digest,
+  "3f292e8387bc18a39cb662f7ba9dff9e76f3c1e686601192c5dc8d2194a2728a");
+const executableSpec = manifestModule.loadMediaSpec(5);
+assert.equal(executableSpec.digest,
+  "448810cc6b305d979f0afd931f05e6efc906132fee7320ec575b71f81d46f18c");
+assert.deepEqual(manifestModule.EXECUTABLE_SPEC_VERSIONS, [5]);
+for (const version of [1, 2, 3, 4]) {
+  assert.throws(() => manifestModule.assertExecutableSpec(manifestModule.loadMediaSpec(version)),
+    { name: "ContractMismatchError" });
+}
+manifestModule.assertExecutableSpec(executableSpec);
+
+// Exercise the native decoder and encoder from the extracted ZIP, not the build tree.
+const source = await sharp({
+  create: { width: 96, height: 96, channels: 3, background: "#557799" },
+}).png().toBuffer();
+const transformed = await processImage({
+  bytes: source,
+  declaredByteSize: source.length,
+  declaredContentType: "image/png",
+  purpose: "PROFILE",
+  spec: executableSpec,
+});
+assert.deepEqual(transformed.renditions.map(({ width, height }) => ({ width, height })), [
+  { width: 48, height: 48 },
+  { width: 96, height: 96 },
+]);
+for (const rendition of transformed.renditions) {
+  assert.equal((await sharp(rendition.bytes).metadata()).format, "webp");
+}
 
 console.log(
   JSON.stringify({
@@ -42,8 +77,12 @@ console.log(
     node: process.version,
     platform: process.platform,
     sharp: sharp.versions.sharp,
+    rsvg: sharp.versions.rsvg,
+    vips: sharp.versions.vips,
+    fastUri: packageRequire("fast-uri/package.json").version,
     specDigest: spec.digest,
     cardNewsSpecDigest: cardNewsSpec.digest,
     noticeSpecDigest: noticeSpec.digest,
+    executableSpecs: [{ version: 5, digest: executableSpec.digest, processorRevision: executableSpec.manifest.processorRevision }],
   }),
 );

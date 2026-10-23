@@ -5,7 +5,23 @@ import { join, resolve } from "node:path";
 import test from "node:test";
 
 import { ContractMismatchError } from "../src/errors";
-import { loadMediaSpec } from "../src/manifest";
+import { assertExecutableSpec, EXECUTABLE_SPEC_VERSIONS, loadMediaSpec } from "../src/manifest";
+
+test("v5 preserves v4 image rules and separates the updated native processor", () => {
+  const previous = loadMediaSpec(4);
+  const current = loadMediaSpec(5);
+  assert.equal(previous.digest, "3f292e8387bc18a39cb662f7ba9dff9e76f3c1e686601192c5dc8d2194a2728a");
+  assert.equal(current.digest, "448810cc6b305d979f0afd931f05e6efc906132fee7320ec575b71f81d46f18c");
+  assert.deepEqual(current.manifest, {
+    ...previous.manifest, specVersion: 5, processorRevision: "sharp-webp-v3",
+  });
+  assert.deepEqual(EXECUTABLE_SPEC_VERSIONS, [5]);
+  assert.doesNotThrow(() => assertExecutableSpec(current));
+  for (const version of [1, 2, 3, 4]) {
+    assert.throws(() => assertExecutableSpec(loadMediaSpec(version)), ContractMismatchError);
+  }
+  assert.throws(() => loadMediaSpec(6), ContractMismatchError);
+});
 
 test("loads the committed v1 manifest with its exact digest", () => {
   const spec = loadMediaSpec(1);

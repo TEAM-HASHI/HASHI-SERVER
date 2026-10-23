@@ -16,8 +16,8 @@ import {
 import { loadMediaSpec, type LoadedMediaSpec } from "../src/manifest";
 import { createTwoFrameApng, createWarningCorruptJpeg } from "./image-fixtures";
 
-const spec = loadMediaSpec(1);
-const cardNewsSpec = loadMediaSpec(2);
+const spec = loadMediaSpec(5);
+const cardNewsSpec = loadMediaSpec(5);
 
 const dimensionCases = JSON.parse(readFileSync(
   resolve(__dirname, "../../../../media-specs/fixtures/card-news-dimensions.json"), "utf8",

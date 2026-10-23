@@ -156,6 +156,10 @@ worker와 규격 파일이 바뀌어도 인프라 CI를 실행한다. SAM의 `Co
 
 dev 배포와 prod artifact 생성은 `Build or Deploy Image Pipeline` workflow를 수동 실행한다.
 
+**Sharp 보안 업데이트 artifact는 v5 작업만 실행한다.** 이미 배포된 구 worker를 교체할 때는
+아래 최초 설치 순서보다 [v5 전환 절차](../../docs/media/worker-security-v5-rollout.md)를 먼저 따른다.
+발급 OFF와 구 작업 drain 없이 교체하거나, 구 규격 pointer 상태에서 발급만 ON으로 바꾸지 않는다.
+
 1. dev repository variable, OIDC trust, dev/prod 격리와 두 IAM role의 실제 policy를 먼저 확인한다.
 2. `dev`와 `MEDIA_DEV_WORKER_EVENT_SOURCE_ENABLED=false`로 최초 stack을 배포한다.
 3. 최초 stack이 original bucket의 versioning을 처음 활성화했다면 첫 PUT 또는 DELETE 전에 15분을

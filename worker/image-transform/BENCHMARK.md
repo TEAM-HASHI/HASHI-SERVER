@@ -11,17 +11,24 @@ npm test
 node scripts/benchmark.mjs /absolute/path/to/local-image.png
 ```
 
-측정 스크립트는 RESTAURANT의 후보 9개를 만드는 경우를 대상으로 한다. 작은 이미지라서
-9개를 만들 수 없으면 출력의 status와 종료 코드로 구분한다. 프로그램과 입력을 준비하는
-시간은 elapsed에서 제외하지만, peak RSS는 Node와 모듈, 원본 버퍼를 포함한 프로세스 전체의
+현재 측정 스크립트는 이 worker가 실행할 수 있는 **v5**를 사용한다. RESTAURANT의 전체 후보 수를
+manifest에서 계산하며, 현재는 PHOTO_DETAIL을 포함해 12개다. 작은 이미지라서 전체 후보를
+만들 수 없으면 `INSUFFICIENT_STANDARD_CANDIDATES`와 종료 코드 1로 구분한다.
+변환에 실패한 경우의 `BENCHMARK_FAILED`와는 다르다. 결과의 specVersion과 specDigest도 함께 보관한다.
+프로그램과 입력을 준비하는 시간은 elapsed에서 제외하지만,
+peak RSS는 Node와 모듈, 원본 버퍼를 포함한 프로세스 전체의
 최대 메모리다. 변환 단계만의 메모리나 Lambda의 Max Memory Used와 같은 값이 아니다.
 
-## 로컬 실행 기록
+## 과거 v1 로컬 실행 기록
 
-2026-09-14 Windows x64, Node 24.17.0, Sharp 0.35.4에서 합성한 2,000×2,000 반투명 단색 PNG를
+2026-09-14 v1 규격, Windows x64, Node 24.17.0, Sharp 0.35.4에서 합성한 2,000×2,000 반투명 단색 PNG를
 한 번 실행했다. 검증과 9개 생성에 약 3.27초, 프로세스 peak RSS는 148,920 KiB였다.
 입력은 84,940 bytes, 출력 합계는 4,684 bytes다. 단색 합성 이미지이며 다른 작업이 실행 중인
 PC에서 한 번 측정한 값이므로, 실제 사진의 압축률·평균 지연·최악 메모리를 대표하지 않는다.
+
+이 기록은 당시 v1·후보 9개 작업의 결과다. 현재 v5·후보 12개 결과와 섞어 속도나 메모리의
+개선율을 계산하지 않는다. 같은 입력이어도 처리할 이미지 수와 native 라이브러리가 달라졌다.
+기존 v1 실행을 재현해야 하면 당시 artifact를 별도로 사용하며, 새 worker의 실행 검사를 우회하지 않는다.
 
 ## 기능 활성화 전 추가 확인
 
