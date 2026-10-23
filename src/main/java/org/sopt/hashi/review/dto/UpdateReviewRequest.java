@@ -43,11 +43,6 @@ public record UpdateReviewRequest(
         @Size(max = 10, message = "리뷰 이미지는 최대 10개까지 등록할 수 있습니다")
         List<@NotNull(message = "이미지 항목은 비어 있을 수 없습니다") @Valid Image> images
 ) {
-    public UpdateReviewRequest(Integer rating, List<String> keywordCodes, String content,
-                               List<String> imageFileKeys) {
-        this(rating, keywordCodes, content, imageFileKeys, null);
-    }
-
     @JsonIgnore
     @AssertTrue(message = "imageFileKeys 또는 images 중 하나의 전체 목록을 전달해야 합니다")
     public boolean isImageSourceValid() {

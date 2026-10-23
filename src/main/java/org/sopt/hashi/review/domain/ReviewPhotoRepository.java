@@ -100,8 +100,5 @@ public class ReviewPhotoRepository {
     public record Position(java.time.LocalDateTime createdAt, long reviewId, int displayOrder, long imageId) { }
 
     public record Photo(long id, String fileKey, UUID imageAssetId, Position position) {
-        public Photo(long id, String fileKey, Position position) {
-            this(id, fileKey, null, position);
-        }
     }
 }

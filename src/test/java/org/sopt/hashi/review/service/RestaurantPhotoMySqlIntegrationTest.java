@@ -232,6 +232,47 @@ class RestaurantPhotoMySqlIntegrationTest {
         assertThat(page1.getFirst().id()).isNotEqualTo(page2.getFirst().id());
     }
 
+    @Test
+    void media_조회가_누락된_리뷰도_개수와_두_페이지의_슬롯을_유지한다() {
+        List<Long> imageIds = new ArrayList<>();
+        for (int batch = 0; batch < 3; batch++) {
+            Review review = Review.create(System.nanoTime(), restaurant.getId(), 1L, 5, "asset fixture");
+            List<ReviewImage> images = new ArrayList<>();
+            for (int i = 0; i < (batch == 2 ? 1 : 10); i++) {
+                images.add(ReviewImage.createAsset(java.util.UUID.randomUUID(), i));
+            }
+            review.replaceImages(images);
+            reviews.saveAndFlush(review);
+            imageIds.addAll(review.getImages().stream().map(ReviewImage::getId).toList());
+        }
+
+        for (var filter : List.of(RestaurantPhotoFilter.REVIEW, RestaurantPhotoFilter.ALL)) {
+            var first = service.getPhotos(restaurant.getId(), filter, null);
+            assertThat(first.totalCount()).isEqualTo(21);
+            assertThat(first.counts().review()).isEqualTo(21);
+            assertThat(first.counts().all()).isEqualTo(21);
+            assertThat(first.photos()).hasSize(20).allSatisfy(photo -> {
+                assertThat(photo.imageUrl()).isNull();
+                assertThat(photo.image()).isNull();
+            });
+            assertThat(first.hasNext()).isTrue();
+            assertThat(first.nextCursor()).isNotBlank();
+
+            var second = service.getPhotos(restaurant.getId(), filter, first.nextCursor());
+            assertThat(second.totalCount()).isEqualTo(21);
+            assertThat(second.photos()).hasSize(1);
+            assertThat(second.photos().getFirst().imageUrl()).isNull();
+            assertThat(second.photos().getFirst().image()).isNull();
+            assertThat(second.hasNext()).isFalse();
+            assertThat(second.nextCursor()).isNull();
+
+            List<String> seen = new ArrayList<>(first.photos().stream().map(photo -> photo.photoId()).toList());
+            seen.add(second.photos().getFirst().photoId());
+            assertThat(seen).doesNotHaveDuplicates()
+                    .containsExactlyInAnyOrderElementsOf(imageIds.stream().map(id -> "REVIEW:" + id).toList());
+        }
+    }
+
     // 리뷰당 10장 제한을 지키면서 사진 탭의 여러 페이지를 구성한다.
     // 생성 시각이 같으면 큰 리뷰 ID가 먼저 오므로 뒷부분부터 저장한다.
     private void createReviewPages(List<String> keys) {

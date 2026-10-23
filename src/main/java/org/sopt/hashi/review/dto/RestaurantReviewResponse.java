@@ -39,29 +39,5 @@ public record RestaurantReviewResponse(
             int imageCount,
             LocalDateTime createdAt
     ) {
-
-        public ReviewSummaryResponse(
-                Long reviewId,
-                String reviewerNickname,
-                String reviewerProfileImageUrl,
-                int rating,
-                String content,
-                List<String> keywords,
-                List<String> previewImageUrls,
-                int imageCount,
-                LocalDateTime createdAt
-        ) {
-            this(
-                    reviewId, reviewerNickname, reviewerProfileImageUrl, null,
-                    rating, content, keywords, previewImageUrls, List.of(), imageCount, createdAt);
-        }
-
-        public ReviewSummaryResponse(Long reviewId, String reviewerNickname, String reviewerProfileImageUrl,
-                                     MediaImage reviewerProfileImage, int rating, String content,
-                                     List<String> keywords, List<String> previewImageUrls,
-                                     int imageCount, LocalDateTime createdAt) {
-            this(reviewId, reviewerNickname, reviewerProfileImageUrl, reviewerProfileImage, rating,
-                    content, keywords, previewImageUrls, List.of(), imageCount, createdAt);
-        }
     }
 }

@@ -36,8 +36,5 @@ public record ReviewEditContextResponse(
             UUID imageAssetId,
             MediaImage image
     ) {
-        public ReviewEditImageResponse(String fileKey, String imageUrl, int displayOrder) {
-            this(fileKey, imageUrl, displayOrder, null, null, null);
-        }
     }
 }

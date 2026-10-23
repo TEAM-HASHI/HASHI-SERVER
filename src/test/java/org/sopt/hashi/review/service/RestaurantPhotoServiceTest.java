@@ -36,6 +36,8 @@ class RestaurantPhotoServiceTest {
         UUID readyId = UUID.randomUUID();
         UUID missingId = UUID.randomUUID();
         when(restaurants.existsActiveById(1L)).thenReturn(true);
+        when(reviews.count(1L, false, List.of())).thenReturn(2L);
+        when(reviews.count(1L, true, List.of())).thenReturn(2L);
         when(reviews.find(1L, false, List.of(), null, 21)).thenReturn(List.of(
                 new ReviewPhotoRepository.Photo(10L, null, readyId,
                         new ReviewPhotoRepository.Position(null, 5L, 0, 10L)),
@@ -45,8 +47,13 @@ class RestaurantPhotoServiceTest {
         when(media.findImages(anyCollection())).thenReturn(Map.of(request, ready(readyId, request.role())));
         var response = service.getPhotos(1L, RestaurantPhotoFilter.REVIEW, null);
         assertThat(response.photos()).hasSize(2);
+        assertThat(response.totalCount()).isEqualTo(2);
+        assertThat(response.counts().review()).isEqualTo(2);
+        assertThat(response.hasNext()).isFalse();
+        assertThat(response.nextCursor()).isNull();
         assertThat(response.photos().getFirst().image().role()).isEqualTo(MediaImageRole.REVIEW_DETAIL);
         assertThat(response.photos().get(1).imageUrl()).isNull();
+        assertThat(response.photos().get(1).image()).isNull();
         org.mockito.Mockito.verify(media).findImages(List.of(request,
                 new MediaImageRequest(missingId, MediaImageRole.REVIEW_DETAIL)));
         verifyNoInteractions(storage);

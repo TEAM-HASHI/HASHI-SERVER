@@ -343,7 +343,7 @@ class MyReviewServiceTest {
                 "가격도 합리적이고 음식도 빠르게 나와서 좋았습니다.",
                 List.of(
                         "uploads/reviews/20/new-1.jpg",
-                        "uploads/reviews/20/new-2.jpg")
+                        "uploads/reviews/20/new-2.jpg"), null
         );
 
         myReviewService.updateMyReview(REVIEW_ID, request);
@@ -374,7 +374,7 @@ class MyReviewServiceTest {
                 5,
                 List.of("FOOD_IS_DELICIOUS"),
                 "직원분들이 친절하고 음식이 정말 맛있었습니다.",
-                List.of()
+                List.of(), null
         );
 
         myReviewService.updateMyReview(REVIEW_ID, request);
@@ -394,7 +394,7 @@ class MyReviewServiceTest {
                 5,
                 List.of("FOOD_IS_DELICIOUS"),
                 "기존 사진을 유지하면서 새로운 사진도 함께 추가합니다.",
-                List.of("legacy/reviews/old.jpg", "uploads/reviews/new.jpg")
+                List.of("legacy/reviews/old.jpg", "uploads/reviews/new.jpg"), null
         );
 
         myReviewService.updateMyReview(REVIEW_ID, request);
@@ -414,7 +414,7 @@ class MyReviewServiceTest {
                 5,
                 List.of("FOOD_IS_DELICIOUS"),
                 "직원분들이 친절하고 음식이 정말 맛있었습니다.",
-                List.of("legacy/reviews/new.jpg")
+                List.of("legacy/reviews/new.jpg"), null
         );
 
         assertThatThrownBy(() -> myReviewService.updateMyReview(REVIEW_ID, request))
@@ -432,7 +432,7 @@ class MyReviewServiceTest {
                 5,
                 List.of("FOOD_IS_DELICIOUS"),
                 "직원분들이 친절하고 음식이 정말 맛있었습니다.",
-                List.of("uploads/reviews/same.jpg", "uploads/reviews/same.jpg")
+                List.of("uploads/reviews/same.jpg", "uploads/reviews/same.jpg"), null
         );
 
         assertThatThrownBy(() -> myReviewService.updateMyReview(REVIEW_ID, request))
@@ -449,7 +449,7 @@ class MyReviewServiceTest {
                 5,
                 List.of("TRADITIONAL_ATMOSPHERE"),
                 "직원분들이 친절하고 음식이 정말 맛있었습니다.",
-                List.of()
+                List.of(), null
         );
 
         assertThatThrownBy(() -> myReviewService.updateMyReview(REVIEW_ID, request))

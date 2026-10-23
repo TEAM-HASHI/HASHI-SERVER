@@ -16,6 +16,7 @@ import org.sopt.hashi.review.code.ReviewErrorCode;
 import org.sopt.hashi.review.dto.RestaurantReviewResponse;
 import org.sopt.hashi.review.dto.RestaurantReviewResponse.RatingDistributionResponse;
 import org.sopt.hashi.review.dto.RestaurantReviewResponse.ReviewSummaryResponse;
+import org.sopt.hashi.review.dto.ReviewImageResponse;
 import org.sopt.hashi.review.service.ReviewService;
 import org.sopt.hashi.shared.error.BusinessException;
 import org.sopt.hashi.shared.exception.GlobalExceptionHandler;
@@ -54,10 +55,13 @@ class ReviewControllerTest {
                         10L,
                         "하루",
                         "https://cdn.example.com/users/1/profile.jpg",
+                        null,
                         5,
                         "리뷰 내용입니다.",
                         List.of("친절해요"),
                         List.of("https://cdn.example.com/reviews/10/1.jpg"),
+                        List.of(new ReviewImageResponse(501L, 0, null,
+                                "https://cdn.example.com/reviews/10/1.jpg")),
                         1,
                         LocalDateTime.of(2026, 7, 9, 12, 0)
                 )),
@@ -79,6 +83,10 @@ class ReviewControllerTest {
                 .andExpect(jsonPath("$.data.content[0].reviewerProfileImageUrl")
                         .value("https://cdn.example.com/users/1/profile.jpg"))
                 .andExpect(jsonPath("$.data.content[0].writerNickname").doesNotExist())
+                .andExpect(jsonPath("$.data.content[0].previewImages[0].reviewImageId").value(501))
+                .andExpect(jsonPath("$.data.content[0].previewImages[0].displayOrder").value(0))
+                .andExpect(jsonPath("$.data.content[0].previewImages[0].legacyUrl")
+                        .value("https://cdn.example.com/reviews/10/1.jpg"))
                 .andExpect(jsonPath("$.data.hasNext").value(false));
     }
 

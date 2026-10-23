@@ -101,6 +101,8 @@ public class RestaurantPhotoService {
                 .map(assetId -> new MediaImageRequest(assetId, MediaImageRole.REVIEW_DETAIL)).distinct().toList();
         Map<MediaImageRequest, MediaImage> reviewImages = reviewRequests.isEmpty()
                 ? Map.of() : media.findImages(reviewRequests);
+        // 리뷰는 DB 슬롯 기준으로 count/seek한다. 조회 결과가 없는 asset도 자리를 남겨
+        // 페이지를 채우기 위한 추가 조회나 cursor 건너뛰기 없이 다음 슬롯으로 이어간다.
         List<Photo> result = new ArrayList<>();
         var current = position;
         var next = position;

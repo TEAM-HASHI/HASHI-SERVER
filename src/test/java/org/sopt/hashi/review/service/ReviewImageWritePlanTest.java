@@ -74,7 +74,7 @@ class ReviewImageWritePlanTest {
         ReflectionTestUtils.setField(existing, "imageAssetId", UUID.randomUUID());
         for (List<String> keys : List.of(List.of("legacy/kept.jpg"), List.<String>of())) {
             assertThatThrownBy(() -> ReviewImageWritePlan.update(List.of(existing), new UpdateReviewRequest(
-                    5, List.of("GOOD_VALUE"), "충분히 긴 리뷰 내용입니다.", keys)))
+                    5, List.of("GOOD_VALUE"), "충분히 긴 리뷰 내용입니다.", keys, null)))
                     .isInstanceOfSatisfying(BusinessException.class, exception -> assertThat(exception.getErrorCode())
                             .isEqualTo(org.sopt.hashi.shared.error.CommonErrorCode.INVALID_INPUT));
         }
@@ -89,7 +89,7 @@ class ReviewImageWritePlanTest {
     void key없는_asset이_있으면_legacy_전체목록으로_실수로_삭제하지_못한다() {
         var existing = assetImage(11L, 0);
         assertThatThrownBy(() -> ReviewImageWritePlan.update(List.of(existing), new UpdateReviewRequest(
-                5, List.of("GOOD_VALUE"), "본문만 수정하려던 요청입니다.", List.of())))
+                5, List.of("GOOD_VALUE"), "본문만 수정하려던 요청입니다.", List.of(), null)))
                 .isInstanceOf(BusinessException.class);
         var explicitRemoval = ReviewImageWritePlan.update(List.of(existing), request(List.of()));
         assertThat(explicitRemoval.retires()).containsExactly(new MediaAssetUse(existing.getImageAssetId(), MediaAssetPurpose.REVIEW));

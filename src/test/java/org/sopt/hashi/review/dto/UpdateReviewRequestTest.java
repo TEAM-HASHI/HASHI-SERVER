@@ -22,7 +22,7 @@ class UpdateReviewRequestTest {
 
     @Test
     void 수정_가능한_필드는_모두_필수다() {
-        UpdateReviewRequest request = new UpdateReviewRequest(null, null, null, null);
+        UpdateReviewRequest request = new UpdateReviewRequest(null, null, null, null, null);
 
         Set<ConstraintViolation<UpdateReviewRequest>> violations = validator.validate(request);
 
@@ -46,7 +46,7 @@ class UpdateReviewRequestTest {
                 "짧은 내용",
                 IntStream.range(0, 11)
                         .mapToObj(index -> "uploads/reviews/%d.jpg".formatted(index))
-                        .toList()
+                        .toList(), null
         );
 
         Set<ConstraintViolation<UpdateReviewRequest>> violations = validator.validate(request);
@@ -62,7 +62,7 @@ class UpdateReviewRequestTest {
                 5,
                 List.of(" "),
                 "직원분들이 친절하고 음식이 정말 맛있었습니다.",
-                List.of("x".repeat(501))
+                List.of("x".repeat(501)), null
         );
 
         Set<ConstraintViolation<UpdateReviewRequest>> violations = validator.validate(request);
@@ -78,7 +78,7 @@ class UpdateReviewRequestTest {
                 5,
                 List.of("FOOD_IS_DELICIOUS"),
                 "직원분들이 친절하고 음식이 정말 맛있었습니다.",
-                imageFileKeys
+                imageFileKeys, null
         );
     }
 

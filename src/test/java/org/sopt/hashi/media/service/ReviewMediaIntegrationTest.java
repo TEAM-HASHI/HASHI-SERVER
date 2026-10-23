@@ -213,7 +213,7 @@ class ReviewMediaIntegrationTest {
         jdbc.update("update review_image set file_key=? where id=?", "uploads/reviews/legacy.jpg", originalIds.getFirst());
         for (List<String> keys : List.of(List.of("uploads/reviews/legacy.jpg"), List.<String>of())) {
             assertThatThrownBy(() -> myReviews.updateMyReview(review.getId(), new UpdateReviewRequest(
-                    3, List.of("GOOD_VALUE"), "수정 후에도 충분히 긴 내용입니다.", keys)))
+                    3, List.of("GOOD_VALUE"), "수정 후에도 충분히 긴 내용입니다.", keys, null)))
                     .isInstanceOfSatisfying(BusinessException.class, exception ->
                             assertThat(exception.getErrorCode()).isEqualTo(CommonErrorCode.INVALID_INPUT));
             assertThat(imageIds(review.getId())).isEqualTo(originalIds);
