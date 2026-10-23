@@ -24,6 +24,37 @@ const SPEC_DIGEST = "1b5759a9285732133699114e21101b3b9b43b5cd8e208bf1246d059f429
 const VERSION_ID = "version-1";
 const ETAG = '"etag-value"';
 
+const SVG_SOURCE = Buffer.from(
+  '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16">'
+  + '<rect width="16" height="16" fill="red"/></svg>',
+);
+
+for (const [mime, signature] of [
+  ["image/jpeg", Buffer.from([0xff, 0xd8, 0xff])],
+  ["image/png", Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])],
+  ["image/webp", Buffer.from("RIFF0000WEBP", "ascii")],
+] as const) {
+  for (const spoofSignature of [false, true]) {
+    test(`SVG가 ${mime} MIME${spoofSignature ? "과 헤더" : ""}로 위장해도 저장하지 않고 실패 처리한다`, async () => {
+      const source = spoofSignature ? Buffer.concat([signature, SVG_SOURCE]) : SVG_SOURCE;
+      const storage = new FakeStorage({ ...original(source), contentType: mime });
+      const publisher = new FakePublisher();
+      const worker = new ImageTransformWorker(storage, publisher);
+
+      await worker.processMessage(requestBody(source, { declaredContentType: mime }));
+
+      assert.equal(storage.readRequests.length, 1);
+      assert.equal(storage.writes.length, 0);
+      assert.equal(publisher.results.length, 1);
+      const result = publisher.results[0]!;
+      assert.equal(result.status, "FAILED");
+      if (result.status === "FAILED") {
+        assert.equal(result.failureCode, spoofSignature ? "INVALID_IMAGE_DATA" : "UNSUPPORTED_IMAGE_TYPE");
+      }
+    });
+  }
+}
+
 test("가늘고 긴 카드뉴스의 같은 저장 키는 한 번만 기록하고 성공 결과를 보낸다", async () => {
   const source = await jpegSource(1, 1200);
   const storage = new FakeStorage(original(source));
@@ -122,6 +153,22 @@ test("publishes a sanitized permanent failure without writing renditions", async
       failureCode: "INVALID_IMAGE_DATA",
     },
   ]);
+});
+
+test("같은 작업을 재실행해도 저장 키와 변환 바이트가 같다", async () => {
+  const source = await jpegSource(200, 300);
+  const storage = new FakeStorage(original(source));
+  const publisher = new FakePublisher();
+  const worker = new ImageTransformWorker(storage, publisher);
+  const body = requestBody(source);
+
+  await worker.processMessage(body);
+  const firstWrites = [...storage.writes];
+  await worker.processMessage(body);
+
+  assert.ok(firstWrites.length > 0);
+  assert.deepEqual(storage.writes.slice(firstWrites.length), firstWrites);
+  assert.deepEqual(publisher.results[1], publisher.results[0]);
 });
 
 test("rejects warning-level corrupt JPEG data without writing renditions", async () => {
