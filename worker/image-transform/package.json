@@ -20,6 +20,11 @@
     "ajv": "8.20.0",
     "sharp": "0.35.5"
   },
+  "overrides": {
+    "ajv": {
+      "fast-uri": "3.1.9"
+    }
+  },
   "devDependencies": {
     "@types/aws-lambda": "8.10.162",
     "@types/node": "24.13.3",
