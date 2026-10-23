@@ -1,12 +1,17 @@
 package org.sopt.hashi.review.dto;
 
 import io.swagger.v3.oas.annotations.media.Schema;
+import com.fasterxml.jackson.annotation.JsonIgnore;
+import jakarta.validation.Valid;
+import jakarta.validation.constraints.AssertTrue;
+import jakarta.validation.constraints.Positive;
 import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Size;
 import java.util.List;
+import java.util.UUID;
 
 /** 리뷰 수정 요청. 수정 가능한 필드의 최종 상태를 모두 전달한다. */
 public record UpdateReviewRequest(
@@ -28,11 +33,27 @@ public record UpdateReviewRequest(
         @Size(min = 10, max = 1000, message = "리뷰 내용은 10자 이상 1000자 이하여야 합니다")
         String content,
 
-        @Schema(description = "수정 후 남길 리뷰 이미지 S3 key 전체 목록(최대 10개, 중복 불가, 빈 배열은 전체 삭제)",
+        @Schema(description = "asset 연결이 없는 리뷰의 최종 S3 key 목록(최대 10개, 중복 불가, 빈 배열은 전체 삭제)",
                 example = "[\"uploads/reviews/a1b2c3-1.jpg\"]")
-        @NotNull(message = "리뷰 이미지 목록은 필수입니다")
         @Size(max = 10, message = "리뷰 이미지는 최대 10개까지 등록할 수 있습니다")
         List<@NotBlank(message = "이미지 파일 key는 비어 있을 수 없습니다")
-                @Size(max = 500, message = "이미지 파일 key는 500자 이하여야 합니다") String> imageFileKeys
+                @Size(max = 500, message = "이미지 파일 key는 500자 이하여야 합니다") String> imageFileKeys,
+
+        @Schema(description = "최종 이미지 순서. 기존 reviewImageId 또는 새 imageAssetId 중 하나. imageFileKeys와 배타적")
+        @Size(max = 10, message = "리뷰 이미지는 최대 10개까지 등록할 수 있습니다")
+        List<@NotNull(message = "이미지 항목은 비어 있을 수 없습니다") @Valid Image> images
 ) {
+    @JsonIgnore
+    @AssertTrue(message = "imageFileKeys 또는 images 중 하나의 전체 목록을 전달해야 합니다")
+    public boolean isImageSourceValid() {
+        return (imageFileKeys == null) != (images == null);
+    }
+
+    public record Image(@Positive(message = "리뷰 이미지 ID는 양수여야 합니다") Long reviewImageId, UUID imageAssetId) {
+        @JsonIgnore
+        @AssertTrue(message = "기존 리뷰 이미지 ID 또는 신규 asset ID 중 하나만 전달해야 합니다")
+        public boolean isSourceValid() {
+            return (reviewImageId == null) != (imageAssetId == null);
+        }
+    }
 }

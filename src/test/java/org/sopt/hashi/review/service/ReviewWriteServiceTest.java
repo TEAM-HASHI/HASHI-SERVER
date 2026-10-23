@@ -18,6 +18,7 @@ import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.sopt.hashi.auth.CurrentUserProvider;
+import org.sopt.hashi.media.MediaPort;
 import org.sopt.hashi.point.PointPort;
 import org.sopt.hashi.reservation.ReservationPort;
 import org.sopt.hashi.reservation.ReservationReviewInfo;
@@ -58,6 +59,9 @@ class ReviewWriteServiceTest {
     @Mock
     private CurrentUserProvider currentUserProvider;
 
+    @Mock
+    private MediaPort mediaPort;
+
     private ReviewWriteService reviewWriteService;
 
     @BeforeEach
@@ -68,7 +72,8 @@ class ReviewWriteServiceTest {
                 restaurantPort,
                 pointPort,
                 userPort,
-                currentUserProvider
+                currentUserProvider,
+                mediaPort
         );
     }
 
@@ -138,7 +143,7 @@ class ReviewWriteServiceTest {
                 5,
                 List.of("TRADITIONAL_ATMOSPHERE"),
                 "혼밥하기 좋은 식당인지 자세하게 작성한 리뷰입니다.",
-                List.of()
+                List.of(), null
         );
 
         assertThatThrownBy(() -> reviewWriteService.create(request))
@@ -199,7 +204,7 @@ class ReviewWriteServiceTest {
                 5,
                 List.of("FOOD_IS_DELICIOUS", "GOOD_FOR_SOLO_DINING"),
                 "음식이 맛있고 직원분들이 친절했습니다.",
-                List.of("uploads/reviews/2026/07/10/review-1.jpg")
+                List.of("uploads/reviews/2026/07/10/review-1.jpg"), null
         );
     }
 

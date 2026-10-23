@@ -27,6 +27,7 @@ class MyReviewDetailResponseTest {
                 "리뷰 내용입니다.",
                 List.of("친절해요"),
                 List.of(),
+                List.of(),
                 LocalDateTime.of(2026, 7, 2, 12, 0)
         );
 

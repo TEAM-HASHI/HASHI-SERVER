@@ -44,9 +44,11 @@ public class RestaurantPhotoController {
             커서는 식당·필터에 종속되며 변경한 조건에 재사용하거나 형식이 잘못되면 400입니다.
             마지막 정렬 키 이후부터 조회합니다. 삭제로 앞 페이지가 줄어도 건너뛰지 않습니다.
             사진 순서 수정·동일 원본의 출처 변경 중에는 목록이 달라질 수 있습니다. 서버가 캐시하지 않으며 매 요청 현재 삭제 상태를 반영합니다.
-            asset 이미지는 원본 비율의 PHOTO_DETAIL 파생본을 사용합니다. 처리 중·실패·구규격 미지원이면
+            대표·메뉴 asset은 PHOTO_DETAIL, 리뷰 asset은 REVIEW_DETAIL 파생본을 사용합니다. 처리 중·실패·구규격 미지원이면
             image.status(PROCESSING/FAILED/UNAVAILABLE)와 imageUrl=null을 보고 기본 이미지를 표시합니다.
             UNAVAILABLE은 재처리 전까지 사용할 파생본이 없다는 뜻이며 자동으로 준비 중이라는 뜻은 아닙니다.
+            리뷰는 이미지 조회 결과가 없어도 슬롯을 개수와 cursor에 포함하며 image와 imageUrl이 모두 null입니다.
+            이 경우 기본 이미지를 표시합니다. 대표·메뉴는 이미지 조회 결과가 없는 항목을 개수와 목록에서 제외합니다.
             legacy 사진은 image=null이고 imageUrl을 사용합니다. 상세보기는 같은 필터의 목록과 다음 페이지를 재사용합니다.
             하단 저장 수는 GET /api/v1/restaurants/save-counts, 내 저장 여부는 GET /api/v1/users/me/restaurant-saves를 사용합니다.
             """)

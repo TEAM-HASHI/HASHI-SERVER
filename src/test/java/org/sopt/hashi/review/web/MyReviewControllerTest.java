@@ -69,7 +69,7 @@ class MyReviewControllerTest {
                 List.of(new ReviewEditImageResponse(
                         "uploads/reviews/20/1.jpg",
                         "https://cdn.example.com/reviews/20/1.jpg",
-                        0))
+                        0, 501L, null, null))
         );
         given(myReviewService.getMyReviewEditContext(20L)).willReturn(response);
 
@@ -82,7 +82,9 @@ class MyReviewControllerTest {
                         .value("FOOD_IS_DELICIOUS"))
                 .andExpect(jsonPath("$.data.images[0].fileKey")
                         .value("uploads/reviews/20/1.jpg"))
-                .andExpect(jsonPath("$.data.images[0].displayOrder").value(0));
+                .andExpect(jsonPath("$.data.images[0].displayOrder").value(0))
+                .andExpect(jsonPath("$.data.images[0].reviewImageId").value(501))
+                .andExpect(jsonPath("$.data.images[0].imageAssetId").doesNotExist());
     }
 
     @Test
@@ -119,7 +121,7 @@ class MyReviewControllerTest {
                 4,
                 List.of("FOOD_IS_DELICIOUS", "GOOD_VALUE"),
                 "음식이 맛있고 분위기도 좋아서 다시 방문하고 싶습니다.",
-                List.of("uploads/reviews/new-image.jpg")
+                List.of("uploads/reviews/new-image.jpg"), null
         ));
     }
 
@@ -139,6 +141,34 @@ class MyReviewControllerTest {
                 .andExpect(jsonPath("$.code").value("COMMON-400"));
 
         verifyNoInteractions(myReviewService);
+    }
+
+    @Test
+    void 새_images_요청을_바인딩하고_기존필드와_혼용은_거절한다() throws Exception {
+        mockMvc.perform(patch("/api/v1/reviews/20")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"rating":4,"keywordCodes":["GOOD_VALUE"],
+                                 "content":"충분히 긴 수정 리뷰 내용입니다.","images":[{"reviewImageId":50}]}
+                                """))
+                .andExpect(status().isOk());
+        verify(myReviewService).updateMyReview(20L, new UpdateReviewRequest(4, List.of("GOOD_VALUE"),
+                "충분히 긴 수정 리뷰 내용입니다.", null, List.of(new UpdateReviewRequest.Image(50L, null))));
+        mockMvc.perform(patch("/api/v1/reviews/20")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"rating":4,"keywordCodes":["GOOD_VALUE"],
+                                 "content":"충분히 긴 수정 리뷰 내용입니다.","images":[],"imageFileKeys":[]}
+                                """))
+                .andExpect(status().isBadRequest());
+        mockMvc.perform(patch("/api/v1/reviews/20")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"rating":4,"keywordCodes":["GOOD_VALUE"],
+                                 "content":"충분히 긴 수정 리뷰 내용입니다.","images":[{}]}
+                                """))
+                .andExpect(status().isBadRequest());
+        org.mockito.Mockito.verifyNoMoreInteractions(myReviewService);
     }
 
     @Test

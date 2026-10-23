@@ -259,7 +259,7 @@ class ReviewUpdateConcurrencyMySqlTest {
                 rating,
                 List.of("GOOD_VALUE"),
                 content,
-                List.of()
+                List.of(), null
         );
     }
 

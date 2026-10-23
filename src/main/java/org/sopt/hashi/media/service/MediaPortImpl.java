@@ -110,6 +110,11 @@ class MediaPortImpl implements MediaPort {
                 assetsById.get(use.assetId()), ownerType, actor.subjectId()));
         normalizedClaims.forEach(use -> validateClaimState(
                 assetsById.get(use.assetId()), use.purpose()));
+        normalizedClaims.stream().filter(MediaAssetUse::requireReady).forEach(use -> {
+            if (assetsById.get(use.assetId()).getProcessingStatus() != ImageProcessingStatus.READY) {
+                throw new BusinessException(MediaErrorCode.INVALID_STATE);
+            }
+        });
         normalizedRetires.forEach(use -> validateRetire(assetsById.get(use.assetId()), use.purpose()));
 
         normalizedClaims.forEach(use -> assetsById.get(use.assetId()).bind());

@@ -343,7 +343,7 @@ class MyReviewServiceTest {
                 "가격도 합리적이고 음식도 빠르게 나와서 좋았습니다.",
                 List.of(
                         "uploads/reviews/20/new-1.jpg",
-                        "uploads/reviews/20/new-2.jpg")
+                        "uploads/reviews/20/new-2.jpg"), null
         );
 
         myReviewService.updateMyReview(REVIEW_ID, request);
@@ -374,7 +374,7 @@ class MyReviewServiceTest {
                 5,
                 List.of("FOOD_IS_DELICIOUS"),
                 "직원분들이 친절하고 음식이 정말 맛있었습니다.",
-                List.of()
+                List.of(), null
         );
 
         myReviewService.updateMyReview(REVIEW_ID, request);
@@ -394,7 +394,7 @@ class MyReviewServiceTest {
                 5,
                 List.of("FOOD_IS_DELICIOUS"),
                 "기존 사진을 유지하면서 새로운 사진도 함께 추가합니다.",
-                List.of("legacy/reviews/old.jpg", "uploads/reviews/new.jpg")
+                List.of("legacy/reviews/old.jpg", "uploads/reviews/new.jpg"), null
         );
 
         myReviewService.updateMyReview(REVIEW_ID, request);
@@ -414,7 +414,7 @@ class MyReviewServiceTest {
                 5,
                 List.of("FOOD_IS_DELICIOUS"),
                 "직원분들이 친절하고 음식이 정말 맛있었습니다.",
-                List.of("legacy/reviews/new.jpg")
+                List.of("legacy/reviews/new.jpg"), null
         );
 
         assertThatThrownBy(() -> myReviewService.updateMyReview(REVIEW_ID, request))
@@ -432,7 +432,7 @@ class MyReviewServiceTest {
                 5,
                 List.of("FOOD_IS_DELICIOUS"),
                 "직원분들이 친절하고 음식이 정말 맛있었습니다.",
-                List.of("uploads/reviews/same.jpg", "uploads/reviews/same.jpg")
+                List.of("uploads/reviews/same.jpg", "uploads/reviews/same.jpg"), null
         );
 
         assertThatThrownBy(() -> myReviewService.updateMyReview(REVIEW_ID, request))
@@ -449,7 +449,7 @@ class MyReviewServiceTest {
                 5,
                 List.of("TRADITIONAL_ATMOSPHERE"),
                 "직원분들이 친절하고 음식이 정말 맛있었습니다.",
-                List.of()
+                List.of(), null
         );
 
         assertThatThrownBy(() -> myReviewService.updateMyReview(REVIEW_ID, request))
@@ -496,6 +496,33 @@ class MyReviewServiceTest {
 
     private Review review(Long userId) {
         return review(userId, REVIEW_ID);
+    }
+
+    @Test
+    void 내_상세와_수정컨텍스트는_asset원본_없이_DETAIL과_안정_ID를_반환한다() {
+        Review review = review(USER_ID);
+        UUID asset = UUID.randomUUID();
+        ReviewImage image = ReviewImage.createAsset(asset, 0);
+        ReflectionTestUtils.setField(image, "id", 70L);
+        ReflectionTestUtils.setField(image, "fileKey", "private-original");
+        review.replaceImages(List.of(image));
+        given(currentUserProvider.currentUserId()).willReturn(USER_ID);
+        given(reviewRepository.findByIdAndUserIdAndDeletedFalse(REVIEW_ID, USER_ID)).willReturn(Optional.of(review));
+        given(reservationPort.getReviewInfoByIdAndUserId(RESERVATION_ID, USER_ID)).willReturn(reservation());
+        given(restaurantPort.findSummaryById(RESTAURANT_ID)).willReturn(Optional.of(restaurant()));
+        var request = new MediaImageRequest(asset, MediaImageRole.REVIEW_DETAIL);
+        var rendition = new MediaImage(asset, request.role(), MediaImageStatus.PROCESSING, null, List.of());
+        given(mediaPort.findImages(List.of(request))).willReturn(Map.of(request, rendition));
+        var detail = myReviewService.getMyReview(REVIEW_ID);
+        assertThat(detail.imageUrls()).isEmpty();
+        assertThat(detail.images().getFirst().reviewImageId()).isEqualTo(70L);
+        assertThat(detail.images().getFirst().image()).isEqualTo(rendition);
+        var edit = myReviewService.getMyReviewEditContext(REVIEW_ID).images().getFirst();
+        assertThat(edit.reviewImageId()).isEqualTo(70L);
+        assertThat(edit.imageAssetId()).isEqualTo(asset);
+        assertThat(edit.fileKey()).isNull();
+        assertThat(edit.imageUrl()).isNull();
+        verifyNoInteractions(fileStorage);
     }
 
     private Review review(Long userId, Long reviewId) {

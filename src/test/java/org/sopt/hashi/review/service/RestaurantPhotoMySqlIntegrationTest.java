@@ -82,7 +82,7 @@ class RestaurantPhotoMySqlIntegrationTest {
             reviewKeys.add("review-" + i);
         }
         reviewKeys.add("review-0");
-        createReview(reviewKeys, false);
+        createReviewPages(reviewKeys);
         createReview(List.of("deleted-photo"), true);
         var first = service.getPhotos(restaurant.getId(), RestaurantPhotoFilter.ALL, null);
         assertThat(first.counts().representative()).isEqualTo(2);
@@ -134,11 +134,12 @@ class RestaurantPhotoMySqlIntegrationTest {
         for (int i = 0; i < 35; i++) {
             reviewKeys.add("review-" + i);
         }
-        var review = createReview(reviewKeys, false);
-        jdbc.update("update review set created_at = '2026-01-01 00:00:00' where id = ?", review.getId());
+        createReviewPages(reviewKeys);
         var first = service.getPhotos(restaurant.getId(), RestaurantPhotoFilter.ALL, null);
         assertThat(first.photos()).hasSize(20);
-        jdbc.update("delete from review_image where review_id = ? and display_order < 15", review.getId());
+        for (int index = 0; index < 15; index++) {
+            jdbc.update("delete from review_image where file_key = ?", "review-" + index);
+        }
         jdbc.update("delete from restaurant_image where restaurant_id = ? and display_order <= 5", restaurant.getId());
         var newReview = createReview(List.of("new-photo"), false);
         jdbc.update("update review set created_at = '2026-02-01 00:00:00' where id = ?", newReview.getId());
@@ -212,6 +213,73 @@ class RestaurantPhotoMySqlIntegrationTest {
         jdbc.update("update restaurant set deleted=true where id=?", restaurant.getId());
         assertThatThrownBy(() -> service.getPhotos(restaurant.getId(), RestaurantPhotoFilter.ALL, null))
                 .isInstanceOf(BusinessException.class);
+    }
+
+    @Test
+    void key없는_asset도_전체탭_개수와_중복제거_커서에서_빠지지_않는다() {
+        Review legacy = createReview(List.of("representative-key"), false);
+        Review assetReview = Review.create(System.nanoTime(), restaurant.getId(), 1L, 5, "asset fixture");
+        var first = java.util.UUID.randomUUID();
+        var second = java.util.UUID.randomUUID();
+        assetReview.replaceImages(List.of(ReviewImage.createAsset(first, 0), ReviewImage.createAsset(second, 1)));
+        reviews.saveAndFlush(assetReview);
+        assertThat(photos.count(restaurant.getId(), false, List.of())).isEqualTo(3);
+        assertThat(photos.count(restaurant.getId(), true, List.of("representative-key"))).isEqualTo(2);
+        var page1 = photos.find(restaurant.getId(), true, List.of("representative-key"), null, 1);
+        var page2 = photos.find(restaurant.getId(), true, List.of("representative-key"), page1.getFirst().position(), 1);
+        assertThat(page1.getFirst().imageAssetId()).isEqualTo(first);
+        assertThat(page2.getFirst().imageAssetId()).isEqualTo(second);
+        assertThat(page1.getFirst().id()).isNotEqualTo(page2.getFirst().id());
+    }
+
+    @Test
+    void media_조회가_누락된_리뷰도_개수와_두_페이지의_슬롯을_유지한다() {
+        List<Long> imageIds = new ArrayList<>();
+        for (int batch = 0; batch < 3; batch++) {
+            Review review = Review.create(System.nanoTime(), restaurant.getId(), 1L, 5, "asset fixture");
+            List<ReviewImage> images = new ArrayList<>();
+            for (int i = 0; i < (batch == 2 ? 1 : 10); i++) {
+                images.add(ReviewImage.createAsset(java.util.UUID.randomUUID(), i));
+            }
+            review.replaceImages(images);
+            reviews.saveAndFlush(review);
+            imageIds.addAll(review.getImages().stream().map(ReviewImage::getId).toList());
+        }
+
+        for (var filter : List.of(RestaurantPhotoFilter.REVIEW, RestaurantPhotoFilter.ALL)) {
+            var first = service.getPhotos(restaurant.getId(), filter, null);
+            assertThat(first.totalCount()).isEqualTo(21);
+            assertThat(first.counts().review()).isEqualTo(21);
+            assertThat(first.counts().all()).isEqualTo(21);
+            assertThat(first.photos()).hasSize(20).allSatisfy(photo -> {
+                assertThat(photo.imageUrl()).isNull();
+                assertThat(photo.image()).isNull();
+            });
+            assertThat(first.hasNext()).isTrue();
+            assertThat(first.nextCursor()).isNotBlank();
+
+            var second = service.getPhotos(restaurant.getId(), filter, first.nextCursor());
+            assertThat(second.totalCount()).isEqualTo(21);
+            assertThat(second.photos()).hasSize(1);
+            assertThat(second.photos().getFirst().imageUrl()).isNull();
+            assertThat(second.photos().getFirst().image()).isNull();
+            assertThat(second.hasNext()).isFalse();
+            assertThat(second.nextCursor()).isNull();
+
+            List<String> seen = new ArrayList<>(first.photos().stream().map(photo -> photo.photoId()).toList());
+            seen.add(second.photos().getFirst().photoId());
+            assertThat(seen).doesNotHaveDuplicates()
+                    .containsExactlyInAnyOrderElementsOf(imageIds.stream().map(id -> "REVIEW:" + id).toList());
+        }
+    }
+
+    // 리뷰당 10장 제한을 지키면서 사진 탭의 여러 페이지를 구성한다.
+    // 생성 시각이 같으면 큰 리뷰 ID가 먼저 오므로 뒷부분부터 저장한다.
+    private void createReviewPages(List<String> keys) {
+        for (int start = ((keys.size() - 1) / 10) * 10; start >= 0; start -= 10) {
+            Review review = createReview(keys.subList(start, Math.min(start + 10, keys.size())), false);
+            jdbc.update("update review set created_at = '2026-01-01 00:00:00' where id = ?", review.getId());
+        }
     }
 
     private Review createReview(List<String> keys, boolean deleted) {

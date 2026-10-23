@@ -89,7 +89,7 @@ class MyReviewServiceIntegrationTest {
                 "수정 후에도 충분히 긴 리뷰 내용입니다.",
                 List.of(
                         "uploads/reviews/new-1.jpg",
-                        "uploads/reviews/new-2.jpg")
+                        "uploads/reviews/new-2.jpg"), null
         ));
         transactionTemplate.executeWithoutResult(status -> {
             Review updated = reviewRepository.findById(reviewId).orElseThrow();
@@ -123,7 +123,7 @@ class MyReviewServiceIntegrationTest {
                         3,
                         List.of("GOOD_VALUE"),
                         "식당 통계 실패로 저장되면 안 되는 수정 내용입니다.",
-                        List.of("uploads/reviews/changed.jpg")
+                        List.of("uploads/reviews/changed.jpg"), null
                 )))
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessage("통계 갱신 실패");

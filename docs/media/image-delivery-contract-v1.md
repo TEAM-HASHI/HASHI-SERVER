@@ -562,8 +562,10 @@ media는 현재 ONBOARDING actor가 발급한 PROFILE purpose, READY, UNBOUND as
 - 신규 field가 null이면 기존 field 계약을 사용한다.
 - 신규 media upload는 private original key를 domain request나 legacy key column에 기록하지
   않는다.
-- 리뷰 수정은 #179 병합 이후 retained `reviewImageId`와 신규 `imageAssetId`를 구분하는
-  additive 요청으로 별도 확정한다.
+- 리뷰 수정은 #276에서 `images: [{reviewImageId | imageAssetId}]` additive 요청으로 연결한다.
+  asset이 하나라도 연결된 리뷰는 구버전 `imageFileKeys` 수정으로 사진이 누락되지 않도록 400으로
+  거부하고 `images`를 요구한다. key가 남아 있는 backfill 참조도 같은 규칙이며,
+  기존 사진은 `reviewImageId`로 유지한다. 상세는 [리뷰 media 연동](review-media-integration.md)을 참조한다.
 
 식당 수정의 신규 `images`는 다음 형태를 사용한다. 배열 순서가 표시 순서다.
 

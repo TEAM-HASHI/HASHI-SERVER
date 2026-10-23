@@ -20,6 +20,7 @@ public record MyReviewDetailResponse(
         String content,
         List<String> keywords,
         List<String> imageUrls,
+        List<ReviewImageResponse> images,
         LocalDateTime createdAt
 ) {
 }
