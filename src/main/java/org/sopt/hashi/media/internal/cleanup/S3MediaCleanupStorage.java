@@ -13,10 +13,9 @@ import org.springframework.transaction.support.TransactionSynchronizationManager
 import software.amazon.awssdk.core.exception.SdkException;
 import software.amazon.awssdk.services.s3.S3Client;
 import software.amazon.awssdk.services.s3.model.BucketVersioningStatus;
-import software.amazon.awssdk.services.s3.model.Delete;
 import software.amazon.awssdk.services.s3.model.DeleteMarkerEntry;
-import software.amazon.awssdk.services.s3.model.DeleteObjectsRequest;
-import software.amazon.awssdk.services.s3.model.DeleteObjectsResponse;
+import software.amazon.awssdk.services.s3.model.DeleteObjectRequest;
+import software.amazon.awssdk.services.s3.model.DeleteObjectResponse;
 import software.amazon.awssdk.services.s3.model.GetBucketVersioningRequest;
 import software.amazon.awssdk.services.s3.model.GetBucketVersioningResponse;
 import software.amazon.awssdk.services.s3.model.ListObjectVersionsRequest;
@@ -26,7 +25,7 @@ import software.amazon.awssdk.services.s3.model.ObjectVersion;
 
 public class S3MediaCleanupStorage implements MediaCleanupStorage {
 
-    private static final int MAX_DELETE_BATCH_SIZE = 1000;
+    private static final int MAX_LIST_PAGE_SIZE = 1000;
     private static final int MAX_PAGE_LIMIT = 100;
 
     private final S3Client s3Client;
@@ -59,7 +58,7 @@ public class S3MediaCleanupStorage implements MediaCleanupStorage {
         if (maxPagesPerPrefix < 1 || maxPagesPerPrefix > MAX_PAGE_LIMIT) {
             throw new IllegalArgumentException("cleanup page limit must be between 1 and 100");
         }
-        if (maxKeysPerPage < 1 || maxKeysPerPage > MAX_DELETE_BATCH_SIZE) {
+        if (maxKeysPerPage < 1 || maxKeysPerPage > MAX_LIST_PAGE_SIZE) {
             throw new IllegalArgumentException("cleanup page size must be between 1 and 1000");
         }
         this.maxPagesPerPrefix = maxPagesPerPrefix;
@@ -117,21 +116,24 @@ public class S3MediaCleanupStorage implements MediaCleanupStorage {
                 }
                 return new MediaObjectPurgeResult(true, acknowledgedDeletes);
             }
-            requireNotInterrupted();
-            if (!budget.hasTimeLeft()) {
-                return new MediaObjectPurgeResult(false, acknowledgedDeletes);
+            for (ObjectIdentifier object : objects) {
+                requireNotInterrupted();
+                if (!budget.hasTimeLeft()) {
+                    return new MediaObjectPurgeResult(false, acknowledgedDeletes);
+                }
+                requireVersioningEnabled(bucket);
+                requireNotInterrupted();
+                if (!budget.hasTimeLeft()) {
+                    return new MediaObjectPurgeResult(false, acknowledgedDeletes);
+                }
+                // 개별 요청의 versionId로 정확한 버전에 한정된 삭제 권한도 사용할 수 있게 한다.
+                DeleteObjectResponse deleted = s3Client.deleteObject(DeleteObjectRequest.builder()
+                        .bucket(bucket).key(object.key()).versionId(object.versionId()).build());
+                if (deleted == null) {
+                    throw new MediaCleanupStorageException(Reason.INVALID_STORAGE_RESPONSE);
+                }
+                acknowledgedDeletes++;
             }
-            requireVersioningEnabled(bucket);
-            DeleteObjectsResponse deleted = s3Client.deleteObjects(DeleteObjectsRequest.builder()
-                    .bucket(bucket).delete(Delete.builder().objects(objects).quiet(true).build()).build());
-            if (deleted == null) {
-                throw new MediaCleanupStorageException(Reason.INVALID_STORAGE_RESPONSE);
-            }
-            // quiet 응답은 성공 목록을 생략한다. HTTP 200이어도 항목별 오류가 있으면 완료가 아니다.
-            if (deleted.hasErrors()) {
-                throw new MediaCleanupStorageException(Reason.PARTIAL_DELETE);
-            }
-            acknowledgedDeletes += objects.size();
         }
         // 마지막 DELETE가 성공해도 빈 목록을 관측하기 전에는 DB 정리 완료를 허용하지 않는다.
         return new MediaObjectPurgeResult(false, acknowledgedDeletes);

@@ -55,10 +55,13 @@ PURGING으로 변경할 수 있으므로 전체 정리 DELETE는 별도 범위 �
 IAM은 media 경로를 제한하고, 정상 이미지 보호와 보존 기간은 Spring의 DB 상태 재검증이 담당한다.
 IAM만으로 특정 asset의 삭제 가능 상태가 보장되는 것은 아니다.
 
-버전 목록에서 관측한 key와 version ID를 함께 삭제한다. 목록과 삭제 직전에 해당 bucket의 versioning이
+버전 목록에서 관측한 key와 version ID를 개별 `DeleteObject` 요청으로 전달한다. 정확한 `s3:VersionId`로
+제한한 권한도 사용할 수 있도록 version ID를 요청 query에 포함한다. 목록과 각 삭제 직전에 해당 bucket의 versioning이
 `Enabled`인지 확인하며 상태가 없거나 `Suspended`이면 어떤 파일도 새로 삭제하지 않는다. 기존 비버전
 delivery 객체의 리터럴 `null` version과 delete marker도 Enabled 상태에서만 포함한다. 일반 객체와 특정 버전의 삭제 권한은
-[AWS DeleteObjects 문서](https://docs.aws.amazon.com/AmazonS3/latest/API/API_DeleteObjects.html)를 따른다.
+[AWS API별 권한 문서](https://docs.aws.amazon.com/AmazonS3/latest/userguide/using-with-s3-policy-actions.html)를 따른다.
+각 파일을 삭제하기 전에 중단 여부와 남은 실행 시간을 확인한다. 일부만 삭제된 경우 다음 실행에서
+남은 목록을 다시 읽으며, 두 prefix가 비었다는 확인 전에는 DB 정리를 완료하지 않는다.
 **특정 version 삭제는 영구 삭제다. S3 versioning을 켜 두었다는 이유로 복구할 수 있다고 가정하지 않는다.**
 
 dev에서는 `MEDIA_DEV_CLEANUP_ACCESS_ENABLED` repository variable을 SAM parameter로 전달한다.
