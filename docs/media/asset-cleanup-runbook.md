@@ -128,7 +128,8 @@ scan interval을 조정하고 재배포한다. 운영 DB 상태나 timestamp를 
 
 정리는 짧은 DB transaction에서 `ACTIVE → PURGING`과 token을 기록한 뒤 시작한다. S3 작업은
 transaction 밖에서 수행하며, 두 prefix가 비었음을 확인해야 DB의 row 삭제 또는 PURGED 기록으로
-마무리한다. HTTP 200 응답 안에 개별 삭제 오류가 있어도 완료로 처리하지 않는다.
+마무리한다. 개별 DeleteObject 요청은 성공 시 HTTP 204를 반환하며, 요청이 실패하면 정리를
+완료하지 않는다. 일부 파일이 삭제됐더라도 다음 실행에서 남은 파일을 다시 확인한다.
 
 - 중단하려면 모든 정리 실행 인스턴스를 `AWS_MEDIA_CLEANUP_ENABLED=false`로 교체한다.
   현재 실행의 종료 여부도 확인한다. `issuance_enabled=false`나 worker event source 중지만으로는
