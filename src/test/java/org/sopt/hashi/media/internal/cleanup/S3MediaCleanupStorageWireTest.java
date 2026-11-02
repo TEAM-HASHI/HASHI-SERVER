@@ -12,16 +12,13 @@ import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.net.URI;
 import java.nio.charset.StandardCharsets;
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
-import javax.xml.XMLConstants;
-import javax.xml.parsers.DocumentBuilderFactory;
+import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.sopt.hashi.media.internal.cleanup.MediaCleanupStorageException.Reason;
-import org.w3c.dom.NodeList;
 import software.amazon.awssdk.auth.credentials.AwsBasicCredentials;
 import software.amazon.awssdk.auth.credentials.StaticCredentialsProvider;
 import software.amazon.awssdk.http.AbortableInputStream;
@@ -46,9 +43,6 @@ class S3MediaCleanupStorageWireTest {
                 <IsTruncated>false</IsTruncated>
             </ListVersionsResult>
             """;
-    private static final String DELETED = """
-            <DeleteResult xmlns="http://s3.amazonaws.com/doc/2006-03-01/"/>
-            """;
     private static final String VERSIONING_ENABLED = """
             <VersioningConfiguration xmlns="http://s3.amazonaws.com/doc/2006-03-01/">
                 <Status>Enabled</Status>
@@ -56,7 +50,7 @@ class S3MediaCleanupStorageWireTest {
             """;
 
     @Test
-    void 실제_SDK가_version과_marker_null_version을_삭제_XML에_그대로_전달한다() throws Exception {
+    void 실제_SDK가_개별_DELETE의_query에_version과_marker_null_version을_정확히_전달한다() throws Exception {
         String originalPage = """
                 <ListVersionsResult xmlns="http://s3.amazonaws.com/doc/2006-03-01/">
                     <Name>test-originals</Name><Prefix>%s</Prefix><IsTruncated>false</IsTruncated>
@@ -71,18 +65,17 @@ class S3MediaCleanupStorageWireTest {
                 </ListVersionsResult>
                 """.formatted(DELIVERY_PREFIX, DELIVERY_KEY);
         SdkHttpClient transport = mock(SdkHttpClient.class);
-        List<String> bodies = new ArrayList<>();
+        AtomicInteger responseIndex = new AtomicInteger();
         List<ExecutableHttpRequest> responses = List.of(
                 response(VERSIONING_ENABLED), response(originalPage),
-                response(VERSIONING_ENABLED), response(DELETED),
+                response(VERSIONING_ENABLED), response(204, ""),
+                response(VERSIONING_ENABLED), response(204, ""),
                 response(VERSIONING_ENABLED), response(EMPTY),
                 response(VERSIONING_ENABLED), response(deliveryPage),
-                response(VERSIONING_ENABLED), response(DELETED),
+                response(VERSIONING_ENABLED), response(204, ""),
                 response(VERSIONING_ENABLED), response(EMPTY));
         when(transport.prepareRequest(any(HttpExecuteRequest.class))).thenAnswer(invocation -> {
-            HttpExecuteRequest request = invocation.getArgument(0);
-            bodies.add(requestBody(request));
-            return responses.get(bodies.size() - 1);
+            return responses.get(responseIndex.getAndIncrement());
         });
 
         // 실제 SDK 직렬화·서명·XML 역직렬화를 사용하되 HTTP 전송은 모킹하여 AWS에 접속하지 않는다.
@@ -94,28 +87,27 @@ class S3MediaCleanupStorageWireTest {
         }
 
         ArgumentCaptor<HttpExecuteRequest> captured = ArgumentCaptor.forClass(HttpExecuteRequest.class);
-        verify(transport, times(12)).prepareRequest(captured.capture());
-        HttpExecuteRequest originalDelete = captured.getAllValues().get(3);
-        HttpExecuteRequest deliveryDelete = captured.getAllValues().get(9);
-        assertThat(originalDelete.httpRequest().method()).isEqualTo(SdkHttpMethod.POST);
-        assertThat(originalDelete.httpRequest().encodedPath()).isEqualTo("/test-originals");
-        assertThat(originalDelete.httpRequest().rawQueryParameters()).containsKey("delete");
-        assertThat(deliveryDelete.httpRequest().encodedPath()).isEqualTo("/test-delivery");
-        assertThat(xmlValues(bodies.get(3), "Key")).containsExactly(ORIGINAL_KEY, ORIGINAL_KEY);
-        assertThat(xmlValues(bodies.get(3), "VersionId")).containsExactly("v+/?=&", "marker-v1");
-        assertThat(xmlValues(bodies.get(3), "Quiet")).containsExactly("true");
-        assertThat(xmlValues(bodies.get(9), "Key")).containsExactly(DELIVERY_KEY);
-        assertThat(xmlValues(bodies.get(9), "VersionId")).containsExactly("null");
+        verify(transport, times(14)).prepareRequest(captured.capture());
+        List<HttpExecuteRequest> deletes = captured.getAllValues().stream()
+                .filter(request -> request.httpRequest().method() == SdkHttpMethod.DELETE).toList();
+        assertThat(deletes).hasSize(3);
+        assertThat(deletes).extracting(request -> request.httpRequest().encodedPath())
+                .containsExactly("/test-originals/" + ORIGINAL_KEY, "/test-originals/" + ORIGINAL_KEY,
+                        "/test-delivery/" + DELIVERY_KEY);
+        assertThat(deletes).extracting(request -> request.httpRequest().rawQueryParameters().get("versionId"))
+                .containsExactly(List.of("v+/?=&"), List.of("marker-v1"), List.of("null"));
+        assertThat(deletes.getFirst().httpRequest().getUri().getRawQuery()).contains("versionId=v%2B%2F%3F%3D%26");
+        assertThat(deletes).allSatisfy(request -> assertThat(requestBody(request)).isEmpty());
         assertThat(captured.getAllValues()).allSatisfy(request -> {
             assertThat(request.httpRequest().rawQueryParameters())
-                    .doesNotContainKeys("key-marker", "version-id-marker");
+                    .doesNotContainKeys("delete", "key-marker", "version-id-marker");
             assertThat(request.httpRequest().firstMatchingHeader("x-amz-bypass-governance-retention")).isEmpty();
             assertThat(request.httpRequest().firstMatchingHeader("x-amz-mfa")).isEmpty();
         });
     }
 
     @Test
-    void SDK가_역직렬화한_HTTP_200_일부_실패도_완료로_처리하지_않는다() throws IOException {
+    void SDK가_역직렬화한_삭제_권한_거절은_완료로_처리하지_않는다() throws IOException {
         SdkHttpClient transport = mock(SdkHttpClient.class);
         String page = """
                 <ListVersionsResult xmlns="http://s3.amazonaws.com/doc/2006-03-01/">
@@ -124,13 +116,10 @@ class S3MediaCleanupStorageWireTest {
                 </ListVersionsResult>
                 """.formatted(ORIGINAL_KEY);
         String failure = """
-                <DeleteResult xmlns="http://s3.amazonaws.com/doc/2006-03-01/">
-                    <Error><Key>%s</Key><VersionId>v1</VersionId><Code>AccessDenied</Code>
-                    <Message>private-provider-message</Message></Error>
-                </DeleteResult>
-                """.formatted(ORIGINAL_KEY);
+                <Error><Code>AccessDenied</Code><Message>private-provider-message</Message></Error>
+                """;
         ExecutableHttpRequest pageResponse = response(page);
-        ExecutableHttpRequest failureResponse = response(failure);
+        ExecutableHttpRequest failureResponse = response(403, failure);
         ExecutableHttpRequest listVersioningResponse = response(VERSIONING_ENABLED);
         ExecutableHttpRequest deleteVersioningResponse = response(VERSIONING_ENABLED);
         when(transport.prepareRequest(any(HttpExecuteRequest.class)))
@@ -142,8 +131,8 @@ class S3MediaCleanupStorageWireTest {
 
             assertThatThrownBy(() -> storage.purgeAssetObjects(ASSET_ID))
                     .isInstanceOfSatisfying(MediaCleanupStorageException.class, error -> {
-                        assertThat(error.getReason()).isEqualTo(Reason.PARTIAL_DELETE);
-                        assertThat(error.getMessage()).isEqualTo("media cleanup storage: PARTIAL_DELETE");
+                        assertThat(error.getReason()).isEqualTo(Reason.STORAGE_UNAVAILABLE);
+                        assertThat(error.getMessage()).isEqualTo("media cleanup storage: STORAGE_UNAVAILABLE");
                         assertThat(error.getCause()).isNull();
                     });
         }
@@ -180,9 +169,13 @@ class S3MediaCleanupStorageWireTest {
     }
 
     private ExecutableHttpRequest response(String body) throws IOException {
+        return response(200, body);
+    }
+
+    private ExecutableHttpRequest response(int status, String body) throws IOException {
         ExecutableHttpRequest request = mock(ExecutableHttpRequest.class);
         when(request.call()).thenReturn(HttpExecuteResponse.builder()
-                .response(SdkHttpResponse.builder().statusCode(200)
+                .response(SdkHttpResponse.builder().statusCode(status)
                         .headers(Map.of("content-type", List.of("application/xml"))).build())
                 .responseBody(AbortableInputStream.create(
                         new ByteArrayInputStream(body.getBytes(StandardCharsets.UTF_8))))
@@ -199,20 +192,4 @@ class S3MediaCleanupStorageWireTest {
         }
     }
 
-    private List<String> xmlValues(String xml, String name) throws Exception {
-        DocumentBuilderFactory factory = DocumentBuilderFactory.newInstance();
-        factory.setNamespaceAware(true);
-        factory.setFeature(XMLConstants.FEATURE_SECURE_PROCESSING, true);
-        factory.setFeature("http://apache.org/xml/features/disallow-doctype-decl", true);
-        factory.setAttribute(XMLConstants.ACCESS_EXTERNAL_DTD, "");
-        factory.setAttribute(XMLConstants.ACCESS_EXTERNAL_SCHEMA, "");
-        NodeList elements = factory.newDocumentBuilder()
-                .parse(new ByteArrayInputStream(xml.getBytes(StandardCharsets.UTF_8)))
-                .getElementsByTagNameNS("*", name);
-        List<String> values = new ArrayList<>();
-        for (int index = 0; index < elements.getLength(); index++) {
-            values.add(elements.item(index).getTextContent());
-        }
-        return values;
-    }
 }
