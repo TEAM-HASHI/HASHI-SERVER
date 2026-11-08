@@ -8,6 +8,7 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
 import lombok.extern.slf4j.Slf4j;
+import org.sopt.hashi.auth.CurrentActorProvider;
 import org.sopt.hashi.auth.CurrentUserProvider;
 import org.sopt.hashi.media.ImageReference;
 import org.sopt.hashi.media.MediaImage;
@@ -68,19 +69,22 @@ public class ReservationService {
     private final PointPort pointPort;
     private final UserPort userPort;
     private final CurrentUserProvider currentUserProvider;
+    private final CurrentActorProvider currentActorProvider;
 
     public ReservationService(ReservationRepository reservationRepository,
                               RestaurantPort restaurantPort,
                               MediaPort mediaPort,
                               PointPort pointPort,
                               UserPort userPort,
-                              CurrentUserProvider currentUserProvider) {
+                              CurrentUserProvider currentUserProvider,
+                              CurrentActorProvider currentActorProvider) {
         this.reservationRepository = reservationRepository;
         this.restaurantPort = restaurantPort;
         this.mediaPort = mediaPort;
         this.pointPort = pointPort;
         this.userPort = userPort;
         this.currentUserProvider = currentUserProvider;
+        this.currentActorProvider = currentActorProvider;
     }
 
     /** 등록 식당 예약을 생성한다. 식당이 존재하지 않으면 거부하고, 사용 포인트는 같은 트랜잭션에서 차감한다(§8). */
@@ -344,6 +348,9 @@ public class ReservationService {
      */
     @Transactional
     public AdminReservationInfo changeStatusByAdmin(Long reservationId, ReservationStatus targetStatus) {
+        // currentUserId()는 ROLE_USER 회원만 인정해(#208) 어드민 토큰이면 UNAUTHORIZED다 — 감사 기록용 어드민 식별자는
+        // 인증 주체 유형을 구분하는 CurrentActorProvider로 읽고, 상태 전이 전에 확보해 실패 시 변경이 시작되지 않게 한다.
+        Long adminId = currentActorProvider.currentActor().subjectId();
         Reservation reservation = reservationRepository.findById(reservationId)
                 .orElseThrow(() -> new BusinessException(ReservationErrorCode.NOT_FOUND));
         ReservationStatus fromStatus = reservation.getReservationStatus();
@@ -353,9 +360,8 @@ public class ReservationService {
         reservation.changeStatusByAdmin(targetStatus);
         restoreUsedPointIfRefundable(reservation, refundable);
         // 자유 전이(되돌림 허용) 정책이라 정정 추적이 필요 — 이력 테이블 도입 전까지의 감사 기록.
-        // 어드민 토큰의 subject가 adminId이므로 currentUserId()가 어드민 식별자를 돌려준다.
         log.info("어드민 예약 상태 변경. adminId={}, reservationId={}, {} -> {}",
-                currentUserProvider.currentUserId(), reservationId, fromStatus, targetStatus);
+                adminId, reservationId, fromStatus, targetStatus);
         return toAdminInfo(reservation, findSummaryFor(reservation));
     }
 

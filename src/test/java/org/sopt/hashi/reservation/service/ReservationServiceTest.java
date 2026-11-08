@@ -19,6 +19,9 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentMatchers;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.sopt.hashi.auth.ActorType;
+import org.sopt.hashi.auth.CurrentActor;
+import org.sopt.hashi.auth.CurrentActorProvider;
 import org.sopt.hashi.auth.CurrentUserProvider;
 import org.sopt.hashi.media.ImageReference;
 import org.sopt.hashi.media.MediaImage;
@@ -28,6 +31,7 @@ import org.sopt.hashi.media.MediaImageStatus;
 import org.sopt.hashi.media.MediaPort;
 import org.sopt.hashi.point.PointPort;
 import org.sopt.hashi.reservation.AdminReservationInfo;
+import org.sopt.hashi.reservation.ReservationStatus;
 import org.sopt.hashi.reservation.code.ReservationErrorCode;
 import org.sopt.hashi.reservation.domain.Reservation;
 import org.sopt.hashi.reservation.domain.ReservationRepository;
@@ -38,6 +42,7 @@ import org.sopt.hashi.restaurant.RestaurantDetailInfo;
 import org.sopt.hashi.restaurant.RestaurantInfo;
 import org.sopt.hashi.restaurant.RestaurantPort;
 import org.sopt.hashi.shared.error.BusinessException;
+import org.sopt.hashi.shared.error.CommonErrorCode;
 import org.sopt.hashi.user.UserPort;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageImpl;
@@ -64,6 +69,9 @@ class ReservationServiceTest {
 
     @Mock
     private CurrentUserProvider currentUserProvider;
+
+    @Mock
+    private CurrentActorProvider currentActorProvider;
 
     @Test
     void 예약_목록은_페이지에_포함된_식당_이미지만_한번에_bulk_조회한다() {
@@ -191,6 +199,33 @@ class ReservationServiceTest {
         verifyNoInteractions(restaurantPort, reservationRepository, pointPort);
     }
 
+    @Test
+    void 어드민_예약_상태_변경은_회원_판정을_거치지_않고_어드민_식별자로_기록한다() {
+        ReservationService service = createService();
+        Reservation reservation = anywhereReservation(101L);
+        given(currentActorProvider.currentActor()).willReturn(new CurrentActor(ActorType.ADMIN, 4L));
+        given(reservationRepository.findById(101L)).willReturn(Optional.of(reservation));
+
+        AdminReservationInfo info = service.changeStatusByAdmin(101L, ReservationStatus.CONFIRMED);
+
+        assertThat(info.reservationStatus()).isEqualTo(ReservationStatus.CONFIRMED);
+        assertThat(reservation.getReservationStatus()).isEqualTo(ReservationStatus.CONFIRMED);
+        verifyNoInteractions(currentUserProvider, restaurantPort, pointPort);
+    }
+
+    @Test
+    void 인증_주체를_확인하지_못하면_예약_상태를_바꾸지_않는다() {
+        ReservationService service = createService();
+        given(currentActorProvider.currentActor())
+                .willThrow(new BusinessException(CommonErrorCode.UNAUTHORIZED));
+
+        assertThatThrownBy(() -> service.changeStatusByAdmin(101L, ReservationStatus.CONFIRMED))
+                .isInstanceOf(BusinessException.class)
+                .hasFieldOrPropertyWithValue("errorCode", CommonErrorCode.UNAUTHORIZED);
+
+        verifyNoInteractions(reservationRepository, pointPort);
+    }
+
     private ReservationService createService() {
         return new ReservationService(
                 reservationRepository,
@@ -198,7 +233,8 @@ class ReservationServiceTest {
                 mediaPort,
                 pointPort,
                 userPort,
-                currentUserProvider);
+                currentUserProvider,
+                currentActorProvider);
     }
 
     private Reservation standardReservation(Long id, Long restaurantId) {
