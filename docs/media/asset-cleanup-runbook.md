@@ -55,10 +55,13 @@ PURGING으로 변경할 수 있으므로 전체 정리 DELETE는 별도 범위 �
 IAM은 media 경로를 제한하고, 정상 이미지 보호와 보존 기간은 Spring의 DB 상태 재검증이 담당한다.
 IAM만으로 특정 asset의 삭제 가능 상태가 보장되는 것은 아니다.
 
-버전 목록에서 관측한 key와 version ID를 함께 삭제한다. 목록과 삭제 직전에 해당 bucket의 versioning이
+버전 목록에서 관측한 key와 version ID를 개별 `DeleteObject` 요청으로 전달한다. 정확한 `s3:VersionId`로
+제한한 권한도 사용할 수 있도록 version ID를 요청 query에 포함한다. 목록과 각 삭제 직전에 해당 bucket의 versioning이
 `Enabled`인지 확인하며 상태가 없거나 `Suspended`이면 어떤 파일도 새로 삭제하지 않는다. 기존 비버전
 delivery 객체의 리터럴 `null` version과 delete marker도 Enabled 상태에서만 포함한다. 일반 객체와 특정 버전의 삭제 권한은
-[AWS DeleteObjects 문서](https://docs.aws.amazon.com/AmazonS3/latest/API/API_DeleteObjects.html)를 따른다.
+[AWS API별 권한 문서](https://docs.aws.amazon.com/AmazonS3/latest/userguide/using-with-s3-policy-actions.html)를 따른다.
+각 파일을 삭제하기 전에 중단 여부와 남은 실행 시간을 확인한다. 일부만 삭제된 경우 다음 실행에서
+남은 목록을 다시 읽으며, 두 prefix가 비었다는 확인 전에는 DB 정리를 완료하지 않는다.
 **특정 version 삭제는 영구 삭제다. S3 versioning을 켜 두었다는 이유로 복구할 수 있다고 가정하지 않는다.**
 
 dev에서는 `MEDIA_DEV_CLEANUP_ACCESS_ENABLED` repository variable을 SAM parameter로 전달한다.
@@ -125,7 +128,8 @@ scan interval을 조정하고 재배포한다. 운영 DB 상태나 timestamp를 
 
 정리는 짧은 DB transaction에서 `ACTIVE → PURGING`과 token을 기록한 뒤 시작한다. S3 작업은
 transaction 밖에서 수행하며, 두 prefix가 비었음을 확인해야 DB의 row 삭제 또는 PURGED 기록으로
-마무리한다. HTTP 200 응답 안에 개별 삭제 오류가 있어도 완료로 처리하지 않는다.
+마무리한다. 개별 DeleteObject 요청은 성공 시 HTTP 204를 반환하며, 요청이 실패하면 정리를
+완료하지 않는다. 일부 파일이 삭제됐더라도 다음 실행에서 남은 파일을 다시 확인한다.
 
 - 중단하려면 모든 정리 실행 인스턴스를 `AWS_MEDIA_CLEANUP_ENABLED=false`로 교체한다.
   현재 실행의 종료 여부도 확인한다. `issuance_enabled=false`나 worker event source 중지만으로는
