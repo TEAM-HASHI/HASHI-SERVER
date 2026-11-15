@@ -66,11 +66,15 @@ class SessionTokenStoreIntegrationTest {
 
     @Test
     void 코드_동시_교환은_한_요청만_성공한다() throws Exception {
-        var bridge = prepareCode();
+        var first = prepareCode();
+        store.exchange(first, "code", VERIFIER, "previous-child", "previous-refresh");
+        store.issueCode(7L, "app", "code", SessionTokenStore.digest(VERIFIER));
+        var bridge = store.findCode("code");
         var results = race(() -> store.exchange(bridge, "code", VERIFIER, "child1", "r1"),
                 () -> store.exchange(bridge, "code", VERIFIER, "child2", "r2"));
         assertThat(results).containsExactlyInAnyOrder(true, false);
         assertThat(redis.opsForHash().size(KEY)).isEqualTo(2);
+        assertThat(redis.opsForHash().hasKey(KEY, "previous-child")).isFalse();
         assertThatThrownBy(() -> store.findCode("code")).isInstanceOf(BusinessException.class);
     }
 
@@ -138,6 +142,68 @@ class SessionTokenStoreIntegrationTest {
         assertThatThrownBy(() -> store.save(7L, "overflow", "app", "r")).isInstanceOf(BusinessException.class);
         store.rotate(7L, "app", "app", "refresh", "r2");
         assertThat(redis.opsForHash().size(KEY)).isEqualTo(128);
+    }
+
+    @Test
+    void 반복_교환은_같은_부모의_이전_WebView만_교체한다() {
+        store.save(7L, "app", "app", "refresh");
+        store.save(7L, "other-app", "app", "other-refresh");
+        store.save(7L, "browser", "web", "browser-refresh");
+        store.issueCode(7L, "other-app", "other-code", SessionTokenStore.digest(VERIFIER));
+        store.exchange(store.findCode("other-code"), "other-code", VERIFIER, "other-child", "other-child-refresh");
+        for (int i = 0; i < 140; i++) {
+            String code = "code-" + i;
+            store.issueCode(7L, "app", code, SessionTokenStore.digest(VERIFIER));
+            store.exchange(store.findCode(code), code, VERIFIER, "child-" + i, "refresh-" + i);
+            assertThat(redis.opsForHash().keys(KEY))
+                    .containsExactlyInAnyOrder("app", "other-app", "browser", "other-child", "child-" + i);
+        }
+        store.rotate(7L, "other-child", "web", "other-child-refresh", "other-child-next");
+        store.rotate(7L, "browser", "web", "browser-refresh", "browser-next");
+        assertThatThrownBy(() -> store.rotate(7L, "child-138", "web", "refresh-138", "unused"))
+                .isInstanceOf(BusinessException.class);
+        store.rotate(7L, "child-139", "web", "refresh-139", "latest");
+    }
+
+    @Test
+    void 세션_상한에서도_기존_WebView_교체는_성공한다() {
+        var bridge = prepareCode();
+        store.exchange(bridge, "code", VERIFIER, "previous-child", "previous-refresh");
+        for (int i = 0; i < 126; i++) store.save(7L, "browser-" + i, "web", "token-" + i);
+        store.issueCode(7L, "app", "new-code", SessionTokenStore.digest(VERIFIER));
+        store.exchange(store.findCode("new-code"), "new-code", VERIFIER, "new-child", "new-refresh");
+        assertThat(redis.opsForHash().size(KEY)).isEqualTo(128);
+        assertThat(redis.opsForHash().hasKey(KEY, "previous-child")).isFalse();
+        store.rotate(7L, "new-child", "web", "new-refresh", "rotated");
+        store.rotate(7L, "browser-0", "web", "token-0", "browser-rotated");
+    }
+
+    @Test
+    void 잘못된_교환과_재사용은_현재_WebView를_보존한다() {
+        var bridge = prepareCode();
+        store.exchange(bridge, "code", VERIFIER, "previous-child", "previous-refresh");
+        store.issueCode(7L, "app", "new-code", SessionTokenStore.digest(VERIFIER));
+        var next = store.findCode("new-code");
+        assertThatThrownBy(() -> store.exchange(next, "new-code", "wrong", "rejected", "unused"))
+                .isInstanceOf(BusinessException.class);
+        assertThat(redis.opsForHash().keys(KEY)).containsExactlyInAnyOrder("app", "previous-child");
+        store.rotate(7L, "previous-child", "web", "previous-refresh", "rotated");
+        store.exchange(next, "new-code", VERIFIER, "new-child", "new-refresh");
+        assertThatThrownBy(() -> store.exchange(next, "new-code", VERIFIER, "replay", "unused"))
+                .isInstanceOf(BusinessException.class);
+        assertThat(redis.opsForHash().keys(KEY)).containsExactlyInAnyOrder("app", "new-child");
+        store.rotate(7L, "new-child", "web", "new-refresh", "latest");
+    }
+
+    @Test
+    void 상한에서_기존_자식이_없는_교환은_다른_세션과_코드를_보존한다() {
+        var bridge = prepareCode();
+        for (int i = 0; i < 127; i++) store.save(7L, "browser-" + i, "web", "token-" + i);
+        assertThatThrownBy(() -> store.exchange(bridge, "code", VERIFIER, "child", "refresh"))
+                .isInstanceOf(BusinessException.class);
+        assertThat(redis.opsForHash().size(KEY)).isEqualTo(128);
+        assertThat(store.findCode("code")).isEqualTo(bridge);
+        store.rotate(7L, "browser-0", "web", "token-0", "browser-rotated");
     }
 
     private SessionTokenStore.BridgeCode prepareCode() {

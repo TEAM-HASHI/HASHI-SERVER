@@ -20,6 +20,7 @@ import static org.mockito.Mockito.verify;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
+import org.mockito.ArgumentCaptor;
 import org.sopt.hashi.auth.code.AuthErrorCode;
 import org.sopt.hashi.auth.internal.jwt.JwtProvider.JwtClaims;
 import org.sopt.hashi.auth.internal.UserAuthService.TokenPair;
@@ -85,7 +86,14 @@ class UserAuthServiceTest {
         TokenPair pair = service.reissue("oldRefresh");
 
         assertThat(pair.refreshToken()).isEqualTo("newRefresh");
-        verify(sessions).migrate(eq(7L), anyString(), eq("oldRefresh"), eq("newRefresh"));
+        var accessSid = ArgumentCaptor.forClass(String.class);
+        var refreshSid = ArgumentCaptor.forClass(String.class);
+        var storedSid = ArgumentCaptor.forClass(String.class);
+        verify(jwtProvider).createSessionAccessToken(eq(7L), accessSid.capture(), eq("web"));
+        verify(jwtProvider).createSessionRefreshToken(eq(7L), refreshSid.capture(), eq("web"));
+        verify(sessions).migrate(eq(7L), storedSid.capture(), eq("oldRefresh"), eq("newRefresh"));
+        assertThat(storedSid.getValue()).isNotBlank().isEqualTo(accessSid.getValue())
+                .isEqualTo(refreshSid.getValue());
     }
 
     @Test

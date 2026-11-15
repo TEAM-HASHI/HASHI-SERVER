@@ -61,6 +61,11 @@ if op == 'exchange' then
     if encoded == false then return 0 end
     local code = cjson.decode(encoded)
     if code.challenge ~= ARGV[8] or code.parent ~= sid or code.userId ~= ARGV[9] then return 0 end
+    -- One active WebView refresh session per app. Validate the exchange before replacing it.
+    -- Removing only this parent's children also leaves room for replacement at the session limit.
+    for id, s in pairs(sessions) do
+        if s.client == 'web' and s.parent == sid then removeGroup(id) end
+    end
     local result = save(ARGV[10], 'web', replacement, sid)
     if result == 1 then
         current.code = nil
