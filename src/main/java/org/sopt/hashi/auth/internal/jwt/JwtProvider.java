@@ -45,6 +45,14 @@ public class JwtProvider {
         return createToken(userId, role, TYPE_REFRESH, properties.refreshTokenTtl());
     }
 
+    public String createSessionAccessToken(Long userId, String sid, String client) {
+        return createToken(userId, AuthRoles.USER, TYPE_ACCESS, properties.accessTokenTtl(), sid, client);
+    }
+
+    public String createSessionRefreshToken(Long userId, String sid, String client) {
+        return createToken(userId, AuthRoles.USER, TYPE_REFRESH, properties.refreshTokenTtl(), sid, client);
+    }
+
     /**
      * 온보딩 임시 토큰. 아직 userId가 없으므로 subject는 kakaoId다.
      * 유효성은 OnboardingTokenStore의 현재 토큰 대조로 판정하고, 온보딩 API에만 접근 가능하다(ROLE_ONBOARDING).
@@ -67,7 +75,14 @@ public class JwtProvider {
                 // 서명은 유효하나 우리 발급 구조가 아닌 토큰 — 필터의 권한 매핑에서 500이 나지 않도록 여기서 차단
                 throw new BusinessException(AuthErrorCode.INVALID_TOKEN);
             }
-            return new JwtClaims(Long.parseLong(claims.getSubject()), role, type);
+            String sid = claims.get("sid", String.class);
+            String client = claims.get("client", String.class);
+            if ((sid != null && !sid.matches("[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}"))
+                    || (client != null && !"app".equals(client) && !"web".equals(client))
+                    || ("app".equals(client) && sid == null)) {
+                throw new BusinessException(AuthErrorCode.INVALID_TOKEN);
+            }
+            return new JwtClaims(Long.parseLong(claims.getSubject()), role, type, sid, client);
         } catch (ExpiredJwtException e) {
             throw new BusinessException(AuthErrorCode.EXPIRED_TOKEN, e);
         } catch (JwtException | IllegalArgumentException e) {
@@ -76,6 +91,10 @@ public class JwtProvider {
     }
 
     private String createToken(Long userId, String role, String type, Duration ttl) {
+        return createToken(userId, role, type, ttl, null, null);
+    }
+
+    private String createToken(Long userId, String role, String type, Duration ttl, String sid, String client) {
         Date now = new Date();
         return Jwts.builder()
                 // 만료(exp)가 초 단위라 같은 초에 발급된 토큰이 동일 문자열이 될 수 있다 —
@@ -84,6 +103,8 @@ public class JwtProvider {
                 .subject(String.valueOf(userId))
                 .claim(CLAIM_ROLE, role)
                 .claim(CLAIM_TYPE, type)
+                .claim("sid", sid)
+                .claim("client", client)
                 .issuedAt(now)
                 .expiration(new Date(now.getTime() + ttl.toMillis()))
                 .signWith(secretKey)
@@ -92,7 +113,15 @@ public class JwtProvider {
 
     /** subject 파싱 값. access/refresh는 userId, onboarding 토큰은 kakaoId다. */
     // 기존 userId -> subjectId로 변경 (kakaoId인 경우 userId로의 혼동 우려로 중립적인 네이밍으로 수정)
-    public record JwtClaims(Long subjectId, String role, String type) {
+    public record JwtClaims(Long subjectId, String role, String type, String sid, String client) {
+
+        public JwtClaims(Long subjectId, String role, String type) {
+            this(subjectId, role, type, null, null);
+        }
+
+        public boolean isApp() {
+            return "app".equals(client);
+        }
 
         public boolean isAccessToken() {
             return TYPE_ACCESS.equals(type);

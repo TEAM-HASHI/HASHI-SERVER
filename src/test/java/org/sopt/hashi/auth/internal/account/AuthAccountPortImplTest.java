@@ -1,6 +1,7 @@
 package org.sopt.hashi.auth.internal.account;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
@@ -28,8 +29,10 @@ class AuthAccountPortImplTest {
     private final AuthAccountService authAccountService = mock(AuthAccountService.class);
     private final RefreshTokenStore refreshTokenStore = mock(RefreshTokenStore.class);
     private final TokenBlacklist tokenBlacklist = mock(TokenBlacklist.class);
+    private final org.sopt.hashi.auth.internal.token.SessionTokenStore sessions =
+            mock(org.sopt.hashi.auth.internal.token.SessionTokenStore.class);
     private final AuthAccountPortImpl port = new AuthAccountPortImpl(
-            authAccountService, refreshTokenStore, tokenBlacklist);
+            authAccountService, refreshTokenStore, tokenBlacklist, sessions);
 
     @BeforeEach
     void setUp() {
@@ -44,6 +47,16 @@ class AuthAccountPortImplTest {
     }
 
     @Test
+    void 세션_폐기_실패로_롤백돼도_블랙리스트를_복구한다() {
+        org.mockito.Mockito.doThrow(new IllegalStateException("redis unavailable")).when(sessions).revokeAll(7L);
+        assertThatThrownBy(() -> port.unlinkWithdrawnAccount(7L)).isInstanceOf(IllegalStateException.class);
+        var callbacks = TransactionSynchronizationManager.getSynchronizations();
+        assertThat(callbacks).hasSize(1);
+        callbacks.getFirst().afterCompletion(TransactionSynchronization.STATUS_ROLLED_BACK);
+        verify(tokenBlacklist).unblockUser(7L, "withdrawn:mine");
+    }
+
+    @Test
     @DisplayName("계정 연결 삭제 → 리프레시 폐기 → 블랙리스트 등록 순으로 정리한다")
     void 탈퇴_계정_정리() {
         port.unlinkWithdrawnAccount(7L);
@@ -52,6 +65,7 @@ class AuthAccountPortImplTest {
         order.verify(authAccountService).unlink(7L);
         order.verify(refreshTokenStore).revoke(AuthRoles.USER, 7L);
         order.verify(tokenBlacklist).blockUser(7L);
+        verify(sessions).revokeAll(7L);
     }
 
     @Test

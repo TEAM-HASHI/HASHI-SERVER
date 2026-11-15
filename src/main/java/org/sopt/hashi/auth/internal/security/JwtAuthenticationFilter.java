@@ -58,6 +58,10 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
     @Override
     protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response, FilterChain filterChain)
             throws ServletException, IOException {
+        if (request.getRequestURI().startsWith("/api/v1/auth/app/")
+                || request.getRequestURI().startsWith("/api/v1/auth/webview/")) {
+            response.setHeader(HttpHeaders.CACHE_CONTROL, "no-store");
+        }
         String header = request.getHeader(HttpHeaders.AUTHORIZATION);
         if (header != null && header.startsWith(BEARER_PREFIX)) {
             // 정식 액세스 토큰 — Authorization 헤더는 교차 출처 위조가 불가하므로 CSRF 검증이 필요 없다.
