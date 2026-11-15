@@ -184,11 +184,11 @@ dev 배포와 prod artifact 생성은 `Build or Deploy Image Pipeline` workflow�
    시험 실패 시 issuance를 다시 끄고 원인을 확인한다. 시험 asset/object는 기존 cleanup 계약에 따라
    정리하고, DLQ redrive 검증까지 완료한 뒤 dev 클라이언트용 발급을 유지한다. 처리 환경이 준비되지
    않은 상태에서 오류를 없애려고 issuance만 켜지는 않는다.
-11. prod는 검토된 `main` commit에서 `target=prod`,
+11. prod는 검토된 `main` 또는 `release/X.Y.Z` commit에서 `target=prod`,
     `production_confirmation=prepare-prod-artifact`로 workflow를 실행한다. build job은 7일 보존 GitHub
     artifact, source commit과 build ZIP SHA-256만 만들며 AWS credential을 요청하거나 production
     resource를 변경하지 않는다.
-12. 별도 AWS 운영자는 workflow run의 `github.sha`가 검토한 `main` commit과 같은지 확인하고, 그 run에
+12. 별도 AWS 운영자는 workflow run의 `github.sha`가 검토한 source commit과 같은지 확인하고, 그 run에
     기록된 정확한 artifact를 내려받는다. AWS credential이 없는 검증 환경에서 ZIP SHA-256과 package
     smoke test를 다시 확인한다. 이후 검토된 commit의 clean checkout과 별도 AWS 운영 세션에서는
     artifact 코드를 다시 실행하지 않고 기존 의존성, permissions boundary와 두 단계 `iam:PassRole`을
@@ -197,6 +197,41 @@ dev 배포와 prod artifact 생성은 `Build or Deploy Image Pipeline` workflow�
     change set, CloudFormation execution role과 전체 parameter를 검토한 뒤 같은 운영 신뢰 경계에서
     실행하고 termination protection을 활성화한다. 최초 bucket이면 3단계 대기를 동일하게 적용한다.
 13. prod에서도 5~10단계와 별도 운영 승인을 통과한 뒤에만 event source와 issuance를 활성화한다.
+
+### 기존 업로드를 유지하면서 운영을 처음 준비할 때
+
+`main` push와 `CD - Prod`의 수동 실행은 운영 앱을 배포한다. 이미지 인프라를 준비하려고 먼저
+`main`에 합치거나 앱 CD를 수동 실행하지 않는다.
+검토한 `release/X.Y.Z`에서 운영 아티팩트만 만든 뒤, 아래 순서로 앱 배포를 준비한다.
+release 허용은 AWS 권한 없는 build job에만 적용된다. dev AWS deploy job은 여전히 `develop`의
+`target=dev`에만 실행되며, prod change set은 운영자 세션에서 따로 만든다.
+
+1. 운영 앱 image digest, DB migration 이력, 기존 업로드 방식과 실제 발급 상태를 읽기 전용으로 기록한다.
+   `MEDIA_*` 환경변수가 없다는 이유만으로 기존 업로드가 꺼져 있다고 판단하지 않는다.
+2. 적용 전 같은 화면과 사진으로 전송량·이미지 오류·LCP를 측정한다. 운영 자료와 별도 비교 화면의
+   측정은 섞지 않는다. 기존 사진은 이 준비 작업에서 변환하거나 삭제하지 않는다.
+3. release HEAD를 고정하고 리뷰·CI를 마친다. 그 HEAD의 workflow run ID, source SHA, ZIP digest를
+   기록한 뒤 운영 아티팩트를 준비한다. 파일 보존 기간 7일이 지났거나 source가 바뀌면 다시 빌드·검증한다.
+4. 기존 원본 업로드는 그대로 둔 채 별도 원본 bucket·queue·worker와 권한·알림을 준비한다.
+   운영 delivery bucket과 CloudFront 연결, 정확한 웹 origin, EC2 role을 대조한다. 생성·수정 리소스와
+   실행 role을 change set에서 확인하고 적용한다. 자동 삭제와 backfill 권한은 추가하지 않는다.
+5. 운영 DB와 새 앱의 migration 호환성을 확인한다. 이미 새 media 발급을 사용하는 운영 환경에는
+   신규 설치 절차를 그대로 반복하지 않는다. v5 전환에 발급 중지·drain이 필요하거나 DB migration이
+   기존 업로드 유지 조건과 충돌하면 해당 배포를 중단하고 전환 방식을 다시 정한다. 점검을 위해 발급을
+   끄거나 운영 앱을 재시작하지 않는다.
+6. 새 앱에 필요한 환경변수, DB 규격 pointer, worker 규격과 consumer 준비를 대조한다. 업로드를
+   유지할 전환 순서와 호환되는 복구 image를 정하기 전에는 release를 main에 합치지 않는다.
+   단일 앱 교체 중 HTTP 요청 중단 가능성은 기능 flag ON 유지와 별개이며 별도로 검토한다.
+7. 최종 승인 후 앱을 배포한다. main에 반영될 image 처리 소스가 고정된 release와 달라졌으면 기존
+   artifact를 재사용하지 않는다. 최소 `worker/`, `media-specs/`, `infra/media/` 및 Spring media 변경을
+   비교하고, 차이가 있으면 같은 검토·빌드 절차를 다시 거친다. `SourceCommitSha`에는 실제 artifact를
+   만든 SHA를 기록하며 merge commit SHA로 바꿔 적지 않는다.
+8. 승인된 시험 계정·사진으로 발급→PUT→READY→CloudFront 조회와 실패 알림을 확인한다. 기존 업로드
+   경로도 함께 확인하고, 정상 시험 종료를 이유로 운영 발급을 OFF로 바꾸지 않는다. 시험 실패 시에는
+   미리 검토한 복구 절차로 대응한다. 호환성 확인 없이 옛 앱 image로 되돌리지 않는다.
+9. 실제 화면이 변환본을 사용하는지 확인한 뒤 같은 조건으로 재측정한다. 서버 배포만으로 기존 사진의
+   URL이나 클라이언트가 선택하는 이미지가 달라지는 것은 아니다. 아직 원본을 사용한다면 개선 후
+   속도 측정으로 보고하지 않는다.
 
 Spring에는 stack output을 다음 환경변수로 전달한다.
 

@@ -48,9 +48,9 @@ export function validateDeployWorkflowTrust(rawWorkflow) {
   }
   if (
     !build.includes('[[ "${PRODUCTION_CONFIRMATION}" == "prepare-prod-artifact" ]]') ||
-    !build.includes('[[ "${DEPLOYMENT_REF}" == "refs/heads/main" ]]')
+    !build.includes('[[ "${DEPLOYMENT_REF}" == "refs/heads/main" || "${DEPLOYMENT_REF}" =~ ^refs/heads/release/[0-9]+\\.[0-9]+\\.[0-9]+$ ]]')
   ) {
-    fail("Production artifact build must require the reviewed main ref and confirmation.");
+    fail("Production artifact build must require a main or versioned release ref and confirmation.");
   }
 
   if (!deploy.includes("if: inputs.target == 'dev'")) {
