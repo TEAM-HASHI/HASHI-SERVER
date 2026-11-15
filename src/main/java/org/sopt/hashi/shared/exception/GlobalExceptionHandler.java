@@ -48,11 +48,20 @@ public class GlobalExceptionHandler {
         List<ErrorResponse.FieldError> errors = e.getBindingResult().getFieldErrors().stream()
                 .map(fieldError -> new ErrorResponse.FieldError(
                         fieldError.getField(),
-                        fieldError.getRejectedValue(),
+                        safeRejectedValue(fieldError),
                         fieldError.getDefaultMessage()))
                 .toList();
         return ResponseEntity.status(CommonErrorCode.INVALID_INPUT.getStatus())
                 .body(ErrorResponse.of(CommonErrorCode.INVALID_INPUT, request.getRequestURI(), errors));
+    }
+
+    private Object safeRejectedValue(org.springframework.validation.FieldError error) {
+        String field = error.getField().toLowerCase(java.util.Locale.ROOT);
+        if (field.contains("token") || field.contains("password") || field.contains("secret")
+                || field.endsWith("code") || field.contains("verifier")) {
+            return null;
+        }
+        return error.getRejectedValue();
     }
     // 존재하지 않는 경로 (404) — 프레임워크 예외라 클라 실수, 스택트레이스 로깅 불필요
     @ExceptionHandler(NoResourceFoundException.class)
