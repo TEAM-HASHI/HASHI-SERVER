@@ -18,9 +18,11 @@ class RestaurantReviewResponseTest {
                         10L,
                         "하루",
                         null,
+                        null,
                         5,
                         "리뷰 내용입니다.",
                         List.of("친절해요"),
+                        List.of(),
                         List.of(),
                         0,
                         LocalDateTime.of(2026, 7, 14, 12, 0)

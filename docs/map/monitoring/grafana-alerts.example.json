@@ -1,0 +1,501 @@
+{
+  "apiVersion": 1,
+  "groups": [
+    {
+      "orgId": 1,
+      "name": "hashi-map-maintenance",
+      "folder": "Hashi",
+      "interval": "1m",
+      "rules": [
+        {
+          "uid": "hashi-map-access-denied",
+          "title": "Hashi map access_denied",
+          "condition": "B",
+          "for": "0s",
+          "noDataState": "NoData",
+          "execErrState": "Error",
+          "isPaused": true,
+          "labels": {
+            "service": "hashi-map",
+            "environment": "REPLACE_WITH_ENVIRONMENT",
+            "reason": "access_denied",
+            "severity": "critical"
+          },
+          "annotations": {
+            "summary": "Location maintenance requires inspection: access_denied",
+            "description": "See docs/map/location-maintenance-runbook.md. Do not include addresses or API keys in alerts."
+          },
+          "data": [
+            {
+              "refId": "A",
+              "relativeTimeRange": {
+                "from": 600,
+                "to": 0
+              },
+              "datasourceUid": "prometheus",
+              "model": {
+                "datasource": {
+                  "type": "prometheus",
+                  "uid": "prometheus"
+                },
+                "editorMode": "code",
+                "expr": "max by (reason) (hashi_map_maintenance_issues{reason=\"access_denied\"})",
+                "instant": true,
+                "range": false,
+                "intervalMs": 1000,
+                "maxDataPoints": 43200,
+                "refId": "A"
+              }
+            },
+            {
+              "refId": "B",
+              "relativeTimeRange": {
+                "from": 0,
+                "to": 0
+              },
+              "datasourceUid": "__expr__",
+              "model": {
+                "datasource": {
+                  "type": "__expr__",
+                  "uid": "__expr__"
+                },
+                "expression": "$A > 0",
+                "type": "math",
+                "refId": "B",
+                "intervalMs": 1000,
+                "maxDataPoints": 43200
+              }
+            }
+          ]
+        },
+        {
+          "uid": "hashi-map-configuration-error",
+          "title": "Hashi map configuration_error",
+          "condition": "B",
+          "for": "0s",
+          "noDataState": "NoData",
+          "execErrState": "Error",
+          "isPaused": true,
+          "labels": {
+            "service": "hashi-map",
+            "environment": "REPLACE_WITH_ENVIRONMENT",
+            "reason": "configuration_error",
+            "severity": "critical"
+          },
+          "annotations": {
+            "summary": "Location maintenance requires inspection: configuration_error",
+            "description": "See docs/map/location-maintenance-runbook.md. Do not include addresses or API keys in alerts."
+          },
+          "data": [
+            {
+              "refId": "A",
+              "relativeTimeRange": {
+                "from": 600,
+                "to": 0
+              },
+              "datasourceUid": "prometheus",
+              "model": {
+                "datasource": {
+                  "type": "prometheus",
+                  "uid": "prometheus"
+                },
+                "editorMode": "code",
+                "expr": "max by (reason) (hashi_map_maintenance_issues{reason=\"configuration_error\"})",
+                "instant": true,
+                "range": false,
+                "intervalMs": 1000,
+                "maxDataPoints": 43200,
+                "refId": "A"
+              }
+            },
+            {
+              "refId": "B",
+              "relativeTimeRange": {
+                "from": 0,
+                "to": 0
+              },
+              "datasourceUid": "__expr__",
+              "model": {
+                "datasource": {
+                  "type": "__expr__",
+                  "uid": "__expr__"
+                },
+                "expression": "$A > 0",
+                "type": "math",
+                "refId": "B",
+                "intervalMs": 1000,
+                "maxDataPoints": 43200
+              }
+            }
+          ]
+        },
+        {
+          "uid": "hashi-map-refresh-window-invalid",
+          "title": "Hashi map refresh_window_invalid",
+          "condition": "B",
+          "for": "0s",
+          "noDataState": "NoData",
+          "execErrState": "Error",
+          "isPaused": true,
+          "labels": {
+            "service": "hashi-map",
+            "environment": "REPLACE_WITH_ENVIRONMENT",
+            "reason": "refresh_window_invalid",
+            "severity": "critical"
+          },
+          "annotations": {
+            "summary": "Location maintenance requires inspection: refresh_window_invalid",
+            "description": "See docs/map/location-maintenance-runbook.md. Do not include addresses or API keys in alerts."
+          },
+          "data": [
+            {
+              "refId": "A",
+              "relativeTimeRange": {
+                "from": 600,
+                "to": 0
+              },
+              "datasourceUid": "prometheus",
+              "model": {
+                "datasource": {
+                  "type": "prometheus",
+                  "uid": "prometheus"
+                },
+                "editorMode": "code",
+                "expr": "max by (reason) (hashi_map_maintenance_issues{reason=\"refresh_window_invalid\"})",
+                "instant": true,
+                "range": false,
+                "intervalMs": 1000,
+                "maxDataPoints": 43200,
+                "refId": "A"
+              }
+            },
+            {
+              "refId": "B",
+              "relativeTimeRange": {
+                "from": 0,
+                "to": 0
+              },
+              "datasourceUid": "__expr__",
+              "model": {
+                "datasource": {
+                  "type": "__expr__",
+                  "uid": "__expr__"
+                },
+                "expression": "$A > 0",
+                "type": "math",
+                "refId": "B",
+                "intervalMs": 1000,
+                "maxDataPoints": 43200
+              }
+            }
+          ]
+        },
+        {
+          "uid": "hashi-map-retrying",
+          "title": "Hashi map retrying",
+          "condition": "B",
+          "for": "15m",
+          "noDataState": "NoData",
+          "execErrState": "Error",
+          "isPaused": true,
+          "labels": {
+            "service": "hashi-map",
+            "environment": "REPLACE_WITH_ENVIRONMENT",
+            "reason": "retrying",
+            "severity": "warning"
+          },
+          "annotations": {
+            "summary": "Location maintenance requires inspection: retrying",
+            "description": "See docs/map/location-maintenance-runbook.md. Do not include addresses or API keys in alerts."
+          },
+          "data": [
+            {
+              "refId": "A",
+              "relativeTimeRange": {
+                "from": 600,
+                "to": 0
+              },
+              "datasourceUid": "prometheus",
+              "model": {
+                "datasource": {
+                  "type": "prometheus",
+                  "uid": "prometheus"
+                },
+                "editorMode": "code",
+                "expr": "max by (reason) (hashi_map_maintenance_issues{reason=\"retrying\"})",
+                "instant": true,
+                "range": false,
+                "intervalMs": 1000,
+                "maxDataPoints": 43200,
+                "refId": "A"
+              }
+            },
+            {
+              "refId": "B",
+              "relativeTimeRange": {
+                "from": 0,
+                "to": 0
+              },
+              "datasourceUid": "__expr__",
+              "model": {
+                "datasource": {
+                  "type": "__expr__",
+                  "uid": "__expr__"
+                },
+                "expression": "$A > 0",
+                "type": "math",
+                "refId": "B",
+                "intervalMs": 1000,
+                "maxDataPoints": 43200
+              }
+            }
+          ]
+        },
+        {
+          "uid": "hashi-map-attempts-exhausted",
+          "title": "Hashi map attempts_exhausted",
+          "condition": "B",
+          "for": "0s",
+          "noDataState": "NoData",
+          "execErrState": "Error",
+          "isPaused": true,
+          "labels": {
+            "service": "hashi-map",
+            "environment": "REPLACE_WITH_ENVIRONMENT",
+            "reason": "attempts_exhausted",
+            "severity": "critical"
+          },
+          "annotations": {
+            "summary": "Location maintenance requires inspection: attempts_exhausted",
+            "description": "See docs/map/location-maintenance-runbook.md. Do not include addresses or API keys in alerts."
+          },
+          "data": [
+            {
+              "refId": "A",
+              "relativeTimeRange": {
+                "from": 600,
+                "to": 0
+              },
+              "datasourceUid": "prometheus",
+              "model": {
+                "datasource": {
+                  "type": "prometheus",
+                  "uid": "prometheus"
+                },
+                "editorMode": "code",
+                "expr": "max by (reason) (hashi_map_maintenance_issues{reason=\"attempts_exhausted\"})",
+                "instant": true,
+                "range": false,
+                "intervalMs": 1000,
+                "maxDataPoints": 43200,
+                "refId": "A"
+              }
+            },
+            {
+              "refId": "B",
+              "relativeTimeRange": {
+                "from": 0,
+                "to": 0
+              },
+              "datasourceUid": "__expr__",
+              "model": {
+                "datasource": {
+                  "type": "__expr__",
+                  "uid": "__expr__"
+                },
+                "expression": "$A > 0",
+                "type": "math",
+                "refId": "B",
+                "intervalMs": 1000,
+                "maxDataPoints": 43200
+              }
+            }
+          ]
+        },
+        {
+          "uid": "hashi-map-expiry-soon",
+          "title": "Hashi map expiry_soon",
+          "condition": "B",
+          "for": "0s",
+          "noDataState": "NoData",
+          "execErrState": "Error",
+          "isPaused": true,
+          "labels": {
+            "service": "hashi-map",
+            "environment": "REPLACE_WITH_ENVIRONMENT",
+            "reason": "expiry_soon",
+            "severity": "critical"
+          },
+          "annotations": {
+            "summary": "Location maintenance requires inspection: expiry_soon",
+            "description": "See docs/map/location-maintenance-runbook.md. Do not include addresses or API keys in alerts."
+          },
+          "data": [
+            {
+              "refId": "A",
+              "relativeTimeRange": {
+                "from": 600,
+                "to": 0
+              },
+              "datasourceUid": "prometheus",
+              "model": {
+                "datasource": {
+                  "type": "prometheus",
+                  "uid": "prometheus"
+                },
+                "editorMode": "code",
+                "expr": "max by (reason) (hashi_map_maintenance_issues{reason=\"expiry_soon\"})",
+                "instant": true,
+                "range": false,
+                "intervalMs": 1000,
+                "maxDataPoints": 43200,
+                "refId": "A"
+              }
+            },
+            {
+              "refId": "B",
+              "relativeTimeRange": {
+                "from": 0,
+                "to": 0
+              },
+              "datasourceUid": "__expr__",
+              "model": {
+                "datasource": {
+                  "type": "__expr__",
+                  "uid": "__expr__"
+                },
+                "expression": "$A > 0",
+                "type": "math",
+                "refId": "B",
+                "intervalMs": 1000,
+                "maxDataPoints": 43200
+              }
+            }
+          ]
+        },
+        {
+          "uid": "hashi-map-stalled",
+          "title": "Hashi map stalled",
+          "condition": "B",
+          "for": "0s",
+          "noDataState": "NoData",
+          "execErrState": "Error",
+          "isPaused": true,
+          "labels": {
+            "service": "hashi-map",
+            "environment": "REPLACE_WITH_ENVIRONMENT",
+            "reason": "stalled",
+            "severity": "warning"
+          },
+          "annotations": {
+            "summary": "Location maintenance requires inspection: stalled",
+            "description": "See docs/map/location-maintenance-runbook.md. Do not include addresses or API keys in alerts."
+          },
+          "data": [
+            {
+              "refId": "A",
+              "relativeTimeRange": {
+                "from": 600,
+                "to": 0
+              },
+              "datasourceUid": "prometheus",
+              "model": {
+                "datasource": {
+                  "type": "prometheus",
+                  "uid": "prometheus"
+                },
+                "editorMode": "code",
+                "expr": "max by (reason) (hashi_map_maintenance_issues{reason=\"stalled\"})",
+                "instant": true,
+                "range": false,
+                "intervalMs": 1000,
+                "maxDataPoints": 43200,
+                "refId": "A"
+              }
+            },
+            {
+              "refId": "B",
+              "relativeTimeRange": {
+                "from": 0,
+                "to": 0
+              },
+              "datasourceUid": "__expr__",
+              "model": {
+                "datasource": {
+                  "type": "__expr__",
+                  "uid": "__expr__"
+                },
+                "expression": "$A > 0",
+                "type": "math",
+                "refId": "B",
+                "intervalMs": 1000,
+                "maxDataPoints": 43200
+              }
+            }
+          ]
+        },
+        {
+          "uid": "hashi-map-observation-stale",
+          "title": "Hashi map observation_stale",
+          "condition": "B",
+          "for": "0s",
+          "noDataState": "NoData",
+          "execErrState": "Error",
+          "isPaused": true,
+          "labels": {
+            "service": "hashi-map",
+            "environment": "REPLACE_WITH_ENVIRONMENT",
+            "reason": "observation_stale",
+            "severity": "warning"
+          },
+          "annotations": {
+            "summary": "Location maintenance requires inspection: observation_stale",
+            "description": "See docs/map/location-maintenance-runbook.md. Do not include addresses or API keys in alerts."
+          },
+          "data": [
+            {
+              "refId": "A",
+              "relativeTimeRange": {
+                "from": 600,
+                "to": 0
+              },
+              "datasourceUid": "prometheus",
+              "model": {
+                "datasource": {
+                  "type": "prometheus",
+                  "uid": "prometheus"
+                },
+                "editorMode": "code",
+                "expr": "time() - max(hashi_map_maintenance_observed_timestamp)",
+                "instant": true,
+                "range": false,
+                "intervalMs": 1000,
+                "maxDataPoints": 43200,
+                "refId": "A"
+              }
+            },
+            {
+              "refId": "B",
+              "relativeTimeRange": {
+                "from": 0,
+                "to": 0
+              },
+              "datasourceUid": "__expr__",
+              "model": {
+                "datasource": {
+                  "type": "__expr__",
+                  "uid": "__expr__"
+                },
+                "expression": "$A > 180",
+                "type": "math",
+                "refId": "B",
+                "intervalMs": 1000,
+                "maxDataPoints": 43200
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

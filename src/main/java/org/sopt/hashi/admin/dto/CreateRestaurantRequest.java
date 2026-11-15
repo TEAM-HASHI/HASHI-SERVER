@@ -1,7 +1,11 @@
 package org.sopt.hashi.admin.dto;
 
+import com.fasterxml.jackson.annotation.JsonIgnore;
+import com.fasterxml.jackson.annotation.JsonProperty;
+import com.fasterxml.jackson.databind.JsonNode;
 import io.swagger.v3.oas.annotations.media.Schema;
 import jakarta.validation.Valid;
+import jakarta.validation.constraints.AssertTrue;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Pattern;
@@ -11,10 +15,12 @@ import java.math.BigDecimal;
 import java.time.DayOfWeek;
 import java.time.LocalTime;
 import java.util.List;
+import java.util.UUID;
 
 /**
  * 어드민 식당 등록 요청. imageKeys·메뉴 imageKey는 presigned URL로 업로드 완료된 S3 object key다.
  * genre·curationTypes는 사용자 API와 같은 소문자 케밥 값이고, foodCategory는 카드 표시용 자유 텍스트다(#145).
+ * placeType(음식점 분류, #211)은 "restaurant"·"cafe"·"bar" 중 하나로 필수다.
  * businessHours는 7개 요일(MONDAY~SUNDAY)을 중복 없이 모두 포함해야 한다(시간은 "HH:mm").
  */
 public record CreateRestaurantRequest(
@@ -30,9 +36,15 @@ public record CreateRestaurantRequest(
         @Schema(description = "매장 상세 설명", example = "엄선된 고기와 다양한 코스를 제공합니다.")
         @NotBlank(message = "상세 설명은 필수입니다")
         @Size(max = 500, message = "상세 설명은 500자 이내입니다") String description,
-        @Schema(description = "주소", example = "도쿄도 도시마구 히가시이케부쿠로 1-1-1")
+        @Schema(description = "사용자 화면에 표시할 전체 주소. 건물명·층 정보를 보존하며, geocodingAddress를 생략하면 Google 위치 확인에도 이 값을 사용",
+                example = "도쿄도 도시마구 히가시이케부쿠로 1-1-1")
         @NotBlank(message = "주소는 필수입니다")
         @Size(max = 255, message = "주소는 255자 이내입니다") String address,
+        @Schema(description = "Google 위치 확인에만 사용할 별도 지정 주소(선택). 화면에는 address의 건물명·층 정보를 그대로 보여주면서 검색에는 정제한 주소를 쓰기 위한 필드. 생략/null이면 address를 사용하고 공백은 허용하지 않음",
+                example = "東京都豊島区東池袋1-1-1")
+        @Pattern(regexp = "(?s).*[^\\p{javaWhitespace}\\p{Z}].*",
+                message = "위치 확인용 주소는 공백일 수 없습니다")
+        @Size(max = 255, message = "위치 확인용 주소는 255자 이내입니다") String geocodingAddress,
         @Schema(description = "지역", example = "이케부쿠로")
         @NotBlank(message = "지역은 필수입니다")
         @Size(max = 20, message = "지역은 20자 이내입니다") String area,
@@ -41,6 +53,8 @@ public record CreateRestaurantRequest(
         @Schema(description = "음식 카테고리(카드 표시용 자유 텍스트)", example = "야키니쿠")
         @NotBlank(message = "음식 카테고리는 필수입니다")
         @Size(max = 20, message = "음식 카테고리는 20자 이내입니다") String foodCategory,
+        @Schema(description = "음식점 분류(restaurant·cafe·bar)", example = "restaurant")
+        @NotBlank(message = "음식점 분류는 필수입니다") String placeType,
         @Schema(description = "통화 코드", example = "JPY")
         @NotBlank(message = "통화는 필수입니다")
         @Size(min = 3, max = 3, message = "통화는 3자리 코드여야 합니다") String priceCurrency,
@@ -51,10 +65,15 @@ public record CreateRestaurantRequest(
         @NotNull(message = "최대 가격은 필수입니다")
         @PositiveOrZero(message = "최대 가격은 0 이상입니다") BigDecimal maxPrice,
         @Schema(description = "식당 이미지 S3 key 목록", example = "[\"restaurants/a1b2c3-1.jpg\"]")
-        @NotNull(message = "식당 이미지는 필수입니다")
         @Size(min = 1, message = "식당 이미지는 최소 1개 이상 필요합니다")
         List<@NotBlank(message = "이미지 키는 비어 있을 수 없습니다")
         @Size(max = 500, message = "이미지 키는 500자 이내입니다") String> imageKeys,
+        @Schema(description = "식당 이미지 asset ID 목록")
+        @Size(min = 1, message = "식당 이미지 asset은 최소 1개 이상 필요합니다")
+        List<@NotNull(message = "이미지 asset ID는 null일 수 없습니다") UUID> imageAssetIds,
+        @JsonProperty("images")
+        @Schema(hidden = true)
+        JsonNode unsupportedImages,
         List<@NotNull(message = "메뉴 항목은 null일 수 없습니다") @Valid MenuRequest> menus,
         @Schema(description = "해시태그 목록", example = "[\"현지인맛집\"]")
         @NotNull(message = "해시태그는 필수입니다")
@@ -65,7 +84,48 @@ public record CreateRestaurantRequest(
         List<@NotBlank(message = "큐레이션 유형은 비어 있을 수 없습니다") String> curationTypes,
         @NotNull(message = "영업시간은 필수입니다")
         @Size(min = 7, max = 7, message = "영업시간은 모든 요일(7개)을 포함해야 합니다")
-        List<@NotNull(message = "영업시간 항목은 null일 수 없습니다") @Valid BusinessHourRequest> businessHours) {
+        List<@NotNull(message = "영업시간 항목은 null일 수 없습니다") @Valid BusinessHourRequest> businessHours,
+        @Schema(description = "등록 전 위치 미리보기에서 관리자가 고른 후보의 selectionToken(선택). "
+                + "같은 관리자가 검색 후 10분 안에 이름·현지명·표시주소·기본주소를 그대로 보내야 함. "
+                + "생략/null이면 식당을 먼저 저장한 뒤 주소로 자동 위치 확인. "
+                + "토큰을 보냈더라도 저장 직후는 PENDING이며 Places 상세 검증이 끝나야 핀 노출")
+        @Pattern(regexp = ".*\\S.*", message = "위치 선택 토큰은 공백일 수 없습니다")
+        @Size(max = 2048) String locationSelectionToken) {
+
+    public CreateRestaurantRequest(
+            String name, String localName, String summary, String description, String address,
+            String geocodingAddress, String area, String genre, String foodCategory, String placeType,
+            String priceCurrency, BigDecimal minPrice, BigDecimal maxPrice, List<String> imageKeys,
+            List<UUID> imageAssetIds, JsonNode unsupportedImages, List<MenuRequest> menus,
+            List<String> hashtags, List<String> curationTypes, List<BusinessHourRequest> businessHours) {
+        this(name, localName, summary, description, address, geocodingAddress, area, genre, foodCategory,
+                placeType, priceCurrency, minPrice, maxPrice, imageKeys, imageAssetIds, unsupportedImages,
+                menus, hashtags, curationTypes, businessHours, null);
+    }
+
+    /** geocodingAddress 도입 전 Java 호출부의 source compatibility를 유지한다. */
+    public CreateRestaurantRequest(
+            String name, String localName, String summary, String description, String address,
+            String area, String genre, String foodCategory, String placeType, String priceCurrency,
+            BigDecimal minPrice, BigDecimal maxPrice, List<String> imageKeys, List<UUID> imageAssetIds,
+            JsonNode unsupportedImages, List<MenuRequest> menus, List<String> hashtags,
+            List<String> curationTypes, List<BusinessHourRequest> businessHours) {
+        this(name, localName, summary, description, address, null, area, genre, foodCategory, placeType,
+                priceCurrency, minPrice, maxPrice, imageKeys, imageAssetIds, unsupportedImages, menus,
+                hashtags, curationTypes, businessHours);
+    }
+
+    @AssertTrue(message = "식당 이미지는 imageKeys 또는 imageAssetIds 중 하나만 필요합니다")
+    @JsonIgnore
+    public boolean isImageSourceValid() {
+        return (imageKeys == null) != (imageAssetIds == null);
+    }
+
+    @AssertTrue(message = "식당 등록에서는 images를 사용할 수 없습니다")
+    @JsonIgnore
+    public boolean isCreateImageContractValid() {
+        return unsupportedImages == null;
+    }
 
     /** 메뉴 항목 — 목록 전체가 함께 저장되므로 각 항목은 완전한 값으로 받는다. */
     public record MenuRequest(
@@ -78,6 +138,8 @@ public record CreateRestaurantRequest(
             @Schema(description = "메뉴 이미지 S3 key(선택)", example = "restaurant-menus/a1b2c3-menu.jpg")
             @Pattern(regexp = ".*\\S.*", message = "메뉴 이미지 키는 공백일 수 없습니다")
             @Size(max = 500, message = "메뉴 이미지 키는 500자 이내입니다") String imageKey,
+            @Schema(description = "메뉴 이미지 asset ID(선택)")
+            UUID imageAssetId,
             @Schema(description = "통화 코드", example = "JPY")
             @NotBlank(message = "통화는 필수입니다")
             @Size(min = 3, max = 3, message = "통화는 3자리 코드여야 합니다") String priceCurrency,
@@ -86,6 +148,23 @@ public record CreateRestaurantRequest(
             @PositiveOrZero(message = "가격은 0 이상입니다") BigDecimal priceAmount,
             @Schema(description = "대표 메뉴 여부", example = "true")
             @NotNull(message = "대표 메뉴 여부는 필수입니다") Boolean main) {
+
+        public MenuRequest(
+                String name,
+                String description,
+                String imageKey,
+                String priceCurrency,
+                BigDecimal priceAmount,
+                Boolean main
+        ) {
+            this(name, description, imageKey, null, priceCurrency, priceAmount, main);
+        }
+
+        @AssertTrue(message = "메뉴 이미지는 imageKey와 imageAssetId를 함께 사용할 수 없습니다")
+        @JsonIgnore
+        public boolean isImageSourceValid() {
+            return imageKey == null || imageAssetId == null;
+        }
     }
 
     /**

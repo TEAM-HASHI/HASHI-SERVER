@@ -1,35 +1,53 @@
 package org.sopt.hashi.admin.dto;
 
+import io.swagger.v3.oas.annotations.media.Schema;
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.List;
+import org.sopt.hashi.media.MediaImage;
 import org.sopt.hashi.restaurant.AdminRestaurantInfo;
+import org.sopt.hashi.restaurant.RestaurantImageInfo;
 
 /**
- * 어드민 식당 단건 응답(등록·수정 결과). thumbnailUrl·imageUrls·메뉴 imageUrl은 저장된 키를
- * 변환한 조회 URL이다. genre·curationTypes는 사용자 API와 같은 소문자 케밥 값이다.
+ * 어드민 식당 단건 응답(등록·수정 결과). 기존 URL 필드는 legacy 또는 READY media 호환용이며,
+ * 신규 이미지 필드는 상태와 반응형 후보를 전달한다. genre·curationTypes는 사용자 API와 같은
+ * 소문자 케밥 값이고, placeType(음식점 분류, #211)은 restaurant·cafe·bar다.
  */
+@Schema(description = "어드민 식당 저장 결과. 저장 성공과 Google 위치 확인 완료는 별개이며 locationStatus로 후속 상태를 확인")
 public record AdminRestaurantResponse(
         Long restaurantId,
         String name,
         String localName,
         String summary,
         String description,
+        @Schema(description = "사용자 화면에 표시할 전체 주소")
         String address,
+        @Schema(description = "Google 위치 확인에만 쓰는 별도 지정 주소. null이면 address를 위치 확인 기준으로 사용")
+        String geocodingAddress,
         String area,
         String genre,
         String foodCategory,
+        String placeType,
         String thumbnailUrl,
+        RestaurantImageInfo thumbnailImage,
         String priceCurrency,
         BigDecimal minPrice,
         BigDecimal maxPrice,
         boolean deleted,
         List<String> imageUrls,
+        List<RestaurantImageInfo> heroImages,
         List<AdminRestaurantMenuResponse> menus,
         List<String> hashtags,
         List<String> curationTypes,
         List<AdminRestaurantBusinessHourResponse> businessHours,
-        LocalDateTime createdAt) {
+        LocalDateTime createdAt,
+        @Schema(description = "비동기 위치 처리 상태. PENDING 응답은 식당 저장과 작업 등록 성공이며 Google 위치 확인 완료가 아님",
+                allowableValues = {"UNRESOLVED", "PENDING", "READY", "RETRY_WAIT", "REVIEW_REQUIRED", "FAILED"},
+                example = "PENDING")
+        String locationStatus,
+        @Schema(description = "위치 확인 기준 정보 변경 번호(addressRevision). 이름·현지명·표시주소·위치조회주소 변경에 따라 증가. 위치 재시도 전 상태 조회 API에서 최신 값을 확인",
+                example = "1")
+        long addressRevision) {
 
     public static AdminRestaurantResponse from(AdminRestaurantInfo info) {
         return new AdminRestaurantResponse(
@@ -39,15 +57,19 @@ public record AdminRestaurantResponse(
                 info.summary(),
                 info.description(),
                 info.address(),
+                info.geocodingAddress(),
                 info.area(),
                 info.genre(),
                 info.foodCategory(),
+                info.placeType(),
                 info.thumbnailUrl(),
+                info.thumbnailImage(),
                 info.priceCurrency(),
                 info.minPrice(),
                 info.maxPrice(),
                 info.deleted(),
                 info.imageUrls(),
+                info.heroImages(),
                 info.menus().stream()
                         .map(AdminRestaurantMenuResponse::from)
                         .toList(),
@@ -56,7 +78,9 @@ public record AdminRestaurantResponse(
                 info.businessHours().stream()
                         .map(AdminRestaurantBusinessHourResponse::from)
                         .toList(),
-                info.createdAt());
+                info.createdAt(),
+                info.locationStatus(),
+                info.addressRevision());
     }
 
     public record AdminRestaurantMenuResponse(
@@ -64,6 +88,7 @@ public record AdminRestaurantResponse(
             String name,
             String description,
             String imageUrl,
+            MediaImage listImage,
             String priceCurrency,
             BigDecimal priceAmount,
             boolean main) {
@@ -74,6 +99,7 @@ public record AdminRestaurantResponse(
                     info.name(),
                     info.description(),
                     info.imageUrl(),
+                    info.listImage(),
                     info.priceCurrency(),
                     info.priceAmount(),
                     info.main());

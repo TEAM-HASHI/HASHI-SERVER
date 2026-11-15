@@ -8,11 +8,14 @@ import static org.mockito.Mockito.verifyNoInteractions;
 import java.time.LocalDate;
 import java.util.Arrays;
 import java.util.List;
+import java.util.Optional;
+import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.sopt.hashi.media.ImageReference;
 import org.sopt.hashi.shared.storage.FileStorage;
 import org.sopt.hashi.user.UserProfileInfo;
 import org.sopt.hashi.user.domain.User;
@@ -47,7 +50,8 @@ class UserPortImplTest {
         List<UserProfileInfo> result = userPort.findProfiles(Arrays.asList(2L, 3L, 1L, 2L, null));
 
         assertThat(result).containsExactly(
-                new UserProfileInfo(2L, "소라", "https://cdn.example.com/users/2/profile.jpg"),
+                new UserProfileInfo(2L, "소라", ImageReference.legacy(
+                        "https://cdn.example.com/users/2/profile.jpg")),
                 new UserProfileInfo(1L, "하루", null)
         );
         verify(userRepository).findAllById(List.of(2L, 3L, 1L));
@@ -58,6 +62,47 @@ class UserPortImplTest {
         assertThat(userPort.findProfiles(List.of())).isEmpty();
 
         verifyNoInteractions(userRepository, fileStorage);
+    }
+
+    @Test
+    void backfill된_프로필은_asset_ID와_legacy_URL을_함께_전달한다() {
+        UUID assetId = UUID.randomUUID();
+        User user = createUser(1L, "하루", "users/1/profile.jpg");
+        ReflectionTestUtils.setField(user, "profileImageAssetId", assetId);
+        given(userRepository.findAllById(List.of(1L))).willReturn(List.of(user));
+        given(fileStorage.resolveFileUrl("users/1/profile.jpg"))
+                .willReturn("https://cdn.example.com/users/1/profile.jpg");
+
+        assertThat(userPort.findProfiles(List.of(1L)))
+                .containsExactly(new UserProfileInfo(
+                        1L,
+                        "하루",
+                        new ImageReference(
+                                assetId,
+                                "https://cdn.example.com/users/1/profile.jpg")));
+    }
+
+    @Test
+    void 탈퇴_회원은_프로필_목록에_익명_닉네임과_이미지_없음으로_포함되고_단건_조회에서는_제외된다() {
+        User withdrawn = createUser(3L, "탈퇴전닉네임", "users/3/profile.jpg");
+        withdrawn.withdraw();
+        given(userRepository.findAllById(List.of(3L))).willReturn(List.of(withdrawn));
+        given(userRepository.findByIdAndDeletedFalse(3L)).willReturn(Optional.empty());
+
+        assertThat(userPort.findProfiles(List.of(3L)))
+                .containsExactly(new UserProfileInfo(3L, withdrawn.getAnonymousNickname(), null));
+        assertThat(userPort.findById(3L)).isEmpty();
+        verifyNoInteractions(fileStorage);
+    }
+
+    @Test
+    void 활성_회원_잠금은_잠금_조회_결과로_존재_여부를_돌려준다() {
+        User active = createUser(1L, "하루", null);
+        given(userRepository.findByIdForUpdate(1L)).willReturn(Optional.of(active));
+        given(userRepository.findByIdForUpdate(2L)).willReturn(Optional.empty());
+
+        assertThat(userPort.lockActiveUser(1L)).isTrue();
+        assertThat(userPort.lockActiveUser(2L)).isFalse();
     }
 
     private User createUser(Long id, String nickname, String profileImageKey) {

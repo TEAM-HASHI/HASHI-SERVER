@@ -2,6 +2,7 @@ package org.sopt.hashi.admin.dto;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
+import org.sopt.hashi.media.MediaImage;
 import org.sopt.hashi.reservation.AdminReservationInfo;
 import org.sopt.hashi.reservation.PaymentStatus;
 import org.sopt.hashi.reservation.ReservationStatus;
@@ -19,6 +20,7 @@ public record AdminReservationResponse(
         Long restaurantId,
         String restaurantName,
         String restaurantImageUrl,
+        MediaImage restaurantThumbnailImage,
         String restaurantAddress,
         LocalDateTime reservedAt,
         int adultCount,
@@ -31,7 +33,11 @@ public record AdminReservationResponse(
         BigDecimal amount,
         Long confirmDDay) {
 
-    public static AdminReservationResponse from(AdminReservationInfo info) {
+    public static AdminReservationResponse from(
+            AdminReservationInfo info,
+            String restaurantImageUrl,
+            MediaImage restaurantThumbnailImage
+    ) {
         return new AdminReservationResponse(
                 info.reservationId(),
                 info.userId(),
@@ -39,7 +45,8 @@ public record AdminReservationResponse(
                 info.reserverName(),
                 info.restaurantId(),
                 info.restaurantName(),
-                info.restaurantImageUrl(),
+                restaurantImageUrl,
+                restaurantThumbnailImage,
                 info.restaurantAddress(),
                 info.reservedAt(),
                 info.adultCount(),

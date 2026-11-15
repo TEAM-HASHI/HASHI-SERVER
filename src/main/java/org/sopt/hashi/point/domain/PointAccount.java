@@ -65,4 +65,11 @@ public class PointAccount extends BaseTimeEntity {
     public void restore(long amount) {
         this.balance += amount;
     }
+
+    /** 탈퇴 소멸 — 잔액 전액을 0으로 만들고 소멸한 금액을 돌려준다. */
+    public long forfeit() {
+        long forfeited = balance;
+        this.balance = 0L;
+        return forfeited;
+    }
 }

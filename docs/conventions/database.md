@@ -10,8 +10,15 @@ HASHI는 DB schema를 Flyway migration으로 관리한다. Hibernate는 schema�
   - 예: `V2__create_restaurant_tables.sql`
 - 한 번 merge된 migration은 수정하지 않는다. 변경이 필요하면 다음 version migration을 추가한다.
 - `baselineOnMigrate=true`를 상시 설정하지 않는다.
-- 운영/개발 데이터 seed, 테스트용 샘플 데이터, 어드민 계정 비밀번호 같은 민감 데이터는 migration에 넣지 않는다.
+- 운영/개발용 업무 데이터의 초기 적재, 테스트용 샘플 데이터, 어드민 계정 비밀번호 같은 민감 데이터는 migration에 넣지 않는다.
 - 개발 확인용 샘플 SQL은 Flyway migration과 분리해서 `docs/dev` 등 별도 위치에 둔다.
+- 단, 기능의 필수 초기 상태를 구성하는 **환경 독립적이고 비민감한 제어 데이터**는 versioned
+  migration에서 최초 생성할 수 있다. 허용 대상, 필요한 이유와 안전한 초기값을 ADR에 명시한다.
+  - 예: [`ADR 0001`](../adr/0001-media-module-and-image-pipeline.md)의 `media_pipeline_config`는
+    신규 이미지 작업 발급을 비활성화한 상태로 최초 생성한다. 기능 검증 후 활성화는 별도 운영 절차다.
+- 최초 생성과 운영 중 변경을 분리한다. 이 예외로 만든 제어 행의 운영값을 서버 재시작·재배포 시
+  초기값으로 덮어쓰지 않는다. 시작 시 초기화 코드나 repeatable migration으로 재초기화하지 않으며,
+  이후 변경과 누락 복구는 ADR에 명시한 승인된 운영 절차를 따른다.
 
 ## 2. 모듈 경계와 FK
 
@@ -32,5 +39,7 @@ HASHI는 DB schema를 Flyway migration으로 관리한다. Hibernate는 schema�
 
 - entity의 table/column 이름, 길이, nullable, unique 제약과 일치하는지 확인한다.
 - 모듈 경계를 넘는 FK가 없는지 확인한다.
-- 자동 생성/샘플/비밀 데이터가 migration에 섞이지 않았는지 확인한다.
+- 금지된 업무·샘플·민감 데이터가 migration에 섞이지 않았는지 확인한다.
+- 필수 제어 데이터의 최초 생성은 위 허용 조건과 ADR의 안전한 초기값을 따르고, 운영 중 변경된
+  값을 재시작·재배포로 덮어쓰지 않는지 확인한다.
 - migration 추가 후 빈 schema에서 앱 기동과 `ddl-auto=validate` 통과를 확인한다.

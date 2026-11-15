@@ -1,21 +1,49 @@
 package org.sopt.hashi.restaurant.domain;
 
+import jakarta.persistence.LockModeType;
 import java.time.DayOfWeek;
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
+import org.sopt.hashi.restaurant.RestaurantPhotoSourceInfo;
+import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.EntityGraph;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.JpaSpecificationExecutor;
-import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Modifying;
+import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
-public interface RestaurantRepository extends JpaRepository<Restaurant, Long>, JpaSpecificationExecutor<Restaurant> {
+public interface RestaurantRepository extends JpaRepository<Restaurant, Long>, JpaSpecificationExecutor<Restaurant>, RestaurantSearchRepository {
+
+    @Query("""
+            select new org.sopt.hashi.restaurant.RestaurantPhotoSourceInfo(i.id, i.fileKey, i.imageAssetId, i.displayOrder)
+            from RestaurantImage i where i.restaurant.id = :restaurantId and i.restaurant.deleted = false
+            order by i.displayOrder, i.id
+            """)
+    List<RestaurantPhotoSourceInfo> findRepresentativePhotoSources(Long restaurantId);
+
+    @Query("""
+            select new org.sopt.hashi.restaurant.RestaurantPhotoSourceInfo(m.id, m.imageKey, m.imageAssetId)
+            from RestaurantMenu m where m.restaurant.id = :restaurantId and m.restaurant.deleted = false
+              and (m.imageAssetId is not null or (m.imageKey is not null and m.imageKey <> ''))
+            order by m.id
+            """)
+    List<RestaurantPhotoSourceInfo> findMenuPhotoSources(Long restaurantId);
 
     Optional<Restaurant> findByIdAndDeletedFalse(Long id);
 
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("select restaurant from Restaurant restaurant where restaurant.id = :restaurantId")
+    Optional<Restaurant> findByIdForUpdate(@Param("restaurantId") Long restaurantId);
+
     boolean existsByIdAndDeletedFalse(Long id);
+
+    List<Restaurant> findAllByIdInAndDeletedFalse(Collection<Long> ids);
+
+    long countByIdInAndDeletedFalse(Collection<Long> ids);
 
     // 어드민 등록·수정 중복 검사(#230) — 비교는 컬럼 collation(utf8mb4_unicode_ci)을 따른다(대소문자·끝 공백 무시)
     boolean existsByNameAndDeletedFalse(String name);
@@ -26,6 +54,74 @@ public interface RestaurantRepository extends JpaRepository<Restaurant, Long>, J
 
     boolean existsByAddressAndIdNotAndDeletedFalse(String address, Long id);
 
+    /** 위치와 현재 requestId의 작업을 한 번에 읽어 관리자 목록의 per-row 추가 조회를 막는다. */
+    @Query(value = """
+            select r.id as restaurantId,
+                   r.name as restaurantName,
+                   r.address as address,
+                   r.geocoding_address as geocodingAddress,
+                   case when l.id is null then 'UNRESOLVED' else l.status end as locationStatus,
+                   l.source as locationSource,
+                   j.operation as verificationMode,
+                   coalesce(l.address_revision, 0) as addressRevision,
+                   date_format(l.valid_until, '%Y-%m-%dT%H:%i:%s.%f') as validUntilUtc,
+                   coalesce(j.attempt, 0) as attempt,
+                   date_format(l.next_attempt_at, '%Y-%m-%dT%H:%i:%s.%f') as nextAttemptAtUtc,
+                   j.failure_code as failureCode,
+                   l.confirmed_by_admin_id as confirmedByAdminId
+            from restaurant r
+            left join restaurant_location l on l.id = r.location_id
+            left join restaurant_location_job j
+                   on j.restaurant_id = r.id and j.request_id = l.request_id
+            where r.deleted = false
+              and ((:status = 'UNRESOLVED' and l.id is null)
+                   or (:status <> 'UNRESOLVED' and l.status = :status))
+              and (:source is null or l.source = :source)
+            order by r.id asc
+            """, countQuery = """
+            select count(*)
+            from restaurant r
+            left join restaurant_location l on l.id = r.location_id
+            where r.deleted = false
+              and ((:status = 'UNRESOLVED' and l.id is null)
+                   or (:status <> 'UNRESOLVED' and l.status = :status))
+              and (:source is null or l.source = :source)
+            """, nativeQuery = true)
+    Page<RestaurantLocationReviewProjection> findLocationReviews(
+            @Param("status") String status,
+            @Param("source") String source,
+            Pageable pageable
+    );
+
+    /** 관리자 위치 검토 목록의 단일 조인 결과. Repository 밖에서는 공개 포트 DTO로 변환한다. */
+    interface RestaurantLocationReviewProjection {
+        Long getRestaurantId();
+
+        String getRestaurantName();
+
+        String getAddress();
+
+        String getGeocodingAddress();
+
+        String getLocationStatus();
+
+        String getLocationSource();
+
+        String getVerificationMode();
+
+        Long getAddressRevision();
+
+        String getValidUntilUtc();
+
+        Integer getAttempt();
+
+        String getNextAttemptAtUtc();
+
+        String getFailureCode();
+
+        Long getConfirmedByAdminId();
+    }
+
     @EntityGraph(attributePaths = "businessHours")
     @Query("select distinct r from Restaurant r where r.id = :restaurantId and r.deleted = false")
     Optional<Restaurant> findActiveByIdWithBusinessHours(@Param("restaurantId") Long restaurantId);
@@ -33,6 +129,16 @@ public interface RestaurantRepository extends JpaRepository<Restaurant, Long>, J
     @EntityGraph(attributePaths = "images")
     @Query("select distinct r from Restaurant r where r.id = :restaurantId and r.deleted = false")
     Optional<Restaurant> findActiveByIdWithImages(@Param("restaurantId") Long restaurantId);
+
+    /** 예약·리뷰의 과거 표시를 위해 soft-delete 식당도 대표 이미지 association과 함께 조회한다. */
+    @EntityGraph(attributePaths = "images")
+    @Query("select distinct r from Restaurant r where r.id = :restaurantId")
+    Optional<Restaurant> findByIdWithImages(@Param("restaurantId") Long restaurantId);
+
+    /** 교차 모듈 목록 enrich에서 이미지 collection N+1 없이 soft-delete 식당까지 조회한다. */
+    @EntityGraph(attributePaths = "images")
+    @Query("select distinct r from Restaurant r where r.id in :restaurantIds")
+    List<Restaurant> findAllByIdWithImages(@Param("restaurantIds") List<Long> restaurantIds);
 
     // 랜덤 추천 — 큐레이션 조건 없이 전체 활성 식당에서 뽑는다(#154). rand() 정렬은 식당 수가 적은 규모를 전제로 한다.
     @Query(value = """
@@ -163,4 +269,35 @@ public interface RestaurantRepository extends JpaRepository<Restaurant, Long>, J
               and rating_sum >= :rating
             """, nativeQuery = true)
     int decreaseReviewStatistics(@Param("restaurantId") Long restaurantId, @Param("rating") int rating);
+
+    /** 식당 저장 수 +1(#263) — 원자적 UPDATE라 여러 회원의 첫 저장이 동시에 겹쳐도 누락되지 않는다. */
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
+    @Query(value = "update restaurant set save_count = save_count + 1 where id = :restaurantId", nativeQuery = true)
+    int increaseSaveCount(@Param("restaurantId") Long restaurantId);
+
+    /** 식당 저장 수 -1(#263) — 0 아래로 내려가지 않는다. 겹치는 식당을 여러 트랜잭션이 함께 줄여도 교착이 없도록 PK 오름차순으로 갱신한다. */
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
+    @Query(value = """
+            update restaurant
+            set save_count = case when save_count > 0 then save_count - 1 else 0 end
+            where id in (:restaurantIds)
+            order by id asc
+            """, nativeQuery = true)
+    int decreaseSaveCounts(@Param("restaurantIds") Collection<Long> restaurantIds);
+
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
+    @Query(value = """
+            update restaurant
+            set rating = round((rating_sum - :oldRating + :newRating) * 1.0 / review_count, 1),
+                rating_sum = rating_sum - :oldRating + :newRating
+            where id = :restaurantId
+              and review_count > 0
+              and rating_sum >= :oldRating
+              and rating_sum - :oldRating + :newRating >= 0
+            """, nativeQuery = true)
+    int updateReviewRatingStatistics(
+            @Param("restaurantId") Long restaurantId,
+            @Param("oldRating") int oldRating,
+            @Param("newRating") int newRating
+    );
 }

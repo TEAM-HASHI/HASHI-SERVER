@@ -1,8 +1,10 @@
 package org.sopt.hashi.auth.internal.security;
+import org.sopt.hashi.auth.internal.token.TokenBlacklist;
 import org.sopt.hashi.auth.internal.token.OnboardingTokenStore;
 import org.sopt.hashi.auth.internal.jwt.OnboardingPrincipal;
 import org.sopt.hashi.auth.internal.jwt.MemberPrincipal;
 import org.sopt.hashi.auth.internal.jwt.JwtProvider;
+import org.sopt.hashi.auth.internal.jwt.AuthRoles;
 
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
@@ -24,7 +26,7 @@ import org.springframework.stereotype.Component;
 import org.springframework.web.filter.OncePerRequestFilter;
 
 /**
- * Bearer 액세스 토큰을 검증해 SecurityContext에 인증을 주입한다.
+ * Bearer 액세스 토큰을 검증해 SecurityContext에 인증을 주입한다. 블랙리스트에 오른 회원(탈퇴 등)의 액세스 토큰은 거부한다.
  * 검증 실패 시 인증 없이 통과시키고 실패 원인을 request attribute로 남긴다 — 401 응답은 EntryPoint가 만든다.
  */
 @Component
@@ -37,15 +39,18 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
 
     private final JwtProvider jwtProvider;
     private final OnboardingTokenStore onboardingTokenStore;
+    private final TokenBlacklist tokenBlacklist;
     private final CookieUtil cookieUtil;
     private final OriginValidator originValidator;
 
     public JwtAuthenticationFilter(JwtProvider jwtProvider,
                                    OnboardingTokenStore onboardingTokenStore,
+                                   TokenBlacklist tokenBlacklist,
                                    CookieUtil cookieUtil,
                                    OriginValidator originValidator) {
         this.jwtProvider = jwtProvider;
         this.onboardingTokenStore = onboardingTokenStore;
+        this.tokenBlacklist = tokenBlacklist;
         this.cookieUtil = cookieUtil;
         this.originValidator = originValidator;
     }
@@ -88,11 +93,11 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
                 onboardingTokenStore.validate(claims.subjectId(), token);
                 principal = new OnboardingPrincipal(claims.subjectId());
             } else if (claims.isAccessToken()) {
+                rejectIfBlacklisted(claims);
                 principal = new MemberPrincipal(claims.subjectId());
             } else {
                 throw new BusinessException(AuthErrorCode.INVALID_TOKEN);
             }
-            // TODO(후속): TokenBlacklist(Redis) 대조 — 탈퇴 사용자의 잔여 액세스 토큰 차단
             UsernamePasswordAuthenticationToken authentication = new UsernamePasswordAuthenticationToken(
                     principal, null, List.of(new SimpleGrantedAuthority(claims.role())));
             SecurityContextHolder.getContext().setAuthentication(authentication);
@@ -104,6 +109,13 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
         } catch (BusinessException e) {
             SecurityContextHolder.clearContext();
             request.setAttribute(AUTH_ERROR_ATTRIBUTE, e.getErrorCode());
+        }
+    }
+
+    /** 블랙리스트에 오른 회원(현재는 탈퇴)의 잔여 액세스 토큰 차단 — 어드민 토큰의 subject는 adminId라 USER 권한일 때만 대조한다. */
+    private void rejectIfBlacklisted(JwtProvider.JwtClaims claims) {
+        if (AuthRoles.USER.equals(claims.role()) && tokenBlacklist.isUserBlocked(claims.subjectId())) {
+            throw new BusinessException(AuthErrorCode.INVALID_TOKEN);
         }
     }
 }

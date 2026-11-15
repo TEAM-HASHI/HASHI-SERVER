@@ -8,6 +8,7 @@ import org.sopt.hashi.admin.dto.UpdateMagazineRequest;
 import org.sopt.hashi.admin.service.AdminMagazineService;
 import org.sopt.hashi.shared.error.CommonErrorCode;
 import org.sopt.hashi.shared.response.SuccessResponse;
+import org.sopt.hashi.shared.swagger.ApiErrorResponse;
 import org.sopt.hashi.shared.swagger.ApiException;
 import org.sopt.hashi.shared.swagger.ApiSuccess;
 import org.springframework.http.HttpStatus;
@@ -31,8 +32,26 @@ public class AdminMagazineController {
         this.adminMagazineService = adminMagazineService;
     }
 
-    /** 매거진 등록 — bannerKey·thumbnailKey는 presigned URL로 업로드를 마친 S3 키. */
+    /**
+     * 매거진 등록 — 슬롯별 legacy key 또는 READY public asset ID를 받는다.
+     * 상세 화면 데이터(본문·카드뉴스·해시태그·연결 식당)는 선택이고 목록 순서가 노출 순서다.
+     * 삭제된 식당은 연결할 수 없으며, 없는 식당과 같이 MAGAZINE-002로 거절한다.
+     */
     @ApiException(value = CommonErrorCode.class, codes = {"INVALID_INPUT", "UNAUTHORIZED", "FORBIDDEN"})
+    @ApiErrorResponse(status = HttpStatus.NOT_FOUND, code = "MEDIA-001",
+            message = "이미지 자산을 찾을 수 없습니다")
+    @ApiErrorResponse(status = HttpStatus.CONFLICT, code = "MEDIA-006",
+            message = "현재 이미지 상태에서는 요청을 처리할 수 없습니다")
+    @ApiErrorResponse(status = HttpStatus.CONFLICT, code = "MEDIA-007",
+            message = "이미 사용 중이거나 사용이 끝난 이미지입니다")
+    @ApiErrorResponse(status = HttpStatus.BAD_REQUEST, code = "MEDIA-008",
+            message = "같은 이미지 자산을 중복해서 요청할 수 없습니다")
+    @ApiErrorResponse(status = HttpStatus.NOT_FOUND, code = "MAGAZINE-002",
+            message = "연결하려는 식당을 찾을 수 없습니다.")
+    @ApiErrorResponse(status = HttpStatus.BAD_REQUEST, code = "MAGAZINE-003",
+            message = "같은 카드뉴스 이미지를 중복해서 사용할 수 없습니다.")
+    @ApiErrorResponse(status = HttpStatus.BAD_REQUEST, code = "MAGAZINE-004",
+            message = "같은 해시태그를 중복해서 사용할 수 없습니다.")
     @ApiSuccess(value = AdminSuccessCode.class, codes = {"MAGAZINE_CREATED"})
     @ResponseStatus(HttpStatus.CREATED)
     @PostMapping
@@ -42,8 +61,29 @@ public class AdminMagazineController {
                 adminMagazineService.create(request));
     }
 
-    /** 매거진 부분 수정 — 보낸 필드만 변경된다. */
+    /**
+     * 매거진 부분 수정 — 보낸 필드만 변경된다.
+     * 카드뉴스·해시태그·연결 식당은 보내면 전체 교체하며 빈 목록은 모두 지운다.
+     * 카드뉴스에서 빠진 asset은 같은 트랜잭션에서 사용 종료 처리된다.
+     * 삭제된 식당은 연결할 수 없으며, 없는 식당과 같이 MAGAZINE-002로 거절한다.
+     */
     @ApiException(value = CommonErrorCode.class, codes = {"INVALID_INPUT", "UNAUTHORIZED", "FORBIDDEN"})
+    @ApiErrorResponse(status = HttpStatus.NOT_FOUND, code = "MEDIA-001",
+            message = "이미지 자산을 찾을 수 없습니다")
+    @ApiErrorResponse(status = HttpStatus.CONFLICT, code = "MEDIA-006",
+            message = "현재 이미지 상태에서는 요청을 처리할 수 없습니다")
+    @ApiErrorResponse(status = HttpStatus.CONFLICT, code = "MEDIA-007",
+            message = "이미 사용 중이거나 사용이 끝난 이미지입니다")
+    @ApiErrorResponse(status = HttpStatus.BAD_REQUEST, code = "MEDIA-008",
+            message = "같은 이미지 자산을 중복해서 요청할 수 없습니다")
+    @ApiErrorResponse(status = HttpStatus.NOT_FOUND, code = "MAGAZINE-001",
+            message = "매거진을 찾을 수 없습니다.")
+    @ApiErrorResponse(status = HttpStatus.NOT_FOUND, code = "MAGAZINE-002",
+            message = "연결하려는 식당을 찾을 수 없습니다.")
+    @ApiErrorResponse(status = HttpStatus.BAD_REQUEST, code = "MAGAZINE-003",
+            message = "같은 카드뉴스 이미지를 중복해서 사용할 수 없습니다.")
+    @ApiErrorResponse(status = HttpStatus.BAD_REQUEST, code = "MAGAZINE-004",
+            message = "같은 해시태그를 중복해서 사용할 수 없습니다.")
     @ApiSuccess(value = AdminSuccessCode.class, codes = {"MAGAZINE_UPDATED"})
     @PatchMapping("/{magazineId}")
     public SuccessResponse<AdminMagazineResponse> update(
@@ -55,6 +95,8 @@ public class AdminMagazineController {
 
     /** 매거진 삭제. */
     @ApiException(value = CommonErrorCode.class, codes = {"UNAUTHORIZED", "FORBIDDEN"})
+    @ApiErrorResponse(status = HttpStatus.NOT_FOUND, code = "MAGAZINE-001",
+            message = "매거진을 찾을 수 없습니다.")
     @ApiSuccess(value = AdminSuccessCode.class, codes = {"MAGAZINE_DELETED"})
     @DeleteMapping("/{magazineId}")
     public SuccessResponse<Void> delete(@PathVariable Long magazineId) {

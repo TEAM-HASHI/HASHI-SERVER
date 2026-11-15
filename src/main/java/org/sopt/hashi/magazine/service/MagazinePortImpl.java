@@ -1,5 +1,6 @@
 package org.sopt.hashi.magazine.service;
 
+import org.sopt.hashi.magazine.AdminMagazineCommand;
 import org.sopt.hashi.magazine.MagazineInfo;
 import org.sopt.hashi.magazine.MagazinePort;
 import org.springframework.stereotype.Component;
@@ -14,15 +15,13 @@ class MagazinePortImpl implements MagazinePort {
     }
 
     @Override
-    public MagazineInfo createByAdmin(String title, String bannerKey, String thumbnailKey,
-                                      String instagramRedirectUrl) {
-        return magazineService.create(title, bannerKey, thumbnailKey, instagramRedirectUrl);
+    public MagazineInfo createByAdmin(AdminMagazineCommand command) {
+        return magazineService.create(command);
     }
 
     @Override
-    public MagazineInfo updateByAdmin(Long magazineId, String title, String bannerKey, String thumbnailKey,
-                                      String instagramRedirectUrl) {
-        return magazineService.update(magazineId, title, bannerKey, thumbnailKey, instagramRedirectUrl);
+    public MagazineInfo updateByAdmin(Long magazineId, AdminMagazineCommand command) {
+        return magazineService.update(magazineId, command);
     }
 
     @Override

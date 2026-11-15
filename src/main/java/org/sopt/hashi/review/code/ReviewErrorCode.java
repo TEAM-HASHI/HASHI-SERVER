@@ -17,7 +17,9 @@ public enum ReviewErrorCode implements ErrorCode {
             HttpStatus.CONFLICT,
             "REVIEW-007",
             "등록 식당 예약만 리뷰를 작성할 수 있습니다."),
-    RESTAURANT_NOT_FOUND(HttpStatus.NOT_FOUND, "RESTAURANT-004", "식당을 찾을 수 없습니다.");
+    RESTAURANT_NOT_FOUND(HttpStatus.NOT_FOUND, "RESTAURANT-004", "식당을 찾을 수 없습니다."),
+    // 회원 탈퇴(#243) — 작성 시점에 탈퇴한 회원(활성 회원 잠금 조회 실패)
+    REVIEWER_NOT_FOUND(HttpStatus.NOT_FOUND, "REVIEW-008", "작성자를 찾을 수 없습니다.");
 
     private final HttpStatus status;
     private final String code;

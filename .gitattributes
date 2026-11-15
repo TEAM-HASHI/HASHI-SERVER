@@ -1,3 +1,14 @@
 /gradlew text eol=lf
+media-specs/*.json text eol=lf
+worker/image-transform/*.json text eol=lf
+worker/image-transform/*.md text eol=lf
+worker/image-transform/src/**/*.ts text eol=lf
+worker/image-transform/test/**/*.ts text eol=lf
+worker/image-transform/test/fixtures/*.json text eol=lf
+worker/image-transform/test/fixtures/**/*.json text eol=lf
+worker/image-transform/scripts/* text eol=lf
+infra/media/*.yaml text eol=lf
+infra/media/*.md text eol=lf
+infra/media/parameters/*.json text eol=lf
 *.bat text eol=crlf
 *.jar binary

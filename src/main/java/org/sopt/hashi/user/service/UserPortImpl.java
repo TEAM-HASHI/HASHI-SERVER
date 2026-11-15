@@ -8,6 +8,7 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.function.Function;
 import java.util.stream.Collectors;
+import org.sopt.hashi.media.ImageReference;
 import org.sopt.hashi.shared.storage.FileStorage;
 import org.sopt.hashi.user.AdminUserInfo;
 import org.sopt.hashi.user.AdminUserSortType;
@@ -20,10 +21,12 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Component;
+import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
 /**
  * user 공개 포트 구현 — 회원 정보를 Repository에서 조회해 공개 계약으로 변환한다.
+ * 탈퇴 회원은 프로필 요약(findProfiles)에만 익명 닉네임으로 포함하고 나머지 조회에서는 제외한다.
  */
 @Component
 @Transactional(readOnly = true)
@@ -42,8 +45,14 @@ class UserPortImpl implements UserPort {
 
     @Override
     public Optional<UserInfo> findById(Long userId) {
-        return userRepository.findById(userId)
+        return userRepository.findByIdAndDeletedFalse(userId)
                 .map(this::toUserInfo);
+    }
+
+    @Override
+    @Transactional(propagation = Propagation.MANDATORY)
+    public boolean lockActiveUser(Long userId) {
+        return userRepository.findByIdForUpdate(userId).isPresent();
     }
 
     @Override
@@ -77,8 +86,8 @@ class UserPortImpl implements UserPort {
                                                int page, int size) {
         Pageable pageable = PageRequest.of(Math.max(page, 0), normalizeSize(size), sortType.toSort());
         Page<User> users = hasKeyword(nicknameKeyword)
-                ? userRepository.findByNicknameContaining(nicknameKeyword.trim(), pageable)
-                : userRepository.findAll(pageable);
+                ? userRepository.findByNicknameContainingAndDeletedFalse(nicknameKeyword.trim(), pageable)
+                : userRepository.findByDeletedFalse(pageable);
         return users.map(this::toAdminInfo);
     }
 
@@ -92,11 +101,15 @@ class UserPortImpl implements UserPort {
                 user.getEmail());
     }
 
+    /** 탈퇴 회원은 익명 닉네임과 기본 프로필(이미지 없음)로 내린다 — 리뷰 작성자 표시 정책(REVIEW_POLICY). */
     private UserProfileInfo toProfileInfo(User user) {
+        if (user.isDeleted()) {
+            return new UserProfileInfo(user.getId(), user.getAnonymousNickname(), null);
+        }
         return new UserProfileInfo(
                 user.getId(),
                 user.getNickname(),
-                resolveProfileImageUrl(user.getProfileImageKey()));
+                toProfileImageReference(user));
     }
 
     private AdminUserInfo toAdminInfo(User user) {
@@ -107,7 +120,7 @@ class UserPortImpl implements UserPort {
                 user.getBirthDate(),
                 user.getPhone(),
                 user.getEmail(),
-                resolveProfileImageUrl(user.getProfileImageKey()),
+                toProfileImageReference(user),
                 user.getCreatedAt());
     }
 
@@ -122,10 +135,14 @@ class UserPortImpl implements UserPort {
         return Math.min(size, MAX_PAGE_SIZE);
     }
 
-    private String resolveProfileImageUrl(String profileImageKey) {
-        if (profileImageKey == null || profileImageKey.isBlank()) {
+    private ImageReference toProfileImageReference(User user) {
+        String profileImageKey = user.getProfileImageKey();
+        if (profileImageKey == null && user.getProfileImageAssetId() == null) {
             return null;
         }
-        return fileStorage.resolveFileUrl(profileImageKey);
+        String legacyUrl = profileImageKey == null
+                ? null
+                : fileStorage.resolveFileUrl(profileImageKey);
+        return new ImageReference(user.getProfileImageAssetId(), legacyUrl);
     }
 }

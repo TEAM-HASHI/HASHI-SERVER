@@ -1,10 +1,17 @@
 name: CD - Prod
 
 on:
-  push:
-    branches:
-      - main
   workflow_dispatch:
+    inputs:
+      expected_sha:
+        description: '검증을 마친 main 커밋의 전체 SHA'
+        required: true
+        type: string
+      transition_verified:
+        description: '전환 및 복구 검증을 완료했고 운영 배포를 실행합니다'
+        required: true
+        default: false
+        type: boolean
 
 permissions:
   contents: read
@@ -21,6 +28,7 @@ env:
 jobs:
   deploy:
     name: Build, Push, and Deploy Prod
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     environment: prod
 
@@ -29,6 +37,18 @@ jobs:
         uses: actions/checkout@v4
         with:
           persist-credentials: false
+          ref: ${{ github.sha }}
+
+      - name: Set up Node for deployment guard
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Validate explicit deployment request
+        env:
+          EXPECTED_SHA: ${{ inputs.expected_sha }}
+          TRANSITION_VERIFIED: ${{ inputs.transition_verified }}
+        run: node scripts/deploy/validate-prod-request.mjs
 
       - name: Set up JDK 21
         uses: actions/setup-java@v4

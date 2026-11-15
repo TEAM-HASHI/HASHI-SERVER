@@ -10,17 +10,52 @@ import java.util.Optional;
  */
 public interface RestaurantPort {
 
-    /** 식당 존재 여부를 확인한다 — 예약·리뷰 생성 시 식당 존재 검증용. */
+    /** 식당 존재 여부를 확인한다 — 예약·리뷰 생성 시 식당 존재 검증용. soft-delete된 식당도 존재로 본다. */
     boolean existsById(Long restaurantId);
+
+    /** 삭제되지 않은 식당인지 확인한다 — 컬렉션 저장처럼 사용자에게 노출 가능한 식당만 받아야 하는 검증용(#216). */
+    boolean existsActiveById(Long restaurantId);
+
+    /** 대표사진 참조를 displayOrder·ID 순으로 조회한다. 이미지 원본이나 Entity는 읽지 않는다. */
+    List<RestaurantPhotoSourceInfo> findRepresentativePhotoSources(Long restaurantId);
+
+    /** 메뉴사진 참조를 등록 ID 순으로 조회한다. 사진이 없는 메뉴는 제외한다. */
+    List<RestaurantPhotoSourceInfo> findMenuPhotoSources(Long restaurantId);
 
     /** 식당 요약 정보를 조회한다 — 식당명 등 표시·enrich용. 없으면 empty. */
     Optional<RestaurantInfo> findSummaryById(Long restaurantId);
 
-    /** 여러 식당의 요약 정보를 한 번에 조회한다 — 목록 enrich용(§5-2). 존재하는 식당만 반환한다. */
+    /** 여러 식당의 요약 정보를 한 번에 조회한다 — 목록 enrich용(§5-2). 존재하는 식당만 반환한다(삭제된 식당 포함). */
     List<RestaurantInfo> findSummaries(Collection<Long> restaurantIds);
 
-    /** 식당 상세 정보를 조회한다 — 예약 상세 등 이름·일본어명·주소·대표이미지가 필요한 조회용. 없으면 empty. */
+    /** 식당 상세 정보를 조회한다 — 예약 상세 등 요약보다 많은 표시 정보가 필요한 조회용. 없으면 empty(삭제된 식당 포함). */
     Optional<RestaurantDetailInfo> findDetailById(Long restaurantId);
+
+    /**
+     * 사용자 노출용 식당 상세 목록 — 매거진 연결 식당 카드처럼 평점·메뉴 이미지·영업시간·가격대까지 내리는 enrich용.
+     * 삭제된 식당은 제외하고, 요청한 ID 순서를 유지하며 존재하는 식당만 반환한다.
+     */
+    List<RestaurantDetailInfo> findActiveDetails(Collection<Long> restaurantIds);
+
+    /**
+     * 컬렉션 목록/핀용 공개 식당 정보. 삭제/없는 식당은 생략하고 위치 미준비/만료 식당은 location=null로 남긴다.
+     * 최초 입력 순서를 유지하고 중복 ID는 제거한다. null/빈 입력은 빈 목록, null/0/음수 ID는 잘못된 입력이다.
+     * 내부 500개 단위로 조회하며 전체 결과를 모은 뒤 반환한다. 중간 조회 실패는 부분 결과 없이 전파한다.
+     * 반환된 좌표도 validUntil부터 사용할 수 없으며 호출자는 응답 직전 자신의 권한/컬렉션 버전을 재검사한다.
+     */
+    List<RestaurantMapInfo> findActiveMapInfos(Collection<Long> restaurantIds);
+
+    /**
+     * 사용자 노출용 식당 카드 목록 — 저장 컬렉션처럼 카드 표시와 평점·리뷰 수 정렬, 음식점 분류 필터가 필요한 enrich용(#216).
+     * 상세와 달리 영업시간·이미지 전체·가격대는 읽지 않는다. 삭제된 식당은 제외하고 존재하는 식당만 반환하며 순서는 보장하지 않는다.
+     */
+    List<RestaurantCardInfo> findActiveCards(Collection<Long> restaurantIds);
+
+    /**
+     * 주어진 ID 중 삭제되지 않은 식당 수 — 마이페이지 저장 식당 수처럼 개수만 필요한 집계용(#259).
+     * 카드 정보를 읽지 않아 findActiveCards보다 가볍다. null·중복 ID는 무시하고 입력이 비면 0이다.
+     */
+    long countActiveByIds(Collection<Long> restaurantIds);
 
     /** 리뷰 생성 시 식당 평점 합계·리뷰 수·평균을 원자적으로 증가시킨다. */
     void increaseReviewStatistics(Long restaurantId, int rating);
@@ -28,8 +63,23 @@ public interface RestaurantPort {
     /** 리뷰 삭제 시 식당 평점 합계·리뷰 수·평균을 원자적으로 감소시킨다. */
     void decreaseReviewStatistics(Long restaurantId, int rating);
 
+    /** 리뷰 별점 변경 시 리뷰 수는 유지하고 평점 합계·평균을 원자적으로 갱신한다. */
+    void updateReviewRatingStatistics(Long restaurantId, int oldRating, int newRating);
+
+    /** 회원이 식당을 처음 저장할 때 저장 수를 1 증가시킨다(#263). 회원 한 명당 최대 1이며 첫 저장 판정은 호출 측(user)이 한다. */
+    void increaseSaveCount(Long restaurantId);
+
+    /** 회원의 마지막 저장 관계가 사라진 식당들의 저장 수를 1씩 감소시킨다(#263). 0 아래로 내려가지 않으며 중복 없는 ID를 받는다. */
+    void decreaseSaveCounts(Collection<Long> restaurantIds);
+
     /** 어드민 식당 등록 — 이미지·메뉴 사진은 업로드 완료된 S3 키로 받는다. */
     AdminRestaurantInfo createByAdmin(AdminRestaurantCommand command);
+
+    /** 등록 전 후보 토큰을 검증한 뒤 식당과 Places 상세 확인 작업을 같은 transaction으로 저장한다. */
+    AdminRestaurantInfo createByAdmin(AdminRestaurantCommand command, String locationSelectionToken);
+
+    /** 식당을 저장하지 않고 후보를 조회한다. 반환 토큰은 입력 네 필드와 인증 관리자에 묶인다. */
+    List<RestaurantPlacesCandidateInfo> previewLocationByAdmin(RestaurantLocationPreviewCommand command);
 
     /**
      * 어드민 식당 수정 — 부분 수정(PATCH). null 필드는 변경하지 않고, 컬렉션은 전체 교체한다.
@@ -42,4 +92,33 @@ public interface RestaurantPort {
      * 데이터는 보존한다. 식당이 없으면 BusinessException(RESTAURANT-004 NOT_FOUND).
      */
     void deleteByAdmin(Long restaurantId);
+
+    /** 관리자 위치 상태 조회. Entity/내부 enum과 provider 원문을 반환하지 않는다. */
+    RestaurantLocationInfo getLocationByAdmin(Long restaurantId);
+
+    /** expectedAddressRevision이 현재와 일치할 때 같은 주소의 새 작업을 등록한다. */
+    RestaurantLocationInfo retryLocationByAdmin(Long restaurantId, long expectedAddressRevision);
+
+    /** 활성·비활성 지역을 표시 순서·ID 순으로 조회한다. page는 0부터, size는 1~100이다. */
+    AdminMapRegionInfo.Page getMapRegionsByAdmin(int page, int size);
+
+    /** 안정적인 code로 전체 설정을 교체한다. 동일 요청 재전송·동시 생성에도 ID는 유지한다. */
+    AdminMapRegionInfo upsertMapRegionByAdmin(String code, AdminMapRegionCommand command);
+
+    /** 현재 단일 소속을 조회한다. 미배정은 null, 없는/삭제 식당은 거절한다. */
+    Long getMapRegionByAdmin(Long restaurantId);
+
+    /** 없는/삭제 식당은 거절하고, 존재하는 비활성 지역도 지정 가능하다. null은 소속 해제다. */
+    Long assignMapRegionByAdmin(Long restaurantId, Long mapRegionId);
+
+    /** 관리자 위치 검토 목록. restaurantId 오름차순 offset 페이지로 활성 식당만 조회한다. */
+    RestaurantLocationReviewPage findLocationReviewsByAdmin(
+            String status, String source, int page, int size);
+
+    /** 저장된 식당명과 위치 확인 주소로 Places 후보를 조회한다. */
+    RestaurantPlacesSearchInfo searchLocationPlacesByAdmin(Long restaurantId, long expectedAddressRevision);
+
+    /** 서명된 후보를 현재 위치 request에 적용하고 PLACE_DETAILS 작업을 등록한다. */
+    RestaurantLocationInfo selectLocationPlaceByAdmin(
+            Long restaurantId, long expectedAddressRevision, String selectionToken);
 }

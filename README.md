@@ -132,9 +132,11 @@ HASHI-SERVER
 │   ├── docker-compose.monitoring.local.yml
 │   └── docker-compose.prod.yml
 ├── docs
+│   ├── adr
 │   ├── conventions
 │   ├── dev
-│   └── infra
+│   ├── infra
+│   └── media
 └── src
     ├── main
     │   ├── java/org/sopt/hashi
@@ -196,4 +198,6 @@ web      Controller와 API 문서화 인터페이스
 | [에러 처리](docs/conventions/error-handling.md) | 공통 응답과 에러 코드 규칙 |
 | [데이터베이스](docs/conventions/database.md) | JPA와 Flyway 규칙 |
 | [테스트](docs/conventions/testing.md) | 테스트 범위와 작성 기준 |
+| [이미지 전달 계약 v1](docs/media/image-delivery-contract-v1.md) | media 업로드, 상태, 응답과 전환 계약 |
+| [ADR 0001](docs/adr/0001-media-module-and-image-pipeline.md) | media Aggregate와 비동기 이미지 파이프라인 결정 |
 | [개발 서버 배포](docs/infra/dev-deploy.md) | 개발 인프라와 CD 운영 절차 |

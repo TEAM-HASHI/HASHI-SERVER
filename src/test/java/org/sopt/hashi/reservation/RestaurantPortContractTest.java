@@ -7,6 +7,7 @@ import static org.mockito.Mockito.mock;
 
 import java.util.Optional;
 import org.junit.jupiter.api.Test;
+import org.sopt.hashi.media.ImageReference;
 import org.sopt.hashi.restaurant.RestaurantInfo;
 import org.sopt.hashi.restaurant.RestaurantPort;
 
@@ -30,7 +31,10 @@ class RestaurantPortContractTest {
         RestaurantPort restaurantPort = mock(RestaurantPort.class);
         given(restaurantPort.findSummaryById(1L))
                 .willReturn(Optional.of(new RestaurantInfo(
-                        1L, "하시식당", "도쿄 신주쿠 1-1", "https://presigned.example/main.jpg")));
+                        1L,
+                        "하시식당",
+                        "도쿄 신주쿠 1-1",
+                        ImageReference.legacy("https://presigned.example/main.jpg"))));
 
         Optional<RestaurantInfo> summary = restaurantPort.findSummaryById(1L);
 
@@ -38,6 +42,8 @@ class RestaurantPortContractTest {
             assertThat(info.id()).isEqualTo(1L);
             assertThat(info.name()).isEqualTo("하시식당");
             assertThat(info.address()).isEqualTo("도쿄 신주쿠 1-1");
+            assertThat(info.thumbnailImageReference().legacyUrl())
+                    .isEqualTo("https://presigned.example/main.jpg");
         });
     }
 }

@@ -1,0 +1,51 @@
+# Copy the expressions into Grafana alert rules and select the existing notification policy.
+# This file is not mounted or loaded automatically; it contains no contact point or credentials.
+groups:
+  - name: hashi-map-redis
+    rules:
+      - alert: HashiMapRedisMemoryWarning
+        expr: |
+          (hashi_restaurant_map_redis_used_bytes > hashi_restaurant_map_redis_warning_limit_bytes)
+          and (hashi_restaurant_map_redis_probe_success == 1)
+          and (hashi_restaurant_map_redis_enabled == 1)
+        for: 5m
+        labels:
+          severity: warning
+          component: map-redis
+        annotations:
+          summary: "Redis memory is approaching the map admission limit"
+          description: "Check total Redis growth and map reservations before map requests are rejected."
+      - alert: HashiMapRedisNearAdmissionLimit
+        expr: |
+          (hashi_restaurant_map_redis_used_bytes > 0.9 * hashi_restaurant_map_redis_admission_limit_bytes)
+          and (hashi_restaurant_map_redis_probe_success == 1)
+          and (hashi_restaurant_map_redis_enabled == 1)
+        for: 1m
+        labels:
+          severity: critical
+          component: map-redis
+        annotations:
+          summary: "Redis memory is close to stopping map admission"
+          description: "Keep authentication Redis settings unchanged and inspect map and non-map memory growth."
+      - alert: HashiMapRedisEvictionObserved
+        expr: |
+          (hashi_restaurant_map_redis_evicted_keys - hashi_restaurant_map_redis_evicted_keys offset 1m > 0)
+          and (hashi_restaurant_map_redis_probe_success == 1)
+          and (hashi_restaurant_map_redis_enabled == 1)
+        labels:
+          severity: critical
+          component: map-redis
+        annotations:
+          summary: "The shared Redis instance has evicted keys"
+          description: "This is an instance-wide count; inspect authentication as well as map session failures."
+      - alert: HashiMapRedisProbeUnavailable
+        expr: |
+          (hashi_restaurant_map_redis_probe_success == 0)
+          and (hashi_restaurant_map_redis_enabled == 1)
+        for: 2m
+        labels:
+          severity: warning
+          component: map-redis
+        annotations:
+          summary: "Map Redis telemetry is unavailable"
+          description: "Inspect connection, TLS, ACL and map configuration; previous memory values are not current."

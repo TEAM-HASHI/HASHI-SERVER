@@ -16,7 +16,9 @@ public enum ReservationErrorCode implements ErrorCode {
     ALREADY_CANCELED(HttpStatus.CONFLICT, "RESERVATION-004", "이미 취소된 예약입니다"),
     CANNOT_CANCEL(HttpStatus.CONFLICT, "RESERVATION-005", "취소할 수 없는 상태의 예약입니다"),
     AMOUNT_MISMATCH(HttpStatus.BAD_REQUEST, "RESERVATION-006", "결제 금액이 수수료 계산과 일치하지 않습니다"),
-    RESERVER_NOT_FOUND(HttpStatus.NOT_FOUND, "RESERVATION-007", "예약자를 찾을 수 없습니다");
+    RESERVER_NOT_FOUND(HttpStatus.NOT_FOUND, "RESERVATION-007", "예약자를 찾을 수 없습니다"),
+    // 회원 탈퇴 조건(#243) — 방문 완료·취소가 아닌 예약이 남아 있으면 탈퇴를 막는다
+    UNFINISHED_RESERVATION_EXISTS(HttpStatus.CONFLICT, "RESERVATION-008", "방문 완료나 취소되지 않은 예약이 있어 탈퇴할 수 없습니다");
 
     private final HttpStatus status;
     private final String code;

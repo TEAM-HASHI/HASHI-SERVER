@@ -15,6 +15,7 @@ import org.sopt.hashi.review.dev.DummyReviewTarget;
 import org.sopt.hashi.user.dev.DevUserDataGenerator;
 import org.springframework.context.annotation.Profile;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Isolation;
 import org.springframework.transaction.annotation.Transactional;
 
 /**
@@ -54,7 +55,8 @@ public class DevDataService {
         this.devTokenService = devTokenService;
     }
 
-    @Transactional
+    // 위치 작업을 추가하는 내부 REQUIRED 호출도 이 바깥 transaction의 격리 수준을 따른다.
+    @Transactional(isolation = Isolation.READ_COMMITTED)
     public DummyScenarioResponse createScenario() {
         Long restaurantId = restaurantGenerator.createRestaurant();
         List<Long> userIds = userGenerator.createUsers(USER_COUNT);

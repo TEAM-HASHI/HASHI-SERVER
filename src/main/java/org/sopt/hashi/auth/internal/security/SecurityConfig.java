@@ -5,6 +5,7 @@ import org.sopt.hashi.auth.internal.jwt.JwtProperties;
 import java.util.List;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
+import org.springframework.http.HttpMethod;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.http.HttpHeaders;
 import org.springframework.security.config.Customizer;
@@ -30,10 +31,27 @@ import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
 public class SecurityConfig {
 
     private static final String ONBOARDING_PATH = "/api/v1/users/onboarding";
+    /** 닉네임·연락처·이메일 중복 확인 — 온보딩 폼(임시 토큰)과 내 정보 수정 화면(회원)이 함께 쓴다. 어드민은 제외. */
+    private static final String PROFILE_AVAILABILITY_PATH = "/api/v1/users/availability";
     /** 내 인증 정보 조회 — /api/v1/auth/**(permitAll) 아래에 있지만 인증이 필요해 예외로 먼저 매칭한다. */
     static final String AUTH_ME_PATH = "/api/v1/auth/me";
     /** presigned URL 발급 — 온보딩(프로필 사진 업로드) 단계에서도 필요해 임시 권한까지 허용한다. */
     private static final String UPLOAD_PATH = "/api/v1/uploads/**";
+    /** 매거진 좋아요 — /api/v1/magazines/**(permitAll) 아래에 있지만 회원 전용이라 예외로 먼저 매칭한다. */
+    static final String MAGAZINE_LIKE_PATH = "/api/v1/magazines/*/likes";
+    /** 상태를 가진 신규 이미지 업로드 — purpose별 세부 인가는 media Service가 담당한다. */
+    static final String MEDIA_PATH = "/api/v1/media/**";
+    /**
+     * 식당 컬렉션 공유 열람(#216) — 공개 컬렉션의 상세·저장 식당 목록은 비로그인도 GET할 수 있다.
+     * 목록(/api/v1/collections)·쓰기 메서드는 회원 전용이며 상세·목록·전체 핀 GET만 연다. 비공개 여부는 user Service가 판정한다.
+     */
+    static final String[] TERMS_PUBLIC_GET_PATHS = {"/api/v1/terms", "/api/v1/terms/*"};
+    static final String[] NOTICE_PUBLIC_GET_PATHS = {"/api/v1/notices", "/api/v1/notices/*"};
+    static final String[] COLLECTION_PUBLIC_GET_PATHS = {
+            "/api/v1/collections/*",
+            "/api/v1/collections/*/restaurants",
+            "/api/v1/collections/*/map-markers"
+    };
     /** 공개 경로 단일 소스 — {@link SwaggerAuthorizationCustomizer}가 같은 목록으로 문서 자물쇠를 판정한다. */
     static final String[] PUBLIC_PATHS = {
             "/swagger-ui/**",
@@ -68,9 +86,16 @@ public class SecurityConfig {
                         // 클라 진입 라우팅용 상태 조회라 온보딩 임시 토큰도 허용한다(auth.md §4의 명시적 예외) —
                         // 응답은 subjectId·role이며, 온보딩만 subject(kakaoId)를 노출하지 않아 subjectId가 null이다.
                         .requestMatchers(AUTH_ME_PATH).hasAnyRole("USER", "ADMIN", "ONBOARDING")
+                        // 매거진 조회는 공개지만 좋아요는 회원만 — permitAll(/api/v1/magazines/**)보다 먼저 매칭한다.
+                        .requestMatchers(MAGAZINE_LIKE_PATH).hasRole("USER")
                         .requestMatchers(PUBLIC_PATHS).permitAll()
+                        .requestMatchers(HttpMethod.GET, COLLECTION_PUBLIC_GET_PATHS).permitAll()
+                        .requestMatchers(HttpMethod.GET, NOTICE_PUBLIC_GET_PATHS).permitAll()
+                        .requestMatchers(HttpMethod.GET, TERMS_PUBLIC_GET_PATHS).permitAll()
                         .requestMatchers(ONBOARDING_PATH).hasRole("ONBOARDING")
+                        .requestMatchers(PROFILE_AVAILABILITY_PATH).hasAnyRole("USER", "ONBOARDING")
                         .requestMatchers(UPLOAD_PATH).hasAnyRole("USER", "ADMIN", "ONBOARDING")
+                        .requestMatchers(MEDIA_PATH).hasAnyRole("USER", "ADMIN", "ONBOARDING")
                         .requestMatchers("/api/v1/admin/**").hasRole("ADMIN")
                         // 역할을 명시해 온보딩 임시 권한(ROLE_ONBOARDING)의 일반 API 접근을 차단하고(auth.md §4),
                         // 어드민 토큰도 일반 사용자 API를 호출하지 못하게 한다(adminId가 userId로 오인되는 것 방지 —

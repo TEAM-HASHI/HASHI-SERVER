@@ -4,21 +4,41 @@ import java.util.Collection;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
-import java.util.Objects;
 import java.util.Optional;
+import java.util.Objects;
 import java.util.function.Function;
 import java.util.stream.Collectors;
+import org.sopt.hashi.media.ImageReference;
 import org.sopt.hashi.restaurant.AdminRestaurantCommand;
+import org.sopt.hashi.restaurant.AdminMapRegionCommand;
+import org.sopt.hashi.restaurant.AdminMapRegionInfo;
 import org.sopt.hashi.restaurant.AdminRestaurantInfo;
+import org.sopt.hashi.restaurant.RestaurantLocationPreviewCommand;
+import org.sopt.hashi.restaurant.RestaurantPlacesCandidateInfo;
+import org.sopt.hashi.restaurant.RestaurantCardInfo;
 import org.sopt.hashi.restaurant.RestaurantDetailInfo;
 import org.sopt.hashi.restaurant.RestaurantInfo;
+import org.sopt.hashi.restaurant.RestaurantMapInfo;
+import org.sopt.hashi.restaurant.RestaurantPhotoSourceInfo;
 import org.sopt.hashi.restaurant.RestaurantPort;
+import org.sopt.hashi.restaurant.RestaurantLocationInfo;
+import org.sopt.hashi.restaurant.RestaurantLocationReviewPage;
+import org.sopt.hashi.restaurant.RestaurantPlacesSearchInfo;
 import org.sopt.hashi.restaurant.domain.Restaurant;
+import org.sopt.hashi.restaurant.domain.RestaurantImage;
 import org.sopt.hashi.restaurant.domain.RestaurantRepository;
 import org.sopt.hashi.shared.storage.FileStorage;
 import org.springframework.stereotype.Component;
+import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.transaction.annotation.Isolation;
+import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
+/**
+ * {@link RestaurantPort} 구현 — 요약(id·name·address·대표 이미지)은 여기서 바로 조립하고,
+ * 상세처럼 목록 API와 같은 계산(오늘 영업시간·메뉴 이미지·가격대)이 필요한 것은 {@link RestaurantService}에 위임한다.
+ */
 @Component
 @Transactional(readOnly = true)
 class RestaurantPortImpl implements RestaurantPort {
@@ -26,12 +46,50 @@ class RestaurantPortImpl implements RestaurantPort {
     private final RestaurantRepository restaurantRepository;
     private final RestaurantService restaurantService;
     private final FileStorage fileStorage;
+    private final RestaurantLocationService locationService;
+    private final RestaurantMapService restaurantMapService;
+    private final MapRegionAdminService mapRegionAdminService;
+    private final PlacesLocationService placesLocationService;
 
     RestaurantPortImpl(RestaurantRepository restaurantRepository, RestaurantService restaurantService,
-                       FileStorage fileStorage) {
+                       FileStorage fileStorage, RestaurantLocationService locationService,
+                       RestaurantMapService restaurantMapService, MapRegionAdminService mapRegionAdminService) {
         this.restaurantRepository = restaurantRepository;
         this.restaurantService = restaurantService;
         this.fileStorage = fileStorage;
+        this.locationService = locationService;
+        this.restaurantMapService = restaurantMapService;
+        this.mapRegionAdminService = mapRegionAdminService;
+        this.placesLocationService = null;
+    }
+
+    @Autowired
+    RestaurantPortImpl(RestaurantRepository restaurantRepository, RestaurantService restaurantService,
+                       FileStorage fileStorage, RestaurantLocationService locationService,
+                       RestaurantMapService restaurantMapService,
+                       MapRegionAdminService mapRegionAdminService,
+                       ObjectProvider<PlacesLocationService> placesLocationServices) {
+        this.restaurantRepository = restaurantRepository;
+        this.restaurantService = restaurantService;
+        this.fileStorage = fileStorage;
+        this.locationService = locationService;
+        this.restaurantMapService = restaurantMapService;
+        this.placesLocationService = placesLocationServices.getIfAvailable();
+        this.mapRegionAdminService = mapRegionAdminService;
+    }
+
+    private PlacesLocationService requirePlacesLocationService() {
+        return Objects.requireNonNull(placesLocationService, "PlacesLocationService is unavailable");
+    }
+
+    @Override
+    public List<RestaurantPhotoSourceInfo> findRepresentativePhotoSources(Long restaurantId) {
+        return restaurantRepository.findRepresentativePhotoSources(restaurantId);
+    }
+
+    @Override
+    public List<RestaurantPhotoSourceInfo> findMenuPhotoSources(Long restaurantId) {
+        return restaurantRepository.findMenuPhotoSources(restaurantId);
     }
 
     @Override
@@ -40,11 +98,16 @@ class RestaurantPortImpl implements RestaurantPort {
     }
 
     @Override
+    public boolean existsActiveById(Long restaurantId) {
+        return restaurantId != null && restaurantRepository.existsByIdAndDeletedFalse(restaurantId);
+    }
+
+    @Override
     public Optional<RestaurantInfo> findSummaryById(Long restaurantId) {
         if (restaurantId == null) {
             return Optional.empty();
         }
-        return restaurantRepository.findById(restaurantId)
+        return restaurantRepository.findByIdWithImages(restaurantId)
                 .map(this::toInfo);
     }
 
@@ -64,7 +127,7 @@ class RestaurantPortImpl implements RestaurantPort {
             return List.of();
         }
 
-        Map<Long, RestaurantInfo> summariesById = restaurantRepository.findAllById(ids).stream()
+        Map<Long, RestaurantInfo> summariesById = restaurantRepository.findAllByIdWithImages(ids).stream()
                 .map(this::toInfo)
                 .collect(Collectors.toMap(RestaurantInfo::id, Function.identity()));
 
@@ -76,11 +139,38 @@ class RestaurantPortImpl implements RestaurantPort {
 
     @Override
     public Optional<RestaurantDetailInfo> findDetailById(Long restaurantId) {
-        if (restaurantId == null) {
-            return Optional.empty();
+        return restaurantService.findDetailById(restaurantId);
+    }
+
+    @Override
+    public List<RestaurantDetailInfo> findActiveDetails(Collection<Long> restaurantIds) {
+        return restaurantService.findActiveDetails(restaurantIds);
+    }
+
+    /** 이미지는 @BatchSize로 대표 이미지만 묶음 조회되므로 컬렉션 규모(수백 건)에서도 영업시간·카드 이미지 없이 가볍다. */
+    @Override
+    public List<RestaurantCardInfo> findActiveCards(Collection<Long> restaurantIds) {
+        List<Long> ids = distinctIds(restaurantIds);
+        if (ids.isEmpty()) {
+            return List.of();
         }
-        return restaurantRepository.findById(restaurantId)
-                .map(this::toDetailInfo);
+        return restaurantRepository.findAllByIdInAndDeletedFalse(ids).stream()
+                .map(this::toCardInfo)
+                .toList();
+    }
+
+    @Override
+    public long countActiveByIds(Collection<Long> restaurantIds) {
+        List<Long> ids = distinctIds(restaurantIds);
+        if (ids.isEmpty()) {
+            return 0;
+        }
+        return restaurantRepository.countByIdInAndDeletedFalse(ids);
+    }
+
+    @Override
+    public List<RestaurantMapInfo> findActiveMapInfos(Collection<Long> restaurantIds) {
+        return restaurantMapService.findActiveMapInfos(restaurantIds);
     }
 
     @Override
@@ -101,20 +191,115 @@ class RestaurantPortImpl implements RestaurantPort {
 
     @Override
     @Transactional
+    public void updateReviewRatingStatistics(Long restaurantId, int oldRating, int newRating) {
+        if (restaurantRepository.updateReviewRatingStatistics(
+                restaurantId, oldRating, newRating) == 0) {
+            throw new IllegalStateException("변경할 식당 리뷰 통계가 올바르지 않습니다.");
+        }
+    }
+
+    @Override
+    @Transactional
+    public void increaseSaveCount(Long restaurantId) {
+        if (restaurantRepository.increaseSaveCount(restaurantId) == 0) {
+            throw new IllegalStateException("저장 수를 갱신할 식당을 찾을 수 없습니다.");
+        }
+    }
+
+    @Override
+    @Transactional
+    public void decreaseSaveCounts(Collection<Long> restaurantIds) {
+        if (restaurantIds == null || restaurantIds.isEmpty()) {
+            return;
+        }
+        if (restaurantRepository.decreaseSaveCounts(restaurantIds) != restaurantIds.size()) {
+            throw new IllegalStateException("저장 수를 차감할 식당 일부를 찾을 수 없습니다.");
+        }
+    }
+
+    @Override
+    @Transactional(isolation = Isolation.READ_COMMITTED)
     public AdminRestaurantInfo createByAdmin(AdminRestaurantCommand command) {
         return restaurantService.createByAdmin(command);
     }
 
     @Override
-    @Transactional
+    @Transactional(isolation = Isolation.READ_COMMITTED)
+    public AdminRestaurantInfo createByAdmin(AdminRestaurantCommand command, String locationSelectionToken) {
+        var selection = requirePlacesLocationService().verifyForCreate(
+                RestaurantLocationPreviewCommand.from(command), locationSelectionToken);
+        return restaurantService.createByAdmin(command, selection);
+    }
+
+    @Override
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
+    public List<RestaurantPlacesCandidateInfo> previewLocationByAdmin(RestaurantLocationPreviewCommand command) {
+        return requirePlacesLocationService().preview(command);
+    }
+
+    @Override
+    @Transactional(isolation = Isolation.READ_COMMITTED)
     public AdminRestaurantInfo updateByAdmin(Long restaurantId, AdminRestaurantCommand command) {
         return restaurantService.updateByAdmin(restaurantId, command);
     }
 
     @Override
-    @Transactional
+    @Transactional(isolation = Isolation.READ_COMMITTED)
     public void deleteByAdmin(Long restaurantId) {
         restaurantService.deleteByAdmin(restaurantId);
+    }
+
+    @Override
+    public RestaurantLocationInfo getLocationByAdmin(Long restaurantId) {
+        return locationService.get(restaurantId);
+    }
+
+    @Override
+    @Transactional(isolation = Isolation.READ_COMMITTED)
+    public RestaurantLocationInfo retryLocationByAdmin(Long restaurantId, long expectedAddressRevision) {
+        return locationService.retry(restaurantId, expectedAddressRevision);
+    }
+
+    @Override
+    public AdminMapRegionInfo.Page getMapRegionsByAdmin(int page, int size) {
+        return mapRegionAdminService.getRegions(page, size);
+    }
+
+    @Override
+    @Transactional(isolation = Isolation.READ_COMMITTED)
+    public AdminMapRegionInfo upsertMapRegionByAdmin(String code, AdminMapRegionCommand command) {
+        return mapRegionAdminService.upsert(code, command);
+    }
+
+    @Override
+    public Long getMapRegionByAdmin(Long restaurantId) {
+        return mapRegionAdminService.getAssignment(restaurantId);
+    }
+
+    @Override
+    @Transactional(isolation = Isolation.READ_COMMITTED)
+    public Long assignMapRegionByAdmin(Long restaurantId, Long mapRegionId) {
+        return mapRegionAdminService.assign(restaurantId, mapRegionId);
+    }
+
+    @Override
+    @Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ)
+    public RestaurantLocationReviewPage findLocationReviewsByAdmin(
+            String status, String source, int page, int size) {
+        return locationService.findReviews(status, source, page, size);
+    }
+
+    @Override
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
+    public RestaurantPlacesSearchInfo searchLocationPlacesByAdmin(Long restaurantId, long expectedAddressRevision) {
+        return requirePlacesLocationService().search(restaurantId, expectedAddressRevision);
+    }
+
+    @Override
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
+    public RestaurantLocationInfo selectLocationPlaceByAdmin(
+            Long restaurantId, long expectedAddressRevision, String selectionToken) {
+        return requirePlacesLocationService().select(restaurantId, expectedAddressRevision, selectionToken);
     }
 
     private RestaurantInfo toInfo(Restaurant restaurant) {
@@ -122,17 +307,44 @@ class RestaurantPortImpl implements RestaurantPort {
                 restaurant.getId(),
                 restaurant.getName(),
                 restaurant.getAddress(),
-                fileStorage.resolveFileUrl(restaurant.getThumbnailFileKey())
+                toThumbnailReference(restaurant)
         );
     }
 
-    private RestaurantDetailInfo toDetailInfo(Restaurant restaurant) {
-        return new RestaurantDetailInfo(
+    /** null·중복 ID를 걷어낸 조회용 ID 목록 — 비면 빈 목록이라 호출 측이 IN 절을 비우지 않는다. */
+    private static List<Long> distinctIds(Collection<Long> restaurantIds) {
+        if (restaurantIds == null) {
+            return List.of();
+        }
+        return restaurantIds.stream()
+                .filter(Objects::nonNull)
+                .distinct()
+                .toList();
+    }
+
+    private RestaurantCardInfo toCardInfo(Restaurant restaurant) {
+        return new RestaurantCardInfo(
                 restaurant.getId(),
                 restaurant.getName(),
-                restaurant.getLocalName(),
-                restaurant.getAddress(),
-                fileStorage.resolveFileUrl(restaurant.getThumbnailFileKey())
+                restaurant.getArea(),
+                restaurant.getFoodCategory(),
+                restaurant.getPlaceType().value(),
+                restaurant.getRating(),
+                restaurant.getReviewCount(),
+                toThumbnailReference(restaurant)
         );
+    }
+
+    private ImageReference toThumbnailReference(Restaurant restaurant) {
+        return restaurant.getThumbnailImage()
+                .map(this::toImageReference)
+                .orElse(null);
+    }
+
+    private ImageReference toImageReference(RestaurantImage image) {
+        String legacyUrl = image.getFileKey() == null
+                ? null
+                : fileStorage.resolveFileUrl(image.getFileKey());
+        return new ImageReference(image.getImageAssetId(), legacyUrl);
     }
 }

@@ -1,0 +1,37 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: PassRole upper bound for a HASHI media CloudFormation execution role
+
+Parameters:
+  EnvironmentName:
+    Type: String
+    AllowedValues:
+      - dev
+      - prod
+
+Resources:
+  MediaCloudFormationExecutionBoundary:
+    Type: AWS::IAM::ManagedPolicy
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      ManagedPolicyName: !Sub "hashi-${EnvironmentName}-media-cloudformation-execution-boundary"
+      Description: Caps media CloudFormation PassRole to the exact Lambda worker role
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Sid: PreserveIdentityPermissionsExceptPassRole
+            Effect: Allow
+            NotAction: iam:PassRole
+            Resource: "*"
+          - Sid: AllowOnlyExactImageWorkerPassRole
+            Effect: Allow
+            Action: iam:PassRole
+            Resource: !Sub "arn:${AWS::Partition}:iam::${AWS::AccountId}:role/hashi-${EnvironmentName}-media-image-transform-lambda"
+            Condition:
+              StringEquals:
+                iam:PassedToService: lambda.amazonaws.com
+
+Outputs:
+  BoundaryArn:
+    Description: Permissions boundary required on the media CloudFormation execution role
+    Value: !Ref MediaCloudFormationExecutionBoundary

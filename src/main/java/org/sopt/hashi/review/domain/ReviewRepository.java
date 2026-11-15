@@ -1,12 +1,13 @@
 package org.sopt.hashi.review.domain;
 
+import jakarta.persistence.LockModeType;
 import java.time.LocalDateTime;
 import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
-import org.springframework.data.jpa.repository.Modifying;
+import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
@@ -20,15 +21,15 @@ public interface ReviewRepository extends JpaRepository<Review, Long> {
 
     Optional<Review> findByIdAndUserIdAndDeletedFalse(Long reviewId, Long userId);
 
-    @Modifying(clearAutomatically = true, flushAutomatically = true)
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("""
-            update Review r
-            set r.deleted = true
+            select r
+            from Review r
             where r.id = :reviewId
               and r.userId = :userId
               and r.deleted = false
             """)
-    int softDeleteByIdAndUserId(
+    Optional<Review> findOwnedActiveForUpdate(
             @Param("reviewId") Long reviewId,
             @Param("userId") Long userId
     );

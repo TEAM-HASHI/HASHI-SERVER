@@ -3,6 +3,7 @@ package org.sopt.hashi.review.dto;
 import com.fasterxml.jackson.annotation.JsonInclude;
 import java.time.LocalDateTime;
 import java.util.List;
+import org.sopt.hashi.media.MediaImage;
 
 @JsonInclude(JsonInclude.Include.NON_NULL)
 public record RestaurantReviewResponse(
@@ -29,10 +30,12 @@ public record RestaurantReviewResponse(
             Long reviewId,
             String reviewerNickname,
             String reviewerProfileImageUrl,
+            MediaImage reviewerProfileImage,
             int rating,
             String content,
             List<String> keywords,
             List<String> previewImageUrls,
+            List<ReviewImageResponse> previewImages,
             int imageCount,
             LocalDateTime createdAt
     ) {

@@ -1,12 +1,21 @@
 package org.sopt.hashi.reservation.service;
 
+import java.util.Collection;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
 import lombok.extern.slf4j.Slf4j;
+import org.sopt.hashi.auth.CurrentActorProvider;
 import org.sopt.hashi.auth.CurrentUserProvider;
+import org.sopt.hashi.media.ImageReference;
+import org.sopt.hashi.media.MediaImage;
+import org.sopt.hashi.media.MediaImageRequest;
+import org.sopt.hashi.media.MediaImageRole;
+import org.sopt.hashi.media.MediaImageSelection;
+import org.sopt.hashi.media.MediaPort;
 import org.sopt.hashi.point.PointPort;
 import org.sopt.hashi.point.PointSourceType;
 import org.sopt.hashi.reservation.AdminReservationInfo;
@@ -56,26 +65,33 @@ public class ReservationService {
 
     private final ReservationRepository reservationRepository;
     private final RestaurantPort restaurantPort;
+    private final MediaPort mediaPort;
     private final PointPort pointPort;
     private final UserPort userPort;
     private final CurrentUserProvider currentUserProvider;
+    private final CurrentActorProvider currentActorProvider;
 
     public ReservationService(ReservationRepository reservationRepository,
                               RestaurantPort restaurantPort,
+                              MediaPort mediaPort,
                               PointPort pointPort,
                               UserPort userPort,
-                              CurrentUserProvider currentUserProvider) {
+                              CurrentUserProvider currentUserProvider,
+                              CurrentActorProvider currentActorProvider) {
         this.reservationRepository = reservationRepository;
         this.restaurantPort = restaurantPort;
+        this.mediaPort = mediaPort;
         this.pointPort = pointPort;
         this.userPort = userPort;
         this.currentUserProvider = currentUserProvider;
+        this.currentActorProvider = currentActorProvider;
     }
 
     /** 등록 식당 예약을 생성한다. 식당이 존재하지 않으면 거부하고, 사용 포인트는 같은 트랜잭션에서 차감한다(§8). */
     @Transactional
     public ReservationResponse create(CreateReservationRequest request) {
         Long userId = currentUserProvider.currentUserId();
+        lockActiveReserver(userId);
         if (!restaurantPort.existsById(request.restaurantId())) {
             throw new BusinessException(ReservationErrorCode.RESTAURANT_NOT_FOUND);
         }
@@ -93,6 +109,7 @@ public class ReservationService {
     @Transactional
     public ReservationResponse createAnywhere(CreateAnywhereReservationRequest request) {
         Long userId = currentUserProvider.currentUserId();
+        lockActiveReserver(userId);
         long usedPoint = defaultUsedPoint(request.usedPoint());
         Reservation reservation = reservationRepository.save(Reservation.anywhere(
                 userId, request.reserverName(), request.restaurantName(), request.restaurantAddress(),
@@ -102,6 +119,17 @@ public class ReservationService {
         usePointIfAny(userId, reservation);
         logCreated(reservation);
         return toResponse(reservation);
+    }
+
+    /**
+     * 예약자의 users 행을 잠그고 활성 회원인지 확인한다 — 잠금은 예약 저장·포인트 차감까지 같은 트랜잭션에서 유지된다.
+     * 탈퇴는 회원 행을 잠근 뒤 미종료 예약을 검사하므로, 먼저 잠근 쪽이 끝날 때까지 다른 쪽이 기다려 "탈퇴 회원의 새 예약"이
+     * 생기지 않는다. 탈퇴 회원의 토큰은 필터가 먼저 거부하므로 평소에는 통과한다.
+     */
+    private void lockActiveReserver(Long userId) {
+        if (!userPort.lockActiveUser(userId)) {
+            throw new BusinessException(ReservationErrorCode.RESERVER_NOT_FOUND);
+        }
     }
 
     /** 결제 흐름(수수료·포인트)의 시작점이라 금액 확인이 필요한 문의 대응의 기준 기록이 된다. */
@@ -185,8 +213,14 @@ public class ReservationService {
     /** 페이지 단위 응답 변환 — STANDARD 식당 요약(이름·대표이미지)은 포트 다건 조회(findSummaries)로 한 번에 enrich한다(N+1 방지, §5-2). */
     private List<ReservationResponse> toResponses(List<Reservation> reservations) {
         Map<Long, RestaurantInfo> summaries = fetchRestaurantSummaries(reservations);
+        MediaProjection mediaProjection = loadThumbnailProjection(summaries.values().stream()
+                .map(RestaurantInfo::thumbnailImageReference)
+                .toList());
         return reservations.stream()
-                .map(reservation -> toResponse(reservation, findSummary(summaries, reservation)))
+                .map(reservation -> toResponse(
+                        reservation,
+                        findSummary(summaries, reservation),
+                        mediaProjection))
                 .toList();
     }
 
@@ -210,7 +244,11 @@ public class ReservationService {
 
     // 한번에 받아온 일반 예약과 어디든 예약 — 유형별로 식당명·대표이미지·주소를 해석해 응답으로 변환
     // (STANDARD 주소는 저장하지 않고 포트로 live enrich — 식당 주소 변경 시 항상 최신)
-    private ReservationResponse toResponse(Reservation reservation, RestaurantInfo summary) {
+    private ReservationResponse toResponse(
+            Reservation reservation,
+            RestaurantInfo summary,
+            MediaProjection mediaProjection
+    ) {
         if (reservation.getReservationType() == ReservationType.ANYWHERE) {
             return ReservationResponse.of(reservation,
                     reservation.getRestaurantName(), null, reservation.getRestaurantAddress());
@@ -218,7 +256,14 @@ public class ReservationService {
         if (summary == null) {
             return ReservationResponse.of(reservation, UNKNOWN_RESTAURANT_NAME, null, null);
         }
-        return ReservationResponse.of(reservation, summary.name(), summary.imageUrl(), summary.address());
+        ProjectedImage thumbnail = projectThumbnail(
+                summary.thumbnailImageReference(), mediaProjection);
+        return ReservationResponse.of(
+                reservation,
+                summary.name(),
+                thumbnail.url(),
+                thumbnail.image(),
+                summary.address());
     }
 
     private List<Reservation> fetchPage(Long userId, ReservationStatusFilter filter, Long cursor, Pageable pageable) {
@@ -257,11 +302,17 @@ public class ReservationService {
                     reservation.getRestaurantName(), null, reservation.getRestaurantAddress(), null);
         }
         Optional<RestaurantDetailInfo> detail = restaurantPort.findDetailById(reservation.getRestaurantId());
+        ImageReference imageReference = detail
+                .map(RestaurantDetailInfo::thumbnailImageReference)
+                .orElse(null);
+        MediaProjection mediaProjection = loadThumbnailProjection(referenceList(imageReference));
+        ProjectedImage thumbnail = projectThumbnail(imageReference, mediaProjection);
         return ReservationDetailResponse.of(reservation,
                 detail.map(RestaurantDetailInfo::name).orElse(UNKNOWN_RESTAURANT_NAME),
                 detail.map(RestaurantDetailInfo::nameJa).orElse(null),
                 detail.map(RestaurantDetailInfo::address).orElse(null),
-                detail.map(RestaurantDetailInfo::imageUrl).orElse(null));
+                thumbnail.url(),
+                thumbnail.image());
     }
 
     // 쿼리스트링으로 받은 size값이 정상적인 사이즈 값인지 검증. 정상적이지 않으면 size = 20으로 반환
@@ -277,7 +328,11 @@ public class ReservationService {
      * {@link #toResponse(Reservation, RestaurantInfo)}에 위임한다. 목록은 {@link #toResponses(List)}가 다건 조회로 처리한다.
      */
     private ReservationResponse toResponse(Reservation reservation) {
-        return toResponse(reservation, findSummaryFor(reservation));
+        RestaurantInfo summary = findSummaryFor(reservation);
+        MediaProjection mediaProjection = loadThumbnailProjection(summary == null
+                ? List.of()
+                : referenceList(summary.thumbnailImageReference()));
+        return toResponse(reservation, summary, mediaProjection);
     }
 
     /** 단건 식당 요약 조회 — STANDARD만 RestaurantPort로 얻고, ANYWHERE·미존재 식당은 null(호출 측 fallback). */
@@ -293,6 +348,9 @@ public class ReservationService {
      */
     @Transactional
     public AdminReservationInfo changeStatusByAdmin(Long reservationId, ReservationStatus targetStatus) {
+        // currentUserId()는 ROLE_USER 회원만 인정해(#208) 어드민 토큰이면 UNAUTHORIZED다 — 감사 기록용 어드민 식별자는
+        // 인증 주체 유형을 구분하는 CurrentActorProvider로 읽고, 상태 전이 전에 확보해 실패 시 변경이 시작되지 않게 한다.
+        Long adminId = currentActorProvider.currentActor().subjectId();
         Reservation reservation = reservationRepository.findById(reservationId)
                 .orElseThrow(() -> new BusinessException(ReservationErrorCode.NOT_FOUND));
         ReservationStatus fromStatus = reservation.getReservationStatus();
@@ -302,9 +360,8 @@ public class ReservationService {
         reservation.changeStatusByAdmin(targetStatus);
         restoreUsedPointIfRefundable(reservation, refundable);
         // 자유 전이(되돌림 허용) 정책이라 정정 추적이 필요 — 이력 테이블 도입 전까지의 감사 기록.
-        // 어드민 토큰의 subject가 adminId이므로 currentUserId()가 어드민 식별자를 돌려준다.
         log.info("어드민 예약 상태 변경. adminId={}, reservationId={}, {} -> {}",
-                currentUserProvider.currentUserId(), reservationId, fromStatus, targetStatus);
+                adminId, reservationId, fromStatus, targetStatus);
         return toAdminInfo(reservation, findSummaryFor(reservation));
     }
 
@@ -341,11 +398,16 @@ public class ReservationService {
         if (summary == null) {
             return toAdminInfo(reservation, UNKNOWN_RESTAURANT_NAME, null, null);
         }
-        return toAdminInfo(reservation, summary.name(), summary.imageUrl(), summary.address());
+        return toAdminInfo(
+                reservation,
+                summary.name(),
+                summary.thumbnailImageReference(),
+                summary.address());
     }
 
     private AdminReservationInfo toAdminInfo(Reservation reservation, String restaurantName,
-                                             String restaurantImageUrl, String restaurantAddress) {
+                                             ImageReference restaurantImageReference,
+                                             String restaurantAddress) {
         return new AdminReservationInfo(
                 reservation.getId(),
                 reservation.getUserId(),
@@ -353,7 +415,7 @@ public class ReservationService {
                 reservation.getReserverName(),
                 reservation.getRestaurantId(),
                 restaurantName,
-                restaurantImageUrl,
+                restaurantImageReference,
                 restaurantAddress,
                 reservation.getReservedAt(),
                 reservation.getAdultCount(),
@@ -365,5 +427,57 @@ public class ReservationService {
                 reservation.getUsedPoint(),
                 reservation.getAmount(),
                 reservation.confirmDDay());
+    }
+
+    private MediaProjection loadThumbnailProjection(Collection<ImageReference> references) {
+        List<MediaImageRequest> requests = references.stream()
+                .filter(Objects::nonNull)
+                .map(ImageReference::assetId)
+                .filter(Objects::nonNull)
+                .map(assetId -> new MediaImageRequest(
+                        assetId, MediaImageRole.RESTAURANT_THUMBNAIL))
+                .distinct()
+                .toList();
+        if (requests.isEmpty()) {
+            return MediaProjection.empty();
+        }
+        return new MediaProjection(mediaPort.findImages(requests));
+    }
+
+    private List<ImageReference> referenceList(ImageReference reference) {
+        return reference == null ? List.of() : List.of(reference);
+    }
+
+    private ProjectedImage projectThumbnail(
+            ImageReference reference,
+            MediaProjection mediaProjection
+    ) {
+        MediaImage mediaImage = reference == null || reference.assetId() == null
+                ? null : mediaProjection.find(reference);
+        MediaImageSelection selection = MediaImageSelection.from(reference, mediaImage);
+        return new ProjectedImage(selection.url(), selection.image());
+    }
+
+    private record MediaProjection(Map<MediaImageRequest, MediaImage> images) {
+
+        private MediaProjection {
+            images = Map.copyOf(images);
+        }
+
+        private static MediaProjection empty() {
+            return new MediaProjection(Map.of());
+        }
+
+        private MediaImage find(ImageReference reference) {
+            return images.get(new MediaImageRequest(
+                    reference.assetId(), MediaImageRole.RESTAURANT_THUMBNAIL));
+        }
+    }
+
+    private record ProjectedImage(String url, MediaImage image) {
+
+        private static ProjectedImage empty() {
+            return new ProjectedImage(null, null);
+        }
     }
 }

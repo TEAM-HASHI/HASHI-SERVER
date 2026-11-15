@@ -1,0 +1,386 @@
+package org.sopt.hashi.restaurant.domain;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+
+import java.util.List;
+import java.util.Map;
+import org.flywaydb.core.Flyway;
+import org.flywaydb.core.api.FlywayException;
+import org.hibernate.boot.MetadataSources;
+import org.hibernate.boot.registry.StandardServiceRegistryBuilder;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
+import org.springframework.dao.DataAccessException;
+import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.jdbc.datasource.DriverManagerDataSource;
+import org.testcontainers.containers.MySQLContainer;
+import org.testcontainers.junit.jupiter.Container;
+import org.testcontainers.junit.jupiter.Testcontainers;
+
+@Testcontainers
+class RestaurantMapMigrationTest {
+
+    @Container
+    private static final MySQLContainer<?> MYSQL = new MySQLContainer<>("mysql:8.4")
+            .withDatabaseName("hashi_map_upgrade").withUsername("hashi").withPassword("hashi");
+
+    private JdbcTemplate jdbc;
+
+    @BeforeEach
+    void 이전_스키마를_준비한다() {
+        // Exercise every migration merged through support terms before the new map version.
+        Flyway baseline = flyway("37");
+        baseline.clean();
+        baseline.migrate();
+        jdbc = new JdbcTemplate(new DriverManagerDataSource(
+                MYSQL.getJdbcUrl(), MYSQL.getUsername(), MYSQL.getPassword()));
+    }
+
+    @Test
+    void 기존_데이터와_명시주소를_보존하며_위치확인기록_스키마까지_적용한다() {
+        jdbc.update("""
+                INSERT INTO restaurant (id, name, local_name, summary, description, address, area,
+                    genre, food_category, place_type, price_currency, price_min, price_max,
+                    rating_sum, review_count, rating, deleted, created_at, updated_at)
+                VALUES (1, 'fixture active', 'fixture', 'summary', 'description', 'synthetic address', 'area',
+                    'SUSHI', 'food', 'RESTAURANT', 'JPY', 100, 200, 9, 2, 4.5, FALSE, NOW(6), NOW(6)),
+                    (2, 'fixture deleted', 'fixture', 'summary', 'description', 'old address', 'area',
+                    'SUSHI', 'food', 'CAFE', 'JPY', 100, 200, 0, 0, 0.0, TRUE, NOW(6), NOW(6))
+                """);
+        jdbc.update("INSERT INTO restaurant_hashtag (restaurant_id, hashtag) VALUES (1, 'fixture')");
+        jdbc.update("""
+                INSERT INTO restaurant_image (restaurant_id, file_key, display_order)
+                VALUES (1, 'fixtures/map-test.jpg', 1)
+                """);
+        jdbc.update("""
+                INSERT INTO restaurant_menu (restaurant_id, name, description, price_currency, price_amount, is_main)
+                VALUES (1, 'fixture menu', 'description', 'JPY', 100, TRUE)
+                """);
+        List<Map<String, Object>> restaurants = jdbc.queryForList("SELECT * FROM restaurant ORDER BY id");
+        List<Map<String, Object>> images = jdbc.queryForList("SELECT * FROM restaurant_image");
+        List<Map<String, Object>> menus = jdbc.queryForList("SELECT * FROM restaurant_menu");
+        List<Map<String, Object>> hashtags = jdbc.queryForList("SELECT * FROM restaurant_hashtag");
+
+        Flyway migration = flyway("38");
+        assertThat(migration.migrate().migrationsExecuted).isEqualTo(1);
+        List<Map<String, Object>> upgraded = jdbc.queryForList("SELECT * FROM restaurant ORDER BY id");
+        assertThat(upgraded).hasSize(2);
+        for (int index = 0; index < restaurants.size(); index++) {
+            assertThat(upgraded.get(index)).containsAllEntriesOf(restaurants.get(index))
+                    .containsEntry("location_id", null).containsEntry("map_region_id", null);
+        }
+        assertThat(jdbc.queryForList("SELECT * FROM restaurant_image")).isEqualTo(images);
+        assertThat(jdbc.queryForList("SELECT * FROM restaurant_menu")).isEqualTo(menus);
+        assertThat(jdbc.queryForList("SELECT * FROM restaurant_hashtag")).isEqualTo(hashtags);
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM restaurant_location", Integer.class)).isZero();
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM map_region", Integer.class)).isZero();
+        assertThat(migration.validateWithResult().validationSuccessful).isTrue();
+        jdbc.update("UPDATE restaurant SET map_region_id=123 WHERE id=1");
+        assertThat(migration.migrate().migrationsExecuted).isZero();
+        assertThat(jdbc.queryForObject("SELECT map_region_id FROM restaurant WHERE id=1", Long.class))
+                .isEqualTo(123L);
+
+        Flyway jobs = flyway("39");
+        assertThat(jobs.migrate().migrationsExecuted).isEqualTo(1);
+        Flyway geocodingAddress = flyway("39.1");
+        assertThat(geocodingAddress.migrate().migrationsExecuted).isEqualTo(1);
+        assertThat(jdbc.queryForList("SELECT address FROM restaurant ORDER BY id"))
+                .extracting(row -> row.get("address"))
+                .containsExactly("synthetic address", "old address");
+        assertThat(jdbc.queryForObject(
+                "SELECT COUNT(*) FROM restaurant WHERE geocoding_address IS NOT NULL", Integer.class)).isZero();
+        jdbc.update("UPDATE restaurant SET geocoding_address='東京都千代田区丸の内1-9-1' WHERE id=1");
+        assertThat(jdbc.queryForObject("SELECT geocoding_address FROM restaurant WHERE id=1", String.class))
+                .isEqualTo("東京都千代田区丸の内1-9-1");
+        assertThat(geocodingAddress.validateWithResult().validationSuccessful).isTrue();
+        assertThat(geocodingAddress.migrate().migrationsExecuted).isZero();
+
+        List<Map<String, Object>> beforePlaces = jdbc.queryForList("SELECT * FROM restaurant ORDER BY id");
+        Flyway places = flyway("39.2");
+        assertThat(places.migrate().migrationsExecuted).isEqualTo(1);
+        assertThat(jdbc.queryForList("SELECT * FROM restaurant ORDER BY id")).isEqualTo(beforePlaces);
+        assertThat(jdbc.queryForList("SELECT * FROM restaurant_image")).isEqualTo(images);
+        assertThat(jdbc.queryForList("SELECT * FROM restaurant_menu")).isEqualTo(menus);
+        assertThat(jdbc.queryForList("SELECT * FROM restaurant_hashtag")).isEqualTo(hashtags);
+        assertThat(jdbc.queryForObject(
+                "SELECT COUNT(*) FROM restaurant_places_budget WHERE enabled=FALSE", Integer.class))
+                .isEqualTo(2);
+        assertThat(places.validateWithResult().validationSuccessful).isTrue();
+        assertThat(places.migrate().migrationsExecuted).isZero();
+
+        jdbc.update("""
+                INSERT INTO restaurant_location (id, status, address_revision, request_id, lock_version,
+                    latitude, longitude, source, google_place_id, places_attributions, obtained_at, valid_until)
+                VALUES (1, 'READY', 1, '00000000-0000-0000-0000-000000000001', 0,
+                    35.0, 139.0, 'GOOGLE_GEOCODING', NULL, NULL, '2026-01-01', '2026-01-02'),
+                    (2, 'READY', 1, '00000000-0000-0000-0000-000000000002', 0,
+                    35.1, 139.1, 'GOOGLE_PLACES', 'fixture-place', '[]', '2026-01-01', '2026-01-02'),
+                    (3, 'READY', 1, '00000000-0000-0000-0000-000000000003', 0,
+                    35.2, 139.2, 'ADMIN', NULL, NULL, '2026-01-01', '2026-01-02'),
+                    (4, 'PENDING', 1, '00000000-0000-0000-0000-000000000004', 0,
+                    NULL, NULL, NULL, NULL, NULL, NULL, NULL)
+                """);
+        List<Map<String, Object>> beforeConfirmation = jdbc.queryForList(
+                "SELECT * FROM restaurant_location ORDER BY id");
+        Flyway confirmation = flyway("39.3");
+        assertThat(confirmation.migrate().migrationsExecuted).isEqualTo(1);
+        List<Map<String, Object>> confirmedLocations = jdbc.queryForList(
+                "SELECT * FROM restaurant_location ORDER BY id");
+        assertThat(confirmedLocations).hasSize(beforeConfirmation.size());
+        for (int index = 0; index < beforeConfirmation.size(); index++) {
+            Map<String, Object> previous = beforeConfirmation.get(index);
+            String method = "GOOGLE_GEOCODING".equals(previous.get("source")) ? "AUTOMATIC" : null;
+            assertThat(confirmedLocations.get(index)).containsAllEntriesOf(previous)
+                    .containsEntry("confirmation_method", method)
+                    .containsEntry("confirmed_by_admin_id", null)
+                    .containsEntry("confirmed_at", null)
+                    .containsEntry("confirmed_revision", null);
+        }
+        assertThat(jdbc.queryForList("SELECT * FROM restaurant ORDER BY id")).isEqualTo(beforePlaces);
+        assertThat(jdbc.queryForList("SELECT * FROM restaurant_image")).isEqualTo(images);
+        assertThat(jdbc.queryForList("SELECT * FROM restaurant_menu")).isEqualTo(menus);
+        assertThat(jdbc.queryForList("SELECT * FROM restaurant_hashtag")).isEqualTo(hashtags);
+        for (String change : List.of(
+                "confirmation_method=NULL, confirmed_by_admin_id=7, confirmed_at=NOW(6), confirmed_revision=1",
+                "confirmation_method='ADMIN_PLACE_SELECTION', confirmed_by_admin_id=NULL, confirmed_at=NOW(6), confirmed_revision=1",
+                "confirmation_method='ADMIN_PLACE_SELECTION', confirmed_by_admin_id=7, confirmed_at=NOW(6), confirmed_revision=2")) {
+            assertThatThrownBy(() -> jdbc.update("UPDATE restaurant_location SET " + change + " WHERE id=4"))
+                    .as(change).isInstanceOf(DataAccessException.class)
+                    .hasMessageContaining("chk_location_confirmation");
+        }
+        jdbc.update("""
+                UPDATE restaurant_location SET confirmation_method='ADMIN_PLACE_SELECTION',
+                    confirmed_by_admin_id=7, confirmed_at=NOW(6), confirmed_revision=1 WHERE id=4
+                """);
+        assertThat(confirmation.validateWithResult().validationSuccessful).isTrue();
+        assertThat(confirmation.migrate().migrationsExecuted).isZero();
+        validateUpgradedSchema();
+    }
+
+    @Test
+    void 좌표_쌍과_출처_수명과_재시도_제약은_SQL_우회도_차단한다() {
+        flyway("38").migrate();
+        jdbc.update("""
+                INSERT INTO restaurant_location (id, status, address_revision, request_id, lock_version)
+                VALUES (1, 'PENDING', 1, '00000000-0000-0000-0000-000000000001', 0)
+                """);
+        for (String change : List.of(
+                "latitude=0", "longitude=0", "status='READY'", "status='UNKNOWN'", "status='pending'",
+                "status='PENDING '", "address_revision=0",
+                "lock_version=-1", "source='ADMIN'", "obtained_at=NOW(6)", "valid_until=NOW(6)",
+                "status='RETRY_WAIT'", "next_attempt_at=NOW(6)")) {
+            assertThatThrownBy(() -> jdbc.update("UPDATE restaurant_location SET " + change + " WHERE id=1"))
+                    .as(change).isInstanceOf(DataAccessException.class);
+        }
+        jdbc.update("""
+                UPDATE restaurant_location SET status='READY', latitude=0, longitude=0,
+                    source='GOOGLE_GEOCODING', obtained_at='2026-01-01 00:00:00',
+                    valid_until='2026-01-02 00:00:00' WHERE id=1
+                """);
+        for (String status : List.of("READY", "PENDING", "RETRY_WAIT", "REVIEW_REQUIRED", "FAILED")) {
+            String nextAttempt = status.equals("RETRY_WAIT") ? "'2026-01-01 01:00:00'" : "NULL";
+            jdbc.update("UPDATE restaurant_location SET status=?, next_attempt_at=" + nextAttempt + " WHERE id=1",
+                    status);
+            for (String change : List.of(
+                    "latitude=NULL", "longitude=NULL", "latitude=90.000001", "longitude=-180.000001",
+                    "source=NULL", "source='UNKNOWN'", "source='OPERATOR'", "source='admin'", "source='ADMIN '",
+                    "obtained_at=NULL", "valid_until=NULL", "valid_until=obtained_at",
+                    status.equals("RETRY_WAIT") ? "next_attempt_at=NULL" : "next_attempt_at=NOW(6)")) {
+                assertThatThrownBy(() -> jdbc.update("UPDATE restaurant_location SET " + change + " WHERE id=1"))
+                        .as(status + ": " + change).isInstanceOf(DataAccessException.class);
+            }
+            assertThat(jdbc.queryForObject("SELECT source FROM restaurant_location", String.class))
+                    .isEqualTo("GOOGLE_GEOCODING");
+            assertThat(jdbc.queryForObject("SELECT valid_until FROM restaurant_location", String.class))
+                    .startsWith("2026-01-02 00:00:00");
+        }
+        assertThat(jdbc.queryForObject("SELECT latitude FROM restaurant_location", java.math.BigDecimal.class))
+                .isEqualByComparingTo("0");
+    }
+
+    @Test
+    void 지역_범위와_대표_위치와_코드_유일성을_검증한다() {
+        flyway("38").migrate();
+        jdbc.update("""
+                INSERT INTO map_region (id, code, name, cluster_latitude, cluster_longitude,
+                    south, north, west, east, display_order) VALUES (1, 'FIXTURE', 'region', 10, 20, 10, 11, 20, 21, 0)
+                """);
+        for (String change : List.of("south=north", "west=east", "north=91", "east=181",
+                "cluster_latitude=12", "cluster_longitude=19", "display_order=-1", "name=' '", "code='lower'")) {
+            assertThatThrownBy(() -> jdbc.update("UPDATE map_region SET " + change + " WHERE id=1"))
+                    .as(change).isInstanceOf(DataAccessException.class);
+        }
+        for (String blankName : List.of("", "\t", "\n", "\r\n", "\t \n", "\u001C", "\u0085",
+                "\u00A0", "\u2007", "\u202F", "\u3000", "\u001C\u00A0")) {
+            assertThatThrownBy(() -> jdbc.update("UPDATE map_region SET name=? WHERE id=1", blankName))
+                    .isInstanceOf(DataAccessException.class);
+        }
+        assertThatThrownBy(() -> jdbc.update("""
+                INSERT INTO map_region (code, name, cluster_latitude, cluster_longitude,
+                    south, north, west, east, display_order) VALUES ('FIXTURE', 'other', 10, 20, 10, 11, 20, 21, 1)
+                """)).isInstanceOf(DataAccessException.class);
+        assertThat(jdbc.queryForObject("SELECT active FROM map_region WHERE id=1", Boolean.class)).isFalse();
+    }
+
+    @Test
+    void FK는_식당과_소유_위치에만_걸고_좌표의_정밀도와_인덱스를_고정한다() {
+        flyway("38").migrate();
+        assertThat(jdbc.queryForObject("""
+                SELECT COUNT(*) FROM information_schema.key_column_usage
+                WHERE constraint_schema=DATABASE() AND referenced_table_name='map_region'
+                """, Integer.class)).isZero();
+        assertThat(jdbc.queryForObject("""
+                SELECT COUNT(*) FROM information_schema.key_column_usage
+                WHERE constraint_schema=DATABASE() AND table_name='restaurant'
+                    AND referenced_table_name='restaurant_location' AND column_name='location_id'
+                """, Integer.class)).isEqualTo(1);
+        assertThat(jdbc.queryForObject("""
+                SELECT COUNT(*) FROM information_schema.statistics
+                WHERE table_schema=DATABASE() AND table_name='restaurant' AND column_name='location_id'
+                    AND non_unique=0
+                """, Integer.class)).isEqualTo(1);
+        List<Map<String, Object>> columns = jdbc.queryForList("""
+                SELECT numeric_precision, numeric_scale FROM information_schema.columns
+                WHERE table_schema=DATABASE() AND table_name='restaurant_location'
+                    AND column_name IN ('latitude', 'longitude') ORDER BY column_name
+                """);
+        assertThat(columns).hasSize(2);
+        assertThat(((Number) columns.getFirst().get("numeric_precision")).intValue()).isEqualTo(9);
+        assertThat(((Number) columns.getLast().get("numeric_precision")).intValue()).isEqualTo(10);
+        for (Map<String, Object> column : columns) {
+            assertThat(((Number) column.get("numeric_scale")).intValue()).isEqualTo(6);
+        }
+    }
+
+    @Test
+    void 지역_코드_제약을_강화해도_정상행과_JPA_스키마는_보존하고_줄바꿈_쓰기를_거절한다() {
+        flyway("41").migrate();
+        for (String code : List.of("A", "AREA_1", "A" + "1_".repeat(19) + "1")) {
+            insertRegion(code);
+        }
+        List<Map<String, Object>> previous = jdbc.queryForList("SELECT * FROM map_region ORDER BY id");
+
+        Flyway migration = flyway("42");
+        assertThat(migration.migrate().migrationsExecuted).isEqualTo(1);
+        assertThat(migration.info().current().getVersion().getVersion()).isEqualTo("42");
+        assertThat(jdbc.queryForList("SELECT * FROM map_region ORDER BY id")).isEqualTo(previous);
+        assertThat(migration.validateWithResult().validationSuccessful).isTrue();
+        assertThat(migration.migrate().migrationsExecuted).isZero();
+        validateUpgradedSchema();
+
+        for (String code : List.of("B", "AREA_2", "B" + "9_".repeat(19) + "9")) {
+            insertRegion(code);
+        }
+        List<Map<String, Object>> validRows = jdbc.queryForList("SELECT * FROM map_region ORDER BY id");
+        assertThat(validRows).hasSize(6);
+        for (String code : List.of("AREA\n", "AREA\r", "AREA\r\n", "AREA\t")) {
+            assertThatThrownBy(() -> insertRegion(code))
+                    .isInstanceOf(DataAccessException.class).hasMessageContaining("chk_map_region_code");
+            assertThatThrownBy(() -> jdbc.update("UPDATE map_region SET code=? WHERE id=1", code))
+                    .isInstanceOf(DataAccessException.class).hasMessageContaining("chk_map_region_code");
+        }
+        assertThat(jdbc.queryForList("SELECT * FROM map_region ORDER BY id")).isEqualTo(validRows);
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"AREA\n", "AREA\r", "AREA\r\n"})
+    void 기존_불량_지역_코드가_있으면_자동변경_없이_마이그레이션을_거절한다(String code) {
+        flyway("41").migrate();
+        insertRegion("KEEP_1");
+        insertRegion(code);
+        List<Map<String, Object>> previous = jdbc.queryForList("SELECT * FROM map_region ORDER BY id");
+        String previousCheck = regionCodeCheck();
+
+        assertThatThrownBy(() -> flyway("42").migrate())
+                .isInstanceOf(FlywayException.class).hasMessageContaining("chk_map_region_code");
+
+        assertThat(jdbc.queryForList("SELECT * FROM map_region ORDER BY id")).isEqualTo(previous);
+        assertThat(regionCodeCheck()).isEqualTo(previousCheck);
+        assertThat(jdbc.queryForObject("""
+                SELECT COUNT(*) FROM flyway_schema_history WHERE version='42' AND success=TRUE
+                """, Integer.class)).isZero();
+    }
+
+    private void insertRegion(String code) {
+        jdbc.update("""
+                INSERT INTO map_region (code, name, cluster_latitude, cluster_longitude,
+                    south, north, west, east, display_order, created_at, updated_at)
+                VALUES (?, 'synthetic region', 10, 20, 10, 11, 20, 21, 0,
+                    '2026-01-01 00:00:00', '2026-01-01 00:00:00')
+                """, code);
+    }
+
+    private String regionCodeCheck() {
+        return jdbc.queryForObject("""
+                SELECT check_clause FROM information_schema.check_constraints
+                WHERE constraint_schema=DATABASE() AND constraint_name='chk_map_region_code'
+                """, String.class);
+    }
+
+    @Test
+    void 저장_수_컬럼은_기존_저장_관계를_회원_기준으로_세어_채운다() {
+        jdbc.update("""
+                INSERT INTO restaurant (id, name, local_name, summary, description, address, area,
+                    genre, food_category, place_type, price_currency, price_min, price_max,
+                    rating_sum, review_count, rating, deleted, created_at, updated_at)
+                VALUES (1, 'saved by two members', 'fixture', 'summary', 'description', 'address', 'area',
+                    'SUSHI', 'food', 'RESTAURANT', 'JPY', 100, 200, 0, 0, 0.0, FALSE, NOW(6), NOW(6)),
+                    (2, 'never saved', 'fixture', 'summary', 'description', 'address', 'area',
+                    'SUSHI', 'food', 'RESTAURANT', 'JPY', 100, 200, 0, 0, 0.0, FALSE, NOW(6), NOW(6))
+                """);
+        // 회원 1은 두 컬렉션에 같은 식당을 저장(1로 세어야 함), 회원 2는 한 번 저장 → 식당 1은 2, 식당 2는 0
+        jdbc.update("""
+                INSERT INTO restaurant_collection (id, user_id, name, color, visibility, created_at, updated_at)
+                VALUES (10, 1, 'public', 'RED', 'PUBLIC', NOW(6), NOW(6)),
+                    (11, 1, 'private', 'RED', 'PRIVATE', NOW(6), NOW(6)),
+                    (12, 2, 'other member', 'RED', 'PUBLIC', NOW(6), NOW(6))
+                """);
+        jdbc.update("""
+                INSERT INTO saved_restaurant (collection_id, restaurant_id, created_at, updated_at)
+                VALUES (10, 1, NOW(6), NOW(6)), (11, 1, NOW(6), NOW(6)), (12, 1, NOW(6), NOW(6))
+                """);
+
+        Flyway migration = flyway("43");
+        migration.migrate();
+        assertThat(migration.info().current().getVersion().getVersion()).isEqualTo("43");
+
+        assertThat(jdbc.queryForObject("SELECT save_count FROM restaurant WHERE id=1", Long.class)).isEqualTo(2L);
+        assertThat(jdbc.queryForObject("SELECT save_count FROM restaurant WHERE id=2", Long.class)).isZero();
+    }
+
+    private Flyway flyway(String target) {
+        return Flyway.configure().dataSource(MYSQL.getJdbcUrl(), MYSQL.getUsername(), MYSQL.getPassword())
+                .locations("classpath:db/migration").target(target).validateOnMigrate(true)
+                .baselineOnMigrate(false).cleanDisabled(false).load();
+    }
+
+    private void validateUpgradedSchema() {
+        // 엔티티는 항상 최신 migration 기준이라(#263 save_count 등) 지도 단계 검증 뒤 끝까지 올린 스키마와 대조한다
+        flyway("latest").migrate();
+        var registry = new StandardServiceRegistryBuilder()
+                .applySetting("hibernate.connection.url", MYSQL.getJdbcUrl())
+                .applySetting("hibernate.connection.username", MYSQL.getUsername())
+                .applySetting("hibernate.connection.password", MYSQL.getPassword())
+                .applySetting("hibernate.physical_naming_strategy",
+                        "org.hibernate.boot.model.naming.CamelCaseToUnderscoresNamingStrategy")
+                .applySetting("hibernate.hbm2ddl.auto", "validate")
+                .build();
+        try {
+            try (var sessionFactory = new MetadataSources(registry)
+                    .addAnnotatedClass(Restaurant.class)
+                    .addAnnotatedClass(RestaurantLocation.class)
+                    .addAnnotatedClass(MapRegion.class)
+                    .addAnnotatedClass(RestaurantMenu.class)
+                    .addAnnotatedClass(RestaurantImage.class)
+                    .addAnnotatedClass(RestaurantBusinessHour.class)
+                    .buildMetadata().buildSessionFactory()) {
+                assertThat(sessionFactory.isOpen()).isTrue();
+            }
+        } finally {
+            StandardServiceRegistryBuilder.destroy(registry);
+        }
+    }
+}

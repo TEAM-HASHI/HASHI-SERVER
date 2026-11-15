@@ -1,6 +1,7 @@
 package org.sopt.hashi.auth.internal.security;
 import org.sopt.hashi.auth.internal.onboarding.OnboardingJwtIssuer;
 import org.sopt.hashi.auth.internal.token.OnboardingTokenStore;
+import org.sopt.hashi.auth.internal.token.TokenBlacklist;
 import org.sopt.hashi.auth.internal.jwt.AuthRoles;
 import org.sopt.hashi.auth.internal.jwt.JwtProvider;
 
@@ -63,6 +64,10 @@ class OnboardingAuthorizationTest {
     // 온보딩 토큰의 Redis 대조는 통과시킨다 — 여기서 보려는 건 "인가(403)" 판정이다.
     @MockitoBean
     OnboardingTokenStore onboardingTokenStore;
+
+    // 탈퇴 블랙리스트 대조도 Redis라 모킹한다 — 기본값(false)이라 차단 없이 통과한다
+    @MockitoBean
+    TokenBlacklist tokenBlacklist;
 
     @Test
     @DisplayName("온보딩 토큰으로 온보딩 외 보호 API에 접근하면 403을 반환한다")
