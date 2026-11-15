@@ -20,6 +20,29 @@ class JwtProviderTest {
 
     private static final String SECRET = "test-secret-key-must-be-at-least-32-bytes-long";
 
+    @Test
+    void 세션_토큰은_sid와_client를_보존하고_레거시는_둘다_비어있다() {
+        var provider = providerWithAccessTtl(Duration.ofMinutes(30));
+        String sid = java.util.UUID.randomUUID().toString();
+        var claims = provider.parse(provider.createSessionRefreshToken(7L, sid, "app"));
+        assertThat(claims.sid()).isEqualTo(sid);
+        assertThat(claims.client()).isEqualTo("app");
+        var legacy = provider.parse(provider.createRefreshToken(7L, AuthRoles.USER));
+        assertThat(legacy.sid()).isNull();
+        assertThat(legacy.client()).isNull();
+    }
+
+    @Test
+    void 잘못된_sid나_client와_sid없는_앱_토큰은_거절한다() {
+        var provider = providerWithAccessTtl(Duration.ofMinutes(30));
+        assertThatThrownBy(() -> provider.parse(provider.createSessionAccessToken(7L, "bad", "app")))
+                .isInstanceOf(BusinessException.class);
+        assertThatThrownBy(() -> provider.parse(provider.createSessionAccessToken(7L, null, "app")))
+                .isInstanceOf(BusinessException.class);
+        assertThatThrownBy(() -> provider.parse(provider.createSessionAccessToken(7L,
+                java.util.UUID.randomUUID().toString(), "invalid"))).isInstanceOf(BusinessException.class);
+    }
+
     private JwtProvider providerWithAccessTtl(Duration accessTtl) {
         return new JwtProvider(new JwtProperties(SECRET, accessTtl,
                 Duration.ofDays(14), Duration.ofMinutes(30)));

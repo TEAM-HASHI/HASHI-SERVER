@@ -15,7 +15,8 @@ public enum AuthSuccessCode implements SuccessCode {
     TOKEN_REISSUED(HttpStatus.OK, "AUTH-202", "토큰이 재발급되었습니다"),
     ADMIN_LOGIN_SUCCESS(HttpStatus.OK, "AUTH-203", "어드민 로그인에 성공했습니다"),
     ADMIN_LOGOUT_SUCCESS(HttpStatus.OK, "AUTH-204", "어드민 로그아웃에 성공했습니다"),
-    LOGOUT_SUCCESS(HttpStatus.OK, "AUTH-205", "로그아웃에 성공했습니다");
+    LOGOUT_SUCCESS(HttpStatus.OK, "AUTH-205", "로그아웃에 성공했습니다"),
+    WEBVIEW_CODE_ISSUED(HttpStatus.OK, "AUTH-206", "WebView 인증 코드가 발급되었습니다");
 
     private final HttpStatus status;
     private final String code;

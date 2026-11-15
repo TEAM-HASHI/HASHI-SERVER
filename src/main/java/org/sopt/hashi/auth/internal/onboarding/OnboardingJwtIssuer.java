@@ -1,10 +1,9 @@
 package org.sopt.hashi.auth.internal.onboarding;
-import org.sopt.hashi.auth.internal.token.RefreshTokenStore;
+import org.sopt.hashi.auth.internal.token.SessionTokenStore;
 import org.sopt.hashi.auth.internal.token.OnboardingTokenStore;
 import org.sopt.hashi.auth.internal.security.CookieUtil;
 import org.sopt.hashi.auth.internal.jwt.OnboardingPrincipal;
 import org.sopt.hashi.auth.internal.jwt.JwtProvider;
-import org.sopt.hashi.auth.internal.jwt.AuthRoles;
 import org.sopt.hashi.auth.internal.account.AuthProvider;
 import org.sopt.hashi.auth.internal.account.AuthAccountService;
 
@@ -36,18 +35,18 @@ public class OnboardingJwtIssuer implements ResponseBodyAdvice<Object> {
 
     private final AuthAccountService authAccountService;
     private final JwtProvider jwtProvider;
-    private final RefreshTokenStore refreshTokenStore;
+    private final SessionTokenStore sessionTokenStore;
     private final OnboardingTokenStore onboardingTokenStore;
     private final CookieUtil cookieUtil;
 
     public OnboardingJwtIssuer(AuthAccountService authAccountService,
                                JwtProvider jwtProvider,
-                               RefreshTokenStore refreshTokenStore,
+                               SessionTokenStore sessionTokenStore,
                                OnboardingTokenStore onboardingTokenStore,
                                CookieUtil cookieUtil) {
         this.authAccountService = authAccountService;
         this.jwtProvider = jwtProvider;
-        this.refreshTokenStore = refreshTokenStore;
+        this.sessionTokenStore = sessionTokenStore;
         this.onboardingTokenStore = onboardingTokenStore;
         this.cookieUtil = cookieUtil;
     }
@@ -70,9 +69,10 @@ public class OnboardingJwtIssuer implements ResponseBodyAdvice<Object> {
         }
         // 온보딩 트랜잭션에서 auth_account가 이미 연결됨 — 방어적으로 없으면 토큰 발급 없이 통과시킨다
         authAccountService.findUserId(AuthProvider.KAKAO, String.valueOf(kakaoId)).ifPresent(userId -> {
-            String accessToken = jwtProvider.createAccessToken(userId, AuthRoles.USER);
-            String refreshToken = jwtProvider.createRefreshToken(userId, AuthRoles.USER);
-            refreshTokenStore.save(AuthRoles.USER, userId, refreshToken);
+            String sid = java.util.UUID.randomUUID().toString();
+            String accessToken = jwtProvider.createSessionAccessToken(userId, sid, "web");
+            String refreshToken = jwtProvider.createSessionRefreshToken(userId, sid, "web");
+            sessionTokenStore.save(userId, sid, "web", refreshToken);
             response.getHeaders().set(HttpHeaders.AUTHORIZATION, BEARER_PREFIX + accessToken);
             response.getHeaders().add(HttpHeaders.SET_COOKIE,
                     cookieUtil.createRefreshTokenCookie(refreshToken).toString());

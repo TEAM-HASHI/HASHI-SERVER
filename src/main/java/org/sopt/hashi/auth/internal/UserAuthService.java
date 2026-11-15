@@ -12,6 +12,8 @@ import lombok.extern.slf4j.Slf4j;
 import org.sopt.hashi.auth.code.AuthErrorCode;
 import org.sopt.hashi.shared.error.BusinessException;
 import org.springframework.stereotype.Service;
+import java.util.UUID;
+import org.sopt.hashi.auth.internal.token.SessionTokenStore;
 
 /**
  * 유저 인증 오케스트레이션 — 카카오 로그인(가입 여부 판정·토큰 발급)·재발급(회전)·로그아웃(리프레시 폐기).
@@ -26,19 +28,21 @@ public class UserAuthService {
     private final RefreshTokenStore refreshTokenStore;
     private final OnboardingTokenStore onboardingTokenStore;
     private final TokenBlacklist tokenBlacklist;
+    private final SessionTokenStore sessionTokenStore;
 
     public UserAuthService(KakaoOAuthClient kakaoOAuthClient,
                            AuthAccountService authAccountService,
                            JwtProvider jwtProvider,
                            RefreshTokenStore refreshTokenStore,
                            OnboardingTokenStore onboardingTokenStore,
-                           TokenBlacklist tokenBlacklist) {
+                           TokenBlacklist tokenBlacklist, SessionTokenStore sessionTokenStore) {
         this.kakaoOAuthClient = kakaoOAuthClient;
         this.authAccountService = authAccountService;
         this.jwtProvider = jwtProvider;
         this.refreshTokenStore = refreshTokenStore;
         this.onboardingTokenStore = onboardingTokenStore;
         this.tokenBlacklist = tokenBlacklist;
+        this.sessionTokenStore = sessionTokenStore;
     }
 
     /** 카카오 인가코드로 로그인한다. 회원이면 정식 토큰, 비회원이면 온보딩 임시 토큰을 발급한다. */
@@ -52,10 +56,20 @@ public class UserAuthService {
     /** 리프레시 쿠키로 토큰을 재발급한다. 회전 시 재사용이 감지되면 세션이 무효화되고, 탈퇴 회원은 거부된다. */
     public TokenPair reissue(String presentedRefreshToken) {
         JwtProvider.JwtClaims claims = jwtProvider.parse(presentedRefreshToken);
-        if (!claims.isRefreshToken()) {
+        if (!claims.isRefreshToken() || claims.isApp()) {
             throw new BusinessException(AuthErrorCode.INVALID_TOKEN);
         }
         rejectIfBlacklisted(claims);
+        if (AuthRoles.USER.equals(claims.role())) {
+            String sid = claims.sid() == null ? UUID.randomUUID().toString() : claims.sid();
+            TokenPair tokens = createSessionTokens(claims.subjectId(), sid, "web");
+            if (claims.sid() == null) {
+                sessionTokenStore.migrate(claims.subjectId(), sid, presentedRefreshToken, tokens.refreshToken());
+            } else {
+                sessionTokenStore.rotate(claims.subjectId(), sid, "web", presentedRefreshToken, tokens.refreshToken());
+            }
+            return tokens;
+        }
         String newRefreshToken = jwtProvider.createRefreshToken(claims.subjectId(), claims.role());
         refreshTokenStore.rotate(claims.role(), claims.subjectId(), presentedRefreshToken, newRefreshToken);
         String newAccessToken = jwtProvider.createAccessToken(claims.subjectId(), claims.role());
@@ -68,10 +82,14 @@ public class UserAuthService {
      */
     public void logout(String presentedRefreshToken) {
         JwtProvider.JwtClaims claims = jwtProvider.parse(presentedRefreshToken);
-        if (!claims.isRefreshToken() || !AuthRoles.USER.equals(claims.role())) {
+        if (!claims.isRefreshToken() || !AuthRoles.USER.equals(claims.role()) || claims.isApp()) {
             throw new BusinessException(AuthErrorCode.INVALID_TOKEN);
         }
-        refreshTokenStore.revoke(AuthRoles.USER, claims.subjectId());
+        if (claims.sid() == null) {
+            refreshTokenStore.revoke(AuthRoles.USER, claims.subjectId());
+        } else {
+            sessionTokenStore.revoke(claims.subjectId(), claims.sid(), "web", presentedRefreshToken);
+        }
     }
 
     /**
@@ -85,12 +103,20 @@ public class UserAuthService {
     }
 
     private KakaoLoginResult issueMemberTokens(Long userId) {
-        String accessToken = jwtProvider.createAccessToken(userId, AuthRoles.USER);
-        String refreshToken = jwtProvider.createRefreshToken(userId, AuthRoles.USER);
-        refreshTokenStore.save(AuthRoles.USER, userId, refreshToken);
+        if (tokenBlacklist.isUserBlocked(userId)) {
+            throw new BusinessException(AuthErrorCode.INVALID_TOKEN);
+        }
+        String sid = UUID.randomUUID().toString();
+        TokenPair tokens = createSessionTokens(userId, sid, "web");
+        sessionTokenStore.save(userId, sid, "web", tokens.refreshToken());
         // 로그인 요청은 토큰 없이 와서 MDC userId가 없다 — 로그인 주체는 이 로그가 유일한 기록이다
         log.info("카카오 로그인 성공. userId={}", userId);
-        return KakaoLoginResult.member(new TokenPair(accessToken, refreshToken));
+        return KakaoLoginResult.member(tokens);
+    }
+
+    private TokenPair createSessionTokens(Long userId, String sid, String client) {
+        return new TokenPair(jwtProvider.createSessionAccessToken(userId, sid, client),
+                jwtProvider.createSessionRefreshToken(userId, sid, client));
     }
 
     private KakaoLoginResult issueOnboardingToken(Long kakaoId) {
@@ -101,6 +127,7 @@ public class UserAuthService {
 
     /** 정식 토큰 쌍 — access는 Authorization 헤더, refresh는 HttpOnly 쿠키로 내린다. */
     public record TokenPair(String accessToken, String refreshToken) {
+        @Override public String toString() { return "TokenPair[redacted]"; }
     }
 
     public record KakaoLoginResult(boolean registered, TokenPair tokens, String onboardingToken) {

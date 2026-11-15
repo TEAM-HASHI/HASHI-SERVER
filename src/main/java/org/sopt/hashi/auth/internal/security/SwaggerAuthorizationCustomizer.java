@@ -39,6 +39,7 @@ public class SwaggerAuthorizationCustomizer implements GlobalOpenApiCustomizer {
      */
     private boolean requiresAuthentication(String path, PathItem.HttpMethod method) {
         boolean isAuthenticatedUnderPublicPath = pathMatcher.match(SecurityConfig.AUTH_ME_PATH, path)
+                || pathMatcher.match(SecurityConfig.WEBVIEW_CODE_PATH, path)
                 || pathMatcher.match(SecurityConfig.MAGAZINE_LIKE_PATH, path);
         if (isAuthenticatedUnderPublicPath) {
             return true;

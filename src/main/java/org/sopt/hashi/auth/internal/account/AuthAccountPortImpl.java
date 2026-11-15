@@ -1,6 +1,7 @@
 package org.sopt.hashi.auth.internal.account;
 import org.sopt.hashi.auth.internal.token.TokenBlacklist;
 import org.sopt.hashi.auth.internal.token.RefreshTokenStore;
+import org.sopt.hashi.auth.internal.token.SessionTokenStore;
 import org.sopt.hashi.auth.internal.jwt.OnboardingPrincipal;
 import org.sopt.hashi.auth.internal.jwt.AuthRoles;
 
@@ -25,13 +26,15 @@ class AuthAccountPortImpl implements AuthAccountPort {
     private final AuthAccountService authAccountService;
     private final RefreshTokenStore refreshTokenStore;
     private final TokenBlacklist tokenBlacklist;
+    private final SessionTokenStore sessionTokenStore;
 
     AuthAccountPortImpl(AuthAccountService authAccountService,
                         RefreshTokenStore refreshTokenStore,
-                        TokenBlacklist tokenBlacklist) {
+                        TokenBlacklist tokenBlacklist, SessionTokenStore sessionTokenStore) {
         this.authAccountService = authAccountService;
         this.refreshTokenStore = refreshTokenStore;
         this.tokenBlacklist = tokenBlacklist;
+        this.sessionTokenStore = sessionTokenStore;
     }
 
     @Override
@@ -58,6 +61,7 @@ class AuthAccountPortImpl implements AuthAccountPort {
                 }
             }
         });
+        sessionTokenStore.revokeAll(userId);
     }
 
     /** 온보딩 임시 인증(OnboardingPrincipal)의 kakaoId를 읽는다. 그 외 컨텍스트면 거부한다. */

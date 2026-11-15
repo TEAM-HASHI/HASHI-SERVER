@@ -27,7 +27,8 @@ import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
  */
 @Configuration
 @EnableWebSecurity
-@EnableConfigurationProperties({JwtProperties.class, KakaoProperties.class, CorsProperties.class})
+@EnableConfigurationProperties({JwtProperties.class, KakaoProperties.class, CorsProperties.class,
+        org.sopt.hashi.auth.internal.kakao.KakaoAppProperties.class})
 public class SecurityConfig {
 
     private static final String ONBOARDING_PATH = "/api/v1/users/onboarding";
@@ -35,6 +36,7 @@ public class SecurityConfig {
     private static final String PROFILE_AVAILABILITY_PATH = "/api/v1/users/availability";
     /** 내 인증 정보 조회 — /api/v1/auth/**(permitAll) 아래에 있지만 인증이 필요해 예외로 먼저 매칭한다. */
     static final String AUTH_ME_PATH = "/api/v1/auth/me";
+    static final String WEBVIEW_CODE_PATH = "/api/v1/auth/webview/code";
     /** presigned URL 발급 — 온보딩(프로필 사진 업로드) 단계에서도 필요해 임시 권한까지 허용한다. */
     private static final String UPLOAD_PATH = "/api/v1/uploads/**";
     /** 매거진 좋아요 — /api/v1/magazines/**(permitAll) 아래에 있지만 회원 전용이라 예외로 먼저 매칭한다. */
@@ -86,6 +88,7 @@ public class SecurityConfig {
                         // 클라 진입 라우팅용 상태 조회라 온보딩 임시 토큰도 허용한다(auth.md §4의 명시적 예외) —
                         // 응답은 subjectId·role이며, 온보딩만 subject(kakaoId)를 노출하지 않아 subjectId가 null이다.
                         .requestMatchers(AUTH_ME_PATH).hasAnyRole("USER", "ADMIN", "ONBOARDING")
+                        .requestMatchers(WEBVIEW_CODE_PATH).hasRole("USER")
                         // 매거진 조회는 공개지만 좋아요는 회원만 — permitAll(/api/v1/magazines/**)보다 먼저 매칭한다.
                         .requestMatchers(MAGAZINE_LIKE_PATH).hasRole("USER")
                         .requestMatchers(PUBLIC_PATHS).permitAll()
