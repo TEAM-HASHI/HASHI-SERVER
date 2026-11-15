@@ -49,8 +49,8 @@ jobs:
               exit 1
             }
           elif [[ "${TARGET}" == "prod" ]]; then
-            [[ "${DEPLOYMENT_REF}" == "refs/heads/main" ]] || {
-              echo "Production artifact preparation must run from refs/heads/main."
+            [[ "${DEPLOYMENT_REF}" == "refs/heads/main" || "${DEPLOYMENT_REF}" =~ ^refs/heads/release/[0-9]+\.[0-9]+\.[0-9]+$ ]] || {
+              echo "Production artifact preparation must run from main or release/X.Y.Z."
               exit 1
             }
             [[ "${PRODUCTION_CONFIRMATION}" == "prepare-prod-artifact" ]] || {
