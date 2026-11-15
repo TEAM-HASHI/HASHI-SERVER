@@ -28,15 +28,14 @@ import software.amazon.awssdk.services.s3.S3Client;
 import software.amazon.awssdk.services.s3.model.BucketVersioningStatus;
 import software.amazon.awssdk.services.s3.model.CommonPrefix;
 import software.amazon.awssdk.services.s3.model.DeleteMarkerEntry;
-import software.amazon.awssdk.services.s3.model.DeleteObjectsRequest;
-import software.amazon.awssdk.services.s3.model.DeleteObjectsResponse;
+import software.amazon.awssdk.services.s3.model.DeleteObjectRequest;
+import software.amazon.awssdk.services.s3.model.DeleteObjectResponse;
 import software.amazon.awssdk.services.s3.model.GetBucketVersioningRequest;
 import software.amazon.awssdk.services.s3.model.GetBucketVersioningResponse;
 import software.amazon.awssdk.services.s3.model.ListObjectVersionsRequest;
 import software.amazon.awssdk.services.s3.model.ListObjectVersionsResponse;
-import software.amazon.awssdk.services.s3.model.ObjectIdentifier;
 import software.amazon.awssdk.services.s3.model.ObjectVersion;
-import software.amazon.awssdk.services.s3.model.S3Error;
+import software.amazon.awssdk.services.s3.model.S3Exception;
 
 class S3MediaCleanupStorageTest {
 
@@ -47,7 +46,7 @@ class S3MediaCleanupStorageTest {
     private static final String DELIVERY_KEY = DELIVERY_PREFIX + "v1/review-preview/135.webp";
     private static final ListObjectVersionsResponse EMPTY = ListObjectVersionsResponse.builder()
             .isTruncated(false).build();
-    private static final DeleteObjectsResponse DELETED = DeleteObjectsResponse.builder().build();
+    private static final DeleteObjectResponse DELETED = DeleteObjectResponse.builder().build();
 
     private final S3Client client = mock(S3Client.class);
     private final S3MediaCleanupStorage storage = new S3MediaCleanupStorage(
@@ -84,7 +83,7 @@ class S3MediaCleanupStorageTest {
             assertThat(request.keyMarker()).isNull();
             assertThat(request.versionIdMarker()).isNull();
         });
-        verify(client, never()).deleteObjects(any(DeleteObjectsRequest.class));
+        verify(client, never()).deleteObject(any(DeleteObjectRequest.class));
     }
 
     @Test
@@ -99,7 +98,7 @@ class S3MediaCleanupStorageTest {
                 .isInstanceOf(MediaCleanupStorageException.class)
                 .extracting("reason")
                 .isEqualTo(Reason.VERSIONING_NOT_ENABLED);
-        verify(client, never()).deleteObjects(any(DeleteObjectsRequest.class));
+        verify(client, never()).deleteObject(any(DeleteObjectRequest.class));
     }
 
     @Test
@@ -108,21 +107,19 @@ class S3MediaCleanupStorageTest {
                 .toBuilder().deleteMarkers(marker(ORIGINAL_KEY, "delete-marker")).build();
         when(client.listObjectVersions(any(ListObjectVersionsRequest.class)))
                 .thenReturn(originals, EMPTY, page(version(DELIVERY_KEY, "null")), EMPTY);
-        when(client.deleteObjects(any(DeleteObjectsRequest.class))).thenReturn(DELETED);
+        when(client.deleteObject(any(DeleteObjectRequest.class))).thenReturn(DELETED);
 
         assertThat(storage.purgeAssetObjects(ASSET_ID)).isEqualTo(new MediaObjectPurgeResult(true, 4));
 
-        ArgumentCaptor<DeleteObjectsRequest> requests = ArgumentCaptor.forClass(DeleteObjectsRequest.class);
-        verify(client, times(2)).deleteObjects(requests.capture());
+        ArgumentCaptor<DeleteObjectRequest> requests = ArgumentCaptor.forClass(DeleteObjectRequest.class);
+        verify(client, times(4)).deleteObject(requests.capture());
         assertThat(requests.getAllValues().getFirst().bucket()).isEqualTo("test-originals");
-        assertThat(requests.getAllValues().getFirst().delete().objects())
-                .containsExactly(object(ORIGINAL_KEY, "older"), object(ORIGINAL_KEY, "newer"),
-                        object(ORIGINAL_KEY, "delete-marker"));
+        assertThat(requests.getAllValues()).extracting(DeleteObjectRequest::key)
+                .containsExactly(ORIGINAL_KEY, ORIGINAL_KEY, ORIGINAL_KEY, DELIVERY_KEY);
+        assertThat(requests.getAllValues()).extracting(DeleteObjectRequest::versionId)
+                .containsExactly("older", "newer", "delete-marker", "null");
         assertThat(requests.getAllValues().getLast().bucket()).isEqualTo("test-delivery");
-        assertThat(requests.getAllValues().getLast().delete().objects())
-                .containsExactly(object(DELIVERY_KEY, "null"));
         assertThat(requests.getAllValues()).allSatisfy(request -> {
-            assertThat(request.delete().quiet()).isTrue();
             assertThat(request.mfa()).isNull();
             assertThat(request.bypassGovernanceRetention()).isNull();
         });
@@ -132,12 +129,12 @@ class S3MediaCleanupStorageTest {
     void 이미_삭제한_asset의_재호출은_추가_삭제없이_완료한다() {
         when(client.listObjectVersions(any(ListObjectVersionsRequest.class)))
                 .thenReturn(page(version(ORIGINAL_KEY, "v1")), EMPTY, EMPTY, EMPTY, EMPTY);
-        when(client.deleteObjects(any(DeleteObjectsRequest.class))).thenReturn(DELETED);
+        when(client.deleteObject(any(DeleteObjectRequest.class))).thenReturn(DELETED);
 
         assertThat(storage.purgeAssetObjects(ASSET_ID).acknowledgedDeletes()).isEqualTo(1);
         assertThat(storage.purgeAssetObjects(ASSET_ID)).isEqualTo(new MediaObjectPurgeResult(true, 0));
 
-        verify(client).deleteObjects(any(DeleteObjectsRequest.class));
+        verify(client).deleteObject(any(DeleteObjectRequest.class));
     }
 
     @Test
@@ -148,7 +145,7 @@ class S3MediaCleanupStorageTest {
                                 .toBuilder().isTruncated(true).nextKeyMarker(ORIGINAL_KEY)
                                 .nextVersionIdMarker("v2").build(),
                         page(version(ORIGINAL_KEY, "v3")), EMPTY, EMPTY);
-        when(client.deleteObjects(any(DeleteObjectsRequest.class))).thenReturn(DELETED);
+        when(client.deleteObject(any(DeleteObjectRequest.class))).thenReturn(DELETED);
 
         assertThat(bounded.purgeAssetObjects(ASSET_ID)).isEqualTo(new MediaObjectPurgeResult(true, 3));
 
@@ -166,12 +163,12 @@ class S3MediaCleanupStorageTest {
         S3MediaCleanupStorage bounded = new S3MediaCleanupStorage(client, "test-originals", "test-delivery", 1, 1);
         when(client.listObjectVersions(any(ListObjectVersionsRequest.class)))
                 .thenReturn(page(version(ORIGINAL_KEY, "v1")), EMPTY, EMPTY, EMPTY);
-        when(client.deleteObjects(any(DeleteObjectsRequest.class))).thenReturn(DELETED);
+        when(client.deleteObject(any(DeleteObjectRequest.class))).thenReturn(DELETED);
 
         assertThat(bounded.purgeAssetObjects(ASSET_ID)).isEqualTo(new MediaObjectPurgeResult(false, 1));
         assertThat(bounded.purgeAssetObjects(ASSET_ID)).isEqualTo(new MediaObjectPurgeResult(true, 0));
 
-        verify(client).deleteObjects(any(DeleteObjectsRequest.class));
+        verify(client).deleteObject(any(DeleteObjectRequest.class));
         verify(client, times(4)).listObjectVersions(any(ListObjectVersionsRequest.class));
     }
 
@@ -182,7 +179,7 @@ class S3MediaCleanupStorageTest {
 
         assertFailure(() -> storage.purgeAssetObjects(ASSET_ID), Reason.INVALID_STORAGE_RESPONSE);
 
-        verify(client, never()).deleteObjects(any(DeleteObjectsRequest.class));
+        verify(client, never()).deleteObject(any(DeleteObjectRequest.class));
     }
 
     @Test
@@ -192,26 +189,26 @@ class S3MediaCleanupStorageTest {
                 .thenReturn(page(version(ORIGINAL_KEY, "v1"), version(ORIGINAL_KEY, "v2")));
 
         assertFailure(() -> bounded.purgeAssetObjects(ASSET_ID), Reason.INVALID_STORAGE_RESPONSE);
-        verify(client, never()).deleteObjects(any(DeleteObjectsRequest.class));
+        verify(client, never()).deleteObject(any(DeleteObjectRequest.class));
     }
 
     @Test
-    void HTTP_200의_항목별_삭제_실패는_완료로_처리하지_않고_재호출한다() {
+    void 일부_version_삭제_실패는_완료로_처리하지_않고_남은_version만_재호출한다() {
         when(client.listObjectVersions(any(ListObjectVersionsRequest.class)))
                 .thenReturn(page(version(ORIGINAL_KEY, "gone"), version(ORIGINAL_KEY, "retained")),
                         page(version(ORIGINAL_KEY, "retained")), EMPTY, EMPTY);
-        when(client.deleteObjects(any(DeleteObjectsRequest.class)))
-                .thenReturn(DeleteObjectsResponse.builder().errors(S3Error.builder()
-                                .key(ORIGINAL_KEY).versionId("retained").code("AccessDenied")
-                                .message("private provider detail").build()).build(), DELETED);
+        when(client.deleteObject(any(DeleteObjectRequest.class)))
+                .thenReturn(DELETED)
+                .thenThrow(S3Exception.builder().statusCode(403).message("private provider detail").build())
+                .thenReturn(DELETED);
 
-        assertFailure(() -> storage.purgeAssetObjects(ASSET_ID), Reason.PARTIAL_DELETE);
+        assertFailure(() -> storage.purgeAssetObjects(ASSET_ID), Reason.STORAGE_UNAVAILABLE);
         assertThat(storage.purgeAssetObjects(ASSET_ID)).isEqualTo(new MediaObjectPurgeResult(true, 1));
 
-        ArgumentCaptor<DeleteObjectsRequest> requests = ArgumentCaptor.forClass(DeleteObjectsRequest.class);
-        verify(client, times(2)).deleteObjects(requests.capture());
-        assertThat(requests.getAllValues().getLast().delete().objects())
-                .containsExactly(object(ORIGINAL_KEY, "retained"));
+        ArgumentCaptor<DeleteObjectRequest> requests = ArgumentCaptor.forClass(DeleteObjectRequest.class);
+        verify(client, times(3)).deleteObject(requests.capture());
+        assertThat(requests.getAllValues()).extracting(DeleteObjectRequest::versionId)
+                .containsExactly("gone", "retained", "retained");
     }
 
     @Test
@@ -220,14 +217,14 @@ class S3MediaCleanupStorageTest {
                 .thenThrow(SdkClientException.create("private bucket/key/version"));
 
         assertFailure(() -> storage.purgeAssetObjects(ASSET_ID), Reason.STORAGE_UNAVAILABLE);
-        verify(client, never()).deleteObjects(any(DeleteObjectsRequest.class));
+        verify(client, never()).deleteObject(any(DeleteObjectRequest.class));
     }
 
     @Test
     void 삭제_응답이_유실되면_완료하지_않고_다음_실행에서_빈_목록을_확인한다() {
         when(client.listObjectVersions(any(ListObjectVersionsRequest.class)))
                 .thenReturn(page(version(ORIGINAL_KEY, "v1")), EMPTY, EMPTY);
-        when(client.deleteObjects(any(DeleteObjectsRequest.class)))
+        when(client.deleteObject(any(DeleteObjectRequest.class)))
                 .thenThrow(SdkClientException.create("response lost after deletion"));
 
         assertFailure(() -> storage.purgeAssetObjects(ASSET_ID), Reason.STORAGE_UNAVAILABLE);
@@ -259,14 +256,14 @@ class S3MediaCleanupStorageTest {
 
         assertFailure(() -> storage.purgeAssetObjects(ASSET_ID), Reason.INTERRUPTED);
         assertThat(Thread.currentThread().isInterrupted()).isTrue();
-        verify(client, never()).deleteObjects(any(DeleteObjectsRequest.class));
+        verify(client, never()).deleteObject(any(DeleteObjectRequest.class));
     }
 
     @Test
-    void 삭제_직후_중단되면_다른_prefix로_진행하지_않는다() {
+    void 삭제_직후_중단되면_같은_페이지의_다음_version도_삭제하지_않는다() {
         when(client.listObjectVersions(any(ListObjectVersionsRequest.class)))
-                .thenReturn(page(version(ORIGINAL_KEY, "v1")));
-        when(client.deleteObjects(any(DeleteObjectsRequest.class))).thenAnswer(invocation -> {
+                .thenReturn(page(version(ORIGINAL_KEY, "v1"), version(ORIGINAL_KEY, "v2")));
+        when(client.deleteObject(any(DeleteObjectRequest.class))).thenAnswer(invocation -> {
             Thread.currentThread().interrupt();
             return DELETED;
         });
@@ -274,7 +271,7 @@ class S3MediaCleanupStorageTest {
         assertFailure(() -> storage.purgeAssetObjects(ASSET_ID), Reason.INTERRUPTED);
         assertThat(Thread.currentThread().isInterrupted()).isTrue();
         verify(client).listObjectVersions(any(ListObjectVersionsRequest.class));
-        verify(client).deleteObjects(any(DeleteObjectsRequest.class));
+        verify(client).deleteObject(any(DeleteObjectRequest.class));
     }
 
     @Test
@@ -286,7 +283,7 @@ class S3MediaCleanupStorageTest {
                 });
 
         assertFailure(() -> storage.purgeAssetObjects(ASSET_ID), Reason.INTERRUPTED);
-        verify(client, never()).deleteObjects(any(DeleteObjectsRequest.class));
+        verify(client, never()).deleteObject(any(DeleteObjectRequest.class));
     }
 
     @Test
@@ -337,7 +334,7 @@ class S3MediaCleanupStorageTest {
 
         assertThat(bounded.purgeAssetObjects(ASSET_ID)).isEqualTo(new MediaObjectPurgeResult(false, 0));
         verify(client).listObjectVersions(any(ListObjectVersionsRequest.class));
-        verify(client, never()).deleteObjects(any(DeleteObjectsRequest.class));
+        verify(client, never()).deleteObject(any(DeleteObjectRequest.class));
     }
 
     @Test
@@ -346,7 +343,7 @@ class S3MediaCleanupStorageTest {
         S3MediaCleanupStorage bounded = budgetStorage(clock);
         when(client.listObjectVersions(any(ListObjectVersionsRequest.class)))
                 .thenReturn(page(version(ORIGINAL_KEY, "v1")), EMPTY, EMPTY);
-        when(client.deleteObjects(any(DeleteObjectsRequest.class))).thenAnswer(invocation -> {
+        when(client.deleteObject(any(DeleteObjectRequest.class))).thenAnswer(invocation -> {
             clock.addAndGet(Duration.ofSeconds(1).toNanos());
             return DELETED;
         });
@@ -355,7 +352,46 @@ class S3MediaCleanupStorageTest {
         verify(client).listObjectVersions(any(ListObjectVersionsRequest.class));
         assertThat(bounded.purgeAssetObjects(ASSET_ID)).isEqualTo(new MediaObjectPurgeResult(true, 0));
         verify(client, times(3)).listObjectVersions(any(ListObjectVersionsRequest.class));
-        verify(client).deleteObjects(any(DeleteObjectsRequest.class));
+        verify(client).deleteObject(any(DeleteObjectRequest.class));
+    }
+
+    @Test
+    void 같은_페이지에서도_시간이_끝나면_남은_version은_다음_실행에서_처리한다() {
+        AtomicLong clock = new AtomicLong();
+        S3MediaCleanupStorage bounded = budgetStorage(clock);
+        when(client.listObjectVersions(any(ListObjectVersionsRequest.class)))
+                .thenReturn(page(version(ORIGINAL_KEY, "v1"), version(ORIGINAL_KEY, "v2")),
+                        page(version(ORIGINAL_KEY, "v2")), EMPTY, EMPTY);
+        when(client.deleteObject(any(DeleteObjectRequest.class))).thenAnswer(invocation -> {
+            clock.addAndGet(Duration.ofSeconds(1).toNanos());
+            return DELETED;
+        });
+
+        assertThat(bounded.purgeAssetObjects(ASSET_ID)).isEqualTo(new MediaObjectPurgeResult(false, 1));
+        verify(client).deleteObject(any(DeleteObjectRequest.class));
+        when(client.deleteObject(any(DeleteObjectRequest.class))).thenReturn(DELETED);
+        assertThat(bounded.purgeAssetObjects(ASSET_ID)).isEqualTo(new MediaObjectPurgeResult(true, 1));
+
+        ArgumentCaptor<DeleteObjectRequest> requests = ArgumentCaptor.forClass(DeleteObjectRequest.class);
+        verify(client, times(2)).deleteObject(requests.capture());
+        assertThat(requests.getAllValues()).extracting(DeleteObjectRequest::versionId).containsExactly("v1", "v2");
+    }
+
+    @Test
+    void 삭제_직전_versioning_확인_중_시간이_끝나면_삭제하지_않는다() {
+        AtomicLong clock = new AtomicLong();
+        S3MediaCleanupStorage bounded = budgetStorage(clock);
+        when(client.listObjectVersions(any(ListObjectVersionsRequest.class)))
+                .thenReturn(page(version(ORIGINAL_KEY, "v1")));
+        when(client.getBucketVersioning(any(GetBucketVersioningRequest.class)))
+                .thenReturn(versioning(BucketVersioningStatus.ENABLED))
+                .thenAnswer(invocation -> {
+                    clock.set(Duration.ofSeconds(1).toNanos());
+                    return versioning(BucketVersioningStatus.ENABLED);
+                });
+
+        assertThat(bounded.purgeAssetObjects(ASSET_ID)).isEqualTo(new MediaObjectPurgeResult(false, 0));
+        verify(client, never()).deleteObject(any(DeleteObjectRequest.class));
     }
 
     @Test
@@ -369,7 +405,7 @@ class S3MediaCleanupStorageTest {
 
         assertThat(bounded.purgeAssetObjects(ASSET_ID)).isEqualTo(new MediaObjectPurgeResult(false, 0));
         verify(client).listObjectVersions(any(ListObjectVersionsRequest.class));
-        verify(client, never()).deleteObjects(any(DeleteObjectsRequest.class));
+        verify(client, never()).deleteObject(any(DeleteObjectRequest.class));
     }
 
     @Test
@@ -421,10 +457,6 @@ class S3MediaCleanupStorageTest {
 
     private static DeleteMarkerEntry marker(String key, String versionId) {
         return DeleteMarkerEntry.builder().key(key).versionId(versionId).build();
-    }
-
-    private static ObjectIdentifier object(String key, String versionId) {
-        return ObjectIdentifier.builder().key(key).versionId(versionId).build();
     }
 
     private static GetBucketVersioningResponse versioning(BucketVersioningStatus status) {
