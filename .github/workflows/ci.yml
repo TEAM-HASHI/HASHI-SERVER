@@ -67,6 +67,14 @@ jobs:
       - name: Checkout source code
         uses: actions/checkout@v4
 
+      - name: Set up Node for deployment guard tests
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Test production deployment request guard
+        run: node --test scripts/deploy/validate-prod-request.test.mjs
+
       - name: Validate unique Flyway migration versions
         run: |
           python3 - <<'PY'
