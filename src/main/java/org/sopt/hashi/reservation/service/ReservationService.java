@@ -30,12 +30,14 @@ import org.sopt.hashi.reservation.dto.ReservationDetailResponse;
 import org.sopt.hashi.reservation.dto.ReservationListResponse;
 import org.sopt.hashi.reservation.dto.ReservationResponse;
 import org.sopt.hashi.reservation.dto.ReservationStatusFilter;
+import org.sopt.hashi.reservation.event.ReservationRequestedEvent;
 import org.sopt.hashi.restaurant.RestaurantDetailInfo;
 import org.sopt.hashi.restaurant.RestaurantInfo;
 import org.sopt.hashi.restaurant.RestaurantPort;
 import org.sopt.hashi.shared.error.BusinessException;
 import org.sopt.hashi.user.UserInfo;
 import org.sopt.hashi.user.UserPort;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
@@ -70,6 +72,7 @@ public class ReservationService {
     private final UserPort userPort;
     private final CurrentUserProvider currentUserProvider;
     private final CurrentActorProvider currentActorProvider;
+    private final ApplicationEventPublisher eventPublisher;
 
     public ReservationService(ReservationRepository reservationRepository,
                               RestaurantPort restaurantPort,
@@ -77,7 +80,8 @@ public class ReservationService {
                               PointPort pointPort,
                               UserPort userPort,
                               CurrentUserProvider currentUserProvider,
-                              CurrentActorProvider currentActorProvider) {
+                              CurrentActorProvider currentActorProvider,
+                              ApplicationEventPublisher eventPublisher) {
         this.reservationRepository = reservationRepository;
         this.restaurantPort = restaurantPort;
         this.mediaPort = mediaPort;
@@ -85,6 +89,7 @@ public class ReservationService {
         this.userPort = userPort;
         this.currentUserProvider = currentUserProvider;
         this.currentActorProvider = currentActorProvider;
+        this.eventPublisher = eventPublisher;
     }
 
     /** 등록 식당 예약을 생성한다. 식당이 존재하지 않으면 거부하고, 사용 포인트는 같은 트랜잭션에서 차감한다(§8). */
@@ -100,9 +105,7 @@ public class ReservationService {
                 userId, request.reserverName(), request.restaurantId(), request.reservedAt(),
                 request.adultCount(), request.teenCount(), request.childCount(), request.requestNote(),
                 usedPoint, request.amount()));
-        usePointIfAny(userId, reservation);
-        logCreated(reservation);
-        return toResponse(reservation);
+        return completeCreation(userId, reservation);
     }
 
     /** 미등록 식당(어디든) 예약을 생성한다. 식당 존재 검증 없이 저장하며, 사용 포인트는 같은 트랜잭션에서 차감한다. */
@@ -116,9 +119,16 @@ public class ReservationService {
                 request.reservedAt(),
                 request.adultCount(), request.teenCount(), request.childCount(), request.requestNote(),
                 usedPoint, request.amount()));
+        return completeCreation(userId, reservation);
+    }
+
+    private ReservationResponse completeCreation(Long userId, Reservation reservation) {
         usePointIfAny(userId, reservation);
         logCreated(reservation);
-        return toResponse(reservation);
+        ReservationResponse response = toResponse(reservation);
+        eventPublisher.publishEvent(new ReservationRequestedEvent(
+                reservation.getId(), reservation.getReservationType()));
+        return response;
     }
 
     /**

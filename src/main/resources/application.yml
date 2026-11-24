@@ -156,6 +156,11 @@ hashi:
       lease-duration: ${USER_PROFILE_BACKFILL_LEASE_DURATION:5m}
       max-attempts: ${USER_PROFILE_BACKFILL_MAX_ATTEMPTS:3}
       retry-initial-delay: ${USER_PROFILE_BACKFILL_RETRY_INITIAL_DELAY:200ms}
+  reservation:
+    notifications:
+      enabled: ${HASHI_RESERVATION_NOTIFICATIONS_ENABLED:false}
+      slack-webhook-url: ${HASHI_RESERVATION_NOTIFICATIONS_SLACK_WEBHOOK_URL:}
+      discord-webhook-url: ${HASHI_RESERVATION_NOTIFICATIONS_DISCORD_WEBHOOK_URL:}
   restaurant:
     media-backfill:
       # 승인된 one-shot 실행에서만 켠다. PREPARE/ATTACH는 재시작 가능한 고유 run-id가 필수다.
