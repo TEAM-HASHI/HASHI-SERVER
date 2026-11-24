@@ -25,6 +25,8 @@ import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Map;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.ArgumentCaptor;
 import org.sopt.hashi.reservation.ReservationType;
 import org.sopt.hashi.reservation.event.ReservationRequestedEvent;
@@ -81,7 +83,7 @@ class ReservationWebhookSenderTest {
 
         assertThatThrownBy(() -> sender.sendSlack(EVENT))
                 .isInstanceOf(IllegalStateException.class)
-                .hasMessage("Slack 예약 알림 전송 실패. errorType=IOException")
+                .hasMessage("Slack 예약 알림 전송 실패. reservationId=123, errorType=IOException")
                 .hasNoCause();
     }
 
@@ -95,7 +97,7 @@ class ReservationWebhookSenderTest {
         var delivered = response(200, Map.of());
         when(client.send(argThat(request -> request != null && request.uri().equals(URI.create(SLACK_URL))),
                 org.mockito.ArgumentMatchers.<HttpResponse.BodyHandler<InputStream>>any()))
-                .thenReturn(rateLimited, delivered);
+                .thenReturn(rateLimited).thenReturn(delivered);
         when(client.send(argThat(request -> request != null && request.uri().getHost().equals("discord.com")),
                 org.mockito.ArgumentMatchers.<HttpResponse.BodyHandler<InputStream>>any()))
                 .thenReturn(delivered);
@@ -123,6 +125,29 @@ class ReservationWebhookSenderTest {
         assertThatThrownBy(() -> sender.sendDiscord(EVENT)).hasMessageContaining("보류");
 
         verify(client).send(any(), org.mockito.ArgumentMatchers.<HttpResponse.BodyHandler<InputStream>>any());
+    }
+
+    @ParameterizedTest
+    @ValueSource(ints = {401, 403, 404, 410})
+    void 슬랙_설정_오류가_난_채널만_후속_외부_호출을_보류한다(int status) throws Exception {
+        HttpClient client = mock(HttpClient.class);
+        var rejected = response(status, Map.of());
+        var delivered = response(200, Map.of());
+        when(client.send(any(), org.mockito.ArgumentMatchers.<HttpResponse.BodyHandler<InputStream>>any()))
+                .thenReturn(rejected).thenReturn(delivered);
+        var sender = new ReservationWebhookSender(new ObjectMapper(), Clock.systemUTC(), SLACK_URL, DISCORD_URL, client);
+
+        assertThatThrownBy(() -> sender.sendSlack(EVENT))
+                .hasMessageContaining("reservationId=123")
+                .hasMessageContaining("status=" + status);
+        assertThatThrownBy(() -> sender.sendSlack(EVENT)).hasMessageContaining("보류");
+        sender.sendDiscord(EVENT);
+
+        ArgumentCaptor<HttpRequest> requests = ArgumentCaptor.forClass(HttpRequest.class);
+        verify(client, times(2)).send(
+                requests.capture(), org.mockito.ArgumentMatchers.<HttpResponse.BodyHandler<InputStream>>any());
+        assertThat(requests.getAllValues()).extracting(request -> request.uri().getHost())
+                .containsExactly("hooks.slack.com", "discord.com");
     }
 
     private HttpResponse<InputStream> response(int status, Map<String, List<String>> headers) {

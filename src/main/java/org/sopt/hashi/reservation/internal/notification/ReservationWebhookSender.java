@@ -61,7 +61,7 @@ class ReservationWebhookSender implements AutoCloseable {
     }
 
     void sendSlack(ReservationRequestedEvent event) {
-        send(slack, Map.of(
+        send(slack, event.reservationId(), Map.of(
                 "text", message(event, slackRestaurantName(event)),
                 "mrkdwn", false,
                 "unfurl_links", false,
@@ -69,7 +69,7 @@ class ReservationWebhookSender implements AutoCloseable {
     }
 
     void sendDiscord(ReservationRequestedEvent event) {
-        send(discord, Map.of(
+        send(discord, event.reservationId(), Map.of(
                 "content", message(event, discordRestaurantName(event)),
                 "allowed_mentions", Map.of("parse", List.of()),
                 "flags", 4)); // SUPPRESS_EMBEDS
@@ -110,13 +110,13 @@ class ReservationWebhookSender implements AutoCloseable {
         return DISCORD_MARKDOWN.matcher(restaurantName(event)).replaceAll(DISCORD_MARKDOWN_ESCAPE);
     }
 
-    private void send(Destination destination, Map<String, Object> payload) {
+    private void send(Destination destination, long reservationId, Map<String, Object> payload) {
         String provider = destination.provider;
         if (destination.uri == null) {
-            throw new IllegalStateException(provider + " 운영 예약 웹훅 URL을 사용할 수 없습니다");
+            throw failure(provider, reservationId, "웹훅 URL 미설정");
         }
         if (clock.instant().isBefore(destination.resumeAt)) {
-            throw new IllegalStateException(provider + " 운영 예약 웹훅 전송이 보류 중입니다");
+            throw failure(provider, reservationId, "웹훅 전송 보류 중");
         }
         HttpRequest request = HttpRequest.newBuilder(destination.uri)
                 .timeout(REQUEST_TIMEOUT)
@@ -129,19 +129,30 @@ class ReservationWebhookSender implements AutoCloseable {
             int status = response.statusCode();
             if (status == 429) {
                 destination.resumeAt = resumeAfter(response);
-            } else if (destination == discord && status == 404) {
+            } else if (requiresWebhookConfiguration(status)) {
                 destination.resumeAt = Instant.MAX;
             }
             if (status < 200 || status >= 300) {
-                throw new IllegalStateException(provider + " 예약 알림 전송 실패. status=" + status);
+                throw failure(provider, reservationId, "status=" + status);
             }
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
-            throw new IllegalStateException(provider + " 예약 알림 전송 중단");
+            throw failure(provider, reservationId, "전송 중단");
         } catch (IOException e) {
-            throw new IllegalStateException(provider + " 예약 알림 전송 실패. errorType="
-                    + e.getClass().getSimpleName());
+            throw failure(provider, reservationId, "errorType=" + e.getClass().getSimpleName());
         }
+    }
+
+    private static boolean requiresWebhookConfiguration(int status) {
+        return switch (status) {
+            case 401, 403, 404, 410 -> true;
+            default -> false;
+        };
+    }
+
+    private static IllegalStateException failure(String provider, long reservationId, String reason) {
+        return new IllegalStateException("%s 예약 알림 전송 실패. reservationId=%d, %s"
+                .formatted(provider, reservationId, reason));
     }
 
     private void closeResponseBody(String provider, InputStream body) {
