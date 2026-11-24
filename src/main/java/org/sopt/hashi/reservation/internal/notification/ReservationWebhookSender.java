@@ -8,7 +8,9 @@ import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.time.Duration;
+import java.time.format.DateTimeFormatter;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.regex.Pattern;
 import lombok.extern.slf4j.Slf4j;
@@ -19,6 +21,11 @@ class ReservationWebhookSender implements AutoCloseable {
 
     private static final Duration CONNECT_TIMEOUT = Duration.ofSeconds(2);
     private static final Duration REQUEST_TIMEOUT = Duration.ofSeconds(5);
+    private static final DateTimeFormatter VISIT_TIME_FORMATTER =
+            DateTimeFormatter.ofPattern("uuuu-MM-dd HH:mm", Locale.ROOT);
+    private static final Pattern CONTROL_OR_LINE_BREAK = Pattern.compile("[\\p{Cc}\\p{Cf}\\p{Zl}\\p{Zp}]+");
+    private static final Pattern DISCORD_MARKDOWN = Pattern.compile("[\\\\`*_~|<>\\[\\]()#]");
+    private static final String DISCORD_MARKDOWN_ESCAPE = "\\\\$0";
     private static final Pattern SLACK_URL = Pattern.compile(
             "https://hooks\\.slack\\.com/services/(?:[A-Za-z0-9_-]+/){2}[A-Za-z0-9_-]+");
     private static final Pattern DISCORD_URL = Pattern.compile(
@@ -45,21 +52,53 @@ class ReservationWebhookSender implements AutoCloseable {
     }
 
     void sendSlack(ReservationRequestedEvent event) {
-        send("Slack", slackUri, Map.of("text", message(event)));
+        send("Slack", slackUri, Map.of(
+                "text", message(event, slackRestaurantName(event)),
+                "mrkdwn", false,
+                "unfurl_links", false,
+                "unfurl_media", false));
     }
 
     void sendDiscord(ReservationRequestedEvent event) {
         send("Discord", discordUri, Map.of(
-                "content", message(event),
-                "allowed_mentions", Map.of("parse", List.of())));
+                "content", message(event, discordRestaurantName(event)),
+                "allowed_mentions", Map.of("parse", List.of()),
+                "flags", 4)); // SUPPRESS_EMBEDS
     }
 
-    private static String message(ReservationRequestedEvent event) {
+    private static String message(ReservationRequestedEvent event, String restaurantName) {
         String type = switch (event.reservationType()) {
             case STANDARD -> "등록 식당";
             case ANYWHERE -> "어디든";
         };
-        return "[HASHI 운영] 새 예약 요청 #%d (%s)".formatted(event.reservationId(), type);
+        String title = "[HASHI 운영] 새 예약 요청 #%d (%s)".formatted(event.reservationId(), type);
+        if (event.reservedAt() == null) {
+            return title;
+        }
+        int total = event.adultCount() + event.teenCount() + event.childCount();
+        return """
+                %s
+                예약자 %s
+                식당 %s
+                방문 예정 %s (일본 현지 시각)
+                총 %d명 (성인 %d, 청소년 %d, 아동 %d)""".formatted(
+                title, event.maskedReserverName(), restaurantName, VISIT_TIME_FORMATTER.format(event.reservedAt()),
+                total, event.adultCount(), event.teenCount(), event.childCount());
+    }
+
+    private static String restaurantName(ReservationRequestedEvent event) {
+        if (event.restaurantName() == null) {
+            return "알 수 없는 식당";
+        }
+        return CONTROL_OR_LINE_BREAK.matcher(event.restaurantName()).replaceAll(" ").strip();
+    }
+
+    private static String slackRestaurantName(ReservationRequestedEvent event) {
+        return restaurantName(event).replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;");
+    }
+
+    private static String discordRestaurantName(ReservationRequestedEvent event) {
+        return DISCORD_MARKDOWN.matcher(restaurantName(event)).replaceAll(DISCORD_MARKDOWN_ESCAPE);
     }
 
     private void send(String provider, URI uri, Map<String, Object> payload) {

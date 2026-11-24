@@ -127,8 +127,20 @@ public class ReservationService {
         logCreated(reservation);
         ReservationResponse response = toResponse(reservation);
         eventPublisher.publishEvent(new ReservationRequestedEvent(
-                reservation.getId(), reservation.getReservationType()));
+                response.reservationId(),
+                response.reservationType(),
+                maskReserverName(response.reserverName()),
+                response.restaurantName(),
+                response.reservedAt(),
+                response.adultCount(),
+                response.teenCount(),
+                response.childCount()));
         return response;
+    }
+
+    private static String maskReserverName(String name) {
+        int[] letters = name.codePoints().filter(Character::isLetter).limit(2).toArray();
+        return letters.length < 2 ? "***" : Character.toString(letters[0]) + "**";
     }
 
     /**

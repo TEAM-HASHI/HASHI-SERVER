@@ -13,6 +13,7 @@ import java.io.IOException;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
+import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Map;
 import org.junit.jupiter.api.Test;
@@ -25,10 +26,12 @@ class ReservationWebhookSenderTest {
 
     private static final String SLACK_URL = "https://hooks.slack.com/services/test-team/test-app/test-token";
     private static final String DISCORD_URL = "https://discord.com/api/webhooks/123/test-token";
-    private static final ReservationRequestedEvent EVENT = new ReservationRequestedEvent(123L, ReservationType.ANYWHERE);
+    private static final ReservationRequestedEvent EVENT = new ReservationRequestedEvent(123L, ReservationType.ANYWHERE,
+            "김**", "스시 A & B\n<@123> *별관*", LocalDateTime.of(2030, 8, 1, 19, 0),
+            2, 0, 1);
 
     @Test
-    void 두_제공자에_예약_번호와_유형만_전송한다() throws Exception {
+    void 두_제공자에_마스킹한_예약_상세와_멘션_방지_설정을_전송한다() throws Exception {
         ObjectMapper mapper = spy(new ObjectMapper());
         HttpClient client = mock(HttpClient.class);
         HttpResponse<Void> response = mock();
@@ -40,9 +43,18 @@ class ReservationWebhookSenderTest {
         sender.sendSlack(EVENT);
         sender.sendDiscord(EVENT);
 
-        String message = "[HASHI 운영] 새 예약 요청 #123 (어디든)";
-        verify(mapper).writeValueAsBytes(Map.of("text", message));
-        verify(mapper).writeValueAsBytes(Map.of("content", message, "allowed_mentions", Map.of("parse", List.of())));
+        String message = """
+                [HASHI 운영] 새 예약 요청 #123 (어디든)
+                예약자 김**
+                식당 %s
+                방문 예정 2030-08-01 19:00 (일본 현지 시각)
+                총 3명 (성인 2, 청소년 0, 아동 1)""";
+        verify(mapper).writeValueAsBytes(Map.of(
+                "text", message.formatted("스시 A &amp; B &lt;@123&gt; *별관*"),
+                "mrkdwn", false, "unfurl_links", false, "unfurl_media", false));
+        verify(mapper).writeValueAsBytes(Map.of(
+                "content", message.formatted("스시 A & B \\<@123\\> \\*별관\\*"),
+                "allowed_mentions", Map.of("parse", List.of()), "flags", 4));
         ArgumentCaptor<HttpRequest> requests = ArgumentCaptor.forClass(HttpRequest.class);
         verify(client, org.mockito.Mockito.times(2)).send(
                 requests.capture(), org.mockito.ArgumentMatchers.<HttpResponse.BodyHandler<Void>>any());

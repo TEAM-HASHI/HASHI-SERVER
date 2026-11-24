@@ -12,6 +12,7 @@ import java.sql.Timestamp;
 import java.time.Instant;
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Optional;
 import org.junit.jupiter.api.Test;
 import org.sopt.hashi.auth.CurrentActorProvider;
 import org.sopt.hashi.auth.CurrentUserProvider;
@@ -22,6 +23,7 @@ import org.sopt.hashi.reservation.dto.CreateAnywhereReservationRequest;
 import org.sopt.hashi.reservation.dto.CreateReservationRequest;
 import org.sopt.hashi.reservation.event.ReservationRequestedEvent;
 import org.sopt.hashi.reservation.service.ReservationService;
+import org.sopt.hashi.restaurant.RestaurantInfo;
 import org.sopt.hashi.restaurant.RestaurantPort;
 import org.sopt.hashi.user.UserPort;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -87,11 +89,14 @@ class ReservationNotificationIntegrationTest {
         when(currentUserProvider.currentUserId()).thenReturn(7L);
         when(userPort.lockActiveUser(7L)).thenReturn(true);
         when(restaurantPort.existsById(10L)).thenReturn(true);
+        when(restaurantPort.findSummaryById(10L))
+                .thenReturn(Optional.of(new RestaurantInfo(10L, "테스트 스시", "테스트 주소", null)));
 
         ReservationRequestedEvent event = transactions.execute(status -> {
             var response = reservationService.create(new CreateReservationRequest(
-                    "테스트 예약자", 10L, VISIT_TIME, 2, 0, 0, null, 0L, 4_000L));
-            var requested = new ReservationRequestedEvent(response.reservationId(), ReservationType.STANDARD);
+                    "테스트 예약자", 10L, VISIT_TIME, 2, 0, 1, "테스트 요청사항", 0L, 4_000L));
+            var requested = new ReservationRequestedEvent(response.reservationId(), ReservationType.STANDARD,
+                    "테**", "테스트 스시", VISIT_TIME, 2, 0, 1);
             doThrow(new IllegalStateException("Discord 일시 실패")).doNothing().when(sender).sendDiscord(requested);
             verify(sender, never()).sendSlack(requested);
             verify(sender, never()).sendDiscord(requested);
@@ -101,6 +106,10 @@ class ReservationNotificationIntegrationTest {
         verify(sender, after(3_000)).sendSlack(event);
         verify(sender, times(1)).sendDiscord(event);
         assertThat(pendingListenerIds()).containsExactly("reservation-requested-discord-v1");
+        String storedEvent = jdbcTemplate.queryForObject("SELECT serialized_event FROM event_publication", String.class);
+        assertThat(storedEvent).contains("테**", "테스트 스시")
+                .doesNotContain("테스트 예약자", "테스트 요청사항", "테스트 주소");
+        assertThat(event.toString()).doesNotContain("테**", "테스트 스시");
 
         jdbcTemplate.update("UPDATE event_publication SET publication_date = ?",
                 Timestamp.from(Instant.now().minusSeconds(90)));
@@ -116,16 +125,16 @@ class ReservationNotificationIntegrationTest {
         when(currentUserProvider.currentUserId()).thenReturn(7L);
         when(userPort.lockActiveUser(7L)).thenReturn(true);
         var request = new CreateAnywhereReservationRequest(
-                "테스트 예약자", "테스트 식당", "테스트 주소", VISIT_TIME, 2, 0, 0, null, 0L, 4_000L);
+                "김", "테스트 식당", "테스트 주소", VISIT_TIME, 2, 1, 0, null, 0L, 4_000L);
 
         ReservationRequestedEvent rolledBack = transactions.execute(status -> {
             var response = reservationService.createAnywhere(request);
             status.setRollbackOnly();
-            return new ReservationRequestedEvent(response.reservationId(), ReservationType.ANYWHERE);
+            return anywhereEvent(response.reservationId());
         });
         assertThat(pendingListenerIds()).isEmpty();
         var response = reservationService.createAnywhere(request);
-        var committed = new ReservationRequestedEvent(response.reservationId(), ReservationType.ANYWHERE);
+        var committed = anywhereEvent(response.reservationId());
 
         verify(sender, after(3_000)).sendSlack(committed);
         verify(sender).sendDiscord(committed);
@@ -136,5 +145,10 @@ class ReservationNotificationIntegrationTest {
 
     private List<String> pendingListenerIds() {
         return jdbcTemplate.queryForList("SELECT listener_id FROM event_publication", String.class);
+    }
+
+    private ReservationRequestedEvent anywhereEvent(long reservationId) {
+        return new ReservationRequestedEvent(reservationId, ReservationType.ANYWHERE,
+                "***", "테스트 식당", VISIT_TIME, 2, 1, 0);
     }
 }
