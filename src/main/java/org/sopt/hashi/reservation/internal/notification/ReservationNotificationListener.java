@@ -12,13 +12,13 @@ class ReservationNotificationListener {
         this.sender = sender;
     }
 
-    @Async(ReservationNotificationConfig.EXECUTOR)
+    @Async(ReservationNotificationConfig.SLACK_EXECUTOR)
     @TransactionalEventListener(id = "reservation-requested-slack-v1")
     public void notifySlack(ReservationRequestedEvent event) {
         sender.sendSlack(event);
     }
 
-    @Async(ReservationNotificationConfig.EXECUTOR)
+    @Async(ReservationNotificationConfig.DISCORD_EXECUTOR)
     @TransactionalEventListener(id = "reservation-requested-discord-v1")
     public void notifyDiscord(ReservationRequestedEvent event) {
         sender.sendDiscord(event);

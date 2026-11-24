@@ -3,11 +3,17 @@ package org.sopt.hashi.reservation.internal.notification;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.io.IOException;
+import java.io.InputStream;
+import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
+import java.time.Clock;
+import java.time.DateTimeException;
 import java.time.Duration;
+import java.time.Instant;
 import java.time.format.DateTimeFormatter;
 import java.util.List;
 import java.util.Locale;
@@ -21,6 +27,7 @@ class ReservationWebhookSender implements AutoCloseable {
 
     private static final Duration CONNECT_TIMEOUT = Duration.ofSeconds(2);
     private static final Duration REQUEST_TIMEOUT = Duration.ofSeconds(5);
+    private static final long DEFAULT_RETRY_SECONDS = 60;
     private static final DateTimeFormatter VISIT_TIME_FORMATTER =
             DateTimeFormatter.ofPattern("uuuu-MM-dd HH:mm", Locale.ROOT);
     private static final Pattern CONTROL_OR_LINE_BREAK = Pattern.compile("[\\p{Cc}\\p{Cf}\\p{Zl}\\p{Zp}]+");
@@ -32,27 +39,29 @@ class ReservationWebhookSender implements AutoCloseable {
             "https://discord\\.com/api/webhooks/[0-9]+/[A-Za-z0-9_-]+");
 
     private final ObjectMapper objectMapper;
+    private final Clock clock;
     private final HttpClient httpClient;
-    private final URI slackUri;
-    private final URI discordUri;
+    private final Destination slack;
+    private final Destination discord;
 
-    ReservationWebhookSender(ObjectMapper objectMapper, String slackWebhook, String discordWebhook) {
-        this(objectMapper, slackWebhook, discordWebhook, HttpClient.newBuilder()
+    ReservationWebhookSender(ObjectMapper objectMapper, Clock clock, String slackWebhook, String discordWebhook) {
+        this(objectMapper, clock, slackWebhook, discordWebhook, HttpClient.newBuilder()
                 .connectTimeout(CONNECT_TIMEOUT)
                 .followRedirects(HttpClient.Redirect.NEVER)
                 .build());
     }
 
-    ReservationWebhookSender(ObjectMapper objectMapper, String slackWebhook, String discordWebhook,
+    ReservationWebhookSender(ObjectMapper objectMapper, Clock clock, String slackWebhook, String discordWebhook,
                              HttpClient httpClient) {
         this.objectMapper = objectMapper;
-        this.slackUri = webhookUri(slackWebhook, SLACK_URL, "Slack", "");
-        this.discordUri = webhookUri(discordWebhook, DISCORD_URL, "Discord", "?wait=true");
+        this.clock = clock;
+        this.slack = new Destination("Slack", webhookUri(slackWebhook, SLACK_URL, "Slack", ""));
+        this.discord = new Destination("Discord", webhookUri(discordWebhook, DISCORD_URL, "Discord", "?wait=true"));
         this.httpClient = httpClient;
     }
 
     void sendSlack(ReservationRequestedEvent event) {
-        send("Slack", slackUri, Map.of(
+        send(slack, Map.of(
                 "text", message(event, slackRestaurantName(event)),
                 "mrkdwn", false,
                 "unfurl_links", false,
@@ -60,7 +69,7 @@ class ReservationWebhookSender implements AutoCloseable {
     }
 
     void sendDiscord(ReservationRequestedEvent event) {
-        send("Discord", discordUri, Map.of(
+        send(discord, Map.of(
                 "content", message(event, discordRestaurantName(event)),
                 "allowed_mentions", Map.of("parse", List.of()),
                 "flags", 4)); // SUPPRESS_EMBEDS
@@ -101,17 +110,28 @@ class ReservationWebhookSender implements AutoCloseable {
         return DISCORD_MARKDOWN.matcher(restaurantName(event)).replaceAll(DISCORD_MARKDOWN_ESCAPE);
     }
 
-    private void send(String provider, URI uri, Map<String, Object> payload) {
-        if (uri == null) {
+    private void send(Destination destination, Map<String, Object> payload) {
+        String provider = destination.provider;
+        if (destination.uri == null) {
             throw new IllegalStateException(provider + " 운영 예약 웹훅 URL을 사용할 수 없습니다");
         }
-        HttpRequest request = HttpRequest.newBuilder(uri)
+        if (clock.instant().isBefore(destination.resumeAt)) {
+            throw new IllegalStateException(provider + " 운영 예약 웹훅 전송이 보류 중입니다");
+        }
+        HttpRequest request = HttpRequest.newBuilder(destination.uri)
                 .timeout(REQUEST_TIMEOUT)
                 .header("Content-Type", "application/json")
                 .POST(HttpRequest.BodyPublishers.ofByteArray(serialize(payload)))
                 .build();
         try {
-            int status = httpClient.send(request, HttpResponse.BodyHandlers.discarding()).statusCode();
+            HttpResponse<InputStream> response = httpClient.send(request, HttpResponse.BodyHandlers.ofInputStream());
+            closeResponseBody(provider, response.body());
+            int status = response.statusCode();
+            if (status == 429) {
+                destination.resumeAt = resumeAfter(response);
+            } else if (destination == discord && status == 404) {
+                destination.resumeAt = Instant.MAX;
+            }
             if (status < 200 || status >= 300) {
                 throw new IllegalStateException(provider + " 예약 알림 전송 실패. status=" + status);
             }
@@ -121,6 +141,26 @@ class ReservationWebhookSender implements AutoCloseable {
         } catch (IOException e) {
             throw new IllegalStateException(provider + " 예약 알림 전송 실패. errorType="
                     + e.getClass().getSimpleName());
+        }
+    }
+
+    private void closeResponseBody(String provider, InputStream body) {
+        // Java 21의 요청 제한은 헤더까지만 적용된다. 본문은 읽지 않고 발송 성공 여부는 HTTP 상태로 판단한다.
+        try {
+            body.close();
+        } catch (IOException e) {
+            log.debug("{} 웹훅 응답 스트림 종료 실패. errorType={}", provider, e.getClass().getSimpleName());
+        }
+    }
+
+    private Instant resumeAfter(HttpResponse<?> response) {
+        Instant now = clock.instant();
+        String retryAfter = response.headers().firstValue("Retry-After").orElse("");
+        try {
+            long seconds = new BigDecimal(retryAfter).setScale(0, RoundingMode.CEILING).longValueExact();
+            return now.plusSeconds(Math.max(1, seconds));
+        } catch (IllegalArgumentException | ArithmeticException | DateTimeException e) {
+            return now.plusSeconds(DEFAULT_RETRY_SECONDS);
         }
     }
 
@@ -144,5 +184,18 @@ class ReservationWebhookSender implements AutoCloseable {
     @Override
     public void close() {
         httpClient.shutdownNow();
+    }
+
+    private static final class Destination {
+
+        private final String provider;
+        private final URI uri;
+        // 대상별 전용 실행기의 단일 스레드에서만 접근한다.
+        private Instant resumeAt = Instant.MIN;
+
+        private Destination(String provider, URI uri) {
+            this.provider = provider;
+            this.uri = uri;
+        }
     }
 }

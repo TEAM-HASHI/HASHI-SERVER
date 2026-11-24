@@ -19,14 +19,17 @@ import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
 @ConditionalOnProperty(name = "hashi.reservation.notifications.enabled", havingValue = "true")
 class ReservationNotificationConfig {
 
-    static final String EXECUTOR = "reservationNotificationExecutor";
+    static final String SLACK_EXECUTOR = "reservationSlackExecutor";
+    static final String DISCORD_EXECUTOR = "reservationDiscordExecutor";
+    private static final int QUEUE_CAPACITY = 4;
 
     @Bean
     ReservationWebhookSender reservationWebhookSender(
             ObjectMapper objectMapper,
+            @Qualifier("japanClock") Clock clock,
             @Value("${hashi.reservation.notifications.slack-webhook-url:}") String slackWebhook,
             @Value("${hashi.reservation.notifications.discord-webhook-url:}") String discordWebhook) {
-        return new ReservationWebhookSender(objectMapper, slackWebhook, discordWebhook);
+        return new ReservationWebhookSender(objectMapper, clock, slackWebhook, discordWebhook);
     }
 
     @Bean
@@ -34,13 +37,23 @@ class ReservationNotificationConfig {
         return new ReservationNotificationListener(sender);
     }
 
-    @Bean(name = EXECUTOR)
-    ThreadPoolTaskExecutor reservationNotificationExecutor() {
+    @Bean(name = SLACK_EXECUTOR)
+    ThreadPoolTaskExecutor reservationSlackExecutor() {
+        return notificationExecutor("reservation-slack-");
+    }
+
+    @Bean(name = DISCORD_EXECUTOR)
+    ThreadPoolTaskExecutor reservationDiscordExecutor() {
+        return notificationExecutor("reservation-discord-");
+    }
+
+    private ThreadPoolTaskExecutor notificationExecutor(String threadNamePrefix) {
         ThreadPoolTaskExecutor executor = new ThreadPoolTaskExecutor();
-        executor.setCorePoolSize(2);
-        executor.setMaxPoolSize(2);
-        executor.setQueueCapacity(100);
-        executor.setThreadNamePrefix("reservation-notification-");
+        executor.setCorePoolSize(1);
+        executor.setMaxPoolSize(1);
+        // 요청당 5초인 HTTP 작업은 최대 25초치만 대기시켜 60초 재제출 기준에 여유를 둔다.
+        executor.setQueueCapacity(QUEUE_CAPACITY);
+        executor.setThreadNamePrefix(threadNamePrefix);
         executor.setWaitForTasksToCompleteOnShutdown(true);
         executor.setAwaitTerminationSeconds(10);
         return executor;
