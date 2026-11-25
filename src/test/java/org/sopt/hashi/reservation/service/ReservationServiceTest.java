@@ -44,6 +44,7 @@ import org.sopt.hashi.restaurant.RestaurantPort;
 import org.sopt.hashi.shared.error.BusinessException;
 import org.sopt.hashi.shared.error.CommonErrorCode;
 import org.sopt.hashi.user.UserPort;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.Pageable;
@@ -72,6 +73,9 @@ class ReservationServiceTest {
 
     @Mock
     private CurrentActorProvider currentActorProvider;
+
+    @Mock
+    private ApplicationEventPublisher eventPublisher;
 
     @Test
     void 예약_목록은_페이지에_포함된_식당_이미지만_한번에_bulk_조회한다() {
@@ -234,7 +238,8 @@ class ReservationServiceTest {
                 pointPort,
                 userPort,
                 currentUserProvider,
-                currentActorProvider);
+                currentActorProvider,
+                eventPublisher);
     }
 
     private Reservation standardReservation(Long id, Long restaurantId) {
