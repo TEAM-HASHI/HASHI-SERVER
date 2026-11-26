@@ -1,5 +1,6 @@
 package org.sopt.hashi.reservation.service;
 
+import java.time.Clock;
 import java.util.Collection;
 import java.util.List;
 import java.util.Map;
@@ -37,6 +38,7 @@ import org.sopt.hashi.restaurant.RestaurantPort;
 import org.sopt.hashi.shared.error.BusinessException;
 import org.sopt.hashi.user.UserInfo;
 import org.sopt.hashi.user.UserPort;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
@@ -73,6 +75,7 @@ public class ReservationService {
     private final CurrentUserProvider currentUserProvider;
     private final CurrentActorProvider currentActorProvider;
     private final ApplicationEventPublisher eventPublisher;
+    private final Clock clock;
 
     public ReservationService(ReservationRepository reservationRepository,
                               RestaurantPort restaurantPort,
@@ -81,7 +84,8 @@ public class ReservationService {
                               UserPort userPort,
                               CurrentUserProvider currentUserProvider,
                               CurrentActorProvider currentActorProvider,
-                              ApplicationEventPublisher eventPublisher) {
+                              ApplicationEventPublisher eventPublisher,
+                              @Qualifier("japanClock") Clock clock) {
         this.reservationRepository = reservationRepository;
         this.restaurantPort = restaurantPort;
         this.mediaPort = mediaPort;
@@ -90,6 +94,7 @@ public class ReservationService {
         this.currentUserProvider = currentUserProvider;
         this.currentActorProvider = currentActorProvider;
         this.eventPublisher = eventPublisher;
+        this.clock = clock;
     }
 
     /** 등록 식당 예약을 생성한다. 식당이 존재하지 않으면 거부하고, 사용 포인트는 같은 트랜잭션에서 차감한다(§8). */
@@ -169,8 +174,7 @@ public class ReservationService {
     @Transactional
     public ReservationResponse cancel(Long reservationId) {
         Long userId = currentUserProvider.currentUserId();
-        Reservation reservation = reservationRepository.findById(reservationId)
-                .filter(found -> found.ownedBy(userId))
+        Reservation reservation = reservationRepository.findOwnedForUpdate(reservationId, userId)
                 .orElseThrow(() -> new BusinessException(ReservationErrorCode.NOT_FOUND));
         boolean refundable = reservation.refundableOnCancel();   // 전이 전에 판정
         reservation.cancel();
@@ -365,7 +369,7 @@ public class ReservationService {
     }
 
     /**
-     * [어드민] 예약 상태 변경 — 자유 전이(되돌림 포함, 도메인 확정 규칙). CANCELED 진입 시 유저 취소와
+     * [어드민] 예약 상태 변경 — 입금 대기와 확정은 예약의 결제 조건을 따른다. CANCELED 진입 시 유저 취소와
      * 동일한 환불 규칙(진행중 취소만 복원)을 상태 전이와 같은 트랜잭션에서 적용한다(§8).
      */
     @Transactional
@@ -373,15 +377,15 @@ public class ReservationService {
         // currentUserId()는 ROLE_USER 회원만 인정해(#208) 어드민 토큰이면 UNAUTHORIZED다 — 감사 기록용 어드민 식별자는
         // 인증 주체 유형을 구분하는 CurrentActorProvider로 읽고, 상태 전이 전에 확보해 실패 시 변경이 시작되지 않게 한다.
         Long adminId = currentActorProvider.currentActor().subjectId();
-        Reservation reservation = reservationRepository.findById(reservationId)
+        Reservation reservation = reservationRepository.findForUpdate(reservationId)
                 .orElseThrow(() -> new BusinessException(ReservationErrorCode.NOT_FOUND));
         ReservationStatus fromStatus = reservation.getReservationStatus();
         // 취소로 상태 변경 시 포인트 환불 가능 여부 판별(진행 중인 예약 한정)
         boolean refundable = targetStatus == ReservationStatus.CANCELED
                 && reservation.refundableOnCancel();   // 전이 전에 판정
-        reservation.changeStatusByAdmin(targetStatus);
+        reservation.changeStatusByAdmin(targetStatus, clock.instant());
         restoreUsedPointIfRefundable(reservation, refundable);
-        // 자유 전이(되돌림 허용) 정책이라 정정 추적이 필요 — 이력 테이블 도입 전까지의 감사 기록.
+        // 관리자 조작 추적용 감사 기록.
         log.info("어드민 예약 상태 변경. adminId={}, reservationId={}, {} -> {}",
                 adminId, reservationId, fromStatus, targetStatus);
         return toAdminInfo(reservation, findSummaryFor(reservation));
@@ -448,7 +452,9 @@ public class ReservationService {
                 reservation.getPaymentStatus(),
                 reservation.getUsedPoint(),
                 reservation.getAmount(),
-                reservation.confirmDDay());
+                reservation.confirmDDay(),
+                reservation.getPaymentWaitStartedAt(),
+                reservation.getPaymentDeadline());
     }
 
     private MediaProjection loadThumbnailProjection(Collection<ImageReference> references) {

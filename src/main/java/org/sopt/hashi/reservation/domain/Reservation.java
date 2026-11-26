@@ -9,6 +9,7 @@ import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
 import java.math.BigDecimal;
+import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.temporal.ChronoUnit;
@@ -95,6 +96,12 @@ public class Reservation extends BaseTimeEntity {
     @Enumerated(EnumType.STRING)
     @Column(name = "payment_status", length = 20, nullable = false)
     private PaymentStatus paymentStatus;
+
+    @Column(name = "payment_wait_started_at")
+    private Instant paymentWaitStartedAt;
+
+    @Column(name = "payment_deadline")
+    private Instant paymentDeadline;
 
     /** 결제 금액 — 기본 수수료(4,000) − 사용 포인트. 생성 시점에 확정된다. */
     @Column(name = "amount", precision = 15, scale = 2, nullable = false)
@@ -202,20 +209,42 @@ public class Reservation extends BaseTimeEntity {
         this.paymentStatus = PaymentStatus.CANCELED;
     }
 
-    /**
-     * 어드민 상태 변경 — 실수 정정을 위해 어떤 상태로든 전이할 수 있다(자유 전이, 도메인 확정 규칙).
-     * 결제 상태 동반 전이: CONFIRMED 진입 시 수수료 결제 완료(PAID), CANCELED 진입 시 결제 취소
-     * ({@link #cancel()}과 동일). 그 외 상태로의 이동(되살림 포함)은 결제 상태를 바꾸지 않는다
-     * (세밀한 정정은 추후 어드민 결제 상태 변경 기능에서 다룬다).
-     */
-    public void changeStatusByAdmin(ReservationStatus targetStatus) {
-        if (targetStatus == ReservationStatus.CONFIRMED) {
-            this.paymentStatus = PaymentStatus.PAID;
+    /** 최초 입금 대기 시각을 기준으로 기한을 고정한다. 같은 상태 요청은 재실행하지 않는다. */
+    public void changeStatusByAdmin(ReservationStatus targetStatus, Instant now) {
+        if (reservationStatus == targetStatus) {
+            return;
         }
-        if (targetStatus == ReservationStatus.CANCELED) {
-            this.paymentStatus = PaymentStatus.CANCELED;
+        switch (targetStatus) {
+            case AWAITING_PAYMENT -> {
+                requireTransition(reservationStatus.isInProgress() && paymentStatus == PaymentStatus.PENDING
+                        && amount.signum() > 0);
+                paymentWaitStartedAt = now.truncatedTo(ChronoUnit.MICROS);
+                paymentDeadline = paymentWaitStartedAt.plus(1, ChronoUnit.DAYS);
+            }
+            case CONFIRMED -> {
+                if (reservationStatus == ReservationStatus.AWAITING_PAYMENT) {
+                    if (!now.isBefore(paymentDeadline)) {
+                        throw new BusinessException(ReservationErrorCode.PAYMENT_DEADLINE_PASSED);
+                    }
+                } else {
+                    requireTransition((reservationStatus.isInProgress() && paymentStatus == PaymentStatus.PENDING
+                            && amount.signum() == 0)
+                            || paymentStatus == PaymentStatus.PAID);
+                }
+                paymentStatus = PaymentStatus.PAID;
+            }
+            case REQUESTED, CONTACTING -> requireTransition(reservationStatus.isInProgress());
+            case VISITED -> requireTransition(reservationStatus == ReservationStatus.CONFIRMED
+                    && paymentStatus == PaymentStatus.PAID);
+            case CANCELED -> paymentStatus = PaymentStatus.CANCELED;
         }
-        this.reservationStatus = targetStatus;
+        reservationStatus = targetStatus;
+    }
+
+    private void requireTransition(boolean allowed) {
+        if (!allowed) {
+            throw new BusinessException(ReservationErrorCode.INVALID_PAYMENT_TRANSITION);
+        }
     }
 
     /** 이 예약이 포인트를 사용했는지 — 취소 시 복원 필요 여부 판단용. */
@@ -224,11 +253,11 @@ public class Reservation extends BaseTimeEntity {
     }
 
     /**
-     * 취소 시 사용 포인트 환불 가능 여부 — 진행중(REQUESTED·CONTACTING) 취소만 환불하고,
+     * 취소 시 사용 포인트 환불 가능 여부 — 신청·연락·입금 대기 단계에서 취소하면 환불하고,
      * 식당이 방문을 확정(CONFIRMED)한 뒤의 취소는 환불하지 않는다(도메인 확정 규칙).
      * 상태 전이 전에 판정해야 하므로 {@link #cancel()} 호출 전에 확인한다.
      */
     public boolean refundableOnCancel() {
-        return reservationStatus.isInProgress();
+        return reservationStatus.isInProgress() || reservationStatus == ReservationStatus.AWAITING_PAYMENT;
     }
 }

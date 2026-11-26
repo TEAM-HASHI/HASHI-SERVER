@@ -8,6 +8,7 @@ import static org.mockito.BDDMockito.given;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 
+import java.time.Clock;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Map;
@@ -208,7 +209,9 @@ class ReservationServiceTest {
         ReservationService service = createService();
         Reservation reservation = anywhereReservation(101L);
         given(currentActorProvider.currentActor()).willReturn(new CurrentActor(ActorType.ADMIN, 4L));
-        given(reservationRepository.findById(101L)).willReturn(Optional.of(reservation));
+        given(reservationRepository.findForUpdate(101L)).willReturn(Optional.of(reservation));
+        AdminReservationInfo waiting = service.changeStatusByAdmin(101L, ReservationStatus.AWAITING_PAYMENT);
+        assertThat(waiting.paymentDeadline()).isEqualTo(waiting.paymentWaitStartedAt().plusSeconds(86_400));
 
         AdminReservationInfo info = service.changeStatusByAdmin(101L, ReservationStatus.CONFIRMED);
 
@@ -239,7 +242,7 @@ class ReservationServiceTest {
                 userPort,
                 currentUserProvider,
                 currentActorProvider,
-                eventPublisher);
+                eventPublisher, Clock.systemUTC());
     }
 
     private Reservation standardReservation(Long id, Long restaurantId) {

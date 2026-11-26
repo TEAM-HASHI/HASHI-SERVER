@@ -115,7 +115,7 @@ class AdminReservationServiceTest {
                 PaymentStatus.PENDING,
                 0L,
                 BigDecimal.valueOf(4_000),
-                2L);
+                2L, null, null);
     }
 
     private MediaImageRequest request(UUID assetId) {

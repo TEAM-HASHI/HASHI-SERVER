@@ -18,7 +18,7 @@ import org.sopt.hashi.shared.error.BusinessException;
 class ReservationWithdrawalBlockerTest {
 
     private static final Set<ReservationStatus> UNFINISHED = Set.of(
-            ReservationStatus.REQUESTED, ReservationStatus.CONTACTING, ReservationStatus.CONFIRMED);
+            ReservationStatus.REQUESTED, ReservationStatus.CONTACTING, ReservationStatus.AWAITING_PAYMENT, ReservationStatus.CONFIRMED);
 
     @Mock
     private ReservationRepository reservationRepository;

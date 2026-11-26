@@ -29,7 +29,7 @@ public interface ReservationPort {
     List<ReservationReviewInfo> findVisitedReviewInfos(Long userId);
 
     /**
-     * 어드민 예약 상태 변경 — 자유 전이(되돌림 포함). CANCELED 진입 시 진행중이던 예약의
+     * 어드민 예약 상태 변경 — 유상 예약은 입금 대기를 거쳐 확정한다. CANCELED 진입 시 진행중이던 예약의
      * 사용 포인트를 복원하며(유저 취소와 동일 규칙, 같은 트랜잭션 §8), 이미 복원된 출처는 재복원하지 않는다.
      * 예약이 없으면 BusinessException(RESERVATION-001 NOT_FOUND).
      */

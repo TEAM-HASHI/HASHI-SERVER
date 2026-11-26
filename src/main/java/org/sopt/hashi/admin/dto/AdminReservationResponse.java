@@ -1,6 +1,7 @@
 package org.sopt.hashi.admin.dto;
 
 import java.math.BigDecimal;
+import java.time.Instant;
 import java.time.LocalDateTime;
 import org.sopt.hashi.media.MediaImage;
 import org.sopt.hashi.reservation.AdminReservationInfo;
@@ -31,7 +32,9 @@ public record AdminReservationResponse(
         PaymentStatus paymentStatus,
         long usedPoint,
         BigDecimal amount,
-        Long confirmDDay) {
+        Long confirmDDay,
+        Instant paymentWaitStartedAt,
+        Instant paymentDeadline) {
 
     public static AdminReservationResponse from(
             AdminReservationInfo info,
@@ -57,6 +60,8 @@ public record AdminReservationResponse(
                 info.paymentStatus(),
                 info.usedPoint(),
                 info.amount(),
-                info.confirmDDay());
+                info.confirmDDay(),
+                info.paymentWaitStartedAt(),
+                info.paymentDeadline());
     }
 }

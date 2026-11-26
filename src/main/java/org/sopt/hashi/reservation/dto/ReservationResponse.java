@@ -1,5 +1,6 @@
 package org.sopt.hashi.reservation.dto;
 
+import java.time.Instant;
 import java.time.LocalDateTime;
 import org.sopt.hashi.media.MediaImage;
 import org.sopt.hashi.reservation.ReservationStatus;
@@ -25,7 +26,9 @@ public record ReservationResponse(
         int childCount,
         String requestNote,
         ReservationStatus reservationStatus,
-        Long confirmDDay) {
+        Long confirmDDay,
+        Instant paymentWaitStartedAt,
+        Instant paymentDeadline) {
 
     /** 엔티티 + 유형별로 해석된 식당명·대표이미지·주소로 응답을 만든다. */
     public static ReservationResponse of(
@@ -50,7 +53,9 @@ public record ReservationResponse(
                 reservation.getChildCount(),
                 reservation.getRequestNote(),
                 reservation.getReservationStatus(),
-                reservation.confirmDDay());
+                reservation.confirmDDay(),
+                reservation.getPaymentWaitStartedAt(),
+                reservation.getPaymentDeadline());
     }
 
     /** 기존 호출부의 점진 전환용 factory. */

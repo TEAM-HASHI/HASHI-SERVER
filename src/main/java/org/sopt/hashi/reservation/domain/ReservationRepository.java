@@ -1,13 +1,26 @@
 package org.sopt.hashi.reservation.domain;
 
+import jakarta.persistence.LockModeType;
 import java.util.Collection;
 import java.util.List;
+import java.util.Optional;
 import org.sopt.hashi.reservation.ReservationStatus;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Lock;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
 
 public interface ReservationRepository extends JpaRepository<Reservation, Long> {
+
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("select r from Reservation r where r.id = :id")
+    Optional<Reservation> findForUpdate(@Param("id") Long id);
+
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("select r from Reservation r where r.id = :id and r.userId = :userId")
+    Optional<Reservation> findOwnedForUpdate(@Param("id") Long id, @Param("userId") Long userId);
 
     /** 여러 예약을 리뷰/목록 화면에서 일괄 enrich하기 위한 조회. */
     List<Reservation> findByIdIn(Collection<Long> reservationIds);
