@@ -214,6 +214,8 @@ public class Reservation extends BaseTimeEntity {
         if (reservationStatus == targetStatus) {
             return;
         }
+        boolean correctingPaidReservation = paymentStatus == PaymentStatus.PAID
+                && reservationStatus != ReservationStatus.CANCELED;
         switch (targetStatus) {
             case AWAITING_PAYMENT -> {
                 requireTransition(reservationStatus.isInProgress() && paymentStatus == PaymentStatus.PENDING
@@ -229,11 +231,13 @@ public class Reservation extends BaseTimeEntity {
                 } else {
                     requireTransition((reservationStatus.isInProgress() && paymentStatus == PaymentStatus.PENDING
                             && amount.signum() == 0)
-                            || paymentStatus == PaymentStatus.PAID);
+                            || correctingPaidReservation);
                 }
                 paymentStatus = PaymentStatus.PAID;
             }
-            case REQUESTED, CONTACTING -> requireTransition(reservationStatus.isInProgress());
+            case REQUESTED, CONTACTING -> requireTransition(
+                    (reservationStatus.isInProgress() && paymentStatus == PaymentStatus.PENDING)
+                            || correctingPaidReservation);
             case VISITED -> requireTransition(reservationStatus == ReservationStatus.CONFIRMED
                     && paymentStatus == PaymentStatus.PAID);
             case CANCELED -> paymentStatus = PaymentStatus.CANCELED;
@@ -258,6 +262,7 @@ public class Reservation extends BaseTimeEntity {
      * 상태 전이 전에 판정해야 하므로 {@link #cancel()} 호출 전에 확인한다.
      */
     public boolean refundableOnCancel() {
-        return reservationStatus.isInProgress() || reservationStatus == ReservationStatus.AWAITING_PAYMENT;
+        return paymentStatus == PaymentStatus.PENDING
+                && (reservationStatus.isInProgress() || reservationStatus == ReservationStatus.AWAITING_PAYMENT);
     }
 }
