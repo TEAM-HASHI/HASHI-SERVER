@@ -1,6 +1,7 @@
 package org.sopt.hashi.reservation.domain;
 
 import jakarta.persistence.Column;
+import jakarta.persistence.Convert;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
 import jakarta.persistence.Enumerated;
@@ -16,6 +17,8 @@ import java.time.temporal.ChronoUnit;
 import lombok.AccessLevel;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
+import org.hibernate.annotations.JdbcTypeCode;
+import org.hibernate.type.SqlTypes;
 import org.sopt.hashi.BaseTimeEntity;
 import org.sopt.hashi.reservation.PaymentStatus;
 import org.sopt.hashi.reservation.ReservationStatus;
@@ -97,9 +100,13 @@ public class Reservation extends BaseTimeEntity {
     @Column(name = "payment_status", length = 20, nullable = false)
     private PaymentStatus paymentStatus;
 
+    @Convert(converter = PaymentInstantConverter.class)
+    @JdbcTypeCode(SqlTypes.LOCAL_DATE_TIME)
     @Column(name = "payment_wait_started_at")
     private Instant paymentWaitStartedAt;
 
+    @Convert(converter = PaymentInstantConverter.class)
+    @JdbcTypeCode(SqlTypes.LOCAL_DATE_TIME)
     @Column(name = "payment_deadline")
     private Instant paymentDeadline;
 

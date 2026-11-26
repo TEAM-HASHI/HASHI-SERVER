@@ -17,6 +17,8 @@ import java.util.Set;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.EnumSource;
 import org.mockito.ArgumentMatchers;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
@@ -221,10 +223,12 @@ class ReservationServiceTest {
         verifyNoInteractions(currentUserProvider, restaurantPort, pointPort);
     }
 
-    @Test
-    void 과거에_되살린_결제취소_예약을_다시_취소해도_포인트에_손대지_않는다() {
+    @ParameterizedTest
+    @EnumSource(value = ReservationStatus.class, names = {"REQUESTED", "CONTACTING", "VISITED"})
+    void 과거에_되살린_결제취소_예약을_다시_취소해도_포인트에_손대지_않는다(ReservationStatus legacyStatus) {
         ReservationService service = createService();
         Reservation booking = anywhereReservation(101L, 2000);
+        ReflectionTestUtils.setField(booking, "reservationStatus", legacyStatus);
         ReflectionTestUtils.setField(booking, "paymentStatus", PaymentStatus.CANCELED);
         given(currentActorProvider.currentActor()).willReturn(new CurrentActor(ActorType.ADMIN, 4L));
         given(reservationRepository.findForUpdate(101L)).willReturn(Optional.of(booking));

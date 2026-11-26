@@ -14,6 +14,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.jdbc.AutoConfigureTestDatabase;
 import org.springframework.boot.test.autoconfigure.orm.jpa.DataJpaTest;
 import org.springframework.boot.testcontainers.service.connection.ServiceConnection;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.test.context.TestPropertySource;
 import org.springframework.transaction.annotation.Propagation;
@@ -37,6 +38,33 @@ class ReservationPaymentWindowMySqlTest {
 
     @Autowired ReservationRepository reservations;
     @Autowired TransactionTemplate transactions;
+    @Autowired JdbcTemplate jdbc;
+
+    @Test
+    void 입금_시각은_DB_세션_시간대와_무관하게_UTC로_저장하고_조회한다() {
+        Instant start = Instant.parse("2041-05-01T23:59:58.123456Z");
+        Long id = transactions.execute(tx -> {
+            String previousZone = jdbc.queryForObject("select @@session.time_zone", String.class);
+            try {
+                jdbc.execute("set time_zone = '+09:00'");
+                Reservation booking = Reservation.anywhere(1L, "예약자", "식당", "도쿄",
+                        LocalDateTime.of(2041, 5, 2, 18, 0), 2, 0, 0, null, 0, Reservation.BASE_FEE);
+                booking.changeStatusByAdmin(ReservationStatus.AWAITING_PAYMENT, start);
+                reservations.saveAndFlush(booking);
+                assertThat(jdbc.queryForObject("""
+                        select concat(payment_wait_started_at, '/', payment_deadline)
+                        from reservation where id = ?
+                        """, String.class, booking.getId()))
+                        .isEqualTo("2041-05-01 23:59:58.123456/2041-05-02 23:59:58.123456");
+                return booking.getId();
+            } finally {
+                jdbc.update("set time_zone = ?", previousZone);
+            }
+        });
+        Reservation reloaded = reservations.findById(id).orElseThrow();
+        assertThat(reloaded.getPaymentWaitStartedAt()).isEqualTo(start);
+        assertThat(reloaded.getPaymentDeadline()).isEqualTo(start.plusSeconds(86_400));
+    }
 
     @Test
     void 동시에_입금대기를_요청해도_양쪽이_같은_마감을_받는다() throws Exception {
