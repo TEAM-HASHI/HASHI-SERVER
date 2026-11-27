@@ -4,6 +4,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.BDDMockito.given;
 
 import java.time.LocalDate;
+import java.time.LocalDateTime;
+import java.util.List;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
@@ -21,7 +23,11 @@ import org.sopt.hashi.review.domain.ReviewRepository;
 import org.sopt.hashi.review.service.MyReviewService;
 import org.sopt.hashi.shared.error.BusinessException;
 import org.sopt.hashi.shared.storage.FileStorage;
-import org.sopt.hashi.user.UserPort;
+import org.sopt.hashi.reservation.ReservationReviewInfo;
+import org.sopt.hashi.reservation.ReservationStatus;
+import org.sopt.hashi.reservation.ReservationType;
+import org.sopt.hashi.review.dto.CreateReviewRequest;
+import org.sopt.hashi.review.service.ReviewWriteService;
 import org.sopt.hashi.user.domain.User;
 import org.sopt.hashi.user.domain.UserRepository;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -45,7 +51,7 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 @Testcontainers
 @AutoConfigureTestDatabase(replace = AutoConfigureTestDatabase.Replace.NONE)
 @Transactional(propagation = Propagation.NOT_SUPPORTED)
-@Import({MyReviewService.class, PointService.class, PointPortImpl.class, JpaAuditingConfig.class,
+@Import({ReviewWriteService.class, MyReviewService.class, PointService.class, PointPortImpl.class, JpaAuditingConfig.class,
         ReviewRewardReclaimTest.Adapters.class})
 class ReviewRewardReclaimTest {
     @Container @ServiceConnection
@@ -55,7 +61,7 @@ class ReviewRewardReclaimTest {
     @Autowired ReviewRepository repository;
     @Autowired PointService points;
     @Autowired UserRepository users;
-    @Autowired UserPort userPort;
+    @Autowired ReviewWriteService reviewWriter;
     @Autowired JdbcTemplate jdbc;
     @Autowired TransactionTemplate transaction;
     @MockitoBean CurrentUserProvider current;
@@ -130,16 +136,18 @@ class ReviewRewardReclaimTest {
     void 동시_삭제와_적립은_삭제한_보상을_한번만_회수한다() throws Exception {
         earn(101L, 500);
         points.use(member, 400, "예약", PointSourceType.RESERVATION, 20L);
+        given(reservations.getReviewInfoByIdAndUserId(102L, member)).willReturn(
+                new ReservationReviewInfo(102L, member, ReservationType.STANDARD, 1L, null, null,
+                        LocalDateTime.now(), 1, 0, 0, ReservationStatus.VISITED));
+        given(restaurants.existsById(1L)).willReturn(true);
         var start = new CountDownLatch(1);
         try (var pool = Executors.newFixedThreadPool(3)) {
             var deletion = pool.submit(() -> deleteAfter(start));
             var duplicate = pool.submit(() -> deleteAfter(start));
             var earning = pool.submit(() -> {
                 start.await();
-                transaction.executeWithoutResult(status -> {
-                    userPort.lockActiveUser(member);
-                    earn(102L, 500);
-                });
+                reviewWriter.create(new CreateReviewRequest(102L, 5, List.of("FOOD_IS_DELICIOUS"),
+                        "다른 방문 예약에 대한 리뷰입니다.", List.of(), null));
                 return null;
             });
             start.countDown();
@@ -147,6 +155,7 @@ class ReviewRewardReclaimTest {
             earning.get(20, TimeUnit.SECONDS);
         }
         assertAccount(100, 0);
+        assertThat(repository.existsByReservationId(102L)).isTrue();
         assertThat(repository.findById(review).orElseThrow().isDeleted()).isTrue();
         assertThat(jdbc.queryForObject("SELECT SUM(amount) FROM point_transaction WHERE type IN ('RECLAIM','OFFSET_RECLAIM')",
                 Long.class)).isEqualTo(500L);
