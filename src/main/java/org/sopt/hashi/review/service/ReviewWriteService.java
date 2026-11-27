@@ -56,6 +56,8 @@ public class ReviewWriteService {
     @Transactional
     public CreateReviewResponse create(CreateReviewRequest request) {
         Long userId = currentUserProvider.currentUserId();
+        // 첫 일반 조회가 읽기 시점을 고정하기 전에 회원별 쓰기를 직렬화한다.
+        lockActiveReviewer(userId);
         ReservationReviewInfo reservation = reservationPort
                 .getReviewInfoByIdAndUserId(request.reservationId(), userId);
 
@@ -77,7 +79,6 @@ public class ReviewWriteService {
         review.replaceKeywords(keywordCodes);
         review.replaceImages(imagePlan.images());
 
-        lockActiveReviewer(userId);
         if (!imagePlan.claims().isEmpty()) {
             mediaPort.reconcileBindings(imagePlan.claims(), List.of());
         }
