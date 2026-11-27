@@ -2,12 +2,12 @@ package org.sopt.hashi.admin.web;
 
 import jakarta.validation.Valid;
 import org.sopt.hashi.admin.code.AdminSuccessCode;
+import org.sopt.hashi.admin.dto.AdminReservationAlternativesResponse;
 import org.sopt.hashi.admin.dto.AdminReservationListResponse;
 import org.sopt.hashi.admin.dto.AdminReservationResponse;
 import org.sopt.hashi.admin.dto.AdminReservationUserResponse;
 import org.sopt.hashi.admin.dto.ChangeReservationStatusRequest;
 import org.sopt.hashi.admin.dto.SetReservationAlternativesRequest;
-import org.sopt.hashi.reservation.ReservationAlternativesInfo;
 import org.sopt.hashi.admin.service.AdminReservationService;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import org.sopt.hashi.reservation.ReservationStatus;
@@ -50,18 +50,23 @@ public class AdminReservationController {
 
     /** 자리를 확보하지 못한 예약을 실패 처리하고 확인된 대안 목록을 교체한다. */
     @ApiException(value = CommonErrorCode.class, codes = {"INVALID_INPUT", "UNAUTHORIZED", "FORBIDDEN"})
-    @ApiResponse(responseCode = "409", description = "실패로 처리할 수 없는 예약입니다")
+    @ApiResponse(responseCode = "400", description = "입력값이 유효하지 않거나 등록할 수 없는 대안입니다")
+    @ApiResponse(responseCode = "404", description = "예약 또는 복원할 포인트 사용 내역을 찾을 수 없습니다")
+    @ApiResponse(responseCode = "409", description = "예약 상태를 실패로 변경할 수 없거나 포인트가 이미 복원되었습니다")
     @PutMapping("/{reservationId}/alternatives")
-    public SuccessResponse<ReservationAlternativesInfo> setAlternatives(@PathVariable Long reservationId,
+    public SuccessResponse<AdminReservationAlternativesResponse> setAlternatives(@PathVariable Long reservationId,
             @Valid @RequestBody SetReservationAlternativesRequest request) {
-        return SuccessResponse.of(CommonSuccessCode.OK, adminReservationService.setAlternatives(reservationId, request));
+        return SuccessResponse.of(CommonSuccessCode.OK,
+                AdminReservationAlternativesResponse.from(adminReservationService.setAlternatives(reservationId, request)));
     }
 
     /** 등록한 대안과 이미 접수된 재예약 ID를 확인한다. */
     @ApiException(value = CommonErrorCode.class, codes = {"UNAUTHORIZED", "FORBIDDEN"})
+    @ApiResponse(responseCode = "404", description = "예약을 찾을 수 없습니다")
     @GetMapping("/{reservationId}/alternatives")
-    public SuccessResponse<ReservationAlternativesInfo> getAlternatives(@PathVariable Long reservationId) {
-        return SuccessResponse.of(CommonSuccessCode.OK, adminReservationService.getAlternatives(reservationId));
+    public SuccessResponse<AdminReservationAlternativesResponse> getAlternatives(@PathVariable Long reservationId) {
+        return SuccessResponse.of(CommonSuccessCode.OK,
+                AdminReservationAlternativesResponse.from(adminReservationService.getAlternatives(reservationId)));
     }
 
     /** 예약 목록 조회 — offset 페이지네이션(최신순, page는 0부터). status 필터 선택. */
