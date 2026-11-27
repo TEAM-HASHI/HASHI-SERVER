@@ -16,6 +16,7 @@ import org.sopt.hashi.review.domain.ReviewImage;
 import org.sopt.hashi.review.domain.ReviewRepository;
 import org.sopt.hashi.review.dto.UpdateReviewRequest;
 import org.sopt.hashi.shared.storage.FileStorage;
+import org.sopt.hashi.point.PointPort;
 import org.sopt.hashi.user.UserPort;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.orm.jpa.DataJpaTest;
@@ -57,6 +58,9 @@ class MyReviewServiceIntegrationTest {
 
     @MockitoBean
     private MediaPort mediaPort;
+
+    @MockitoBean
+    private PointPort pointPort;
 
     @MockitoBean
     private UserPort userPort;
@@ -146,6 +150,7 @@ class MyReviewServiceIntegrationTest {
         reviewRepository.saveAndFlush(review);
         Long reviewId = review.getId();
         given(currentUserProvider.currentUserId()).willReturn(7L);
+        given(userPort.lockActiveUser(7L)).willReturn(true);
         willThrow(new IllegalStateException("통계 차감 실패"))
                 .given(restaurantPort)
                 .decreaseReviewStatistics(12L, 4);

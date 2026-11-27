@@ -30,6 +30,11 @@ class PointPortImpl implements PointPort {
     }
 
     @Override
+    public void reclaimReviewReward(Long userId, Long reservationId) {
+        pointService.reclaimReviewReward(userId, reservationId);
+    }
+
+    @Override
     public long findEarnedAmount(PointSourceType sourceType, Long sourceId) {
         return pointService.findEarnedAmount(sourceType, sourceId);
     }

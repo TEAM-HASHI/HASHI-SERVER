@@ -36,6 +36,9 @@ public class PointAccount extends BaseTimeEntity {
     @Column(name = "balance", nullable = false)
     private long balance;
 
+    @Column(name = "pending_reclaim", nullable = false)
+    private long pendingReclaim;
+
     @Version
     @Column(name = "version", nullable = false)
     private long version;
@@ -50,8 +53,19 @@ public class PointAccount extends BaseTimeEntity {
         return new PointAccount(userId);
     }
 
-    public void earn(long amount) {
-        this.balance += amount;
+    public long earn(long amount) {
+        long offset = Math.min(amount, pendingReclaim);
+        pendingReclaim -= offset;
+        balance = Math.addExact(balance, amount - offset);
+        return offset;
+    }
+
+    /** 먼저 현재 잔액에서 회수하고 나머지는 다음 적립에서 상계한다. */
+    public long reclaim(long reward) {
+        long recovered = Math.min(balance, reward);
+        balance -= recovered;
+        pendingReclaim = Math.addExact(pendingReclaim, reward - recovered);
+        return recovered;
     }
 
     /** 잔액 불변식 — 보유량을 초과해 차감할 수 없다(음수 잔액 금지). */
