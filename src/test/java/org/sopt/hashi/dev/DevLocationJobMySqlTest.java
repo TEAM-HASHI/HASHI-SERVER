@@ -18,6 +18,7 @@ import org.sopt.hashi.auth.dev.DevTokenResponse;
 import org.sopt.hashi.auth.dev.DevTokenRole;
 import org.sopt.hashi.auth.dev.DevTokenService;
 import org.sopt.hashi.config.TimeConfig;
+import org.sopt.hashi.exchangerate.ExchangeRatePort;
 import org.sopt.hashi.media.MediaPort;
 import org.sopt.hashi.reservation.dev.DevReservationDataGenerator;
 import org.sopt.hashi.restaurant.dev.DevRestaurantDataGenerator;
@@ -64,6 +65,9 @@ class DevLocationJobMySqlTest {
     @Autowired RestaurantRepository restaurants;
     @Autowired JdbcTemplate jdbc;
     @MockitoSpyBean RestaurantLocationJobRepository jobs;
+    @MockitoBean
+    private ExchangeRatePort exchangeRates;
+
     @MockitoBean MediaPort mediaPort;
     @MockitoBean FileStorage fileStorage;
     @MockitoBean DevUserDataGenerator users;

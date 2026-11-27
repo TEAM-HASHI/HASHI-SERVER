@@ -17,8 +17,13 @@ public record RestaurantMenuListResponse(
             MediaImage listImage,
             String currency,
             Long price,
-            boolean main
+            boolean main,
+            MenuWonEstimate wonEstimate
     ) {
+        public RestaurantMenuResponse(Long menuId, String name, String description, String imageUrl, MediaImage listImage,
+                                      String currency, Long price, boolean main) {
+            this(menuId, name, description, imageUrl, listImage, currency, price, main, null);
+        }
 
         public RestaurantMenuResponse(
                 Long menuId,

@@ -157,3 +157,5 @@ Review review = reviewRepository.findById(reviewId)
 - [ ] (가입·탈퇴) 온보딩이 임시 토큰으로 인증되고, 소셜 계정 연결·탈퇴 계정 정리만 `AuthAccountPort`로(원자적 커밋) 하며 그 외 auth 내부는 참조하지 않는가 (SMS 인증은 ⚠️ MVP 제외)
 - [ ] `auth`가 어떤 도메인 모듈도 되참조하지 않는가(도메인 관찰이 필요하면 이벤트)
 - [ ] 액세스 토큰은 헤더, 리프레시 토큰은 HttpOnly 쿠키로 내리고, 재발급 시 회전하는가
+
+환율 보정은 `CurrentActorProvider`에서 관리자 유형을 확인하고 관리자 ID를 보정 이력에 남긴다.

@@ -11,8 +11,13 @@ public record RestaurantMenuDetailResponse(
         String currency,
         Long price,
         boolean main,
-        long otherMenuCount
+        long otherMenuCount,
+        MenuWonEstimate wonEstimate
 ) {
+    public RestaurantMenuDetailResponse(Long menuId, String name, String description, String imageUrl, MediaImage detailImage,
+                                        String currency, Long price, boolean main, long otherMenuCount) {
+        this(menuId, name, description, imageUrl, detailImage, currency, price, main, otherMenuCount, null);
+    }
 
     public RestaurantMenuDetailResponse(
             Long menuId,

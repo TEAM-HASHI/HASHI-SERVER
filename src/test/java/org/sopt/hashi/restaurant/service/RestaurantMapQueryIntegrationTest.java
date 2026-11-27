@@ -33,6 +33,7 @@ import org.junit.jupiter.params.provider.EnumSource;
 import org.junit.jupiter.params.provider.MethodSource;
 import org.junit.jupiter.params.provider.NullAndEmptySource;
 import org.junit.jupiter.params.provider.ValueSource;
+import org.sopt.hashi.exchangerate.ExchangeRatePort;
 import org.sopt.hashi.media.MediaPort;
 import org.sopt.hashi.restaurant.RestaurantMapInfo;
 import org.sopt.hashi.restaurant.RestaurantPort;
@@ -123,6 +124,9 @@ class RestaurantMapQueryIntegrationTest {
     @Autowired private EntityManagerFactory entityManagerFactory;
     @Autowired private JdbcTemplate jdbc;
     @Autowired private PlatformTransactionManager transactionManager;
+    @MockitoBean
+    private ExchangeRatePort exchangeRates;
+
     @MockitoBean private MediaPort mediaPort;
     @MockitoBean private FileStorage fileStorage;
     @MockitoBean private RedisTemplate<String, Object> redisTemplate;

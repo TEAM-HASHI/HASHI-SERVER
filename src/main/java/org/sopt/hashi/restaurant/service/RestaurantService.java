@@ -24,6 +24,7 @@ import java.util.function.Function;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 import lombok.extern.slf4j.Slf4j;
+import org.sopt.hashi.exchangerate.ExchangeRatePort;
 import org.sopt.hashi.media.ImageReference;
 import org.sopt.hashi.media.MediaAssetPurpose;
 import org.sopt.hashi.media.MediaAssetUse;
@@ -63,6 +64,7 @@ import org.sopt.hashi.restaurant.domain.RestaurantSearchQuery;
 import org.sopt.hashi.restaurant.domain.RestaurantSearchPageItem;
 import org.sopt.hashi.restaurant.domain.RestaurantSpecifications;
 import org.sopt.hashi.restaurant.domain.PriceCurrency;
+import org.sopt.hashi.restaurant.dto.MenuWonEstimate;
 import org.sopt.hashi.restaurant.dto.RestaurantListResponse;
 import org.sopt.hashi.restaurant.dto.RestaurantListResponse.RestaurantSummaryResponse;
 import org.sopt.hashi.restaurant.dto.RestaurantListResponse.TodayBusinessHourResponse;
@@ -117,19 +119,22 @@ public class RestaurantService {
     private final MediaPort mediaPort;
     private final Clock japanClock;
     private final RestaurantLocationService locationService;
+    private final ExchangeRatePort exchangeRates;
 
     public RestaurantService(
             RestaurantRepository restaurantRepository,
             FileStorage fileStorage,
             MediaPort mediaPort,
             @Qualifier("japanClock") Clock japanClock,
-            RestaurantLocationService locationService
+            RestaurantLocationService locationService,
+            ExchangeRatePort exchangeRates
     ) {
         this.restaurantRepository = restaurantRepository;
         this.fileStorage = fileStorage;
         this.mediaPort = mediaPort;
         this.japanClock = japanClock;
         this.locationService = locationService;
+        this.exchangeRates = exchangeRates;
     }
 
     public RestaurantListResponse getRestaurants(
@@ -332,9 +337,10 @@ public class RestaurantService {
         MediaProjection mediaProjection = loadMenuProjection(
                 pageContent, MediaImageRole.MENU_LIST);
 
+        var quote = exchangeRates.current();
         return new RestaurantMenuListResponse(
                 pageContent.stream()
-                        .map(menu -> toMenuResponse(menu, mediaProjection))
+                        .map(menu -> toMenuResponse(menu, mediaProjection, quote))
                         .toList(),
                 nextCursor,
                 hasNext
@@ -350,6 +356,7 @@ public class RestaurantService {
         ProjectedImage menuImage = projectMenuImage(
                 menu, MediaImageRole.MENU_DETAIL, mediaProjection);
 
+        Long price = toWholeAmount(menu.getPriceAmount());
         return new RestaurantMenuDetailResponse(
                 menu.getId(),
                 menu.getName(),
@@ -357,9 +364,10 @@ public class RestaurantService {
                 menuImage.url(),
                 menuImage.image(),
                 menu.getPriceCurrency() == null ? null : menu.getPriceCurrency().value(),
-                toWholeAmount(menu.getPriceAmount()),
+                price,
                 menu.isMain(),
-                otherMenuCount
+                otherMenuCount,
+                MenuWonEstimate.from(menu.getPriceCurrency(), price, exchangeRates.current())
         );
     }
 
@@ -834,10 +842,12 @@ public class RestaurantService {
 
     private RestaurantMenuResponse toMenuResponse(
             RestaurantMenu menu,
-            MediaProjection mediaProjection
+            MediaProjection mediaProjection,
+            Optional<ExchangeRatePort.Quote> quote
     ) {
         ProjectedImage menuImage = projectMenuImage(
                 menu, MediaImageRole.MENU_LIST, mediaProjection);
+        Long price = toWholeAmount(menu.getPriceAmount());
         return new RestaurantMenuResponse(
                 menu.getId(),
                 menu.getName(),
@@ -845,8 +855,9 @@ public class RestaurantService {
                 menuImage.url(),
                 menuImage.image(),
                 menu.getPriceCurrency() == null ? null : menu.getPriceCurrency().value(),
-                toWholeAmount(menu.getPriceAmount()),
-                menu.isMain()
+                price,
+                menu.isMain(),
+                MenuWonEstimate.from(menu.getPriceCurrency(), price, quote)
         );
     }
 

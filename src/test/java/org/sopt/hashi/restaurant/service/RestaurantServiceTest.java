@@ -91,8 +91,11 @@ class RestaurantServiceTest {
     @Mock
     private RestaurantLocationService locationService;
 
+    @Mock
+    private org.sopt.hashi.exchangerate.ExchangeRatePort exchangeRates;
+
     private RestaurantService createRestaurantService() {
-        return new RestaurantService(restaurantRepository, fileStorage, mediaPort, JAPAN_CLOCK, locationService);
+        return new RestaurantService(restaurantRepository, fileStorage, mediaPort, JAPAN_CLOCK, locationService, exchangeRates);
     }
 
     @Test
@@ -1322,7 +1325,15 @@ class RestaurantServiceTest {
         given(fileStorage.resolveFileUrl(anyString()))
                 .willAnswer(invocation -> "https://cdn.example.com/" + invocation.getArgument(0));
 
+        var day = java.time.LocalDate.of(2026, 7, 13);
+        given(exchangeRates.current()).willReturn(Optional.of(
+                new org.sopt.hashi.exchangerate.ExchangeRatePort.Quote(day, day.minusDays(3), new BigDecimal("950.55"))));
         RestaurantMenuListResponse response = restaurantService.getRestaurantMenus(1L, 99L, null, 2);
+        assertThat(response.content()).allSatisfy(item -> {
+            assertThat(item.wonEstimate().amount()).isEqualByComparingTo("11407");
+            assertThat(item.wonEstimate().quotedDate()).isEqualTo(day.minusDays(3));
+        });
+        verify(exchangeRates).current();
 
         assertThat(response.content()).hasSize(2);
         assertThat(response.hasNext()).isTrue();
@@ -1376,6 +1387,29 @@ class RestaurantServiceTest {
     }
 
     @Test
+    void 소수_엔화_메뉴의_목록과_상세는_표시한_정수_엔화로_원화를_환산한다() {
+        RestaurantService service = createRestaurantService();
+        RestaurantMenu menu = RestaurantMenu.create("Ramen", "description", null,
+                PriceCurrency.JPY, new BigDecimal("100.75"), false);
+        ReflectionTestUtils.setField(menu, "id", 10L);
+        given(restaurantRepository.existsByIdAndDeletedFalse(1L)).willReturn(true);
+        given(restaurantRepository.findMenusByRestaurantId(any(), any(), any(), any(), any(), any(Pageable.class)))
+                .willReturn(List.of(menu));
+        given(restaurantRepository.findMenuByRestaurantIdAndMenuId(1L, 10L)).willReturn(Optional.of(menu));
+        var day = java.time.LocalDate.of(2026, 11, 27);
+        given(exchangeRates.current()).willReturn(Optional.of(
+                new org.sopt.hashi.exchangerate.ExchangeRatePort.Quote(day, day, new BigDecimal("950.55"))));
+
+        var listMenu = service.getRestaurantMenus(1L, null, null, 10).content().getFirst();
+        var detail = service.getRestaurantMenu(1L, 10L);
+
+        assertThat(listMenu.price()).isEqualTo(100L);
+        assertThat(detail.price()).isEqualTo(listMenu.price());
+        assertThat(listMenu.wonEstimate().amount()).isEqualByComparingTo("951");
+        assertThat(detail.wonEstimate()).isEqualTo(listMenu.wonEstimate());
+    }
+
+    @Test
     void 메뉴_상세와_다른_메뉴_개수를_조회한다() {
         RestaurantService restaurantService = createRestaurantService();
         RestaurantMenu menu = createMenu(10L, "Shio Ramen", true);
@@ -1394,6 +1428,7 @@ class RestaurantServiceTest {
         assertThat(response.price()).isEqualTo(1_200L);
         assertThat(response.main()).isTrue();
         assertThat(response.otherMenuCount()).isEqualTo(6L);
+        assertThat(response.wonEstimate()).isNull();
         verify(restaurantRepository, never()).existsByIdAndDeletedFalse(any());
     }
 

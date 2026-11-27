@@ -7,6 +7,7 @@ import static org.mockito.Mockito.verifyNoInteractions;
 import java.math.BigDecimal;
 import java.util.List;
 import org.junit.jupiter.api.Test;
+import org.sopt.hashi.exchangerate.ExchangeRatePort;
 import org.sopt.hashi.media.MediaPort;
 import org.sopt.hashi.config.TimeConfig;
 import org.sopt.hashi.restaurant.AdminRestaurantCommand;
@@ -52,6 +53,9 @@ class RestaurantServiceIntegrationTest {
 
     @Autowired
     private RestaurantService restaurantService;
+
+    @MockitoBean
+    private ExchangeRatePort exchangeRates;
 
     @MockitoBean
     private FileStorage fileStorage;

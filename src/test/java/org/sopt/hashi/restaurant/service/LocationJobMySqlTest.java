@@ -38,6 +38,7 @@ import org.sopt.hashi.config.TimeConfig;
 import org.sopt.hashi.auth.ActorType;
 import org.sopt.hashi.auth.CurrentActor;
 import org.sopt.hashi.auth.CurrentActorProvider;
+import org.sopt.hashi.exchangerate.ExchangeRatePort;
 import org.sopt.hashi.restaurant.RestaurantLocationPreviewCommand;
 import org.sopt.hashi.media.MediaPort;
 import org.sopt.hashi.restaurant.AdminRestaurantCommand;
@@ -121,6 +122,9 @@ class LocationJobMySqlTest {
     @Autowired TransactionTemplate tx;
     @Autowired FakeProvider provider;
     @Autowired FakePlacesProvider placesProvider;
+    @MockitoBean
+    private ExchangeRatePort exchangeRates;
+
     @MockitoBean MediaPort mediaPort;
     @MockitoBean CurrentActorProvider currentActorProvider;
     @MockitoBean FileStorage fileStorage;

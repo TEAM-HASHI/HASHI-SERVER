@@ -25,7 +25,8 @@
 - **MUST NOT**: 엔티티(테이블) 1개당 모듈 1개로 매핑하지 않는다. "함께 바뀌고 함께 커밋되는 단위"로 묶는다.
 - **MUST**: 자식 엔티티(메뉴·사진·카드 등)는 별도 모듈이 아니라 애그리거트 루트가 소유하는 자식으로 둔다.
 
-도메인 컨텍스트(7): `restaurant` · `review` · `reservation` · `point` · `magazine` · `user` · `support`
+도메인 컨텍스트(8): `restaurant` · `review` · `reservation` · `point` · `magazine` · `user` · `support` · `exchangerate`
+`exchangerate`는 보정 요청의 관리자 유형과 식별자를 `CurrentActorProvider`로 확인한다.
 횡단: `auth` / 진입점: `admin` / 지원: `upload`(legacy 업로드 자격 발급), `media`(이미지 asset과 파생본) / 공유 커널: `shared`
 
 ---
@@ -233,7 +234,9 @@ review → restaurant, reservation, point, user   (작성자 닉네임·프사 e
 reservation → restaurant, user, point           (user의 WithdrawalBlocker 구현 포함 — 탈퇴 조건)
 magazine → restaurant                (관련 식당 큐레이션, 매핑 테이블 + RestaurantPort)
 user → restaurant, media, auth       (식당 컬렉션 — 저장 식당 매핑 테이블 + RestaurantPort enrich, 대표 이미지 MediaPort; AuthAccountPort로 온보딩 계정 연결·탈퇴 계정 정리)
-admin → restaurant, magazine, reservation, user, auth (AdminAccountPort로 확인자 표시용 로그인 ID 일괄 조회)
+restaurant → exchangerate            (메뉴 엔화 가격의 원화 환산)
+exchangerate → auth                  (수동 보정 입력자 확인)
+admin → exchangerate, restaurant, magazine, reservation, user, auth (AdminAccountPort로 확인자 표시용 로그인 ID 일괄 조회)
 upload → shared (FileStorage)         (지원 모듈; 도메인 모듈 의존 없음)
 콘텐츠 도메인 → media (MediaPort)    (일반 요청의 asset 검증, claim, role별 bulk 조회)
 도메인 backfill runner → media (MediaBackfillPort) (migration 전용 READY asset 연결)

@@ -11,6 +11,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.sopt.hashi.config.TimeConfig;
+import org.sopt.hashi.exchangerate.ExchangeRatePort;
 import org.sopt.hashi.media.MediaPort;
 import org.sopt.hashi.restaurant.domain.*;
 import org.sopt.hashi.restaurant.dto.RestaurantListResponse;
@@ -43,6 +44,9 @@ class RestaurantSearchIntegrationTest {
     @Autowired RestaurantRepository repository;
     @Autowired EntityManager em;
     @Autowired JdbcTemplate jdbc;
+    @MockitoBean
+    private ExchangeRatePort exchangeRates;
+
     @MockitoBean FileStorage fileStorage;
     @MockitoBean MediaPort mediaPort;
     @MockitoBean RestaurantLocationService locationService;

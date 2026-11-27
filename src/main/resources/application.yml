@@ -49,6 +49,9 @@ hashi:
     app:
       # 카카오 콘솔의 숫자 앱 ID. 미설정이면 앱 로그인만 거부하고 기존 웹 인증은 유지한다.
       kakao-app-id: ${KAKAO_APP_ID:0}
+  exchange-rate:
+    enabled: ${HASHI_EXCHANGE_RATE_ENABLED:false}
+    api-key: ${EXIMBANK_API_KEY:}
   map:
     google-places:
       enabled: ${HASHI_MAP_GOOGLE_PLACES_ENABLED:false}

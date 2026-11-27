@@ -25,7 +25,8 @@ public enum AdminSuccessCode implements SuccessCode {
     TERMS_CREATED(HttpStatus.CREATED, "ADMIN-211", "이용약관 초안 저장 완료"),
     TERMS_UPDATED(HttpStatus.OK, "ADMIN-212", "이용약관 초안 수정 완료"),
     TERMS_PUBLISHED(HttpStatus.OK, "ADMIN-213", "이용약관 게시 완료"),
-    TERMS_DELETED(HttpStatus.OK, "ADMIN-214", "이용약관 초안 삭제 완료");
+    TERMS_DELETED(HttpStatus.OK, "ADMIN-214", "이용약관 초안 삭제 완료"),
+    EXCHANGE_RATE_CORRECTED(HttpStatus.OK, "ADMIN-215", "엔화 환율 보정을 반영했습니다");
 
     private final HttpStatus status;
     private final String code;
