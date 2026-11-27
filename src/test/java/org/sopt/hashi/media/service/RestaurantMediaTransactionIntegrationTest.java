@@ -12,6 +12,7 @@ import org.sopt.hashi.auth.ActorType;
 import org.sopt.hashi.auth.CurrentActor;
 import org.sopt.hashi.auth.CurrentActorProvider;
 import org.sopt.hashi.config.TimeConfig;
+import org.sopt.hashi.exchangerate.ExchangeRatePort;
 import org.sopt.hashi.media.domain.ImageAsset;
 import org.sopt.hashi.media.domain.ImageAssetRepository;
 import org.sopt.hashi.media.domain.ImageBindingStatus;
@@ -70,6 +71,9 @@ class RestaurantMediaTransactionIntegrationTest {
 
     @Autowired
     private TransactionTemplate transactionTemplate;
+
+    @MockitoBean
+    private ExchangeRatePort exchangeRates;
 
     @MockitoBean
     private CurrentActorProvider currentActorProvider;

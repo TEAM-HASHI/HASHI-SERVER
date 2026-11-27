@@ -20,6 +20,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.EnumSource;
 import org.sopt.hashi.config.TimeConfig;
+import org.sopt.hashi.exchangerate.ExchangeRatePort;
 import org.sopt.hashi.media.MediaPort;
 import org.sopt.hashi.restaurant.AdminRestaurantCommand;
 import org.sopt.hashi.restaurant.service.RestaurantService;
@@ -77,6 +78,9 @@ class RestaurantMapSchemaValidationTest {
     private JdbcTemplate jdbc;
     @Autowired
     private TransactionTemplate transactions;
+    @MockitoBean
+    private ExchangeRatePort exchangeRates;
+
     @MockitoBean
     private MediaPort mediaPort;
     @MockitoBean

@@ -53,6 +53,7 @@ import org.sopt.hashi.auth.internal.security.JwtAuthenticationFilter;
 import org.sopt.hashi.auth.internal.security.OriginValidator;
 import org.sopt.hashi.auth.internal.security.SecurityConfig;
 import org.sopt.hashi.auth.internal.token.OnboardingTokenStore;
+import org.sopt.hashi.exchangerate.ExchangeRatePort;
 import org.sopt.hashi.media.MediaPort;
 import org.sopt.hashi.config.RedisConfig;
 import org.sopt.hashi.restaurant.RestaurantPort;
@@ -183,6 +184,9 @@ class RestaurantMapPageIntegrationTest {
     @Autowired JdbcTemplate jdbc;
     @Autowired PlatformTransactionManager transactions;
     @Autowired EntityManagerFactory entityManagerFactory;
+    @MockitoBean
+    private ExchangeRatePort exchangeRates;
+
     @MockitoBean MediaPort media;
     @MockitoBean FileStorage files;
     @MockitoBean OnboardingTokenStore onboardingTokens;
