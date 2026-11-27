@@ -10,7 +10,11 @@
 
 은행 응답에는 별도 고시일 필드가 없다. 당일 일자로 조회한 정상 JPY(100) 행의 매매기준율만 당일 고시로 반영한다. 값이 없으면 직전 적용값과 원래 고시일을 함께 이월한다. 운영자가 이미 보정한 적용일에는 자동 응답이 뒤늦게 도착해도 값을 유지한다.
 
-- `PUT /api/v1/admin/exchange-rates/jpy/{appliedDate}`의 본문에는 `quotedDate`와 `krwPer100Jpy`를 보낸다. 서버가 인증된 관리자 ID를 기록한다. 미래 적용일과 적용일 이후 고시일은 400이다.
+금요일 고시값을 토요일에 이월한 뒤 금요일 환율을 정정하면 토요일 메뉴에도 정정한 값이 표시된다. 다음 은행 고시 또는 별도의 수동 보정이 있는 적용일부터는 그 값을 사용한다. 관리자 이력에는 이월 당시 사용한 금액과 이후 보정 내역이 각각 남는다.
+
+빈 배열은 고시 대기로 기록한다. 은행의 인증 실패, 호출 한도 초과, 응답 형식 오류, HTTP 상태 오류와 연결 실패는 경고 로그로 확인할 수 있다.
+
+- `PUT /api/v1/admin/exchange-rates/jpy/{appliedDate}`의 본문에는 `quotedDate`와 `krwPer100Jpy`를 보낸다. 서버가 인증된 관리자 ID를 기록하고 성공 코드 `ADMIN-215`를 반환한다. 미래 적용일과 적용일 이후 고시일은 400이다.
 - `GET /api/v1/admin/exchange-rates/jpy/history?page=0&size=20`은 최신 변경부터 반환한다. `page`는 0부터 시작하고 `size`는 1~100이다. 응답에는 이력 목록 `revisions`, 페이지 번호 `page`, 페이지 크기 `size`, 전체 건수 `totalCount`, 전체 페이지 수 `totalPages`가 포함된다. BANK는 은행 고시, CARRY는 이월, MANUAL은 수동 보정이다.
 - Flyway 설정은 `out-of-order=false`다. V46~V51 배포가 완료된 환경에 V52를 적용한다.
 
