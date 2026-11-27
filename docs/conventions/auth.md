@@ -52,7 +52,7 @@ public ReviewResponse write(CreateReviewRequest req) {
 ### 2-1. 역할 단위 actor 조회
 
 이미지 업로드처럼 USER, ADMIN, ONBOARDING을 모두 받으면서 유형별 권한과 소유권을
-구분해야 하는 기능은 `CurrentActorProvider`를 사용한다. 현재 media Service가 이 계약을 사용하며,
+구분해야 하는 기능은 `CurrentActorProvider`를 사용한다. media의 작업 주체와 exchangerate의 보정 관리자 판별에 이 계약을 사용하며,
 `auth.internal.security.CurrentActorProviderImpl`이 인증 컨텍스트 해석을 담당한다.
 
 ```java
