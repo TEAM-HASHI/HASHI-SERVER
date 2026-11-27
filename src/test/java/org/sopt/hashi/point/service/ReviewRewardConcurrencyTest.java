@@ -31,7 +31,6 @@ import org.sopt.hashi.config.JpaAuditingConfig;
 import org.sopt.hashi.media.MediaPort;
 import org.sopt.hashi.point.PointSourceType;
 import org.sopt.hashi.point.domain.PointTransactionRepository;
-import org.sopt.hashi.reservation.ReservationStatus;
 import org.sopt.hashi.reservation.domain.Reservation;
 import org.sopt.hashi.reservation.domain.ReservationRepository;
 import org.sopt.hashi.reservation.service.ReservationService;
@@ -191,8 +190,9 @@ class ReviewRewardConcurrencyTest {
     private Long visitedReservation(Long restaurantId) {
         Reservation reservation = Reservation.standard(userId, "테스트 예약자", restaurantId,
                 LocalDateTime.of(2026, 1, 1, 12, 0), 1, 0, 0, null, 0L, 4000L);
-        reservation.changeStatusByAdmin(ReservationStatus.VISITED);
-        return reservations.saveAndFlush(reservation).getId();
+        Long id = reservations.saveAndFlush(reservation).getId();
+        jdbc.update("UPDATE reservation SET reservation_status = 'VISITED', payment_status = 'PAID' WHERE id = ?", id);
+        return id;
     }
 
     private CreateReviewRequest reviewRequest(Long reservationId) {
