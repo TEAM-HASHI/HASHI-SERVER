@@ -136,7 +136,7 @@ class RestaurantPortImplTest {
                 List.of("https://cdn.example.com/restaurants/%d/thumbnail.jpg".formatted(id)),
                 BigDecimal.ZERO.setScale(1),
                 null,
-                new PriceRangeInfo("JPY", 1000L, 3000L)
+                new PriceRangeInfo("JPY", 1000L, 3000L), 0L
         );
     }
 

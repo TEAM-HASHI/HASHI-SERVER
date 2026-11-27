@@ -160,7 +160,7 @@ class ReservationServiceTest {
                         List.of(),
                         null,
                         null,
-                        null)));
+                        null, 0L)));
         given(mediaPort.findImages(any())).willReturn(Map.of(request(assetId), processing));
 
         ReservationDetailResponse response = service.getMyReservation(101L);

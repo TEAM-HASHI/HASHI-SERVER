@@ -1,9 +1,11 @@
 package org.sopt.hashi.restaurant.web;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.head;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -16,6 +18,7 @@ import org.sopt.hashi.auth.internal.security.JwtAuthenticationFilter;
 import org.sopt.hashi.media.MediaImage;
 import org.sopt.hashi.media.MediaImageRole;
 import org.sopt.hashi.media.MediaImageStatus;
+import org.sopt.hashi.restaurant.RestaurantDetailViewedEvent;
 import org.sopt.hashi.restaurant.RestaurantImageInfo;
 import org.sopt.hashi.restaurant.code.RestaurantErrorCode;
 import org.sopt.hashi.restaurant.dto.RestaurantListResponse;
@@ -32,8 +35,11 @@ import org.springframework.context.annotation.ComponentScan.Filter;
 import org.springframework.context.annotation.FilterType;
 import org.springframework.context.annotation.Import;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
+import org.springframework.test.context.event.ApplicationEvents;
+import org.springframework.test.context.event.RecordApplicationEvents;
 import org.springframework.test.web.servlet.MockMvc;
 
+@RecordApplicationEvents
 @WebMvcTest(
         controllers = RestaurantController.class,
         excludeFilters = @Filter(
@@ -45,6 +51,9 @@ class RestaurantControllerTest {
 
     @Autowired
     private MockMvc mockMvc;
+
+    @Autowired
+    private ApplicationEvents events;
 
     @MockitoBean
     private RestaurantService restaurantService;
@@ -133,6 +142,9 @@ class RestaurantControllerTest {
                         .value(860));
 
         verify(restaurantService).getRestaurantSummary(1L);
+        mockMvc.perform(head("/api/v1/restaurants/1/summary")).andExpect(status().isOk());
+        assertThat(events.stream(RestaurantDetailViewedEvent.class))
+                .containsExactly(new RestaurantDetailViewedEvent(1L));
     }
 
     @Test
@@ -149,6 +161,7 @@ class RestaurantControllerTest {
                 .andExpect(jsonPath("$.data.name").value("히마와리 스시"));
 
         verify(restaurantService).getRandomRestaurantRecommendation(1L);
+        assertThat(events.stream(RestaurantDetailViewedEvent.class)).isEmpty();
     }
 
     @Test
