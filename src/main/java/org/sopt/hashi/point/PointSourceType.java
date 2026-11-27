@@ -9,6 +9,9 @@ public enum PointSourceType {
 
     RESERVATION,
     REVIEW,
+    /** 같은 가입 ID에 대해 초대한 사람과 가입한 친구의 원장을 구분한다. */
+    INVITE_SENT,
+    INVITE_RECEIVED,
     /** 회원 자체가 출처인 변동(탈퇴 소멸) — source_id는 userId. */
     USER
 }

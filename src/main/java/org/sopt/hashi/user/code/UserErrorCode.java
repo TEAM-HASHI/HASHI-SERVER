@@ -31,7 +31,9 @@ public enum UserErrorCode implements ErrorCode {
     SAME_COLLECTION_MOVE(HttpStatus.BAD_REQUEST, "USER-014", "같은 컬렉션으로는 이동할 수 없습니다"),
     RESTAURANT_NOT_FOUND(HttpStatus.NOT_FOUND, "USER-015", "저장할 식당을 찾을 수 없습니다"),
     UNSUPPORTED_SAVED_RESTAURANT_SORT(HttpStatus.BAD_REQUEST, "USER-016", "지원하지 않는 정렬 기준입니다"),
-    COLLECTION_MAP_UNAVAILABLE(HttpStatus.SERVICE_UNAVAILABLE, "USER-017", "컬렉션 지도를 조회할 수 없습니다");
+    COLLECTION_MAP_UNAVAILABLE(HttpStatus.SERVICE_UNAVAILABLE, "USER-017", "컬렉션 지도를 조회할 수 없습니다"),
+    INVALID_INVITE_CODE(HttpStatus.BAD_REQUEST, "USER-018", "존재하지 않는 코드 입니다."),
+    INVITE_CODE_UNAVAILABLE(HttpStatus.SERVICE_UNAVAILABLE, "USER-019", "초대 코드를 발급하지 못했습니다");
 
     private final HttpStatus status;
     private final String code;

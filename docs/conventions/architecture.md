@@ -66,6 +66,7 @@
   **요구 인터페이스(SPI)**를 공개하고 조건을 소유한 모듈이 구현한다(의존 역전). 예: 탈퇴 조건 `WithdrawalBlocker`는
   user가 정의하고 reservation이 구현해 의존은 기존대로 reservation → user다. 이미 그 모듈을 의존하는 모듈만 구현한다 —
   반대 방향(user가 의존하는 restaurant·media·auth)이 구현하면 순환이므로, 그 모듈의 조건은 필요한 쪽이 포트로 직접 확인한다.
+  `FriendInviteReward`는 user가 정의하고 point가 구현한다. 가입과 양쪽 포인트 적립을 한 트랜잭션에서 처리한다.
 - **MAY**: outbound storage adapter, 규격·설정 파일 reader처럼 모듈 밖에 공개하지 않는 기술 구현은
   `internal/`에 둘 수 있다. 엔티티·Repository·비즈니스 로직·Request/Response·Controller는 각각
   `domain`·`service`·`dto`·`web`에 두며, 다른 모듈은 `internal`을 import하지 않는다.
@@ -239,6 +240,6 @@ upload → shared (FileStorage)         (지원 모듈; 도메인 모듈 의존 
 도메인 backfill runner → media (MediaBackfillPort) (migration 전용 READY asset 연결)
 media → auth, shared                  (actor 조회와 인프라 공통 계약; 콘텐츠 도메인 되참조 금지)
 모든 도메인 → shared (OPEN)
-point → user                         (UserWithdrawnEvent 구독 — 포인트 소멸; 이벤트 타입만 의존)
+point → user                         (UserWithdrawnEvent 구독 — 포인트 소멸, FriendInviteReward 구현 — 가입 보상)
 user ⇢ point                         (UserWithdrawnEvent 발행 — 탈퇴 후속 정리는 이벤트, 토큰 무효화·계정 정리는 AuthAccountPort)
 ```
