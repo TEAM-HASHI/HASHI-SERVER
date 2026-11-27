@@ -1387,6 +1387,29 @@ class RestaurantServiceTest {
     }
 
     @Test
+    void 소수_엔화_메뉴의_목록과_상세는_표시한_정수_엔화로_원화를_환산한다() {
+        RestaurantService service = createRestaurantService();
+        RestaurantMenu menu = RestaurantMenu.create("Ramen", "description", null,
+                PriceCurrency.JPY, new BigDecimal("100.75"), false);
+        ReflectionTestUtils.setField(menu, "id", 10L);
+        given(restaurantRepository.existsByIdAndDeletedFalse(1L)).willReturn(true);
+        given(restaurantRepository.findMenusByRestaurantId(any(), any(), any(), any(), any(), any(Pageable.class)))
+                .willReturn(List.of(menu));
+        given(restaurantRepository.findMenuByRestaurantIdAndMenuId(1L, 10L)).willReturn(Optional.of(menu));
+        var day = java.time.LocalDate.of(2026, 11, 27);
+        given(exchangeRates.current()).willReturn(Optional.of(
+                new org.sopt.hashi.exchangerate.ExchangeRatePort.Quote(day, day, new BigDecimal("950.55"))));
+
+        var listMenu = service.getRestaurantMenus(1L, null, null, 10).content().getFirst();
+        var detail = service.getRestaurantMenu(1L, 10L);
+
+        assertThat(listMenu.price()).isEqualTo(100L);
+        assertThat(detail.price()).isEqualTo(listMenu.price());
+        assertThat(listMenu.wonEstimate().amount()).isEqualByComparingTo("951");
+        assertThat(detail.wonEstimate()).isEqualTo(listMenu.wonEstimate());
+    }
+
+    @Test
     void 메뉴_상세와_다른_메뉴_개수를_조회한다() {
         RestaurantService restaurantService = createRestaurantService();
         RestaurantMenu menu = createMenu(10L, "Shio Ramen", true);

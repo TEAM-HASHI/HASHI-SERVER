@@ -356,6 +356,7 @@ public class RestaurantService {
         ProjectedImage menuImage = projectMenuImage(
                 menu, MediaImageRole.MENU_DETAIL, mediaProjection);
 
+        Long price = toWholeAmount(menu.getPriceAmount());
         return new RestaurantMenuDetailResponse(
                 menu.getId(),
                 menu.getName(),
@@ -363,10 +364,10 @@ public class RestaurantService {
                 menuImage.url(),
                 menuImage.image(),
                 menu.getPriceCurrency() == null ? null : menu.getPriceCurrency().value(),
-                toWholeAmount(menu.getPriceAmount()),
+                price,
                 menu.isMain(),
                 otherMenuCount,
-                MenuWonEstimate.from(menu, exchangeRates.current())
+                MenuWonEstimate.from(menu.getPriceCurrency(), price, exchangeRates.current())
         );
     }
 
@@ -846,6 +847,7 @@ public class RestaurantService {
     ) {
         ProjectedImage menuImage = projectMenuImage(
                 menu, MediaImageRole.MENU_LIST, mediaProjection);
+        Long price = toWholeAmount(menu.getPriceAmount());
         return new RestaurantMenuResponse(
                 menu.getId(),
                 menu.getName(),
@@ -853,9 +855,9 @@ public class RestaurantService {
                 menuImage.url(),
                 menuImage.image(),
                 menu.getPriceCurrency() == null ? null : menu.getPriceCurrency().value(),
-                toWholeAmount(menu.getPriceAmount()),
+                price,
                 menu.isMain(),
-                MenuWonEstimate.from(menu, quote)
+                MenuWonEstimate.from(menu.getPriceCurrency(), price, quote)
         );
     }
 
