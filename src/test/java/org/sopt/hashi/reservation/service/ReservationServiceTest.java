@@ -8,6 +8,7 @@ import static org.mockito.BDDMockito.given;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 
+import java.time.Clock;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Map;
@@ -16,6 +17,8 @@ import java.util.Set;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.EnumSource;
 import org.mockito.ArgumentMatchers;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
@@ -31,6 +34,7 @@ import org.sopt.hashi.media.MediaImageStatus;
 import org.sopt.hashi.media.MediaPort;
 import org.sopt.hashi.point.PointPort;
 import org.sopt.hashi.reservation.AdminReservationInfo;
+import org.sopt.hashi.reservation.PaymentStatus;
 import org.sopt.hashi.reservation.ReservationStatus;
 import org.sopt.hashi.reservation.code.ReservationErrorCode;
 import org.sopt.hashi.reservation.domain.Reservation;
@@ -208,13 +212,53 @@ class ReservationServiceTest {
         ReservationService service = createService();
         Reservation reservation = anywhereReservation(101L);
         given(currentActorProvider.currentActor()).willReturn(new CurrentActor(ActorType.ADMIN, 4L));
-        given(reservationRepository.findById(101L)).willReturn(Optional.of(reservation));
+        given(reservationRepository.findForUpdate(101L)).willReturn(Optional.of(reservation));
+        AdminReservationInfo waiting = service.changeStatusByAdmin(101L, ReservationStatus.AWAITING_PAYMENT);
+        assertThat(waiting.paymentDeadline()).isEqualTo(waiting.paymentWaitStartedAt().plusSeconds(86_400));
 
         AdminReservationInfo info = service.changeStatusByAdmin(101L, ReservationStatus.CONFIRMED);
 
         assertThat(info.reservationStatus()).isEqualTo(ReservationStatus.CONFIRMED);
         assertThat(reservation.getReservationStatus()).isEqualTo(ReservationStatus.CONFIRMED);
         verifyNoInteractions(currentUserProvider, restaurantPort, pointPort);
+    }
+
+    @ParameterizedTest
+    @EnumSource(value = ReservationStatus.class, names = {"REQUESTED", "CONTACTING", "VISITED"})
+    void 과거에_되살린_결제취소_예약을_다시_취소해도_포인트에_손대지_않는다(ReservationStatus legacyStatus) {
+        ReservationService service = createService();
+        Reservation booking = anywhereReservation(101L, 2000);
+        ReflectionTestUtils.setField(booking, "reservationStatus", legacyStatus);
+        ReflectionTestUtils.setField(booking, "paymentStatus", PaymentStatus.CANCELED);
+        given(currentActorProvider.currentActor()).willReturn(new CurrentActor(ActorType.ADMIN, 4L));
+        given(reservationRepository.findForUpdate(101L)).willReturn(Optional.of(booking));
+
+        assertThatThrownBy(() -> service.changeStatusByAdmin(101L, ReservationStatus.AWAITING_PAYMENT))
+                .hasFieldOrPropertyWithValue("errorCode", ReservationErrorCode.INVALID_PAYMENT_TRANSITION);
+        service.changeStatusByAdmin(101L, ReservationStatus.CANCELED);
+        service.changeStatusByAdmin(101L, ReservationStatus.CANCELED);
+        assertThatThrownBy(() -> service.changeStatusByAdmin(101L, ReservationStatus.CONTACTING))
+                .hasFieldOrPropertyWithValue("errorCode", ReservationErrorCode.INVALID_PAYMENT_TRANSITION);
+        verifyNoInteractions(pointPort);
+    }
+
+    @Test
+    void 방문완료를_연락중으로_정정해도_입금_기한과_결제를_유지하고_취소시_환불하지_않는다() {
+        ReservationService service = createService();
+        Reservation booking = anywhereReservation(101L, 2000);
+        given(currentActorProvider.currentActor()).willReturn(new CurrentActor(ActorType.ADMIN, 4L));
+        given(reservationRepository.findForUpdate(101L)).willReturn(Optional.of(booking));
+        AdminReservationInfo waiting = service.changeStatusByAdmin(101L, ReservationStatus.AWAITING_PAYMENT);
+        service.changeStatusByAdmin(101L, ReservationStatus.CONFIRMED);
+        service.changeStatusByAdmin(101L, ReservationStatus.VISITED);
+
+        AdminReservationInfo corrected = service.changeStatusByAdmin(101L, ReservationStatus.CONTACTING);
+        assertThat(corrected.paymentStatus()).isEqualTo(PaymentStatus.PAID);
+        assertThat(corrected.paymentDeadline()).isEqualTo(waiting.paymentDeadline());
+        assertThatThrownBy(() -> service.changeStatusByAdmin(101L, ReservationStatus.AWAITING_PAYMENT))
+                .hasFieldOrPropertyWithValue("errorCode", ReservationErrorCode.INVALID_PAYMENT_TRANSITION);
+        service.changeStatusByAdmin(101L, ReservationStatus.CANCELED);
+        verifyNoInteractions(pointPort);
     }
 
     @Test
@@ -239,7 +283,7 @@ class ReservationServiceTest {
                 userPort,
                 currentUserProvider,
                 currentActorProvider,
-                eventPublisher);
+                eventPublisher, Clock.systemUTC());
     }
 
     private Reservation standardReservation(Long id, Long restaurantId) {
@@ -259,6 +303,10 @@ class ReservationServiceTest {
     }
 
     private Reservation anywhereReservation(Long id) {
+        return anywhereReservation(id, 0);
+    }
+
+    private Reservation anywhereReservation(Long id, long usedPoint) {
         Reservation reservation = Reservation.anywhere(
                 7L,
                 "예약자",
@@ -269,8 +317,8 @@ class ReservationServiceTest {
                 0,
                 0,
                 null,
-                0L,
-                4_000L);
+                usedPoint,
+                Reservation.BASE_FEE - usedPoint);
         ReflectionTestUtils.setField(reservation, "id", id);
         return reservation;
     }

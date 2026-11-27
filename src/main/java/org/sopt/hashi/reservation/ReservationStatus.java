@@ -14,6 +14,7 @@ public enum ReservationStatus {
 
     REQUESTED("예약이 요청되어 식당 컨택을 기다리는 상태"),
     CONTACTING("식당에 예약 가능 여부를 확인하는 중인 상태"),
+    AWAITING_PAYMENT("입금 확인을 기다리는 상태"),
     CONFIRMED("식당이 예약을 확정한 상태"),
     VISITED("방문이 완료된 상태"),
     CANCELED("예약이 취소된 상태");
@@ -24,7 +25,7 @@ public enum ReservationStatus {
         this.description = description;
     }
 
-    /** 진행중(확정 전) 상태인지 — 확정 D-day 노출·"진행중" 탭의 기준. */
+    /** 식당에 자리 확보를 요청하는 단계인지 판단한다. 이 단계에서 확정 D-day를 노출한다. */
     public boolean isInProgress() {
         return this == REQUESTED || this == CONTACTING;
     }

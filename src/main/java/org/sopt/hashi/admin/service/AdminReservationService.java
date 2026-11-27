@@ -34,7 +34,7 @@ public class AdminReservationService {
         this.mediaPort = mediaPort;
     }
 
-    /** 예약 상태 변경(자유 전이) — CANCELED 진입 시 포인트 복원 규칙은 reservation이 적용한다. */
+    /** 예약 상태 변경 — CANCELED 진입 시 포인트 복원 규칙은 reservation이 적용한다. */
     public AdminReservationResponse changeStatus(Long reservationId, ReservationStatus targetStatus) {
         AdminReservationInfo info = reservationPort.changeStatusByAdmin(reservationId, targetStatus);
         MediaProjection mediaProjection = loadThumbnailProjection(

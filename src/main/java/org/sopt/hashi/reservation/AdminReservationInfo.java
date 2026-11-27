@@ -1,6 +1,7 @@
 package org.sopt.hashi.reservation;
 
 import java.math.BigDecimal;
+import java.time.Instant;
 import java.time.LocalDateTime;
 import org.sopt.hashi.media.ImageReference;
 
@@ -28,5 +29,7 @@ public record AdminReservationInfo(
         PaymentStatus paymentStatus,
         long usedPoint,
         BigDecimal amount,
-        Long confirmDDay) {
+        Long confirmDDay,
+        Instant paymentWaitStartedAt,
+        Instant paymentDeadline) {
 }

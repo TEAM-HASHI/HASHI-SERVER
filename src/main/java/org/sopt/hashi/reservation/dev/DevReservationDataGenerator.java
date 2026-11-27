@@ -1,5 +1,6 @@
 package org.sopt.hashi.reservation.dev;
 
+import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.LocalTime;
@@ -79,14 +80,19 @@ public class DevReservationDataGenerator {
 
     /** 실제 여정과 같은 경로로 목표 상태까지 전이한다. 취소는 방문 전에만 가능하므로 진행중 취소로 재현한다. */
     private void transitionTo(Reservation reservation, ReservationStatus status) {
+        Instant now = Instant.now();
+        if (status == ReservationStatus.AWAITING_PAYMENT || status == ReservationStatus.CONFIRMED
+                || status == ReservationStatus.VISITED) {
+            reservation.changeStatusByAdmin(ReservationStatus.AWAITING_PAYMENT, now);
+        }
         switch (status) {
-            case REQUESTED -> {
+            case REQUESTED, AWAITING_PAYMENT -> {
             }
-            case CONTACTING -> reservation.changeStatusByAdmin(ReservationStatus.CONTACTING);
-            case CONFIRMED -> reservation.changeStatusByAdmin(ReservationStatus.CONFIRMED);
+            case CONTACTING -> reservation.changeStatusByAdmin(ReservationStatus.CONTACTING, now);
+            case CONFIRMED -> reservation.changeStatusByAdmin(ReservationStatus.CONFIRMED, now);
             case VISITED -> {
-                reservation.changeStatusByAdmin(ReservationStatus.CONFIRMED);
-                reservation.changeStatusByAdmin(ReservationStatus.VISITED);
+                reservation.changeStatusByAdmin(ReservationStatus.CONFIRMED, now);
+                reservation.changeStatusByAdmin(ReservationStatus.VISITED, now);
             }
             case CANCELED -> reservation.cancel();
         }

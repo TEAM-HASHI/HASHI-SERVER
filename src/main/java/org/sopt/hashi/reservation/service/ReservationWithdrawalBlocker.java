@@ -18,7 +18,7 @@ class ReservationWithdrawalBlocker implements WithdrawalBlocker {
 
     /** 아직 끝나지 않은 예약 상태 — 요청·컨택·확정. */
     static final Set<ReservationStatus> UNFINISHED_STATUSES = Set.of(
-            ReservationStatus.REQUESTED, ReservationStatus.CONTACTING, ReservationStatus.CONFIRMED);
+            ReservationStatus.REQUESTED, ReservationStatus.CONTACTING, ReservationStatus.AWAITING_PAYMENT, ReservationStatus.CONFIRMED);
 
     private final ReservationRepository reservationRepository;
 

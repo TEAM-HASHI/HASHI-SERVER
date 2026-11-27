@@ -12,7 +12,7 @@ import org.sopt.hashi.reservation.ReservationStatus;
 public enum ReservationStatusFilter {
 
     /** 진행중 — 예약 요청~식당 컨택(확정 전). */
-    IN_PROGRESS(Set.of(ReservationStatus.REQUESTED, ReservationStatus.CONTACTING)),
+    IN_PROGRESS(Set.of(ReservationStatus.REQUESTED, ReservationStatus.CONTACTING, ReservationStatus.AWAITING_PAYMENT)),
 
     /** 방문예정 — 식당이 확정한 예약. */
     UPCOMING(Set.of(ReservationStatus.CONFIRMED)),
