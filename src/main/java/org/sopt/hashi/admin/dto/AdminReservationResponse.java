@@ -1,5 +1,6 @@
 package org.sopt.hashi.admin.dto;
 
+import io.swagger.v3.oas.annotations.media.Schema;
 import java.math.BigDecimal;
 import java.time.Instant;
 import java.time.LocalDateTime;
@@ -34,6 +35,7 @@ public record AdminReservationResponse(
         BigDecimal amount,
         Long confirmDDay,
         Instant paymentWaitStartedAt,
+        @Schema(description = "최초 입금 대기 전환 후 24시간이 되는 고객 안내 시각. 경과 후에도 입금 확인이 가능합니다.")
         Instant paymentDeadline) {
 
     public static AdminReservationResponse from(

@@ -231,15 +231,10 @@ public class Reservation extends BaseTimeEntity {
                 paymentDeadline = paymentWaitStartedAt.plus(1, ChronoUnit.DAYS);
             }
             case CONFIRMED -> {
-                if (reservationStatus == ReservationStatus.AWAITING_PAYMENT) {
-                    if (!now.isBefore(paymentDeadline)) {
-                        throw new BusinessException(ReservationErrorCode.PAYMENT_DEADLINE_PASSED);
-                    }
-                } else {
-                    requireTransition((reservationStatus.isInProgress() && paymentStatus == PaymentStatus.PENDING
-                            && amount.signum() == 0)
-                            || correctingPaidReservation);
-                }
+                boolean pendingConfirmation = paymentStatus == PaymentStatus.PENDING
+                        && (reservationStatus == ReservationStatus.AWAITING_PAYMENT
+                            || (reservationStatus.isInProgress() && amount.signum() == 0));
+                requireTransition(pendingConfirmation || correctingPaidReservation);
                 paymentStatus = PaymentStatus.PAID;
             }
             case REQUESTED, CONTACTING -> requireTransition(

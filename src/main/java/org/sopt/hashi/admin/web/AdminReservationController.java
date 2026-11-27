@@ -33,9 +33,9 @@ public class AdminReservationController {
         this.adminReservationService = adminReservationService;
     }
 
-    /** 예약 상태 변경 — 유상 예약은 입금 대기 후 기한 안에 확정하고, 0원 예약은 바로 확정한다. */
+    /** 예약 상태 변경 — 유상 예약은 입금 대기 후 입금을 확인하면 확정하고, 0원 예약은 바로 확정한다. */
     @ApiException(value = CommonErrorCode.class, codes = {"INVALID_INPUT", "UNAUTHORIZED", "FORBIDDEN"})
-    @ApiResponse(responseCode = "409", description = "입금 기한이 지났거나 결제 상태에 맞지 않는 전환입니다")
+    @ApiResponse(responseCode = "409", description = "현재 예약 또는 결제 상태에서는 요청한 상태로 변경할 수 없습니다")
     @ApiSuccess(value = AdminSuccessCode.class, codes = {"RESERVATION_STATUS_CHANGED"})
     @PostMapping("/{reservationId}/status")
     public SuccessResponse<AdminReservationResponse> changeStatus(

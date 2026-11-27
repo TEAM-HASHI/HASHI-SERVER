@@ -9,6 +9,7 @@ import java.util.concurrent.CyclicBarrier;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import org.junit.jupiter.api.Test;
+import org.sopt.hashi.reservation.PaymentStatus;
 import org.sopt.hashi.reservation.ReservationStatus;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.jdbc.AutoConfigureTestDatabase;
@@ -84,6 +85,25 @@ class ReservationPaymentWindowMySqlTest {
         } finally {
             workers.shutdownNow();
         }
+    }
+
+    @Test
+    void 안내_기한이_지난_어디든_예약도_입금_확인_후_확정된다() {
+        Instant start = Instant.parse("2026-11-25T01:00:00Z");
+        Reservation booking = Reservation.anywhere(1L, "예약자", "식당", "도쿄",
+                LocalDateTime.of(2027, 1, 1, 18, 0), 2, 0, 0, null, 0, Reservation.BASE_FEE);
+        booking.changeStatusByAdmin(ReservationStatus.AWAITING_PAYMENT, start);
+        Long id = reservations.saveAndFlush(booking).getId();
+
+        transactions.executeWithoutResult(tx -> {
+            Reservation waiting = reservations.findForUpdate(id).orElseThrow();
+            assertThat(waiting.getReservationStatus()).isEqualTo(ReservationStatus.AWAITING_PAYMENT);
+            waiting.changeStatusByAdmin(ReservationStatus.CONFIRMED, waiting.getPaymentDeadline().plusSeconds(3_600));
+        });
+
+        Reservation confirmed = reservations.findById(id).orElseThrow();
+        assertThat(confirmed.getPaymentStatus()).isEqualTo(PaymentStatus.PAID);
+        assertThat(confirmed.getPaymentDeadline()).isEqualTo(start.plusSeconds(86_400));
     }
 
     private Callable<Instant> startPaymentWait(Long id, Instant now, CyclicBarrier start) {

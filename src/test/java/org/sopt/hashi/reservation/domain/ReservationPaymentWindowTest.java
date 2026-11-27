@@ -9,8 +9,9 @@ import static org.sopt.hashi.reservation.ReservationStatus.CONTACTING;
 import java.time.Instant;
 import java.time.LocalDateTime;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.sopt.hashi.reservation.PaymentStatus;
-import org.sopt.hashi.reservation.code.ReservationErrorCode;
 import org.sopt.hashi.reservation.dto.ReservationDetailResponse;
 import org.sopt.hashi.reservation.dto.ReservationResponse;
 import org.sopt.hashi.shared.error.BusinessException;
@@ -20,8 +21,9 @@ class ReservationPaymentWindowTest {
     private static final Instant START = Instant.parse("2026-11-27T01:00:00Z");
     private static final Instant DEADLINE = START.plusSeconds(86_400);
 
-    @Test
-    void 대기_재시도와_조회에도_최초_기한을_유지하고_마감_직전까지_확정한다() {
+    @ParameterizedTest
+    @ValueSource(longs = {-1, 0, 1, 86_400})
+    void 안내_기한_전후_어느_때나_입금을_확인해_확정할_수_있다(long secondsFromDeadline) {
         Reservation booking = standard(2000);
         booking.changeStatusByAdmin(AWAITING_PAYMENT, START);
         booking.changeStatusByAdmin(AWAITING_PAYMENT, START.plusSeconds(600));
@@ -30,8 +32,11 @@ class ReservationPaymentWindowTest {
         assertThat(booking.refundableOnCancel()).isTrue();
         assertThat(ReservationResponse.of(booking, null, null, null).paymentWaitStartedAt()).isEqualTo(START);
         assertThat(ReservationDetailResponse.of(booking, null, null, null, null).paymentDeadline()).isEqualTo(DEADLINE);
-        booking.changeStatusByAdmin(CONFIRMED, DEADLINE.minusNanos(1));
-        booking.changeStatusByAdmin(CONFIRMED, DEADLINE);
+        Instant confirmationTime = DEADLINE.plusSeconds(secondsFromDeadline);
+        booking.changeStatusByAdmin(CONFIRMED, confirmationTime);
+        booking.changeStatusByAdmin(CONFIRMED, confirmationTime.plusSeconds(1));
+        assertThat(booking.getReservationStatus()).isEqualTo(CONFIRMED);
+        assertThat(booking.getPaymentDeadline()).isEqualTo(DEADLINE);
         assertThat(booking.getPaymentStatus()).isEqualTo(PaymentStatus.PAID);
     }
 
@@ -43,8 +48,6 @@ class ReservationPaymentWindowTest {
         booking.changeStatusByAdmin(AWAITING_PAYMENT, START);
         assertThatThrownBy(() -> booking.changeStatusByAdmin(CONTACTING, DEADLINE))
                 .isInstanceOf(BusinessException.class);
-        assertThatThrownBy(() -> booking.changeStatusByAdmin(CONFIRMED, DEADLINE))
-                .hasFieldOrPropertyWithValue("errorCode", ReservationErrorCode.PAYMENT_DEADLINE_PASSED);
         booking.cancel();
         assertThatThrownBy(() -> booking.changeStatusByAdmin(CONFIRMED, DEADLINE))
                 .isInstanceOf(BusinessException.class);

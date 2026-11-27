@@ -1,5 +1,6 @@
 package org.sopt.hashi.reservation.dto;
 
+import io.swagger.v3.oas.annotations.media.Schema;
 import java.time.Instant;
 import java.time.LocalDateTime;
 import org.sopt.hashi.media.MediaImage;
@@ -28,6 +29,7 @@ public record ReservationResponse(
         ReservationStatus reservationStatus,
         Long confirmDDay,
         Instant paymentWaitStartedAt,
+        @Schema(description = "최초 입금 대기 전환 후 24시간이 되는 고객 안내 시각. 경과 후에도 입금 확인이 가능합니다.")
         Instant paymentDeadline) {
 
     /** 엔티티 + 유형별로 해석된 식당명·대표이미지·주소로 응답을 만든다. */
