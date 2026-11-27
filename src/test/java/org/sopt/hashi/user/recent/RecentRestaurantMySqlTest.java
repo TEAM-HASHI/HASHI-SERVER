@@ -148,6 +148,17 @@ class RecentRestaurantMySqlTest {
         assertThat(service.list(null).content()).isEmpty();
     }
 
+    @Test
+    void equalTimestampsKeepTheSameTopFiftyAfterRetry() {
+        var first = new RecentRestaurantRequest(LongStream.rangeClosed(1, 50)
+                .mapToObj(id -> new Visit(id, NOW)).toList());
+        service.merge(first);
+        service.merge(new RecentRestaurantRequest(List.of(new Visit(51L, NOW))));
+        service.merge(first);
+        assertThat(history.findByUserId(userId)).extracting(RecentRestaurant::getRestaurantId)
+                .containsExactlyInAnyOrderElementsOf(LongStream.rangeClosed(2, 51).boxed().toList());
+    }
+
     private Void mergeRange(long first, long last, CyclicBarrier barrier) throws Exception {
         barrier.await(15, TimeUnit.SECONDS);
         service.merge(new RecentRestaurantRequest(LongStream.rangeClosed(first, last)

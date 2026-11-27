@@ -42,7 +42,7 @@ class RecentRestaurant {
     }
 
     Position position() {
-        return new Position(viewedAt, id);
+        return new Position(viewedAt, viewedAt == null ? id : restaurantId);
     }
 
     /** 시간이 없는 기존 기기 이력은 입력 순서(id 오름차순)대로 모든 시간 있는 이력 뒤에 둔다. */

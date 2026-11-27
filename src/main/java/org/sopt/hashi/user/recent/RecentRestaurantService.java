@@ -61,13 +61,11 @@ class RecentRestaurantService {
         Instant now = clock.instant();
         LocalDateTime viewedAt = utcTime(now, now);
         List<RecentRestaurant> existing = history.findByUserId(userId);
-        // 같은 마이크로초에 같은 식당을 다시 열면 새 id로 동률 순서만 갱신한다.
-        List<RecentRestaurant> sameTick = existing.stream()
-                .filter(row -> restaurantId.equals(row.getRestaurantId()) && viewedAt.equals(row.getViewedAt()))
-                .toList();
-        if (!sameTick.isEmpty()) {
-            history.deleteAllInBatch(sameTick);
-            existing.removeAll(sameTick);
+        // 같은 마이크로초에 상세 요청이 겹쳐도 마지막 요청이 목록의 맨 앞에 온다.
+        LocalDateTime latest = existing.stream().map(RecentRestaurant::getViewedAt)
+                .filter(java.util.Objects::nonNull).max(LocalDateTime::compareTo).orElse(null);
+        if (latest != null && !viewedAt.isAfter(latest)) {
+            now = latest.plus(1, ChronoUnit.MICROS).toInstant(ZoneOffset.UTC);
         }
         mergeLocked(userId, existing, List.of(new Visit(restaurantId, now)), now);
     }
