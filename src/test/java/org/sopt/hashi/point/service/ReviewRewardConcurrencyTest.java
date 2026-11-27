@@ -34,6 +34,7 @@ import org.sopt.hashi.point.domain.PointTransactionRepository;
 import org.sopt.hashi.reservation.ReservationStatus;
 import org.sopt.hashi.reservation.domain.Reservation;
 import org.sopt.hashi.reservation.domain.ReservationRepository;
+import org.sopt.hashi.reservation.service.ReservationService;
 import org.sopt.hashi.restaurant.RestaurantPort;
 import org.sopt.hashi.restaurant.domain.PriceCurrency;
 import org.sopt.hashi.restaurant.domain.Restaurant;
@@ -94,6 +95,7 @@ class ReviewRewardConcurrencyTest {
     @Autowired JdbcTemplate jdbc;
     @Autowired TransactionTemplate transactionTemplate;
     @MockitoSpyBean PointService points;
+    @MockitoBean ReservationService reservationService;
     @MockitoBean CurrentUserProvider currentUser;
     @MockitoBean RestaurantPort restaurants;
     @MockitoBean MediaPort media;
