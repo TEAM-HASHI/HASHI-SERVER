@@ -91,8 +91,11 @@ class RestaurantServiceTest {
     @Mock
     private RestaurantLocationService locationService;
 
+    @Mock
+    private org.sopt.hashi.exchangerate.ExchangeRatePort exchangeRates;
+
     private RestaurantService createRestaurantService() {
-        return new RestaurantService(restaurantRepository, fileStorage, mediaPort, JAPAN_CLOCK, locationService);
+        return new RestaurantService(restaurantRepository, fileStorage, mediaPort, JAPAN_CLOCK, locationService, exchangeRates);
     }
 
     @Test
@@ -1322,7 +1325,15 @@ class RestaurantServiceTest {
         given(fileStorage.resolveFileUrl(anyString()))
                 .willAnswer(invocation -> "https://cdn.example.com/" + invocation.getArgument(0));
 
+        var day = java.time.LocalDate.of(2026, 7, 13);
+        given(exchangeRates.current()).willReturn(Optional.of(
+                new org.sopt.hashi.exchangerate.ExchangeRatePort.Quote(day, day.minusDays(3), new BigDecimal("950.55"))));
         RestaurantMenuListResponse response = restaurantService.getRestaurantMenus(1L, 99L, null, 2);
+        assertThat(response.content()).allSatisfy(item -> {
+            assertThat(item.wonEstimate().amount()).isEqualByComparingTo("11407");
+            assertThat(item.wonEstimate().quotedDate()).isEqualTo(day.minusDays(3));
+        });
+        verify(exchangeRates).current();
 
         assertThat(response.content()).hasSize(2);
         assertThat(response.hasNext()).isTrue();
@@ -1394,6 +1405,7 @@ class RestaurantServiceTest {
         assertThat(response.price()).isEqualTo(1_200L);
         assertThat(response.main()).isTrue();
         assertThat(response.otherMenuCount()).isEqualTo(6L);
+        assertThat(response.wonEstimate()).isNull();
         verify(restaurantRepository, never()).existsByIdAndDeletedFalse(any());
     }
 

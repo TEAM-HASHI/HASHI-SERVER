@@ -67,6 +67,8 @@ import org.sopt.hashi.restaurant.dto.RestaurantListResponse;
 import org.sopt.hashi.restaurant.dto.RestaurantListResponse.RestaurantSummaryResponse;
 import org.sopt.hashi.restaurant.dto.RestaurantListResponse.TodayBusinessHourResponse;
 import org.sopt.hashi.restaurant.dto.RestaurantMainResponse;
+import org.sopt.hashi.exchangerate.ExchangeRatePort;
+import org.sopt.hashi.restaurant.dto.MenuWonEstimate;
 import org.sopt.hashi.restaurant.dto.RestaurantMenuDetailResponse;
 import org.sopt.hashi.restaurant.dto.RestaurantMenuListResponse;
 import org.sopt.hashi.restaurant.dto.RestaurantMenuListResponse.RestaurantMenuResponse;
@@ -117,19 +119,22 @@ public class RestaurantService {
     private final MediaPort mediaPort;
     private final Clock japanClock;
     private final RestaurantLocationService locationService;
+    private final ExchangeRatePort exchangeRates;
 
     public RestaurantService(
             RestaurantRepository restaurantRepository,
             FileStorage fileStorage,
             MediaPort mediaPort,
             @Qualifier("japanClock") Clock japanClock,
-            RestaurantLocationService locationService
+            RestaurantLocationService locationService,
+            ExchangeRatePort exchangeRates
     ) {
         this.restaurantRepository = restaurantRepository;
         this.fileStorage = fileStorage;
         this.mediaPort = mediaPort;
         this.japanClock = japanClock;
         this.locationService = locationService;
+        this.exchangeRates = exchangeRates;
     }
 
     public RestaurantListResponse getRestaurants(
@@ -332,9 +337,10 @@ public class RestaurantService {
         MediaProjection mediaProjection = loadMenuProjection(
                 pageContent, MediaImageRole.MENU_LIST);
 
+        var quote = exchangeRates.current();
         return new RestaurantMenuListResponse(
                 pageContent.stream()
-                        .map(menu -> toMenuResponse(menu, mediaProjection))
+                        .map(menu -> toMenuResponse(menu, mediaProjection, quote))
                         .toList(),
                 nextCursor,
                 hasNext
@@ -359,7 +365,8 @@ public class RestaurantService {
                 menu.getPriceCurrency() == null ? null : menu.getPriceCurrency().value(),
                 toWholeAmount(menu.getPriceAmount()),
                 menu.isMain(),
-                otherMenuCount
+                otherMenuCount,
+                MenuWonEstimate.from(menu, exchangeRates.current())
         );
     }
 
@@ -834,7 +841,8 @@ public class RestaurantService {
 
     private RestaurantMenuResponse toMenuResponse(
             RestaurantMenu menu,
-            MediaProjection mediaProjection
+            MediaProjection mediaProjection,
+            Optional<ExchangeRatePort.Quote> quote
     ) {
         ProjectedImage menuImage = projectMenuImage(
                 menu, MediaImageRole.MENU_LIST, mediaProjection);
@@ -846,7 +854,8 @@ public class RestaurantService {
                 menuImage.image(),
                 menu.getPriceCurrency() == null ? null : menu.getPriceCurrency().value(),
                 toWholeAmount(menu.getPriceAmount()),
-                menu.isMain()
+                menu.isMain(),
+                MenuWonEstimate.from(menu, quote)
         );
     }
 
