@@ -4,7 +4,6 @@ import java.math.BigDecimal;
 import java.time.Clock;
 import java.time.LocalDate;
 import java.time.ZoneId;
-import java.util.List;
 import java.util.Optional;
 import org.sopt.hashi.auth.ActorType;
 import org.sopt.hashi.auth.CurrentActorProvider;
@@ -13,6 +12,8 @@ import org.sopt.hashi.exchangerate.domain.ExchangeRateStore;
 import org.sopt.hashi.shared.error.BusinessException;
 import org.sopt.hashi.shared.error.CommonErrorCode;
 import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 
 @Service
@@ -41,9 +42,9 @@ class ExchangeRateService implements ExchangeRatePort {
         return store.correct(appliedDate, quotedDate, rate, admin);
     }
 
-    public List<Revision> history(Long beforeId, int size) {
+    public Page<Revision> history(int page, int size) {
         adminId();
-        return store.history(beforeId, size);
+        return store.history(PageRequest.of(page, size));
     }
 
     private long adminId() {

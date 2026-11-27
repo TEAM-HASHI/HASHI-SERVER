@@ -12,6 +12,7 @@ import java.util.List;
 import org.sopt.hashi.exchangerate.ExchangeRatePort;
 import org.sopt.hashi.shared.error.CommonSuccessCode;
 import org.sopt.hashi.shared.response.SuccessResponse;
+import org.springframework.data.domain.Page;
 import org.springframework.web.bind.annotation.*;
 
 @RestController
@@ -30,9 +31,17 @@ public class AdminExchangeRateController {
     }
 
     @GetMapping("/history")
-    public SuccessResponse<List<ExchangeRatePort.Revision>> history(@RequestParam(required = false) @Positive Long beforeId,
+    public SuccessResponse<HistoryResponse> history(@RequestParam(defaultValue = "0") @Min(0) int page,
             @RequestParam(defaultValue = "20") @Min(1) @Max(100) int size) {
-        return SuccessResponse.of(CommonSuccessCode.OK, rates.history(beforeId, size));
+        return SuccessResponse.of(CommonSuccessCode.OK, HistoryResponse.from(rates.history(page, size)));
+    }
+
+    public record HistoryResponse(List<ExchangeRatePort.Revision> revisions, int page, int size,
+                                  long totalCount, int totalPages) {
+        static HistoryResponse from(Page<ExchangeRatePort.Revision> page) {
+            return new HistoryResponse(page.getContent(), page.getNumber(), page.getSize(),
+                    page.getTotalElements(), page.getTotalPages());
+        }
     }
 
     public record Correction(@NotNull LocalDate quotedDate,

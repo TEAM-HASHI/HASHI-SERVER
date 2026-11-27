@@ -11,7 +11,7 @@
 은행 응답에는 별도 고시일 필드가 없다. 당일 일자로 조회한 정상 JPY(100) 행의 매매기준율만 당일 고시로 반영한다. 값이 없으면 직전 적용값과 원래 고시일을 함께 이월한다. 운영자가 이미 보정한 적용일에는 자동 응답이 뒤늦게 도착해도 값을 유지한다.
 
 - `PUT /api/v1/admin/exchange-rates/jpy/{appliedDate}`의 본문에는 `quotedDate`와 `krwPer100Jpy`를 보낸다. 서버가 인증된 관리자 ID를 기록한다. 미래 적용일과 적용일 이후 고시일은 400이다.
-- `GET /api/v1/admin/exchange-rates/jpy/history?size=20`은 최신 변경부터 반환한다. 다음 페이지는 마지막 `id`를 `beforeId`로 전달한다. BANK는 은행 고시, CARRY는 이월, MANUAL은 수동 보정이다.
+- `GET /api/v1/admin/exchange-rates/jpy/history?page=0&size=20`은 최신 변경부터 반환한다. `page`는 0부터 시작하고 `size`는 1~100이다. 응답에는 이력 목록 `revisions`, 페이지 번호 `page`, 페이지 크기 `size`, 전체 건수 `totalCount`, 전체 페이지 수 `totalPages`가 포함된다. BANK는 은행 고시, CARRY는 이월, MANUAL은 수동 보정이다.
 - Flyway 설정은 `out-of-order=false`다. V46~V51 배포가 완료된 환경에 V52를 적용한다.
 
 [한국수출입은행 환율 정보](https://www.data.go.kr/data/3068846/openapi.do)

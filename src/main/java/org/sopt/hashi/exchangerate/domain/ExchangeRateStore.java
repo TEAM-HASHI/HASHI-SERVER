@@ -9,6 +9,9 @@ import java.util.List;
 import java.util.Optional;
 import org.sopt.hashi.exchangerate.ExchangeRatePort.Quote;
 import org.sopt.hashi.exchangerate.ExchangeRatePort.Revision;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageImpl;
+import org.springframework.data.domain.Pageable;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Repository;
 import org.springframework.transaction.annotation.Transactional;
@@ -28,12 +31,12 @@ public class ExchangeRateStore {
                 """, this::revision, day).stream().findFirst();
     }
 
-    public List<Revision> history(Long beforeId, int size) {
-        if (beforeId == null) {
-            return db.query("SELECT * FROM menu_exchange_revision ORDER BY id DESC LIMIT ?", this::revision, size);
-        }
-        return db.query("SELECT * FROM menu_exchange_revision WHERE id<? ORDER BY id DESC LIMIT ?",
-                this::revision, beforeId, size);
+    @Transactional(readOnly = true)
+    public Page<Revision> history(Pageable page) {
+        List<Revision> revisions = db.query("SELECT * FROM menu_exchange_revision ORDER BY id DESC LIMIT ? OFFSET ?",
+                this::revision, page.getPageSize(), page.getOffset());
+        long total = db.queryForObject("SELECT COUNT(*) FROM menu_exchange_revision", Long.class);
+        return new PageImpl<>(revisions, page, total);
     }
 
     @Transactional

@@ -9,18 +9,28 @@ import java.util.concurrent.Callable;
 import java.util.concurrent.CyclicBarrier;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.sopt.hashi.auth.CurrentActorProvider;
+import org.sopt.hashi.config.TimeConfig;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.testcontainers.service.connection.ServiceConnection;
+import org.springframework.context.annotation.Import;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.modulith.test.ApplicationModuleTest;
 import org.springframework.test.annotation.DirtiesContext;
+import org.springframework.test.context.TestPropertySource;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.testcontainers.containers.MySQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
 @Testcontainers
-@SpringBootTest(properties = {"spring.jpa.hibernate.ddl-auto=validate", "jwt.secret=test-secret-key-must-be-at-least-32-bytes-long",
+@ApplicationModuleTest
+@Import(TimeConfig.class)
+@TestPropertySource(properties = {"spring.jpa.hibernate.ddl-auto=validate", "jwt.secret=test-secret-key-must-be-at-least-32-bytes-long",
         "kakao.client-id=test-client-id", "kakao.redirect-uri=https://app.hashi.test/callback",
         "hashi.storage.cloudfront-domain=https://cdn.hashi.test"})
 @DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_CLASS)
@@ -28,6 +38,14 @@ class ExchangeRateMySqlTest {
     @Container @ServiceConnection static final MySQLContainer<?> MYSQL = new MySQLContainer<>("mysql:8.4");
     @Autowired ExchangeRateStore store;
     @Autowired JdbcTemplate db;
+    @MockitoBean CurrentActorProvider actors;
+    @MockitoBean RedisTemplate<String, Object> redisTemplate;
+
+    @BeforeEach
+    void clearHistory() {
+        db.update("DELETE FROM menu_exchange_revision");
+        db.update("DELETE FROM menu_exchange_day");
+    }
 
     @Test
     void 동시_수집은_하나만_선점하고_수동_보정은_늦은_자동_응답에도_유지된다() throws Exception {
@@ -49,7 +67,13 @@ class ExchangeRateMySqlTest {
         assertThat(store.correct(day, day.minusDays(1), new BigDecimal("980.00"), 7L)).isEqualTo(manual);
         assertThat(store.claim(day)).isFalse();
         var revised = store.correct(day, day, new BigDecimal("970"), 8L);
-        assertThat(store.history(revised.id(), 1)).containsExactly(manual);
+        var page0 = store.history(PageRequest.of(0, 1));
+        var page1 = store.history(PageRequest.of(1, 1));
+        assertThat(page0.getContent()).containsExactly(revised);
+        assertThat(page1.getContent()).containsExactly(manual);
+        assertThat(page1.getTotalElements()).isEqualTo(2);
+        assertThat(page1.getTotalPages()).isEqualTo(2);
+        assertThat(store.history(PageRequest.of(Integer.MAX_VALUE, 100)).getContent()).isEmpty();
     }
 
     @Test
