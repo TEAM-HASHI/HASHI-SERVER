@@ -26,6 +26,7 @@
 - **MUST**: 자식 엔티티(메뉴·사진·카드 등)는 별도 모듈이 아니라 애그리거트 루트가 소유하는 자식으로 둔다.
 
 도메인 컨텍스트(8): `restaurant` · `review` · `reservation` · `point` · `magazine` · `user` · `support` · `exchangerate`
+`exchangerate`는 보정 요청의 관리자 유형과 식별자를 `CurrentActorProvider`로 확인한다.
 횡단: `auth` / 진입점: `admin` / 지원: `upload`(legacy 업로드 자격 발급), `media`(이미지 asset과 파생본) / 공유 커널: `shared`
 
 ---
@@ -198,7 +199,7 @@
 ## 9. auth / admin / 지원 모듈
 
 - **MUST**: `auth`는 `@Modulithic(sharedModules = "auth")`로 등록한다(횡단 관심사).
-- **MUST**: 인증 **강제**는 Spring Security 필터 체인이 담당한다. 도메인 모듈은 `auth.internal`을 import하지 않고, `auth`가 공개한 `CurrentUserProvider`로 현재 사용자를 읽는다(`SecurityContextHolder` 직접 접근 금지). 이미지 작업의 주체와 환율을 보정하는 관리자처럼 actor 유형까지 필요한 경우에는 현재 공개 지점인 `CurrentActorProvider`를 사용한다.
+- **MUST**: 인증 **강제**는 Spring Security 필터 체인이 담당한다. 도메인 모듈은 `auth.internal`을 import하지 않고, `auth`가 공개한 `CurrentUserProvider`로 현재 사용자를 읽는다(`SecurityContextHolder` 직접 접근 금지). actor 유형까지 필요한 media는 현재 공개 지점인 `CurrentActorProvider`를 사용한다.
 - **MUST**: 의존 방향은 **도메인 → auth**다. 현재 공개 지점은 `CurrentUserProvider`, `CurrentActorProvider`, `AuthAccountPort`, `AdminAccountPort`다. **`auth`는 어떤 도메인 모듈도 되참조하지 않는다**(순환 방지). auth가 도메인을 관찰해야 하면 **이벤트**로 붙이되, 회원 삭제와 인증 계정 정리처럼 **함께 커밋돼야 하는** 처리는 도메인이 `AuthAccountPort`를 호출한다(탈퇴 — `auth.md` §3). 상세는 `auth.md` §1 참조.
 - **MUST**: `AdminAccountPort`는 관리자 화면의 확인자 표시에만 사용하는 읽기 전용 capability다. `admin` 진입점이 저장된 관리자 ID 목록으로 현재 로그인 ID를 일괄 조회하며, 포트도 ADMIN 인증을 확인한다. 계정 엔티티·비밀번호는 공개하지 않고 없는 계정은 제외한다. 회원 계정 연결·탈퇴를 담당하는 `AuthAccountPort`와 구분한다.
 - **MUST NOT**: 도메인 모듈이 인증 로직을 직접 구현하지 않는다.
