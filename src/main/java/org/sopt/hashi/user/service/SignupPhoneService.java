@@ -32,7 +32,7 @@ public class SignupPhoneService {
         requireEnabled();
         UUID challenge = UUID.randomUUID();
         store.issue(policy.digest("actor-limit", actors.currentActor().subjectId().toString()),
-                policy.digest("phone-limit", phone), session(), phoneDigest(phone), challenge.toString());
+                session(), phoneDigest(phone), challenge.toString());
         return new Challenge(challenge, "1666-3538", message(challenge), 300);
     }
 

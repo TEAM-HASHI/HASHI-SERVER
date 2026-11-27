@@ -17,9 +17,8 @@ public class SignupPhoneStore {
     }
 
     @Transactional
-    public void issue(byte[] actorBucket, byte[] phoneBucket, byte[] session, byte[] phone, String id) {
+    public void issue(byte[] actorBucket, byte[] session, byte[] phone, String id) {
         limit(actorBucket);
-        limit(phoneBucket);
         db.update("""
                 INSERT INTO signup_phone_challenge(session_digest,phone_digest,challenge_id,expires_at)
                 VALUES (?,?,?,UTC_TIMESTAMP(6) + INTERVAL 5 MINUTE) AS fresh

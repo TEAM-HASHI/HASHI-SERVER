@@ -221,6 +221,20 @@ class FriendInviteMySqlTest {
     }
 
     @Test
+    @org.springframework.transaction.annotation.Transactional
+    void 발급_횟수는_연락처를_정정하거나_토큰을_갱신해도_같은_계정에_합산한다() {
+        int before = jdbc.queryForObject("SELECT COUNT(*) FROM signup_phone_rate_limit", Integer.class);
+        authenticate(new OnboardingPrincipal(53L), AuthRoles.ONBOARDING);
+        phone.issue(request(53, null).phone());
+        authenticate(new OnboardingPrincipal(53L), AuthRoles.ONBOARDING);
+        phone.issue(request(54, null).phone());
+        byte[] actorBucket = policy.digest("actor-limit", "53");
+        assertThat(jdbc.queryForObject("SELECT hits FROM signup_phone_rate_limit WHERE bucket=?", Integer.class, actorBucket))
+                .isEqualTo(2);
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM signup_phone_rate_limit", Integer.class)).isEqualTo(before + 1);
+    }
+
+    @Test
     void 외부_조회가_성공해도_인증_유효기간이_끝나면_가입에_쓸_수_없다() {
         authenticate(new OnboardingPrincipal(61L), AuthRoles.ONBOARDING);
         var signup = request(61, null);
