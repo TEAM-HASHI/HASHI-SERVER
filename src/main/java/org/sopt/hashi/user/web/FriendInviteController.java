@@ -1,14 +1,14 @@
 package org.sopt.hashi.user.web;
 
 import jakarta.validation.Valid;
-import jakarta.validation.constraints.NotBlank;
-import jakarta.validation.constraints.Size;
 import org.sopt.hashi.shared.error.CommonErrorCode;
 import org.sopt.hashi.shared.error.CommonSuccessCode;
 import org.sopt.hashi.shared.response.SuccessResponse;
 import org.sopt.hashi.shared.swagger.ApiException;
 import org.sopt.hashi.user.code.UserErrorCode;
 import org.sopt.hashi.user.dto.FriendInviteResponse;
+import org.sopt.hashi.user.dto.FriendInviteValidationResponse;
+import org.sopt.hashi.user.dto.ValidateFriendInviteCodeRequest;
 import org.sopt.hashi.user.service.FriendInviteService;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -35,10 +35,7 @@ public class FriendInviteController {
     /** 온보딩 중 입력한 코드의 사용 가능 여부. 초대한 회원의 정보는 공개하지 않는다. */
     @PostMapping("/onboarding/invite-code/validate")
     @ApiException(value = CommonErrorCode.class, codes = {"INVALID_INPUT", "UNAUTHORIZED", "FORBIDDEN"})
-    public SuccessResponse<Validation> validate(@Valid @RequestBody Code request) {
-        return SuccessResponse.of(CommonSuccessCode.OK, new Validation(invites.isValid(request.inviteCode())));
+    public SuccessResponse<FriendInviteValidationResponse> validate(@Valid @RequestBody ValidateFriendInviteCodeRequest request) {
+        return SuccessResponse.of(CommonSuccessCode.OK, new FriendInviteValidationResponse(invites.isValid(request.inviteCode())));
     }
-
-    public record Code(@NotBlank @Size(max = 10) String inviteCode) {}
-    public record Validation(boolean valid) {}
 }

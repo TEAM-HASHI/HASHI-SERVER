@@ -6,6 +6,7 @@ import org.sopt.hashi.auth.CurrentActorProvider;
 import org.sopt.hashi.shared.error.BusinessException;
 import org.sopt.hashi.user.code.UserErrorCode;
 import org.sopt.hashi.user.domain.SignupPhoneStore;
+import org.sopt.hashi.user.dto.SignupPhoneChallengeResponse;
 import org.sopt.hashi.user.internal.phone.OctomoClient;
 import org.springframework.stereotype.Service;
 
@@ -26,14 +27,12 @@ public class SignupPhoneService {
         this.octomo = octomo;
     }
 
-    public record Challenge(UUID challengeId, String recipient, String text, int expiresInSeconds) {}
-
-    public Challenge issue(String phone) {
+    public SignupPhoneChallengeResponse issue(String phone) {
         requireEnabled();
         UUID challenge = UUID.randomUUID();
         store.issue(policy.digest("actor-limit", actors.currentActor().subjectId().toString()),
                 session(), phoneDigest(phone), challenge.toString());
-        return new Challenge(challenge, "1666-3538", message(challenge), 300);
+        return new SignupPhoneChallengeResponse(challenge, "1666-3538", message(challenge), 300);
     }
 
     public boolean confirm(String phone, UUID challenge) {
