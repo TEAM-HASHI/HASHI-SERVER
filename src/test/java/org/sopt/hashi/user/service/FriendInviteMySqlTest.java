@@ -52,6 +52,8 @@ class FriendInviteMySqlTest {
     @Container @ServiceConnection static final MySQLContainer<?> MYSQL = new MySQLContainer<>("mysql:8.4");
     @Autowired OnboardingService onboarding;
     @Autowired SignupPhoneService phone;
+    @Autowired org.sopt.hashi.user.domain.SignupPhoneStore phoneStore;
+    @Autowired SignupPhonePolicy policy;
     @Autowired UserProfileService profiles;
     @Autowired org.springframework.jdbc.core.JdbcTemplate jdbc;
     @MockitoBean OctomoClient octomo;
@@ -228,6 +230,25 @@ class FriendInviteMySqlTest {
                 issued.challengeId().toString());
         assertThatThrownBy(() -> onboarding.completeOnboarding(signup))
                 .hasFieldOrPropertyWithValue("errorCode", UserErrorCode.PHONE_PROOF_REQUIRED);
+    }
+
+    @Test
+    void 동일_번호를_서로_다른_트랜잭션에서_동시에_선점해도_한_건만_통과한다() throws Exception {
+        byte[] digest = policy.digest("reward-phone-v1", request(71, null).phone());
+        var start = new CyclicBarrier(2);
+        var pool = Executors.newFixedThreadPool(2);
+        Callable<Boolean> claim = () -> {
+            start.await(10, TimeUnit.SECONDS);
+            return transactions.execute(tx -> phoneStore.claimReward(digest));
+        };
+        try {
+            var one = pool.submit(claim);
+            var two = pool.submit(claim);
+            assertThat(List.of(one.get(10, TimeUnit.SECONDS), two.get(10, TimeUnit.SECONDS)))
+                    .containsExactlyInAnyOrder(true, false);
+        } finally {
+            pool.shutdownNow();
+        }
     }
 
     private long existing(long id) {
