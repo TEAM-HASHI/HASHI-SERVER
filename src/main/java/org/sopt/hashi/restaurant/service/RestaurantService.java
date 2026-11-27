@@ -66,7 +66,7 @@ import org.sopt.hashi.restaurant.domain.PriceCurrency;
 import org.sopt.hashi.restaurant.dto.RestaurantListResponse;
 import org.sopt.hashi.restaurant.dto.RestaurantListResponse.RestaurantSummaryResponse;
 import org.sopt.hashi.restaurant.dto.RestaurantListResponse.TodayBusinessHourResponse;
-import org.sopt.hashi.restaurant.dto.RestaurantMainResponse;
+import org.sopt.hashi.restaurant.RestaurantMainInfo;
 import org.sopt.hashi.restaurant.dto.RestaurantMenuDetailResponse;
 import org.sopt.hashi.restaurant.dto.RestaurantMenuListResponse;
 import org.sopt.hashi.restaurant.dto.RestaurantMenuListResponse.RestaurantMenuResponse;
@@ -246,14 +246,14 @@ public class RestaurantService {
         );
     }
 
-    public RestaurantMainResponse getRandomRestaurantRecommendation(Long excludeRestaurantId) {
+    public RestaurantMainInfo getRandomRestaurantRecommendation(Long excludeRestaurantId) {
         Long restaurantId = restaurantRepository.findRandomRestaurantIdExcluding(excludeRestaurantId)
                 .orElseThrow(() -> new BusinessException(RestaurantErrorCode.RECOMMENDATION_NOT_FOUND));
 
         return getRestaurantSummary(restaurantId);
     }
 
-    public RestaurantMainResponse getRestaurantSummary(Long restaurantId) {
+    public RestaurantMainInfo getRestaurantSummary(Long restaurantId) {
         Restaurant restaurant = restaurantRepository.findActiveByIdWithImages(restaurantId)
                 .orElseThrow(() -> new BusinessException(RestaurantErrorCode.NOT_FOUND));
         MediaProjection mediaProjection = loadRestaurantProjection(
@@ -266,7 +266,7 @@ public class RestaurantService {
                         MediaImageRole.RESTAURANT_THUMBNAIL,
                         mediaProjection);
 
-        return new RestaurantMainResponse(
+        return new RestaurantMainInfo(
                 restaurant.getId(),
                 restaurant.getName(),
                 restaurant.getLocalName(),

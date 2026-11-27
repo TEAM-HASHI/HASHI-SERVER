@@ -1,10 +1,11 @@
-package org.sopt.hashi.restaurant.dto;
+package org.sopt.hashi.restaurant;
 
+import io.swagger.v3.oas.annotations.media.Schema;
 import java.math.BigDecimal;
 import java.util.List;
-import org.sopt.hashi.restaurant.RestaurantImageInfo;
 
-public record RestaurantMainResponse(
+@Schema(name = "RestaurantMainResponse")
+public record RestaurantMainInfo(
         Long restaurantId,
         String name,
         String localName,
@@ -21,7 +22,7 @@ public record RestaurantMainResponse(
         Long reservationFee
 ) {
 
-    public RestaurantMainResponse(
+    public RestaurantMainInfo(
             Long restaurantId,
             String name,
             String localName,

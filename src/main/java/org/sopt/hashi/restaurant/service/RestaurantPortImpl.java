@@ -19,6 +19,7 @@ import org.sopt.hashi.restaurant.RestaurantCardInfo;
 import org.sopt.hashi.restaurant.RestaurantDetailInfo;
 import org.sopt.hashi.restaurant.RestaurantInfo;
 import org.sopt.hashi.restaurant.RestaurantMapInfo;
+import org.sopt.hashi.restaurant.RestaurantMainInfo;
 import org.sopt.hashi.restaurant.RestaurantPhotoSourceInfo;
 import org.sopt.hashi.restaurant.RestaurantPort;
 import org.sopt.hashi.restaurant.RestaurantLocationInfo;
@@ -90,6 +91,11 @@ class RestaurantPortImpl implements RestaurantPort {
     @Override
     public List<RestaurantPhotoSourceInfo> findMenuPhotoSources(Long restaurantId) {
         return restaurantRepository.findMenuPhotoSources(restaurantId);
+    }
+
+    @Override
+    public RestaurantMainInfo getRestaurantSummary(Long restaurantId) {
+        return restaurantService.getRestaurantSummary(restaurantId);
     }
 
     @Override

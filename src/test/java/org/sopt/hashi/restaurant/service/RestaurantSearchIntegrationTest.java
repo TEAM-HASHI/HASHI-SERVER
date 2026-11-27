@@ -129,7 +129,7 @@ class RestaurantSearchIntegrationTest {
     void HTTP는_실제_서비스의_태그검색_빈결과와_잘못된검색어를_구분한다() throws Exception {
         Restaurant tag = restaurant("태그 식당", List.of(), List.of("가성비"));
         flush();
-        var mvc = MockMvcBuilders.standaloneSetup(new RestaurantController(service, event -> {}))
+        var mvc = MockMvcBuilders.standaloneSetup(new RestaurantController(service))
                 .setControllerAdvice(new GlobalExceptionHandler()).build();
         mvc.perform(get("/api/v1/restaurants").param("keyword", "#가성비"))
                 .andExpect(status().isOk()).andExpect(jsonPath("$.data.content[0].restaurantId").value(tag.getId()));

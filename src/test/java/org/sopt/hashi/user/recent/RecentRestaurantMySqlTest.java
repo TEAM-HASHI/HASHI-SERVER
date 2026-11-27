@@ -23,10 +23,9 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.sopt.hashi.auth.CurrentUserProvider;
 import org.sopt.hashi.restaurant.RestaurantDetailInfo;
-import org.sopt.hashi.restaurant.RestaurantDetailViewedEvent;
 import org.sopt.hashi.restaurant.RestaurantPort;
 import org.sopt.hashi.shared.error.BusinessException;
-import org.sopt.hashi.user.UserWithdrawnEvent;
+import org.sopt.hashi.shared.error.CommonErrorCode;
 import org.sopt.hashi.user.domain.User;
 import org.sopt.hashi.user.domain.UserRepository;
 import org.sopt.hashi.user.recent.RecentRestaurantPage.Card;
@@ -36,7 +35,6 @@ import org.springframework.boot.test.autoconfigure.jdbc.AutoConfigureTestDatabas
 import org.springframework.boot.test.autoconfigure.orm.jpa.DataJpaTest;
 import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.boot.testcontainers.service.connection.ServiceConnection;
-import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Import;
 import org.springframework.test.annotation.DirtiesContext;
@@ -51,7 +49,7 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 
 @Testcontainers
 @DataJpaTest
-@Import({RecentRestaurantService.class, RecentRestaurantEvents.class, RecentRestaurantMySqlTest.ClockConfig.class})
+@Import({RecentRestaurantService.class, RestaurantDetailViewService.class, RecentRestaurantMySqlTest.ClockConfig.class})
 @AutoConfigureTestDatabase(replace = AutoConfigureTestDatabase.Replace.NONE)
 @TestPropertySource(properties = "spring.jpa.hibernate.ddl-auto=validate")
 @Transactional(propagation = Propagation.NOT_SUPPORTED)
@@ -70,7 +68,7 @@ class RecentRestaurantMySqlTest {
     @Autowired RecentRestaurantService service;
     @Autowired UserRepository users;
     @Autowired TransactionTemplate transactions;
-    @Autowired ApplicationEventPublisher events;
+    @Autowired RestaurantDetailViewService detail;
     @MockitoBean RestaurantPort restaurants;
     @MockitoBean CurrentUserProvider currentUser;
     private final Set<Long> deleted = new HashSet<>();
@@ -91,12 +89,15 @@ class RecentRestaurantMySqlTest {
 
     @Test
     void 기기_이력_재전송과_탈퇴_후_상세_재요청을_처리한다() {
-        events.publishEvent(new RestaurantDetailViewedEvent(10L));
+        detail.getSummary(10L, true);
         assertThat(history.findByUserId(userId)).isEmpty();
         given(currentUser.isAuthenticatedUser()).willReturn(true);
-        events.publishEvent(new RestaurantDetailViewedEvent(10L));
-        events.publishEvent(new RestaurantDetailViewedEvent(20L));
-        events.publishEvent(new RestaurantDetailViewedEvent(10L));
+        detail.getSummary(10L, true);
+        detail.getSummary(999L, false);
+        given(restaurants.getRestaurantSummary(555L)).willThrow(new BusinessException(CommonErrorCode.NOT_FOUND));
+        assertThatThrownBy(() -> detail.getSummary(555L, true)).isInstanceOf(BusinessException.class);
+        detail.getSummary(20L, true);
+        detail.getSummary(10L, true);
         var merge = new RecentRestaurantRequest(List.of(new Visit(11L, NOW.minusSeconds(3)),
                 new Visit(12L, null), new Visit(13L, null), new Visit(10L, NOW.minusSeconds(60))));
         service.merge(merge);
@@ -104,9 +105,9 @@ class RecentRestaurantMySqlTest {
         assertThat(service.list(null).content()).extracting(Card::restaurantId).containsExactly(10L, 20L, 11L, 12L, 13L);
         transactions.executeWithoutResult(tx -> {
             users.findByIdForUpdate(userId).orElseThrow().withdraw();
-            events.publishEvent(new UserWithdrawnEvent(userId));
+            history.deleteByUserId(userId);
         });
-        events.publishEvent(new RestaurantDetailViewedEvent(12L));
+        detail.getSummary(12L, true);
         assertThat(history.findByUserId(userId)).isEmpty();
     }
 

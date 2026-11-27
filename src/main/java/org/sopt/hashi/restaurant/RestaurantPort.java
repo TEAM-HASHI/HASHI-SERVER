@@ -10,6 +10,9 @@ import java.util.Optional;
  */
 public interface RestaurantPort {
 
+    /** 공개 상세 화면의 기본 정보와 이미지를 조회한다. 삭제되거나 없는 식당은 NOT_FOUND다. */
+    RestaurantMainInfo getRestaurantSummary(Long restaurantId);
+
     /** 식당 존재 여부를 확인한다 — 예약·리뷰 생성 시 식당 존재 검증용. soft-delete된 식당도 존재로 본다. */
     boolean existsById(Long restaurantId);
 
