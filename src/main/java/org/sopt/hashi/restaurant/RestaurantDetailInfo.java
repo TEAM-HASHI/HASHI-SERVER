@@ -23,7 +23,8 @@ public record RestaurantDetailInfo(
         List<String> imageUrls,
         BigDecimal rating,
         TodayBusinessHourInfo todayBusinessHour,
-        PriceRangeInfo priceRange) {
+        PriceRangeInfo priceRange,
+        long saveCount) {
 
     /** 오늘 영업시간 — 시각은 {@code HH:mm} 문자열, 휴무일이면 시각이 null이고 {@code closed}가 true다. */
     public record TodayBusinessHourInfo(

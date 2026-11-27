@@ -1481,7 +1481,8 @@ public class RestaurantService {
                 new PriceRangeInfo(
                         restaurant.getPriceCurrency().value(),
                         toWholeAmount(restaurant.getMinPrice()),
-                        toWholeAmount(restaurant.getMaxPrice()))
+                        toWholeAmount(restaurant.getMaxPrice())),
+                restaurant.getSaveCount()
         );
     }
 

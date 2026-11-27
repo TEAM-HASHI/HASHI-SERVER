@@ -160,6 +160,12 @@ class RestaurantPortImpl implements RestaurantPort {
     }
 
     @Override
+    public List<Long> findActiveIds(Collection<Long> restaurantIds) {
+        List<Long> ids = distinctIds(restaurantIds);
+        return ids.isEmpty() ? List.of() : restaurantRepository.findActiveIds(ids);
+    }
+
+    @Override
     public long countActiveByIds(Collection<Long> restaurantIds) {
         List<Long> ids = distinctIds(restaurantIds);
         if (ids.isEmpty()) {

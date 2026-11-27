@@ -57,6 +57,9 @@ public interface RestaurantPort {
      */
     long countActiveByIds(Collection<Long> restaurantIds);
 
+    /** 이력 병합과 페이지 선정 시 식당 카드나 사진을 읽지 않고 활성 ID만 확인한다. */
+    List<Long> findActiveIds(Collection<Long> restaurantIds);
+
     /** 리뷰 생성 시 식당 평점 합계·리뷰 수·평균을 원자적으로 증가시킨다. */
     void increaseReviewStatistics(Long restaurantId, int rating);
 

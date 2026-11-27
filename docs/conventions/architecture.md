@@ -159,6 +159,7 @@
 ## 6. 이벤트
 
 - **MUST**: 일반적인 모듈 이벤트 구독은 `@ApplicationModuleListener`로 처리한다.
+- 식당 상세 GET의 `RestaurantViewedEvent`는 조회가 끝난 뒤 요청 스레드에서 `@EventListener`로 처리한다. 바로 다음 최근 목록에 반영하기 위해 로그인 회원의 이력만 별도 트랜잭션에 저장하며, 저장 실패 시 상세 응답은 반환한다. 이 조회 신호는 영속 발행·재시도 대상에서 제외한다.
 - **MUST**: 외부 broker publisher처럼 DB commit 뒤 listener transaction 밖에서 network I/O를
   수행해야 하는 adapter는 관련 ADR에 근거를 남긴 경우에만 예외로 고정 ID의 `@Async`
   `@TransactionalEventListener`를 사용한다. 이 listener에는 `@Transactional`을 붙이지 않고,

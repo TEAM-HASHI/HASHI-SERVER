@@ -17,6 +17,7 @@ import org.sopt.hashi.user.collection.domain.RestaurantCollectionRepository;
 import org.sopt.hashi.user.collection.domain.SavedRestaurantRepository;
 import org.sopt.hashi.user.domain.User;
 import org.sopt.hashi.user.domain.UserRepository;
+import org.sopt.hashi.user.recent.domain.RecentRestaurantRepository;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -33,6 +34,7 @@ import org.springframework.transaction.annotation.Transactional;
 public class UserWithdrawalService {
 
     private final UserRepository userRepository;
+    private final RecentRestaurantRepository recentRestaurants;
     private final RestaurantCollectionRepository restaurantCollectionRepository;
     private final SavedRestaurantRepository savedRestaurantRepository;
     private final RestaurantPort restaurantPort;
@@ -42,7 +44,7 @@ public class UserWithdrawalService {
     private final ApplicationEventPublisher eventPublisher;
     private final CurrentUserProvider currentUserProvider;
 
-    public UserWithdrawalService(UserRepository userRepository,
+    public UserWithdrawalService(UserRepository userRepository, RecentRestaurantRepository recentRestaurants,
                                  RestaurantCollectionRepository restaurantCollectionRepository,
                                  SavedRestaurantRepository savedRestaurantRepository,
                                  RestaurantPort restaurantPort,
@@ -52,6 +54,7 @@ public class UserWithdrawalService {
                                  ApplicationEventPublisher eventPublisher,
                                  CurrentUserProvider currentUserProvider) {
         this.userRepository = userRepository;
+        this.recentRestaurants = recentRestaurants;
         this.restaurantCollectionRepository = restaurantCollectionRepository;
         this.savedRestaurantRepository = savedRestaurantRepository;
         this.restaurantPort = restaurantPort;
@@ -73,6 +76,7 @@ public class UserWithdrawalService {
         UUID profileImageAssetId = user.getProfileImageAssetId();
         // user의 nickname, email, phone을 탈퇴 회원 포맷으로 변경, 프로필 사진 비우기
         user.withdraw();
+        recentRestaurants.deleteByUserId(userId);
         deleteCollections(userId);
         retireProfileImage(profileImageAssetId);
         authAccountPort.unlinkWithdrawnAccount(userId);

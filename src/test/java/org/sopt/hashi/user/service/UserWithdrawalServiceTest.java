@@ -28,6 +28,7 @@ import org.sopt.hashi.media.MediaPort;
 import org.sopt.hashi.shared.error.BusinessException;
 import org.sopt.hashi.shared.error.CommonErrorCode;
 import org.sopt.hashi.user.UserWithdrawnEvent;
+import org.sopt.hashi.user.recent.domain.RecentRestaurantRepository;
 import org.sopt.hashi.user.WithdrawalBlocker;
 import org.sopt.hashi.user.code.UserErrorCode;
 import org.sopt.hashi.restaurant.RestaurantPort;
@@ -43,6 +44,9 @@ class UserWithdrawalServiceTest {
 
     @Mock
     private UserRepository userRepository;
+
+    @Mock
+    private RecentRestaurantRepository recentRestaurants;
 
     @Mock
     private RestaurantCollectionRepository restaurantCollectionRepository;
@@ -72,7 +76,7 @@ class UserWithdrawalServiceTest {
 
     @BeforeEach
     void setUp() {
-        service = new UserWithdrawalService(userRepository, restaurantCollectionRepository,
+        service = new UserWithdrawalService(userRepository, recentRestaurants, restaurantCollectionRepository,
                 savedRestaurantRepository, restaurantPort, List.of(withdrawalBlocker), mediaPort,
                 authAccountPort, eventPublisher, currentUserProvider);
         given(currentUserProvider.currentUserId()).willReturn(7L);
@@ -88,6 +92,7 @@ class UserWithdrawalServiceTest {
 
         service.withdraw();
 
+        verify(recentRestaurants).deleteByUserId(7L);
         assertThat(user.isDeleted()).isTrue();
         assertThat(user.getNickname()).isEqualTo("탈퇴회원#7");
         InOrder order = inOrder(withdrawalBlocker, savedRestaurantRepository, restaurantCollectionRepository,
