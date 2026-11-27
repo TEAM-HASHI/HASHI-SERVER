@@ -18,7 +18,7 @@ public enum ReservationStatusFilter {
     UPCOMING(Set.of(ReservationStatus.CONFIRMED)),
 
     /** 취소 — 취소된 예약. */
-    CANCELED(Set.of(ReservationStatus.CANCELED));
+    CANCELED(Set.of(ReservationStatus.CANCELED, ReservationStatus.FAILED));
 
     private final Set<ReservationStatus> statuses;
 

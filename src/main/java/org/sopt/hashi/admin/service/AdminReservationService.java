@@ -5,6 +5,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import org.sopt.hashi.admin.dto.AdminReservationListResponse;
+import org.sopt.hashi.admin.dto.SetReservationAlternativesRequest;
+import org.sopt.hashi.reservation.ReservationAlternativesInfo;
 import org.sopt.hashi.admin.dto.AdminReservationResponse;
 import org.sopt.hashi.admin.dto.AdminReservationUserResponse;
 import org.sopt.hashi.media.ImageReference;
@@ -40,6 +42,14 @@ public class AdminReservationService {
         MediaProjection mediaProjection = loadThumbnailProjection(
                 referenceList(info.restaurantImageReference()));
         return toResponse(info, mediaProjection);
+    }
+
+    public ReservationAlternativesInfo setAlternatives(Long id, SetReservationAlternativesRequest request) {
+        return reservationPort.setAlternativesByAdmin(id, request.times(), request.restaurantIds());
+    }
+
+    public ReservationAlternativesInfo getAlternatives(Long id) {
+        return reservationPort.getAlternativesByAdmin(id);
     }
 
     /** 예약 목록 — 전체 사용자 대상 offset 페이지네이션(최신순), status가 null이면 전체. */

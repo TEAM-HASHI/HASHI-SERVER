@@ -1,11 +1,14 @@
 package org.sopt.hashi.reservation.web;
 
+import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import jakarta.validation.Valid;
 import org.sopt.hashi.reservation.code.ReservationErrorCode;
 import org.sopt.hashi.reservation.code.ReservationSuccessCode;
 import org.sopt.hashi.reservation.dto.CreateAnywhereReservationRequest;
 import org.sopt.hashi.reservation.dto.CreateReservationRequest;
 import org.sopt.hashi.reservation.dto.ReservationDetailResponse;
+import org.sopt.hashi.reservation.dto.RebookReservationRequest;
+import org.sopt.hashi.reservation.dto.ReservationAlternativesResponse;
 import org.sopt.hashi.reservation.dto.ReservationListResponse;
 import org.sopt.hashi.reservation.dto.ReservationResponse;
 import org.sopt.hashi.reservation.dto.ReservationStatusFilter;
@@ -59,6 +62,26 @@ public class ReservationController {
             @Valid @RequestBody CreateAnywhereReservationRequest request) {
         return SuccessResponse.of(ReservationSuccessCode.RESERVATION_CREATED,
                 reservationService.createAnywhere(request));
+    }
+
+    /** 실패한 내 예약 정보와 관리자가 확인한 시간·식당 목록을 조회한다. */
+    @ApiException(value = CommonErrorCode.class, codes = {"UNAUTHORIZED"})
+    @ApiException(value = ReservationErrorCode.class, codes = {"NOT_FOUND", "INVALID_PAYMENT_TRANSITION"})
+    @GetMapping("/{reservationId}/alternatives")
+    public SuccessResponse<ReservationAlternativesResponse> getAlternatives(@PathVariable Long reservationId) {
+        return SuccessResponse.of(CommonSuccessCode.OK, reservationService.getMyAlternatives(reservationId));
+    }
+
+    /** 선택한 대안 시간과 포인트로 새 예약을 접수한다. 같은 조건을 재전송하면 이미 만든 예약을 반환한다. */
+    @ApiException(value = ReservationErrorCode.class,
+            codes = {"NOT_FOUND", "RESERVER_NOT_FOUND", "RESTAURANT_NOT_FOUND", "INVALID_ALTERNATIVES",
+                    "INVALID_PAYMENT_TRANSITION", "REBOOKING_CONFLICT"})
+    @ApiException(value = CommonErrorCode.class, codes = {"UNAUTHORIZED", "INVALID_INPUT"})
+    @ApiResponse(responseCode = "400", description = "요청 형식, 선택한 대안 시간 또는 보유 포인트가 유효하지 않습니다. 잔액 부족 시 POINT-001을 반환합니다.")
+    @PostMapping("/{reservationId}/rebook")
+    public SuccessResponse<ReservationResponse> rebook(@PathVariable Long reservationId,
+            @Valid @RequestBody RebookReservationRequest request) {
+        return SuccessResponse.of(CommonSuccessCode.OK, reservationService.rebook(reservationId, request));
     }
 
     /** 내 예약 취소 — 진행중·확정 상태에서만 가능. 사용 포인트는 진행중 취소만 복원된다. */

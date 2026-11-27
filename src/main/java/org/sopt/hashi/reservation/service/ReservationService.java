@@ -1,6 +1,7 @@
 package org.sopt.hashi.reservation.service;
 
 import java.time.Clock;
+import java.time.LocalDateTime;
 import java.util.Collection;
 import java.util.List;
 import java.util.Map;
@@ -20,6 +21,7 @@ import org.sopt.hashi.media.MediaPort;
 import org.sopt.hashi.point.PointPort;
 import org.sopt.hashi.point.PointSourceType;
 import org.sopt.hashi.reservation.AdminReservationInfo;
+import org.sopt.hashi.reservation.ReservationAlternativesInfo;
 import org.sopt.hashi.reservation.ReservationStatus;
 import org.sopt.hashi.reservation.ReservationType;
 import org.sopt.hashi.reservation.code.ReservationErrorCode;
@@ -27,6 +29,8 @@ import org.sopt.hashi.reservation.domain.Reservation;
 import org.sopt.hashi.reservation.domain.ReservationRepository;
 import org.sopt.hashi.reservation.dto.CreateAnywhereReservationRequest;
 import org.sopt.hashi.reservation.dto.CreateReservationRequest;
+import org.sopt.hashi.reservation.dto.ReservationAlternativesResponse;
+import org.sopt.hashi.reservation.dto.RebookReservationRequest;
 import org.sopt.hashi.reservation.dto.ReservationDetailResponse;
 import org.sopt.hashi.reservation.dto.ReservationListResponse;
 import org.sopt.hashi.reservation.dto.ReservationResponse;
@@ -380,15 +384,89 @@ public class ReservationService {
         Reservation reservation = reservationRepository.findForUpdate(reservationId)
                 .orElseThrow(() -> new BusinessException(ReservationErrorCode.NOT_FOUND));
         ReservationStatus fromStatus = reservation.getReservationStatus();
-        // 취소로 상태 변경 시 포인트 환불 가능 여부 판별(진행 중인 예약 한정)
-        boolean refundable = targetStatus == ReservationStatus.CANCELED
-                && reservation.refundableOnCancel();   // 전이 전에 판정
-        reservation.changeStatusByAdmin(targetStatus, clock.instant());
-        restoreUsedPointIfRefundable(reservation, refundable);
+        applyAdminStatus(reservation, targetStatus);
         // 관리자 조작 추적용 감사 기록.
         log.info("어드민 예약 상태 변경. adminId={}, reservationId={}, {} -> {}",
                 adminId, reservationId, fromStatus, targetStatus);
         return toAdminInfo(reservation, findSummaryFor(reservation));
+    }
+
+    private void applyAdminStatus(Reservation reservation, ReservationStatus status) {
+        boolean refundable = (status == ReservationStatus.CANCELED || status == ReservationStatus.FAILED)
+                && reservation.refundableOnCancel();
+        reservation.changeStatusByAdmin(status, clock.instant());
+        restoreUsedPointIfRefundable(reservation, refundable);
+    }
+
+    /** 실패 처리와 기존 사용 포인트 복원, 대안 등록을 함께 커밋한다. */
+    @Transactional
+    public ReservationAlternativesInfo setAlternativesByAdmin(Long id, List<LocalDateTime> times, List<Long> ids) {
+        Long adminId = currentActorProvider.currentActor().subjectId();
+        Reservation original = reservationRepository.findForUpdate(id)
+                .orElseThrow(() -> new BusinessException(ReservationErrorCode.NOT_FOUND));
+        applyAdminStatus(original, ReservationStatus.FAILED);
+        original.replaceAlternatives(times, ids, LocalDateTime.now(clock));
+        if (!ids.isEmpty() && restaurantPort.countActiveByIds(ids) != ids.size()) {
+            throw new BusinessException(ReservationErrorCode.INVALID_ALTERNATIVES);
+        }
+        log.info("예약 실패 대안 등록. adminId={}, reservationId={}", adminId, id);
+        return alternatives(original);
+    }
+
+    @Transactional(readOnly = true)
+    public ReservationAlternativesInfo getAlternativesByAdmin(Long id) {
+        Reservation original = reservationRepository.findById(id)
+                .orElseThrow(() -> new BusinessException(ReservationErrorCode.NOT_FOUND));
+        return alternatives(original);
+    }
+
+    @Transactional(readOnly = true)
+    public ReservationAlternativesResponse getMyAlternatives(Long id) {
+        Long userId = currentUserProvider.currentUserId();
+        Reservation original = reservationRepository.findById(id).filter(row -> row.ownedBy(userId))
+                .orElseThrow(() -> new BusinessException(ReservationErrorCode.NOT_FOUND));
+        if (original.getReservationStatus() != ReservationStatus.FAILED) {
+            throw new BusinessException(ReservationErrorCode.INVALID_PAYMENT_TRANSITION);
+        }
+        ReservationAlternativesInfo registered = alternatives(original);
+        LocalDateTime now = LocalDateTime.now(clock);
+        boolean available = original.getReservationType() == ReservationType.ANYWHERE
+                || restaurantPort.existsActiveById(original.getRestaurantId());
+        List<LocalDateTime> times = available ? registered.times().stream().filter(time -> time.isAfter(now)).toList()
+                : List.of();
+        return new ReservationAlternativesResponse(toDetailResponse(original),
+                new ReservationAlternativesInfo(times, registered.restaurants(), registered.rebookedReservationId()));
+    }
+
+    private ReservationAlternativesInfo alternatives(Reservation original) {
+        List<ReservationAlternativesInfo.Restaurant> cards = restaurantPort
+                .findActiveDetails(original.getAlternativeRestaurantIds()).stream()
+                .map(r -> new ReservationAlternativesInfo.Restaurant(
+                        r.id(), r.name(), r.area(), r.foodCategory(), r.rating(), r.imageUrls()))
+                .toList();
+        return new ReservationAlternativesInfo(original.getAlternativeTimes().stream().sorted().toList(), cards,
+                reservationRepository.findByOriginalReservationId(original.getId()).map(Reservation::getId).orElse(null));
+    }
+
+    @Transactional
+    public ReservationResponse rebook(Long id, RebookReservationRequest request) {
+        Long userId = currentUserProvider.currentUserId();
+        lockActiveReserver(userId);
+        Reservation original = reservationRepository.findOwnedForUpdate(id, userId)
+                .orElseThrow(() -> new BusinessException(ReservationErrorCode.NOT_FOUND));
+        Optional<Reservation> existing = reservationRepository.findByOriginalReservationId(id);
+        if (existing.isPresent()) {
+            Reservation child = existing.get();
+            if (!child.getReservedAt().equals(request.reservedAt()) || child.getUsedPoint() != request.usedPoint()) {
+                throw new BusinessException(ReservationErrorCode.REBOOKING_CONFLICT);
+            }
+            return toResponse(child);
+        }
+        Reservation child = original.rebook(request.reservedAt(), request.usedPoint(), LocalDateTime.now(clock));
+        if (child.getReservationType() == ReservationType.STANDARD && !restaurantPort.existsActiveById(child.getRestaurantId())) {
+            throw new BusinessException(ReservationErrorCode.RESTAURANT_NOT_FOUND);
+        }
+        return completeCreation(userId, reservationRepository.save(child));
     }
 
     /** [어드민] 예약 목록 — 전체 사용자 대상 offset 페이지네이션(최신순). statusFilter가 null이면 전체(coding-style §4-2). */

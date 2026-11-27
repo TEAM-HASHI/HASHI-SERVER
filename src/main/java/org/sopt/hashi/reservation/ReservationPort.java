@@ -1,5 +1,6 @@
 package org.sopt.hashi.reservation;
 
+import java.time.LocalDateTime;
 import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
@@ -12,6 +13,11 @@ import org.springframework.data.domain.Page;
  * 이 포트에만 코딩한다.
  */
 public interface ReservationPort {
+
+    ReservationAlternativesInfo setAlternativesByAdmin(Long reservationId, List<LocalDateTime> times,
+                                                        List<Long> restaurantIds);
+
+    ReservationAlternativesInfo getAlternativesByAdmin(Long reservationId);
 
     /** 예약 요약을 조회한다 — 없으면 empty. */
     Optional<ReservationInfo> findById(Long reservationId);

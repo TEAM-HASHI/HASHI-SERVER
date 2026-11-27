@@ -1,9 +1,11 @@
 package org.sopt.hashi.reservation.service;
 
+import java.time.LocalDateTime;
 import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 import org.sopt.hashi.reservation.AdminReservationInfo;
+import org.sopt.hashi.reservation.ReservationAlternativesInfo;
 import org.sopt.hashi.reservation.ReservationInfo;
 import org.sopt.hashi.reservation.ReservationPort;
 import org.sopt.hashi.reservation.ReservationReviewInfo;
@@ -70,6 +72,16 @@ class ReservationPortImpl implements ReservationPort {
                 .stream()
                 .map(this::toReviewInfo)
                 .toList();
+    }
+
+    @Override
+    public ReservationAlternativesInfo setAlternativesByAdmin(Long id, List<LocalDateTime> times, List<Long> ids) {
+        return reservationService.setAlternativesByAdmin(id, times, ids);
+    }
+
+    @Override
+    public ReservationAlternativesInfo getAlternativesByAdmin(Long id) {
+        return reservationService.getAlternativesByAdmin(id);
     }
 
     @Override

@@ -1,6 +1,10 @@
 package org.sopt.hashi.reservation.domain;
 
+import jakarta.persistence.CollectionTable;
 import jakarta.persistence.Column;
+import jakarta.persistence.ElementCollection;
+import jakarta.persistence.JoinColumn;
+import jakarta.persistence.OrderColumn;
 import jakarta.persistence.Convert;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
@@ -14,6 +18,10 @@ import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.temporal.ChronoUnit;
+import java.util.ArrayList;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Set;
 import lombok.AccessLevel;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
@@ -117,6 +125,47 @@ public class Reservation extends BaseTimeEntity {
     @Column(name = "used_point", nullable = false)
     private long usedPoint;
 
+    @Column(name = "original_reservation_id", updatable = false)
+    private Long originalReservationId;
+
+    @ElementCollection
+    @CollectionTable(name = "reservation_alternative_time", joinColumns = @JoinColumn(name = "reservation_id"))
+    @Column(name = "reserved_at", nullable = false)
+    private Set<LocalDateTime> alternativeTimes = new HashSet<>();
+
+    @ElementCollection
+    @CollectionTable(name = "reservation_alternative_restaurant", joinColumns = @JoinColumn(name = "reservation_id"))
+    @OrderColumn(name = "display_order")
+    @Column(name = "restaurant_id", nullable = false)
+    private List<Long> alternativeRestaurantIds = new ArrayList<>();
+
+    public void replaceAlternatives(List<LocalDateTime> times, List<Long> restaurantIds, LocalDateTime now) {
+        requireTransition(reservationStatus == ReservationStatus.FAILED);
+        Set<LocalDateTime> candidates = Set.of(reservedAt.minusHours(1), reservedAt.minusMinutes(30),
+                reservedAt.plusMinutes(30), reservedAt.plusHours(1));
+        if (times.size() != new HashSet<>(times).size() || !candidates.containsAll(times)
+                || times.stream().anyMatch(time -> !time.isAfter(now) && !alternativeTimes.contains(time))
+                || restaurantIds.size() > 3 || new HashSet<>(restaurantIds).size() != restaurantIds.size()
+                || (restaurantId != null && restaurantIds.contains(restaurantId))) {
+            throw new BusinessException(ReservationErrorCode.INVALID_ALTERNATIVES);
+        }
+        alternativeTimes.clear();
+        alternativeTimes.addAll(times);
+        alternativeRestaurantIds.clear();
+        alternativeRestaurantIds.addAll(restaurantIds);
+    }
+
+    public Reservation rebook(LocalDateTime time, long points, LocalDateTime now) {
+        requireTransition(reservationStatus == ReservationStatus.FAILED);
+        if (!alternativeTimes.contains(time) || !time.isAfter(now)) {
+            throw new BusinessException(ReservationErrorCode.INVALID_ALTERNATIVES);
+        }
+        Reservation child = new Reservation(reservationType, userId, reserverName, restaurantId, restaurantName,
+                restaurantAddress, time, adultCount, teenCount, childCount, requestNote, points, BASE_FEE - points);
+        child.originalReservationId = id;
+        return child;
+    }
+
     private Reservation(ReservationType reservationType, Long userId, String reserverName,
                         Long restaurantId, String restaurantName, String restaurantAddress,
                         LocalDateTime reservedAt, int adultCount, int teenCount, int childCount,
@@ -209,7 +258,7 @@ public class Reservation extends BaseTimeEntity {
         if (reservationStatus == ReservationStatus.CANCELED) {
             throw new BusinessException(ReservationErrorCode.ALREADY_CANCELED);
         }
-        if (reservationStatus == ReservationStatus.VISITED) {
+        if (reservationStatus == ReservationStatus.VISITED || reservationStatus == ReservationStatus.FAILED) {
             throw new BusinessException(ReservationErrorCode.CANNOT_CANCEL);
         }
         this.reservationStatus = ReservationStatus.CANCELED;
@@ -221,6 +270,7 @@ public class Reservation extends BaseTimeEntity {
         if (reservationStatus == targetStatus) {
             return;
         }
+        requireTransition(reservationStatus != ReservationStatus.FAILED);
         boolean correctingPaidReservation = paymentStatus == PaymentStatus.PAID
                 && reservationStatus != ReservationStatus.CANCELED;
         switch (targetStatus) {
@@ -242,6 +292,10 @@ public class Reservation extends BaseTimeEntity {
                             || correctingPaidReservation);
             case VISITED -> requireTransition(reservationStatus == ReservationStatus.CONFIRMED
                     && paymentStatus == PaymentStatus.PAID);
+            case FAILED -> {
+                requireTransition(reservationStatus.isInProgress() && paymentStatus == PaymentStatus.PENDING);
+                paymentStatus = PaymentStatus.CANCELED;
+            }
             case CANCELED -> paymentStatus = PaymentStatus.CANCELED;
         }
         reservationStatus = targetStatus;

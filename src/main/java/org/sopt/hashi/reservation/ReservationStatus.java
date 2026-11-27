@@ -17,6 +17,7 @@ public enum ReservationStatus {
     AWAITING_PAYMENT("입금 확인을 기다리는 상태"),
     CONFIRMED("식당이 예약을 확정한 상태"),
     VISITED("방문이 완료된 상태"),
+    FAILED("식당에서 자리를 확보하지 못한 상태"),
     CANCELED("예약이 취소된 상태");
 
     private final String description;
