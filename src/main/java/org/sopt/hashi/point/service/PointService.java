@@ -204,19 +204,9 @@ public class PointService {
         }
     }
 
-    /** 계정 lazy 생성. 동시 생성 경합은 uk_point_account_user가 최종 방어하며, 충돌 시 기존 계정을 재조회한다. */
+    /** 예약 생성과 리뷰 작성은 회원 행을 잠근 뒤 포인트 계정을 조회하거나 생성한다. */
     private PointAccount getOrCreateAccount(Long userId) {
         return pointAccountRepository.findByUserId(userId)
-                .orElseGet(() -> createAccount(userId));
-    }
-
-    private PointAccount createAccount(Long userId) {
-        try {
-            return pointAccountRepository.saveAndFlush(PointAccount.open(userId));
-        } catch (DataIntegrityViolationException e) {
-            // 동시 요청이 먼저 계정을 만든 경우 — 유니크 제약이 막아준 것이므로 기존 계정으로 진행한다
-            return pointAccountRepository.findByUserId(userId)
-                    .orElseThrow(() -> e);
-        }
+                .orElseGet(() -> pointAccountRepository.saveAndFlush(PointAccount.open(userId)));
     }
 }

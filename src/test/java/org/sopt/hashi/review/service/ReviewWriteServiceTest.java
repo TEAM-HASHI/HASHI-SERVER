@@ -117,10 +117,6 @@ class ReviewWriteServiceTest {
     @Test
     void 탈퇴한_회원은_리뷰를_저장하지_못하고_보상도_받지_않는다() {
         given(currentUserProvider.currentUserId()).willReturn(USER_ID);
-        given(reservationPort.getReviewInfoByIdAndUserId(RESERVATION_ID, USER_ID))
-                .willReturn(reservation(USER_ID, ReservationStatus.VISITED));
-        given(restaurantPort.existsById(RESTAURANT_ID)).willReturn(true);
-        given(reviewRepository.existsByReservationId(RESERVATION_ID)).willReturn(false);
         given(userPort.lockActiveUser(USER_ID)).willReturn(false);
 
         assertThatThrownBy(() -> reviewWriteService.create(request()))
@@ -134,6 +130,7 @@ class ReviewWriteServiceTest {
     @Test
     void 삭제된_이전_키워드_code로_리뷰를_작성할_수_없다() {
         given(currentUserProvider.currentUserId()).willReturn(USER_ID);
+        given(userPort.lockActiveUser(USER_ID)).willReturn(true);
         given(reservationPort.getReviewInfoByIdAndUserId(RESERVATION_ID, USER_ID))
                 .willReturn(reservation(USER_ID, ReservationStatus.VISITED));
         given(restaurantPort.existsById(RESTAURANT_ID)).willReturn(true);
@@ -159,6 +156,7 @@ class ReviewWriteServiceTest {
     @Test
     void 방문_완료되지_않은_예약에는_리뷰를_작성할_수_없다() {
         given(currentUserProvider.currentUserId()).willReturn(USER_ID);
+        given(userPort.lockActiveUser(USER_ID)).willReturn(true);
         given(reservationPort.getReviewInfoByIdAndUserId(RESERVATION_ID, USER_ID))
                 .willReturn(reservation(USER_ID, ReservationStatus.CONFIRMED));
 
@@ -172,6 +170,7 @@ class ReviewWriteServiceTest {
     @Test
     void 어디든_예약에는_리뷰를_작성할_수_없다() {
         given(currentUserProvider.currentUserId()).willReturn(USER_ID);
+        given(userPort.lockActiveUser(USER_ID)).willReturn(true);
         given(reservationPort.getReviewInfoByIdAndUserId(RESERVATION_ID, USER_ID))
                 .willReturn(anywhereReservation());
 
@@ -186,6 +185,7 @@ class ReviewWriteServiceTest {
     @Test
     void 활성_리뷰가_이미_있으면_중복_작성할_수_없다() {
         given(currentUserProvider.currentUserId()).willReturn(USER_ID);
+        given(userPort.lockActiveUser(USER_ID)).willReturn(true);
         given(reservationPort.getReviewInfoByIdAndUserId(RESERVATION_ID, USER_ID))
                 .willReturn(reservation(USER_ID, ReservationStatus.VISITED));
         given(restaurantPort.existsById(RESTAURANT_ID)).willReturn(true);
