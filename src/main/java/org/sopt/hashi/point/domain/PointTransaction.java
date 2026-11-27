@@ -73,6 +73,21 @@ public class PointTransaction extends BaseTimeEntity {
         return new PointTransaction(pointAccountId, PointTransactionType.USE, amount, reason, sourceType, sourceId);
     }
 
+    public static PointTransaction reviewReclaim(Long accountId, long amount, Long reservationId) {
+        return new PointTransaction(accountId, PointTransactionType.RECLAIM, amount, "리뷰 삭제",
+                PointSourceType.REVIEW, reservationId);
+    }
+
+    public static PointTransaction deferredReclaim(Long accountId, long amount, Long reservationId) {
+        return new PointTransaction(accountId, PointTransactionType.DEFER_RECLAIM, amount, "리뷰 보상 회수 이월",
+                PointSourceType.REVIEW, reservationId);
+    }
+
+    public static PointTransaction offset(Long accountId, long amount, PointSourceType sourceType, Long sourceId) {
+        return new PointTransaction(accountId, PointTransactionType.OFFSET_RECLAIM, amount, "적립 시 이월액 상계",
+                sourceType, sourceId);
+    }
+
     /** 복원 기록 — 금액은 원본 차감 기록의 금액을 그대로 쓴다. */
     public static PointTransaction restore(Long pointAccountId, long amount,
                                            PointSourceType sourceType, Long sourceId) {

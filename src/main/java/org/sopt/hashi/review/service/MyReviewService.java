@@ -37,6 +37,7 @@ import org.sopt.hashi.shared.error.BusinessException;
 import org.sopt.hashi.shared.error.CommonErrorCode;
 import org.sopt.hashi.shared.storage.FileStorage;
 import org.sopt.hashi.user.UserInfo;
+import org.sopt.hashi.point.PointPort;
 import org.sopt.hashi.user.UserPort;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
@@ -55,6 +56,7 @@ public class MyReviewService {
     private final ReservationPort reservationPort;
     private final RestaurantPort restaurantPort;
     private final MediaPort mediaPort;
+    private final PointPort pointPort;
     private final UserPort userPort;
     private final FileStorage fileStorage;
     private final CurrentUserProvider currentUserProvider;
@@ -64,6 +66,7 @@ public class MyReviewService {
             ReservationPort reservationPort,
             RestaurantPort restaurantPort,
             MediaPort mediaPort,
+            PointPort pointPort,
             UserPort userPort,
             FileStorage fileStorage,
             CurrentUserProvider currentUserProvider
@@ -72,6 +75,7 @@ public class MyReviewService {
         this.reservationPort = reservationPort;
         this.restaurantPort = restaurantPort;
         this.mediaPort = mediaPort;
+        this.pointPort = pointPort;
         this.userPort = userPort;
         this.fileStorage = fileStorage;
         this.currentUserProvider = currentUserProvider;
@@ -221,6 +225,9 @@ public class MyReviewService {
     @Transactional
     public void deleteMyReview(Long reviewId) {
         Long userId = currentUserProvider.currentUserId();
+        if (!userPort.lockActiveUser(userId)) {
+            throw new BusinessException(ReviewErrorCode.REVIEWER_NOT_FOUND);
+        }
         Review review = getOwnedActiveReviewForUpdate(reviewId, userId);
         Long restaurantId = review.getRestaurantId();
         int rating = review.getRating();
@@ -229,7 +236,7 @@ public class MyReviewService {
         // 콘텐츠 soft delete 동안 association과 BOUND를 보존한다(이미지 제거·교체와 구분).
         reviewRepository.flush();
         restaurantPort.decreaseReviewStatistics(restaurantId, rating);
-        // 삭제는 식당 통계 감소에 연쇄되고, 재작성 시 보상 미지급 판정의 근거가 되는 전이라 남긴다
+        pointPort.reclaimReviewReward(userId, review.getReservationId());
         log.info("리뷰 삭제. reviewId={}, restaurantId={}", reviewId, restaurantId);
     }
 

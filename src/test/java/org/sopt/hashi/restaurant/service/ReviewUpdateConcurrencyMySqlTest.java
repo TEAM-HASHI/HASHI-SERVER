@@ -31,6 +31,7 @@ import org.sopt.hashi.review.domain.ReviewRepository;
 import org.sopt.hashi.review.dto.UpdateReviewRequest;
 import org.sopt.hashi.review.service.MyReviewService;
 import org.sopt.hashi.shared.storage.FileStorage;
+import org.sopt.hashi.point.PointPort;
 import org.sopt.hashi.user.UserPort;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.jdbc.AutoConfigureTestDatabase;
@@ -85,6 +86,9 @@ class ReviewUpdateConcurrencyMySqlTest {
     private ReservationPort reservationPort;
 
     @MockitoBean
+    private PointPort pointPort;
+
+    @MockitoBean
     private UserPort userPort;
 
     @MockitoBean
@@ -119,6 +123,7 @@ class ReviewUpdateConcurrencyMySqlTest {
         jdbcTemplate.update("DELETE FROM review_keyword");
         jdbcTemplate.update("DELETE FROM review");
         jdbcTemplate.update("DELETE FROM restaurant");
+        given(userPort.lockActiveUser(USER_ID)).willReturn(true);
         given(currentUserProvider.currentUserId()).willReturn(USER_ID);
         executor = Executors.newFixedThreadPool(2);
     }

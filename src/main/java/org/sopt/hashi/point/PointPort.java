@@ -19,6 +19,9 @@ public interface PointPort {
      */
     long earnReviewReward(Long userId, Long reservationId);
 
+    /** 해당 예약의 리뷰 적립금을 회수하고 부족액은 이후 적립에서 상계한다. */
+    void reclaimReviewReward(Long userId, Long reservationId);
+
     /** 해당 출처로 적립된 포인트를 조회한다 — 이력이 없으면 0. */
     long findEarnedAmount(PointSourceType sourceType, Long sourceId);
 

@@ -45,6 +45,7 @@ import org.sopt.hashi.review.dto.UpdateReviewRequest;
 import org.sopt.hashi.shared.error.BusinessException;
 import org.sopt.hashi.shared.error.CommonErrorCode;
 import org.sopt.hashi.shared.storage.FileStorage;
+import org.sopt.hashi.point.PointPort;
 import org.sopt.hashi.user.UserPort;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.test.util.ReflectionTestUtils;
@@ -70,6 +71,9 @@ class MyReviewServiceTest {
     private MediaPort mediaPort;
 
     @Mock
+    private PointPort pointPort;
+
+    @Mock
     private UserPort userPort;
 
     @Mock
@@ -87,6 +91,7 @@ class MyReviewServiceTest {
                 reservationPort,
                 restaurantPort,
                 mediaPort,
+                pointPort,
                 userPort,
                 fileStorage,
                 currentUserProvider
@@ -295,6 +300,7 @@ class MyReviewServiceTest {
     @Test
     void 작성자는_잠근_리뷰를_soft_delete_할_수_있다() {
         Review review = review(USER_ID);
+        given(userPort.lockActiveUser(USER_ID)).willReturn(true);
         given(currentUserProvider.currentUserId()).willReturn(USER_ID);
         given(reviewRepository.findOwnedActiveForUpdate(REVIEW_ID, USER_ID))
                 .willReturn(Optional.of(review));
@@ -309,6 +315,7 @@ class MyReviewServiceTest {
 
     @Test
     void 다른_사용자의_리뷰는_존재하지_않는_것처럼_처리한다() {
+        given(userPort.lockActiveUser(USER_ID)).willReturn(true);
         given(currentUserProvider.currentUserId()).willReturn(USER_ID);
         given(reviewRepository.findOwnedActiveForUpdate(REVIEW_ID, USER_ID))
                 .willReturn(Optional.empty());
@@ -320,6 +327,7 @@ class MyReviewServiceTest {
 
     @Test
     void 잠금_조회_시점에_삭제된_리뷰는_식당_통계를_중복_차감하지_않는다() {
+        given(userPort.lockActiveUser(USER_ID)).willReturn(true);
         given(currentUserProvider.currentUserId()).willReturn(USER_ID);
         given(reviewRepository.findOwnedActiveForUpdate(REVIEW_ID, USER_ID))
                 .willReturn(Optional.empty());

@@ -47,8 +47,11 @@ public class PointService {
     public void earn(Long userId, long amount, String reason, PointSourceType sourceType, Long sourceId) {
         validateAmount(amount);
         PointAccount account = getOrCreateAccount(userId);
-        account.earn(amount);
+        long offset = account.earn(amount);
         pointTransactionRepository.save(PointTransaction.earn(account.getId(), amount, reason, sourceType, sourceId));
+        if (offset > 0) {
+            pointTransactionRepository.save(PointTransaction.offset(account.getId(), offset, sourceType, sourceId));
+        }
         // 잔액 변동 3종(적립·차감·복원)은 문의 대응·이상 거래 추적의 기준 기록 — 대상 userId를 명시한다
         // (어드민 경유 등 요청 주체와 대상이 다를 수 있어 MDC userId에 의존하지 않는다)
         log.info("포인트 적립. userId={}, amount={}, sourceType={}, sourceId={}", userId, amount, sourceType, sourceId);
@@ -65,6 +68,33 @@ public class PointService {
         }
         earn(userId, REVIEW_REWARD, REVIEW_REWARD_REASON, PointSourceType.REVIEW, reservationId);
         return REVIEW_REWARD;
+    }
+
+    /** 리뷰 삭제 트랜잭션에서 호출한다. 회원 잠금으로 같은 회원의 삭제와 적립 순서를 보장한다. */
+    @Transactional
+    public void reclaimReviewReward(Long userId, Long reservationId) {
+        PointSourceType source = PointSourceType.REVIEW;
+        PointTransaction reward = pointTransactionRepository
+                .findByTypeAndSourceTypeAndSourceId(PointTransactionType.EARN, source, reservationId)
+                .orElse(null);
+        if (reward == null) {
+            return;
+        }
+        PointAccount account = pointAccountRepository.findByUserId(userId)
+                .filter(found -> found.getId().equals(reward.getPointAccountId()))
+                .orElseThrow(() -> new IllegalStateException("리뷰 보상의 적립 계정이 일치하지 않습니다"));
+        if (pointTransactionRepository.existsByTypeAndSourceTypeAndSourceId(PointTransactionType.RECLAIM, source, reservationId)
+                || pointTransactionRepository.existsByTypeAndSourceTypeAndSourceId(PointTransactionType.DEFER_RECLAIM, source, reservationId)) {
+            return;
+        }
+        long recovered = account.reclaim(reward.getAmount());
+        long deferred = reward.getAmount() - recovered;
+        if (recovered > 0) {
+            pointTransactionRepository.save(PointTransaction.reviewReclaim(account.getId(), recovered, reservationId));
+        }
+        if (deferred > 0) {
+            pointTransactionRepository.save(PointTransaction.deferredReclaim(account.getId(), deferred, reservationId));
+        }
     }
 
     /** 해당 출처의 적립 금액 조회 — 적립 이력이 없으면 0. */
