@@ -52,7 +52,7 @@ public ReviewResponse write(CreateReviewRequest req) {
 ### 2-1. 역할 단위 actor 조회
 
 이미지 업로드처럼 USER, ADMIN, ONBOARDING을 모두 받으면서 유형별 권한과 소유권을
-구분해야 하는 기능은 `CurrentActorProvider`를 사용한다. 현재 media Service가 이 계약을 사용하며,
+구분해야 하는 기능은 `CurrentActorProvider`를 사용한다. 미디어 소유권 확인과 온보딩 계정별 연락처 인증 발급 한도 계산에 사용하며,
 `auth.internal.security.CurrentActorProviderImpl`이 인증 컨텍스트 해석을 담당한다.
 
 ```java
@@ -121,6 +121,8 @@ auth/
     숨기기 위해 `null`로 내린다(USER·ADMIN은 각각 userId·adminId).
   - **`POST /api/v1/users/availability`**: 온보딩 폼의 닉네임·연락처·이메일 중복 확인이다. 내 정보 수정
     화면(회원)도 같은 경로를 쓰며, 전달된 필드의 사용 가능 여부만 돌려준다(리소스 접근이 아니다).
+  - **`POST /api/v1/users/onboarding/invite-code/validate`**: 선택한 초대 코드의 유효성을 확인한다.
+  - **`POST /api/v1/users/onboarding/phone/challenges`, `POST /api/v1/users/onboarding/phone/confirm`**: 온보딩 세션에서 연락처 인증을 발급하고 확인한다.
   - **`/api/v1/uploads/**`**: 프로필 사진을 위한 기존 presigned URL 발급 경로다.
   - **`/api/v1/media/**`**: 신규 이미지 업로드·완료·상태 조회 경로다. filter가 actor 유형을
     확인하고, media Service가 purpose별 권한과 소유권을 검사한다. ONBOARDING의 신규 업로드

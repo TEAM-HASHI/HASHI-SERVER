@@ -6,6 +6,7 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Lock;
+import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
@@ -25,6 +26,21 @@ public interface UserRepository extends JpaRepository<User, Long> {
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("select u from User u where u.id = :userId and u.deleted = false")
     Optional<User> findByIdForUpdate(@Param("userId") Long userId);
+
+    boolean existsByInviteCodeAndDeletedFalse(String inviteCode);
+
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("select u from User u where u.inviteCode = :code and u.deleted = false")
+    Optional<User> findInviterForUpdate(@Param("code") String code);
+
+    @Query("select u.inviteCode from User u where u.id = :id")
+    Optional<String> findInviteCode(@Param("id") Long id);
+
+    /** 회원 행을 이미 잠근 상태다. 무작위 10자 코드가 다른 회원과 중복되면 0을 돌려줘 다시 생성한다. */
+    @Modifying
+    @Query(value = "update ignore users set invite_code = :code where id = :id and invite_code is null",
+            nativeQuery = true)
+    int assignInviteCode(@Param("id") Long id, @Param("code") String code);
 
     /** [어드민] 활성 회원 목록. */
     Page<User> findByDeletedFalse(Pageable pageable);

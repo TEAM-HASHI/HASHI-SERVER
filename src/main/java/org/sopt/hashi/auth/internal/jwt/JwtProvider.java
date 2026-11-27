@@ -82,7 +82,7 @@ public class JwtProvider {
                     || ("app".equals(client) && sid == null)) {
                 throw new BusinessException(AuthErrorCode.INVALID_TOKEN);
             }
-            return new JwtClaims(Long.parseLong(claims.getSubject()), role, type, sid, client);
+            return new JwtClaims(Long.parseLong(claims.getSubject()), role, type, sid, client, claims.getId());
         } catch (ExpiredJwtException e) {
             throw new BusinessException(AuthErrorCode.EXPIRED_TOKEN, e);
         } catch (JwtException | IllegalArgumentException e) {
@@ -113,7 +113,11 @@ public class JwtProvider {
 
     /** subject 파싱 값. access/refresh는 userId, onboarding 토큰은 kakaoId다. */
     // 기존 userId -> subjectId로 변경 (kakaoId인 경우 userId로의 혼동 우려로 중립적인 네이밍으로 수정)
-    public record JwtClaims(Long subjectId, String role, String type, String sid, String client) {
+    public record JwtClaims(Long subjectId, String role, String type, String sid, String client, String tokenId) {
+
+        public JwtClaims(Long subjectId, String role, String type, String sid, String client) {
+            this(subjectId, role, type, sid, client, null);
+        }
 
         public JwtClaims(Long subjectId, String role, String type) {
             this(subjectId, role, type, null, null);

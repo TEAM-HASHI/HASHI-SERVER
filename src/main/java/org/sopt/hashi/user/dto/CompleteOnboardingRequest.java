@@ -28,7 +28,13 @@ public record CompleteOnboardingRequest(
         @Size(max = 500) String profileImageKey,
         @Schema(description = "프로필 사진 public asset ID(선택)",
                 example = "a3af06f1-4ef2-46f8-a489-2347fb840447")
-        UUID profileImageAssetId) {
+        UUID profileImageAssetId,
+        @Schema(description = "초대받은 친구의 코드(선택)") @Size(max = 10) String inviteCode) {
+
+    public CompleteOnboardingRequest(String nickname, String nameEng, LocalDate birthDate, String phone,
+                                     String email, String profileImageKey, UUID profileImageAssetId) {
+        this(nickname, nameEng, birthDate, phone, email, profileImageKey, profileImageAssetId, null);
+    }
 
     public CompleteOnboardingRequest(
             String nickname,

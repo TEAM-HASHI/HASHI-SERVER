@@ -57,6 +57,12 @@ public class User extends BaseTimeEntity {
     @Column(name = "nickname", length = 50, nullable = false)
     private String nickname;
 
+    @Column(name = "invite_code", length = 10, updatable = false)
+    private String inviteCode;
+
+    @Column(name = "invited_by_user_id", updatable = false)
+    private Long invitedByUserId;
+
     /** 탈퇴 회원의 리뷰 작성자 표시 이름 — 탈퇴 시 배정하며 활성 회원은 null. 여러 탈퇴 회원이 같은 이름을 쓸 수 있다(유니크 아님). */
     @Column(name = "anonymous_nickname", length = 50)
     private String anonymousNickname;
@@ -114,6 +120,14 @@ public class User extends BaseTimeEntity {
         return new User(
                 nickname, nameEng, birthDate, phone, email,
                 profileImageKey, profileImageAssetId);
+    }
+
+    /** 가입 전 유효성을 재확인하고 잠근 초대 회원을 새 프로필에 연결한다. */
+    public void invitedBy(Long inviterId) {
+        if (id != null || invitedByUserId != null) {
+            throw new IllegalStateException("초대 관계는 새 회원에게 한 번만 지정할 수 있습니다");
+        }
+        invitedByUserId = Objects.requireNonNull(inviterId);
     }
 
     /** 활성 회원이 쓸 수 없는 닉네임 — 탈퇴 자리값 접두어(탈퇴 시 유니크 충돌 방지)와 익명 닉네임 후보(탈퇴 회원과 혼동 방지). */

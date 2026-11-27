@@ -43,6 +43,16 @@ class AuthAccountPortImpl implements AuthAccountPort {
         authAccountService.link(AuthProvider.KAKAO, String.valueOf(currentOnboardingKakaoId()), userId);
     }
 
+    @Override
+    public String onboardingSessionId() {
+        currentOnboardingKakaoId();
+        Object tokenId = SecurityContextHolder.getContext().getAuthentication().getDetails();
+        if (tokenId instanceof String id && !id.isBlank()) {
+            return id;
+        }
+        throw new BusinessException(CommonErrorCode.UNAUTHORIZED);
+    }
+
     /**
      * 계정 삭제는 탈퇴 트랜잭션에 참여하고, 토큰 폐기·블랙리스트는 Redis라 커밋 전에 바로 반영된다 — 커밋 직후
      * 잔여 토큰이 통과하는 틈을 없애기 위해서다. 대신 탈퇴가 롤백되면 블랙리스트를 되돌려 회원이 묶이지 않게 한다.

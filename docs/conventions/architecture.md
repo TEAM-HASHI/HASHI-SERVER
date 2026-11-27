@@ -66,6 +66,7 @@
   **요구 인터페이스(SPI)**를 공개하고 조건을 소유한 모듈이 구현한다(의존 역전). 예: 탈퇴 조건 `WithdrawalBlocker`는
   user가 정의하고 reservation이 구현해 의존은 기존대로 reservation → user다. 이미 그 모듈을 의존하는 모듈만 구현한다 —
   반대 방향(user가 의존하는 restaurant·media·auth)이 구현하면 순환이므로, 그 모듈의 조건은 필요한 쪽이 포트로 직접 확인한다.
+  `FriendInviteReward`는 user가 정의하고 point가 구현한다. 가입과 양쪽 포인트 적립을 한 트랜잭션에서 처리한다.
 - **MAY**: outbound storage adapter, 규격·설정 파일 reader처럼 모듈 밖에 공개하지 않는 기술 구현은
   `internal/`에 둘 수 있다. 엔티티·Repository·비즈니스 로직·Request/Response·Controller는 각각
   `domain`·`service`·`dto`·`web`에 두며, 다른 모듈은 `internal`을 import하지 않는다.
@@ -198,7 +199,7 @@
 ## 9. auth / admin / 지원 모듈
 
 - **MUST**: `auth`는 `@Modulithic(sharedModules = "auth")`로 등록한다(횡단 관심사).
-- **MUST**: 인증 **강제**는 Spring Security 필터 체인이 담당한다. 도메인 모듈은 `auth.internal`을 import하지 않고, `auth`가 공개한 `CurrentUserProvider`로 현재 사용자를 읽는다(`SecurityContextHolder` 직접 접근 금지). actor 유형까지 필요한 media는 현재 공개 지점인 `CurrentActorProvider`를 사용한다.
+- **MUST**: 인증 **강제**는 Spring Security 필터 체인이 담당한다. 도메인 모듈은 `auth.internal`을 import하지 않고, `auth`가 공개한 `CurrentUserProvider`로 현재 사용자를 읽는다(`SecurityContextHolder` 직접 접근 금지). 미디어 소유권 확인이나 온보딩 계정별 연락처 인증 한도처럼 인증 주체가 필요한 기능은 `CurrentActorProvider`를 사용한다.
 - **MUST**: 의존 방향은 **도메인 → auth**다. 현재 공개 지점은 `CurrentUserProvider`, `CurrentActorProvider`, `AuthAccountPort`, `AdminAccountPort`다. **`auth`는 어떤 도메인 모듈도 되참조하지 않는다**(순환 방지). auth가 도메인을 관찰해야 하면 **이벤트**로 붙이되, 회원 삭제와 인증 계정 정리처럼 **함께 커밋돼야 하는** 처리는 도메인이 `AuthAccountPort`를 호출한다(탈퇴 — `auth.md` §3). 상세는 `auth.md` §1 참조.
 - **MUST**: `AdminAccountPort`는 관리자 화면의 확인자 표시에만 사용하는 읽기 전용 capability다. `admin` 진입점이 저장된 관리자 ID 목록으로 현재 로그인 ID를 일괄 조회하며, 포트도 ADMIN 인증을 확인한다. 계정 엔티티·비밀번호는 공개하지 않고 없는 계정은 제외한다. 회원 계정 연결·탈퇴를 담당하는 `AuthAccountPort`와 구분한다.
 - **MUST NOT**: 도메인 모듈이 인증 로직을 직접 구현하지 않는다.
@@ -239,6 +240,6 @@ upload → shared (FileStorage)         (지원 모듈; 도메인 모듈 의존 
 도메인 backfill runner → media (MediaBackfillPort) (migration 전용 READY asset 연결)
 media → auth, shared                  (actor 조회와 인프라 공통 계약; 콘텐츠 도메인 되참조 금지)
 모든 도메인 → shared (OPEN)
-point → user                         (UserWithdrawnEvent 구독 — 포인트 소멸; 이벤트 타입만 의존)
+point → user                         (UserWithdrawnEvent 구독 — 포인트 소멸, FriendInviteReward 구현 — 가입 보상)
 user ⇢ point                         (UserWithdrawnEvent 발행 — 탈퇴 후속 정리는 이벤트, 토큰 무효화·계정 정리는 AuthAccountPort)
 ```

@@ -104,6 +104,9 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
             }
             UsernamePasswordAuthenticationToken authentication = new UsernamePasswordAuthenticationToken(
                     principal, null, List.of(new SimpleGrantedAuthority(claims.role())));
+            if (claims.isOnboardingToken()) {
+                authentication.setDetails(claims.tokenId());
+            }
             SecurityContextHolder.getContext().setAuthentication(authentication);
             if (claims.isAccessToken()) {
                 // 사용자 단위 로그 추적용 — 요청 종료 시 RequestLoggingFilter가 MDC를 clear한다.

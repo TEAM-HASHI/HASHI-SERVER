@@ -95,7 +95,8 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.GET, COLLECTION_PUBLIC_GET_PATHS).permitAll()
                         .requestMatchers(HttpMethod.GET, NOTICE_PUBLIC_GET_PATHS).permitAll()
                         .requestMatchers(HttpMethod.GET, TERMS_PUBLIC_GET_PATHS).permitAll()
-                        .requestMatchers(ONBOARDING_PATH).hasRole("ONBOARDING")
+                        .requestMatchers(ONBOARDING_PATH, ONBOARDING_PATH + "/invite-code/validate",
+                                ONBOARDING_PATH + "/phone/challenges", ONBOARDING_PATH + "/phone/confirm").hasRole("ONBOARDING")
                         .requestMatchers(PROFILE_AVAILABILITY_PATH).hasAnyRole("USER", "ONBOARDING")
                         .requestMatchers(UPLOAD_PATH).hasAnyRole("USER", "ADMIN", "ONBOARDING")
                         .requestMatchers(MEDIA_PATH).hasAnyRole("USER", "ADMIN", "ONBOARDING")

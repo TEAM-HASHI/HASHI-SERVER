@@ -7,6 +7,7 @@ import org.sopt.hashi.auth.internal.jwt.JwtProvider;
 
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.options;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -30,7 +31,8 @@ import org.springframework.web.bind.annotation.RestController;
  * SecurityConfig 인가 규칙 + 필터 체인을 실제로 태워 검증한다(웹 슬라이스라 JPA·Redis 자동설정은 로딩하지 않음).
  */
 @WebMvcTest(
-        controllers = OnboardingAuthorizationTest.ProtectedTestController.class,
+        controllers = {OnboardingAuthorizationTest.ProtectedTestController.class,
+                org.sopt.hashi.user.web.FriendInviteController.class, org.sopt.hashi.user.web.SignupPhoneController.class},
         excludeFilters = @Filter(type = FilterType.ASSIGNABLE_TYPE, classes = OnboardingJwtIssuer.class))
 @Import({SecurityConfig.class, JwtAuthenticationFilter.class, JwtProvider.class,
         CookieUtil.class, OriginValidator.class,
@@ -54,6 +56,9 @@ class OnboardingAuthorizationTest {
     private static final String ALLOWED_ORIGIN = "https://app.hashi.com";
     private static final String ALLOWED_PREVIEW_ORIGIN =
             "https://hashi-client-preview-hash-example-team.vercel.app";
+
+    @MockitoBean org.sopt.hashi.user.service.FriendInviteService invites;
+    @MockitoBean org.sopt.hashi.user.service.SignupPhoneService phoneVerification;
 
     @Autowired
     MockMvc mvc;
@@ -95,6 +100,36 @@ class OnboardingAuthorizationTest {
         mvc.perform(get(PROTECTED_PATH)
                         .header(HttpHeaders.AUTHORIZATION, "Bearer " + accessToken))
                 .andExpect(status().isOk());
+    }
+
+    @Test
+    void 코드_사전_검증은_온보딩_토큰만_허용하고_내_코드_조회는_회원에게만_허용한다() throws Exception {
+        String path = "/api/v1/users/onboarding/invite-code/validate";
+        String code = "{\"inviteCode\":\"ABCD234567\"}";
+        String onboarding = "Bearer " + jwtProvider.createOnboardingToken(555L);
+        String user = "Bearer " + jwtProvider.createAccessToken(7L, AuthRoles.USER);
+        mvc.perform(post(path).contentType("application/json").content(code)).andExpect(status().isUnauthorized());
+        mvc.perform(post(path).header(HttpHeaders.AUTHORIZATION, user).contentType("application/json").content(code))
+                .andExpect(status().isForbidden());
+        mvc.perform(post(path).header(HttpHeaders.AUTHORIZATION, onboarding).contentType("application/json").content(code))
+                .andExpect(status().isOk());
+        mvc.perform(get("/api/v1/users/me/invite").header(HttpHeaders.AUTHORIZATION, onboarding))
+                .andExpect(status().isForbidden());
+        mvc.perform(get("/api/v1/users/me/invite").header(HttpHeaders.AUTHORIZATION, user))
+                .andExpect(status().isOk());
+    }
+
+    @Test
+    void 번호_인증_경로는_온보딩_토큰만_허용한다() throws Exception {
+        String path = "/api/v1/users/onboarding/phone/challenges";
+        String body = "{\"phone\":\"01000000000\"}";
+        mvc.perform(post(path).contentType("application/json").content(body)).andExpect(status().isUnauthorized());
+        mvc.perform(post(path).header(HttpHeaders.AUTHORIZATION,
+                        "Bearer " + jwtProvider.createAccessToken(7L, AuthRoles.USER))
+                .contentType("application/json").content(body)).andExpect(status().isForbidden());
+        mvc.perform(post(path).cookie(new Cookie(CookieUtil.SIGNUP_TOKEN_COOKIE,
+                        jwtProvider.createOnboardingToken(555L))).header(HttpHeaders.ORIGIN, ALLOWED_ORIGIN)
+                .contentType("application/json").content(body)).andExpect(status().isOk());
     }
 
     @Test

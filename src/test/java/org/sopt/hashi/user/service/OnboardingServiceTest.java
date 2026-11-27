@@ -27,6 +27,7 @@ import org.sopt.hashi.shared.error.BusinessException;
 import org.sopt.hashi.user.code.UserErrorCode;
 import org.sopt.hashi.user.domain.User;
 import org.sopt.hashi.user.domain.UserRepository;
+import org.sopt.hashi.user.FriendInviteReward;
 import org.sopt.hashi.user.dto.CompleteOnboardingRequest;
 import org.springframework.test.util.ReflectionTestUtils;
 
@@ -42,12 +43,18 @@ class OnboardingServiceTest {
     @Mock
     private MediaPort mediaPort;
 
+    @Mock
+    private FriendInviteReward inviteReward;
+
+    @Mock
+    private SignupPhoneService phoneProof;
+
     private OnboardingService onboardingService;
 
     @BeforeEach
     void setUp() {
         onboardingService = new OnboardingService(
-                userRepository, authAccountPort, mediaPort, new ProfileAvailabilityChecker(userRepository));
+                userRepository, authAccountPort, mediaPort, new ProfileAvailabilityChecker(userRepository), inviteReward, phoneProof);
         // 예약어 닉네임 거절 케이스는 save까지 가지 않으므로 공통 stub은 lenient로 둔다
         lenient().when(userRepository.save(any(User.class))).thenAnswer(invocation -> {
             User user = invocation.getArgument(0);
