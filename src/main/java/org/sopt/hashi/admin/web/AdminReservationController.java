@@ -6,6 +6,8 @@ import org.sopt.hashi.admin.dto.AdminReservationListResponse;
 import org.sopt.hashi.admin.dto.AdminReservationResponse;
 import org.sopt.hashi.admin.dto.AdminReservationUserResponse;
 import org.sopt.hashi.admin.dto.ChangeReservationStatusRequest;
+import org.sopt.hashi.admin.dto.SetReservationAlternativesRequest;
+import org.sopt.hashi.reservation.ReservationAlternativesInfo;
 import org.sopt.hashi.admin.service.AdminReservationService;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import org.sopt.hashi.reservation.ReservationStatus;
@@ -17,6 +19,7 @@ import org.sopt.hashi.shared.swagger.ApiSuccess;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
@@ -43,6 +46,22 @@ public class AdminReservationController {
             @Valid @RequestBody ChangeReservationStatusRequest request) {
         return SuccessResponse.of(AdminSuccessCode.RESERVATION_STATUS_CHANGED,
                 adminReservationService.changeStatus(reservationId, request.status()));
+    }
+
+    /** 자리를 확보하지 못한 예약을 실패 처리하고 확인된 대안 목록을 교체한다. */
+    @ApiException(value = CommonErrorCode.class, codes = {"INVALID_INPUT", "UNAUTHORIZED", "FORBIDDEN"})
+    @ApiResponse(responseCode = "409", description = "실패로 처리할 수 없는 예약입니다")
+    @PutMapping("/{reservationId}/alternatives")
+    public SuccessResponse<ReservationAlternativesInfo> setAlternatives(@PathVariable Long reservationId,
+            @Valid @RequestBody SetReservationAlternativesRequest request) {
+        return SuccessResponse.of(CommonSuccessCode.OK, adminReservationService.setAlternatives(reservationId, request));
+    }
+
+    /** 등록한 대안과 이미 접수된 재예약 ID를 확인한다. */
+    @ApiException(value = CommonErrorCode.class, codes = {"UNAUTHORIZED", "FORBIDDEN"})
+    @GetMapping("/{reservationId}/alternatives")
+    public SuccessResponse<ReservationAlternativesInfo> getAlternatives(@PathVariable Long reservationId) {
+        return SuccessResponse.of(CommonSuccessCode.OK, adminReservationService.getAlternatives(reservationId));
     }
 
     /** 예약 목록 조회 — offset 페이지네이션(최신순, page는 0부터). status 필터 선택. */

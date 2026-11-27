@@ -94,6 +94,7 @@ public class DevReservationDataGenerator {
                 reservation.changeStatusByAdmin(ReservationStatus.CONFIRMED, now);
                 reservation.changeStatusByAdmin(ReservationStatus.VISITED, now);
             }
+            case FAILED -> reservation.changeStatusByAdmin(ReservationStatus.FAILED, now);
             case CANCELED -> reservation.cancel();
         }
     }

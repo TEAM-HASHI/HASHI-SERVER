@@ -14,6 +14,8 @@ import org.springframework.data.repository.query.Param;
 
 public interface ReservationRepository extends JpaRepository<Reservation, Long> {
 
+    Optional<Reservation> findByOriginalReservationId(Long reservationId);
+
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("select r from Reservation r where r.id = :id")
     Optional<Reservation> findForUpdate(@Param("id") Long id);
