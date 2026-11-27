@@ -24,17 +24,19 @@ public class OnboardingService {
     private final MediaPort mediaPort;
     private final ProfileAvailabilityChecker availabilityChecker;
     private final FriendInviteReward inviteReward;
+    private final SignupPhoneService phoneProof;
 
     public OnboardingService(UserRepository userRepository,
                              AuthAccountPort authAccountPort,
                              MediaPort mediaPort,
                              ProfileAvailabilityChecker availabilityChecker,
-                             FriendInviteReward inviteReward) {
+                             FriendInviteReward inviteReward, SignupPhoneService phoneProof) {
         this.userRepository = userRepository;
         this.authAccountPort = authAccountPort;
         this.mediaPort = mediaPort;
         this.availabilityChecker = availabilityChecker;
         this.inviteReward = inviteReward;
+        this.phoneProof = phoneProof;
     }
 
     /**
@@ -48,13 +50,14 @@ public class OnboardingService {
         String code = FriendInviteService.normalize(request.inviteCode());
         Long inviterId = code.isEmpty() ? null : userRepository.findInviterForUpdate(code)
                 .orElseThrow(() -> new BusinessException(UserErrorCode.INVALID_INVITE_CODE)).getId();
+        byte[] verifiedPhone = phoneProof.consumeForSignup(request.phone(), inviterId != null);
         User user = saveUser(request, inviterId);
         authAccountPort.linkOnboardingAccount(user.getId());
         if (request.profileImageAssetId() != null) {
             mediaPort.claimOnboardingProfile(request.profileImageAssetId(), user.getId());
             user.assignOnboardingProfileImage(request.profileImageAssetId());
         }
-        if (inviterId != null) {
+        if (inviterId != null && phoneProof.claimReward(verifiedPhone)) {
             inviteReward.grant(inviterId, user.getId());
         }
         // 회원 생성 시점 기록 — 프로필 값은 개인정보라 ID만 남긴다

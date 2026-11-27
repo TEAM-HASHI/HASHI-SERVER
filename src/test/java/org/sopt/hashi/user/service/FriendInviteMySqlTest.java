@@ -3,7 +3,13 @@ package org.sopt.hashi.user.service;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.Mockito.when;
+
 import java.time.LocalDate;
+import org.junit.jupiter.api.BeforeEach;
+import org.sopt.hashi.user.internal.phone.OctomoClient;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import java.util.List;
 import java.util.concurrent.Callable;
 import java.util.concurrent.CyclicBarrier;
@@ -37,12 +43,23 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 
 @Testcontainers
 @SpringBootTest(properties = {"spring.jpa.hibernate.ddl-auto=validate", "jwt.secret=test-secret-key-must-be-at-least-32-bytes-long",
+        "hashi.signup-phone.enabled=true", "hashi.signup-phone.api-key=local-fixture",
+        "hashi.signup-phone.hmac-key=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
         "kakao.client-id=test-client-id", "kakao.redirect-uri=https://app.hashi.test/callback",
         "hashi.storage.cloudfront-domain=https://cdn.hashi.test"})
 @DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_CLASS)
 class FriendInviteMySqlTest {
     @Container @ServiceConnection static final MySQLContainer<?> MYSQL = new MySQLContainer<>("mysql:8.4");
     @Autowired OnboardingService onboarding;
+    @Autowired SignupPhoneService phone;
+    @Autowired UserProfileService profiles;
+    @Autowired org.springframework.jdbc.core.JdbcTemplate jdbc;
+    @MockitoBean OctomoClient octomo;
+
+    @BeforeEach
+    void allowSimulatedMessage() {
+        when(octomo.exists(anyString(), anyString())).thenReturn(true);
+    }
     @Autowired FriendInviteService invites;
     @Autowired UserRepository users;
     @Autowired PointPort points;
@@ -100,12 +117,14 @@ class FriendInviteMySqlTest {
         assertThatThrownBy(() -> onboarding.completeOnboarding(request(21, code)))
                 .hasFieldOrPropertyWithValue("errorCode", UserErrorCode.INVALID_INVITE_CODE);
         assertThat(users.existsByNickname("friend21")).isFalse();
+        prove(request(21, null).phone());
         long fresh = onboarding.completeOnboarding(request(21, null)).userId();
         assertThat(points.getBalance(fresh)).isZero();
         assertThat(users.findById(fresh).orElseThrow().getInvitedByUserId()).isNull();
         authenticate(new MemberPrincipal(fresh), AuthRoles.USER);
         String own = invites.getMine().inviteCode();
         authenticate(new OnboardingPrincipal(21L), AuthRoles.ONBOARDING);
+        prove(request(22, own).phone());
         // 동일 소셜 주체가 다른 프로필로 자기 코드를 다시 제출해도 계정 연결과 보상이 함께 롤백된다.
         assertThatThrownBy(() -> onboarding.completeOnboarding(request(22, own)))
                 .isInstanceOf(BusinessException.class);
@@ -119,6 +138,7 @@ class FriendInviteMySqlTest {
         authenticate(new MemberPrincipal(inviter), AuthRoles.USER);
         String code = invites.getMine().inviteCode().toLowerCase(java.util.Locale.ROOT);
         authenticate(new OnboardingPrincipal(31L), AuthRoles.ONBOARDING);
+        prove(request(31, code).phone());
         transactions.executeWithoutResult(tx -> {
             onboarding.completeOnboarding(request(31, code));
             tx.setRollbackOnly();
@@ -134,12 +154,80 @@ class FriendInviteMySqlTest {
         return () -> {
             authenticate(new OnboardingPrincipal(id), AuthRoles.ONBOARDING);
             try {
+                prove(request(id, code).phone());
                 start.await(15, TimeUnit.SECONDS);
                 return onboarding.completeOnboarding(request(id, code)).userId();
             } finally {
                 SecurityContextHolder.clearContext();
             }
         };
+    }
+
+    private void prove(String number) {
+        var issued = phone.issue(number);
+        assertThat(phone.confirm(number, issued.challengeId())).isTrue();
+    }
+
+    @Test
+    void 보상을_받은_번호로_탈퇴_후_재가입하면_인증은_필수이고_양쪽_보상은_건너뛴다() {
+        long inviter = existing(40);
+        authenticate(new MemberPrincipal(inviter), AuthRoles.USER);
+        String code = invites.getMine().inviteCode();
+        var first = request(41, code);
+        authenticate(new OnboardingPrincipal(41L), AuthRoles.ONBOARDING);
+        prove(first.phone());
+        long firstId = onboarding.completeOnboarding(first).userId();
+        authenticate(new MemberPrincipal(firstId), AuthRoles.USER);
+        profiles.updateMyInfo(new org.sopt.hashi.user.dto.UpdateMyInfoRequest(null, null, null,
+                request(43, null).phone(), null, null));
+        transactions.executeWithoutResult(tx -> users.findByIdForUpdate(firstId).orElseThrow().withdraw());
+
+        authenticate(new OnboardingPrincipal(42L), AuthRoles.ONBOARDING);
+        var next = request(42, code);
+        var samePhone = new CompleteOnboardingRequest(next.nickname(), next.nameEng(), next.birthDate(), first.phone(),
+                next.email(), null, null, code);
+        assertThatThrownBy(() -> onboarding.completeOnboarding(samePhone))
+                .hasFieldOrPropertyWithValue("errorCode", UserErrorCode.PHONE_PROOF_REQUIRED);
+        prove(first.phone());
+        long nextId = onboarding.completeOnboarding(samePhone).userId();
+        assertThat(points.getBalance(nextId)).isZero();
+        assertThat(points.getBalance(inviter)).isEqualTo(4000);
+    }
+
+    @Test
+    void 인증은_세션과_번호에_묶이고_재발급으로_이전_도전을_대체한다() {
+        authenticate(new OnboardingPrincipal(51L), AuthRoles.ONBOARDING);
+        String number = request(51, null).phone();
+        var issued = phone.issue(number);
+        var replacement = phone.issue(number);
+        assertThatThrownBy(() -> phone.confirm(number, issued.challengeId())).isInstanceOf(BusinessException.class);
+        assertThatThrownBy(() -> phone.confirm(request(52, null).phone(), replacement.challengeId()))
+                .isInstanceOf(BusinessException.class);
+        authenticate(new OnboardingPrincipal(51L), AuthRoles.ONBOARDING);
+        assertThatThrownBy(() -> phone.confirm(number, replacement.challengeId())).isInstanceOf(BusinessException.class);
+        var last = phone.issue(number);
+        when(octomo.exists(anyString(), anyString())).thenReturn(false);
+        for (int attempt = 0; attempt < 5; attempt++) {
+            assertThat(phone.confirm(number, last.challengeId())).isFalse();
+        }
+        assertThatThrownBy(() -> phone.confirm(number, last.challengeId()))
+                .hasFieldOrPropertyWithValue("errorCode", UserErrorCode.PHONE_PROOF_LIMIT);
+        assertThatThrownBy(() -> phone.issue(number))
+                .hasFieldOrPropertyWithValue("errorCode", UserErrorCode.PHONE_PROOF_LIMIT);
+        assertThatThrownBy(() -> onboarding.completeOnboarding(request(51, null)))
+                .hasFieldOrPropertyWithValue("errorCode", UserErrorCode.PHONE_PROOF_REQUIRED);
+    }
+
+    @Test
+    void 외부_조회가_성공해도_인증_유효기간이_끝나면_가입에_쓸_수_없다() {
+        authenticate(new OnboardingPrincipal(61L), AuthRoles.ONBOARDING);
+        var signup = request(61, null);
+        var issued = phone.issue(signup.phone());
+        assertThat(phone.confirm(signup.phone(), issued.challengeId())).isTrue();
+        jdbc.update("UPDATE signup_phone_challenge SET expires_at=UTC_TIMESTAMP(6) WHERE challenge_id=?",
+                issued.challengeId().toString());
+        assertThatThrownBy(() -> onboarding.completeOnboarding(signup))
+                .hasFieldOrPropertyWithValue("errorCode", UserErrorCode.PHONE_PROOF_REQUIRED);
     }
 
     private long existing(long id) {
@@ -154,7 +242,8 @@ class FriendInviteMySqlTest {
     }
 
     private void authenticate(Object principal, String role) {
-        SecurityContextHolder.getContext().setAuthentication(new UsernamePasswordAuthenticationToken(
-                principal, null, List.of(new SimpleGrantedAuthority(role))));
+        var authentication = new UsernamePasswordAuthenticationToken(principal, null, List.of(new SimpleGrantedAuthority(role)));
+        authentication.setDetails(java.util.UUID.randomUUID().toString());
+        SecurityContextHolder.getContext().setAuthentication(authentication);
     }
 }

@@ -12,6 +12,9 @@ public interface AuthAccountPort {
      */
     void linkOnboardingAccount(Long userId);
 
+    /** 인증이 끝난 온보딩 토큰의 고유 식별자. 토큰 교체 시 이전 번호 인증을 사용할 수 없다. */
+    String onboardingSessionId();
+
     /**
      * 탈퇴한 회원의 인증을 정리한다 — 소셜 계정 연결(auth_account) 삭제, 리프레시 토큰 폐기, 액세스 토큰 블랙리스트 등록.
      * 탈퇴 트랜잭션 안에서만 호출한다. 계정 삭제는 트랜잭션에 참여하고 토큰 폐기·블랙리스트(Redis)는 커밋 전에 바로 반영되며,
