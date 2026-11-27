@@ -87,6 +87,33 @@ class ExchangeRateMySqlTest {
     }
 
     @Test
+    void 과거_고시를_보정하면_이월_메뉴에_반영하되_이후의_독립된_환율과_당시_이력은_보존한다() {
+        LocalDate friday = LocalDate.of(2026, 11, 27);
+        LocalDate saturday = friday.plusDays(1);
+        LocalDate sunday = friday.plusDays(2);
+        store.completeLookup(friday, Optional.of(new BigDecimal("950")));
+        store.completeLookup(saturday, Optional.empty());
+        store.correct(friday, friday, new BigDecimal("960"), 7L);
+
+        var saturdayQuote = store.effectiveQuote(saturday).orElseThrow();
+        assertThat(saturdayQuote.appliedDate()).isEqualTo(saturday);
+        assertThat(saturdayQuote.quotedDate()).isEqualTo(friday);
+        assertThat(saturdayQuote.krwPer100Jpy()).isEqualByComparingTo("960");
+        assertThat(store.latest(saturday).orElseThrow().quote().krwPer100Jpy()).isEqualByComparingTo("950");
+
+        store.completeLookup(sunday, Optional.empty());
+        assertThat(store.latest(sunday).orElseThrow().quote().krwPer100Jpy()).isEqualByComparingTo("960");
+        store.correct(saturday, saturday, new BigDecimal("970"), 7L);
+        store.correct(friday, friday, new BigDecimal("951"), 8L);
+        assertThat(store.effectiveQuote(sunday).orElseThrow().krwPer100Jpy()).isEqualByComparingTo("970");
+
+        LocalDate monday = sunday.plusDays(1);
+        store.completeLookup(monday, Optional.of(new BigDecimal("980")));
+        store.correct(saturday, saturday, new BigDecimal("972"), 7L);
+        assertThat(store.effectiveQuote(monday).orElseThrow().krwPer100Jpy()).isEqualByComparingTo("980");
+    }
+
+    @Test
     void 실패와_휴일에는_고시일을_유지하고_재시도는_하루_세번으로_제한한다() {
         LocalDate first = LocalDate.of(2025, 1, 10);
         LocalDate holiday = first.plusDays(1);

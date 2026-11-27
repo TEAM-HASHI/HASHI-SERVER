@@ -30,7 +30,7 @@ class ExchangeRateService implements ExchangeRatePort {
     }
 
     public Optional<Quote> current() {
-        return store.latest(LocalDate.now(clock)).map(Revision::quote);
+        return store.effectiveQuote(LocalDate.now(clock));
     }
 
     public Revision correct(LocalDate appliedDate, LocalDate quotedDate, BigDecimal rate) {

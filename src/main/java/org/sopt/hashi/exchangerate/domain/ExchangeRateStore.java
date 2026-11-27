@@ -31,6 +31,19 @@ public class ExchangeRateStore {
                 """, this::revision, day).stream().findFirst();
     }
 
+    /** 이월일은 적용일로 남기고 금액은 그날까지 가장 최근 은행 고시·수동 보정에서 읽는다. */
+    public Optional<Quote> effectiveQuote(LocalDate day) {
+        return db.query("""
+                SELECT (SELECT MAX(applied_date) FROM menu_exchange_revision WHERE applied_date<=?) AS effective_date,
+                       quoted_date, krw_per_100_jpy
+                FROM menu_exchange_revision
+                WHERE applied_date<=? AND source IN ('BANK', 'MANUAL')
+                ORDER BY applied_date DESC, id DESC LIMIT 1
+                """, (row, index) -> new Quote(row.getObject("effective_date", LocalDate.class),
+                        row.getObject("quoted_date", LocalDate.class), row.getBigDecimal("krw_per_100_jpy")), day, day)
+                .stream().findFirst();
+    }
+
     @Transactional(readOnly = true)
     public Page<Revision> history(Pageable page) {
         List<Revision> revisions = db.query("SELECT * FROM menu_exchange_revision ORDER BY id DESC LIMIT ? OFFSET ?",
@@ -58,8 +71,8 @@ public class ExchangeRateStore {
             append(day, day, rate.get(), "BANK", null);
             completeDay(day);
         } else {
-            latest(day).filter(r -> r.quote().appliedDate().isBefore(day))
-                    .ifPresent(r -> append(day, r.quote().quotedDate(), r.quote().krwPer100Jpy(), "CARRY", null));
+            effectiveQuote(day).filter(quote -> quote.appliedDate().isBefore(day))
+                    .ifPresent(quote -> append(day, quote.quotedDate(), quote.krwPer100Jpy(), "CARRY", null));
         }
     }
 
