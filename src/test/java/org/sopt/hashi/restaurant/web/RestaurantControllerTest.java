@@ -9,12 +9,17 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import java.math.BigDecimal;
 import java.util.List;
+import java.util.UUID;
 import org.junit.jupiter.api.Test;
 import org.sopt.hashi.auth.internal.onboarding.OnboardingJwtIssuer;
 import org.sopt.hashi.auth.internal.security.JwtAuthenticationFilter;
-import org.sopt.hashi.restaurant.RestaurantMainInfo;
+import org.sopt.hashi.media.MediaImage;
+import org.sopt.hashi.media.MediaImageRole;
+import org.sopt.hashi.media.MediaImageStatus;
+import org.sopt.hashi.restaurant.RestaurantImageInfo;
 import org.sopt.hashi.restaurant.code.RestaurantErrorCode;
 import org.sopt.hashi.restaurant.dto.RestaurantListResponse;
+import org.sopt.hashi.restaurant.dto.RestaurantMainResponse;
 import org.sopt.hashi.restaurant.dto.RestaurantMenuDetailResponse;
 import org.sopt.hashi.restaurant.dto.RestaurantMenuListResponse;
 import org.sopt.hashi.restaurant.service.RestaurantService;
@@ -66,8 +71,73 @@ class RestaurantControllerTest {
     }
 
     @Test
+    void 식당_요약은_stable_association과_반응형_이미지_계약을_직렬화한다() throws Exception {
+        UUID assetId = UUID.randomUUID();
+        String imageUrl = "https://cdn.example.com/media/hero.webp";
+        MediaImage.Source source = new MediaImage.Source(
+                imageUrl, 860, 512, "image/webp");
+        MediaImage heroImage = new MediaImage(
+                assetId,
+                MediaImageRole.RESTAURANT_HERO,
+                MediaImageStatus.READY,
+                source,
+                List.of(new MediaImage.SourceSet(
+                        "image/webp",
+                        List.of(new MediaImage.Candidate(imageUrl, 860, 512))
+                ))
+        );
+        String thumbnailUrl = "https://cdn.example.com/media/thumbnail.webp";
+        MediaImage thumbnailImage = new MediaImage(
+                assetId,
+                MediaImageRole.RESTAURANT_THUMBNAIL,
+                MediaImageStatus.READY,
+                new MediaImage.Source(thumbnailUrl, 192, 192, "image/webp"),
+                List.of(new MediaImage.SourceSet(
+                        "image/webp",
+                        List.of(new MediaImage.Candidate(thumbnailUrl, 192, 192))
+                ))
+        );
+        RestaurantImageInfo thumbnailInfo = new RestaurantImageInfo(101L, 1, thumbnailImage, null);
+        RestaurantImageInfo heroInfo = new RestaurantImageInfo(101L, 1, heroImage, null);
+        RestaurantMainResponse response = new RestaurantMainResponse(
+                1L,
+                "히마와리 스시",
+                "ひまわり寿司",
+                BigDecimal.valueOf(4.8),
+                100L,
+                12L,
+                "장인의 스시를 즐겨보세요.",
+                "초밥",
+                "도쿄도 신주쿠구",
+                thumbnailUrl,
+                thumbnailInfo,
+                List.of(imageUrl),
+                List.of(heroInfo),
+                4_000L
+        );
+        given(restaurantService.getRestaurantSummary(1L)).willReturn(response);
+
+        mockMvc.perform(get("/api/v1/restaurants/{restaurantId}/summary", 1L))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.saveCount").value(12))
+                .andExpect(jsonPath("$.data.thumbnailImage.restaurantImageId").value(101))
+                .andExpect(jsonPath("$.data.thumbnailImage.displayOrder").value(1))
+                .andExpect(jsonPath("$.data.thumbnailImage.image.assetId")
+                        .value(assetId.toString()))
+                .andExpect(jsonPath("$.data.thumbnailImage.image.role")
+                        .value("RESTAURANT_THUMBNAIL"))
+                .andExpect(jsonPath("$.data.thumbnailImage.image.status").value("READY"))
+                .andExpect(jsonPath("$.data.heroImages[0].image.defaultSource.url")
+                        .value(imageUrl))
+                .andExpect(jsonPath("$.data.heroImages[0].image.sourceSets[0].candidates[0].width")
+                        .value(860));
+
+        verify(restaurantService).getRestaurantSummary(1L);
+    }
+
+    @Test
     void 랜덤_추천_요청이면_현재_식당을_제외하고_공통_성공_응답을_반환한다() throws Exception {
-        RestaurantMainInfo response = createResponse(2L);
+        RestaurantMainResponse response = createResponse(2L);
         given(restaurantService.getRandomRestaurantRecommendation(1L)).willReturn(response);
 
         mockMvc.perform(get("/api/v1/restaurants/recommendations/random")
@@ -83,7 +153,7 @@ class RestaurantControllerTest {
 
     @Test
     void 최초_랜덤_추천은_제외할_식당_ID_없이_요청할_수_있다() throws Exception {
-        RestaurantMainInfo response = createResponse(1L);
+        RestaurantMainResponse response = createResponse(1L);
         given(restaurantService.getRandomRestaurantRecommendation(null)).willReturn(response);
 
         mockMvc.perform(get("/api/v1/restaurants/recommendations/random"))
@@ -181,9 +251,9 @@ class RestaurantControllerTest {
         verify(restaurantService).getRestaurantMenus(1L, 10L, null, 5);
     }
 
-    private RestaurantMainInfo createResponse(Long restaurantId) {
+    private RestaurantMainResponse createResponse(Long restaurantId) {
         String thumbnailUrl = "https://cdn.example.com/restaurants/%d/thumbnail.jpg".formatted(restaurantId);
-        return new RestaurantMainInfo(
+        return new RestaurantMainResponse(
                 restaurantId,
                 "히마와리 스시",
                 "ひまわり寿司",

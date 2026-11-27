@@ -1,4 +1,4 @@
-package org.sopt.hashi.user.recent;
+package org.sopt.hashi.user.recent.domain;
 
 import java.util.List;
 import org.springframework.data.jpa.repository.JpaRepository;

@@ -4,6 +4,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.BDDMockito.given;
+import static org.mockito.BDDMockito.willThrow;
+import static org.mockito.Mockito.mock;
 
 import java.time.Clock;
 import java.time.Instant;
@@ -24,19 +26,31 @@ import org.junit.jupiter.api.Test;
 import org.sopt.hashi.auth.CurrentUserProvider;
 import org.sopt.hashi.restaurant.RestaurantDetailInfo;
 import org.sopt.hashi.restaurant.RestaurantPort;
+import org.sopt.hashi.restaurant.dto.RestaurantMainResponse;
+import org.sopt.hashi.restaurant.service.RestaurantService;
+import org.sopt.hashi.restaurant.web.RestaurantController;
 import org.sopt.hashi.shared.error.BusinessException;
 import org.sopt.hashi.shared.error.CommonErrorCode;
 import org.sopt.hashi.user.domain.User;
 import org.sopt.hashi.user.domain.UserRepository;
-import org.sopt.hashi.user.recent.RecentRestaurantPage.Card;
-import org.sopt.hashi.user.recent.RecentRestaurantRequest.Visit;
+import org.sopt.hashi.user.recent.domain.RecentRestaurant;
+import org.sopt.hashi.user.recent.domain.RecentRestaurantRepository;
+import org.sopt.hashi.user.recent.dto.RecentRestaurantListResponse.Card;
+import org.sopt.hashi.user.recent.dto.RecentRestaurantListResponse;
+import org.sopt.hashi.user.recent.dto.RecentRestaurantRequest.Visit;
+import org.sopt.hashi.user.recent.dto.RecentRestaurantRequest;
+import org.sopt.hashi.user.recent.event.RestaurantViewedListener;
+import org.sopt.hashi.user.recent.service.RecentRestaurantService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.jdbc.AutoConfigureTestDatabase;
 import org.springframework.boot.test.autoconfigure.orm.jpa.DataJpaTest;
 import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.boot.testcontainers.service.connection.ServiceConnection;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Import;
+import org.springframework.dao.DataAccessResourceFailureException;
+import org.springframework.http.HttpMethod;
 import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
@@ -49,7 +63,7 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 
 @Testcontainers
 @DataJpaTest
-@Import({RecentRestaurantService.class, RestaurantDetailViewService.class, RecentRestaurantMySqlTest.ClockConfig.class})
+@Import({RecentRestaurantService.class, RestaurantViewedListener.class, RecentRestaurantMySqlTest.ClockConfig.class})
 @AutoConfigureTestDatabase(replace = AutoConfigureTestDatabase.Replace.NONE)
 @TestPropertySource(properties = "spring.jpa.hibernate.ddl-auto=validate")
 @Transactional(propagation = Propagation.NOT_SUPPORTED)
@@ -68,7 +82,9 @@ class RecentRestaurantMySqlTest {
     @Autowired RecentRestaurantService service;
     @Autowired UserRepository users;
     @Autowired TransactionTemplate transactions;
-    @Autowired RestaurantDetailViewService detail;
+    @Autowired ApplicationEventPublisher events;
+    @MockitoBean RestaurantService summaries;
+    private RestaurantController detail;
     @MockitoBean RestaurantPort restaurants;
     @MockitoBean CurrentUserProvider currentUser;
     private final Set<Long> deleted = new HashSet<>();
@@ -76,6 +92,7 @@ class RecentRestaurantMySqlTest {
 
     @BeforeEach
     void setUp() {
+        detail = new RestaurantController(summaries, events);
         String key = UUID.randomUUID().toString().substring(0, 8);
         userId = users.saveAndFlush(User.onboard(key, "USER", LocalDate.of(2000, 1, 1),
                 key, key + "@example.org", null)).getId();
@@ -89,15 +106,15 @@ class RecentRestaurantMySqlTest {
 
     @Test
     void 기기_이력_재전송과_탈퇴_후_상세_재요청을_처리한다() {
-        detail.getSummary(10L, true);
+        detail.getRestaurantSummary(10L, HttpMethod.GET);
         assertThat(history.findByUserId(userId)).isEmpty();
         given(currentUser.isAuthenticatedUser()).willReturn(true);
-        detail.getSummary(10L, true);
-        detail.getSummary(999L, false);
-        given(restaurants.getRestaurantSummary(555L)).willThrow(new BusinessException(CommonErrorCode.NOT_FOUND));
-        assertThatThrownBy(() -> detail.getSummary(555L, true)).isInstanceOf(BusinessException.class);
-        detail.getSummary(20L, true);
-        detail.getSummary(10L, true);
+        detail.getRestaurantSummary(10L, HttpMethod.GET);
+        detail.getRestaurantSummary(999L, HttpMethod.HEAD);
+        given(summaries.getRestaurantSummary(555L)).willThrow(new BusinessException(CommonErrorCode.NOT_FOUND));
+        assertThatThrownBy(() -> detail.getRestaurantSummary(555L, HttpMethod.GET)).isInstanceOf(BusinessException.class);
+        detail.getRestaurantSummary(20L, HttpMethod.GET);
+        detail.getRestaurantSummary(10L, HttpMethod.GET);
         var merge = new RecentRestaurantRequest(List.of(new Visit(11L, NOW.minusSeconds(3)),
                 new Visit(12L, null), new Visit(13L, null), new Visit(10L, NOW.minusSeconds(60))));
         service.merge(merge);
@@ -107,15 +124,28 @@ class RecentRestaurantMySqlTest {
             users.findByIdForUpdate(userId).orElseThrow().withdraw();
             history.deleteByUserId(userId);
         });
-        detail.getSummary(12L, true);
+        detail.getRestaurantSummary(12L, HttpMethod.GET);
         assertThat(history.findByUserId(userId)).isEmpty();
     }
 
     @Test
-    void 잘못된_미래_시각이_있으면_병합_전체를_취소한다() {
-        assertThatThrownBy(() -> service.merge(new RecentRestaurantRequest(
-                List.of(new Visit(1L, NOW), new Visit(2L, NOW.plusSeconds(60))))))
-                .isInstanceOf(BusinessException.class);
+    void 빠른_기기_시각을_포함한_병합은_재전송해도_정렬이_같다() {
+        var visits = new RecentRestaurantRequest(List.of(new Visit(1L, NOW),
+                new Visit(2L, NOW.plusSeconds(60)), new Visit(3L, NOW.plusSeconds(301))));
+        service.merge(visits);
+        service.merge(visits);
+        assertThat(service.list(null).content()).extracting(Card::restaurantId).containsExactly(2L, 1L, 3L);
+        assertThat(history.findByUserId(userId)).filteredOn(row -> row.getRestaurantId().equals(3L))
+                .extracting(RecentRestaurant::getViewedAt).containsOnlyNulls();
+    }
+
+    @Test
+    void 이력_트랜잭션이_실패해도_공개_상세_응답을_반환한다() {
+        given(currentUser.isAuthenticatedUser()).willReturn(true);
+        willThrow(new DataAccessResourceFailureException("history")).given(restaurants).findActiveIds(any());
+        var summary = mock(RestaurantMainResponse.class);
+        given(summaries.getRestaurantSummary(10L)).willReturn(summary);
+        assertThat(detail.getRestaurantSummary(10L, HttpMethod.GET).data()).isSameAs(summary);
         assertThat(history.findByUserId(userId)).isEmpty();
     }
 
@@ -133,12 +163,12 @@ class RecentRestaurantMySqlTest {
         }
         assertThat(history.findByUserId(userId)).hasSize(50);
         deleted.add(69L);
-        RecentRestaurantPage first = service.list(null);
+        RecentRestaurantListResponse first = service.list(null);
         assertThat(first.content()).extracting(Card::restaurantId)
                 .containsExactly(70L, 68L, 67L, 66L, 65L, 64L, 63L, 62L, 61L, 60L);
         assertThat(first.content().getFirst().saveCount()).isEqualTo(17);
         List<Long> all = new ArrayList<>();
-        RecentRestaurantPage page = first;
+        RecentRestaurantListResponse page = first;
         while (true) {
             page.content().forEach(card -> all.add(card.restaurantId()));
             if (!page.hasNext()) break;

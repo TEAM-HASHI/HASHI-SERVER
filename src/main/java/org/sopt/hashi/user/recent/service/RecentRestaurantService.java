@@ -1,4 +1,4 @@
-package org.sopt.hashi.user.recent;
+package org.sopt.hashi.user.recent.service;
 
 import java.time.Clock;
 import java.time.DateTimeException;
@@ -21,17 +21,22 @@ import org.sopt.hashi.shared.error.CommonErrorCode;
 import org.sopt.hashi.user.code.UserErrorCode;
 import org.sopt.hashi.user.collection.domain.SavedRestaurantRepository;
 import org.sopt.hashi.user.domain.UserRepository;
-import org.sopt.hashi.user.recent.RecentRestaurant.Position;
-import org.sopt.hashi.user.recent.RecentRestaurantRequest.Visit;
+import org.sopt.hashi.user.recent.domain.RecentRestaurant;
+import org.sopt.hashi.user.recent.domain.RecentRestaurant.Position;
+import org.sopt.hashi.user.recent.domain.RecentRestaurantRepository;
+import org.sopt.hashi.user.recent.dto.RecentRestaurantListResponse;
+import org.sopt.hashi.user.recent.dto.RecentRestaurantRequest;
+import org.sopt.hashi.user.recent.dto.RecentRestaurantRequest.Visit;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Isolation;
 import org.springframework.transaction.annotation.Transactional;
 
 @Service
-class RecentRestaurantService {
+public class RecentRestaurantService {
     private static final int HISTORY_LIMIT = 50;
     private static final int PAGE_SIZE = 10;
+    private static final long CLOCK_SKEW_SECONDS = 300;
     private static final Comparator<RecentRestaurant> NEWEST_FIRST = Comparator.comparing(RecentRestaurant::position);
 
     private final RecentRestaurantRepository history;
@@ -111,14 +116,15 @@ class RecentRestaurantService {
         if (time == null) {
             return null;
         }
-        if (time.isBefore(Instant.EPOCH) || time.isAfter(now)) {
-            throw new BusinessException(CommonErrorCode.INVALID_INPUT);
+        if (time.isBefore(Instant.EPOCH) || time.isAfter(now.plusSeconds(CLOCK_SKEW_SECONDS))) {
+            // 범위 밖의 기기 시각도 식당은 남기되 최근 순위를 올리는 데 사용하지 않는다.
+            return null;
         }
         return LocalDateTime.ofInstant(time.truncatedTo(ChronoUnit.MICROS), ZoneOffset.UTC);
     }
 
     @Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ)
-    public RecentRestaurantPage list(String cursor) {
+    public RecentRestaurantListResponse list(String cursor) {
         Long userId = currentUser.currentUserId();
         Position after = decode(cursor);
         List<RecentRestaurant> rows = history.findByUserId(userId).stream()
@@ -133,13 +139,13 @@ class RecentRestaurantService {
             page = page.subList(0, PAGE_SIZE);
         }
         if (page.isEmpty()) {
-            return new RecentRestaurantPage(List.of(), null, false);
+            return new RecentRestaurantListResponse(List.of(), null, false);
         }
         List<Long> ids = page.stream().map(RecentRestaurant::getRestaurantId).toList();
         Set<Long> saved = Set.copyOf(saves.findSavedRestaurantIds(userId, ids));
-        List<RecentRestaurantPage.Card> cards = restaurants.findActiveDetails(ids).stream()
-                .map(card -> RecentRestaurantPage.Card.of(card, saved.contains(card.id()))).toList();
-        return new RecentRestaurantPage(cards, hasNext ? encode(page.getLast().position()) : null, hasNext);
+        List<RecentRestaurantListResponse.Card> cards = restaurants.findActiveDetails(ids).stream()
+                .map(card -> RecentRestaurantListResponse.Card.of(card, saved.contains(card.id()))).toList();
+        return new RecentRestaurantListResponse(cards, hasNext ? encode(page.getLast().position()) : null, hasNext);
     }
 
     private static String encode(Position position) {

@@ -7,9 +7,10 @@ import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Positive;
 import jakarta.validation.constraints.Size;
-import org.sopt.hashi.restaurant.RestaurantMainInfo;
+import org.sopt.hashi.restaurant.RestaurantViewedEvent;
 import org.sopt.hashi.restaurant.code.RestaurantErrorCode;
 import org.sopt.hashi.restaurant.dto.RestaurantListResponse;
+import org.sopt.hashi.restaurant.dto.RestaurantMainResponse;
 import org.sopt.hashi.restaurant.dto.RestaurantMenuDetailResponse;
 import org.sopt.hashi.restaurant.dto.RestaurantMenuListResponse;
 import org.sopt.hashi.restaurant.dto.RestaurantSearchKeywordRecommendationResponse;
@@ -20,6 +21,8 @@ import org.sopt.hashi.shared.error.CommonErrorCode;
 import org.sopt.hashi.shared.error.CommonSuccessCode;
 import org.sopt.hashi.shared.response.SuccessResponse;
 import org.sopt.hashi.shared.swagger.ApiException;
+import org.springframework.context.ApplicationEventPublisher;
+import org.springframework.http.HttpMethod;
 import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -35,7 +38,10 @@ public class RestaurantController {
 
     private final RestaurantService restaurantService;
 
-    public RestaurantController(RestaurantService restaurantService) {
+    private final ApplicationEventPublisher events;
+
+    public RestaurantController(RestaurantService restaurantService, ApplicationEventPublisher events) {
+        this.events = events;
         this.restaurantService = restaurantService;
     }
 
@@ -100,11 +106,25 @@ public class RestaurantController {
     @ApiException(value = CommonErrorCode.class, codes = {"INVALID_INPUT"})
     @ApiException(value = RestaurantErrorCode.class, codes = {"RECOMMENDATION_NOT_FOUND"})
     @GetMapping("/recommendations/random")
-    public SuccessResponse<RestaurantMainInfo> getRandomRestaurantRecommendation(
+    public SuccessResponse<RestaurantMainResponse> getRandomRestaurantRecommendation(
             @Positive @RequestParam(required = false) Long excludeRestaurantId
     ) {
         return SuccessResponse.of(CommonSuccessCode.OK,
                 restaurantService.getRandomRestaurantRecommendation(excludeRestaurantId));
+    }
+
+    /** 식당 상세 요약 조회. */
+    @ApiException(value = CommonErrorCode.class, codes = {"INVALID_INPUT"})
+    @ApiException(value = RestaurantErrorCode.class, codes = {"NOT_FOUND"})
+    @GetMapping("/{restaurantId}/summary")
+    public SuccessResponse<RestaurantMainResponse> getRestaurantSummary(
+            @Positive @PathVariable Long restaurantId, HttpMethod method
+    ) {
+        RestaurantMainResponse summary = restaurantService.getRestaurantSummary(restaurantId);
+        if (HttpMethod.GET.equals(method)) {
+            events.publishEvent(new RestaurantViewedEvent(restaurantId));
+        }
+        return SuccessResponse.of(CommonSuccessCode.OK, summary);
     }
 
     /** 식당 매장 정보 조회. */

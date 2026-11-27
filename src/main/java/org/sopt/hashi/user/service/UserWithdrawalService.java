@@ -17,7 +17,7 @@ import org.sopt.hashi.user.collection.domain.RestaurantCollectionRepository;
 import org.sopt.hashi.user.collection.domain.SavedRestaurantRepository;
 import org.sopt.hashi.user.domain.User;
 import org.sopt.hashi.user.domain.UserRepository;
-import org.sopt.hashi.user.recent.RecentRestaurantRepository;
+import org.sopt.hashi.user.recent.domain.RecentRestaurantRepository;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;

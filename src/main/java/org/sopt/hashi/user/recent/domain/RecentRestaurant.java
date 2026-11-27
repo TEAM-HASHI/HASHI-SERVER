@@ -1,4 +1,4 @@
-package org.sopt.hashi.user.recent;
+package org.sopt.hashi.user.recent.domain;
 
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
@@ -18,7 +18,7 @@ import org.hibernate.type.SqlTypes;
 @Entity
 @Table(name = "recent_restaurant")
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
-class RecentRestaurant {
+public class RecentRestaurant {
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
@@ -29,24 +29,24 @@ class RecentRestaurant {
     @JdbcTypeCode(SqlTypes.LOCAL_DATE_TIME)
     private LocalDateTime viewedAt;
 
-    RecentRestaurant(Long userId, Long restaurantId, LocalDateTime viewedAt) {
+    public RecentRestaurant(Long userId, Long restaurantId, LocalDateTime viewedAt) {
         this.userId = userId;
         this.restaurantId = restaurantId;
         this.viewedAt = viewedAt;
     }
 
-    void keepLatest(LocalDateTime incoming) {
+    public void keepLatest(LocalDateTime incoming) {
         if (incoming != null && (viewedAt == null || incoming.isAfter(viewedAt))) {
             viewedAt = incoming;
         }
     }
 
-    Position position() {
+    public Position position() {
         return new Position(viewedAt, viewedAt == null ? id : restaurantId);
     }
 
     /** 시간이 없는 기존 기기 이력은 입력 순서(id 오름차순)대로 모든 시간 있는 이력 뒤에 둔다. */
-    record Position(LocalDateTime time, long id) implements Comparable<Position> {
+    public record Position(LocalDateTime time, long id) implements Comparable<Position> {
         private static final Comparator<LocalDateTime> NEWEST_FIRST = Comparator.nullsLast(Comparator.reverseOrder());
 
         @Override

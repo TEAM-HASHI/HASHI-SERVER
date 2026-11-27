@@ -28,7 +28,7 @@ import org.sopt.hashi.media.MediaPort;
 import org.sopt.hashi.shared.error.BusinessException;
 import org.sopt.hashi.shared.error.CommonErrorCode;
 import org.sopt.hashi.user.UserWithdrawnEvent;
-import org.sopt.hashi.user.recent.RecentRestaurantRepository;
+import org.sopt.hashi.user.recent.domain.RecentRestaurantRepository;
 import org.sopt.hashi.user.WithdrawalBlocker;
 import org.sopt.hashi.user.code.UserErrorCode;
 import org.sopt.hashi.restaurant.RestaurantPort;
