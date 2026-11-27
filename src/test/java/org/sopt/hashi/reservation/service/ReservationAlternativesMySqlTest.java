@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.BDDMockito.given;
+import static org.mockito.Mockito.mock;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
@@ -76,6 +77,17 @@ class ReservationAlternativesMySqlTest {
     @MockitoBean CurrentActorProvider actor;
     @MockitoBean MediaPort media;
 
+    private RestaurantDetailInfo alternativeRestaurant(Long id) {
+        RestaurantDetailInfo restaurant = mock(RestaurantDetailInfo.class);
+        given(restaurant.id()).willReturn(id);
+        given(restaurant.name()).willReturn("대안 식당");
+        given(restaurant.area()).willReturn("긴자");
+        given(restaurant.foodCategory()).willReturn("교자");
+        given(restaurant.imageUrls()).willReturn(List.of("photo"));
+        given(restaurant.rating()).willReturn(new BigDecimal("4.8"));
+        return restaurant;
+    }
+
     @BeforeEach
     void setUp() {
         given(actor.currentActor()).willReturn(new CurrentActor(ActorType.ADMIN, 1L));
@@ -138,9 +150,7 @@ class ReservationAlternativesMySqlTest {
         var ids = List.of(3L, 2L, 1L);
         given(restaurants.countActiveByIds(ids)).willReturn(3L);
         given(restaurants.findActiveDetails(any())).willAnswer(call ->
-                call.<List<Long>>getArgument(0).stream().map(restaurant -> new RestaurantDetailInfo(
-                        restaurant, "대안 식당", null, null, "긴자", "교자", null, List.of("photo"),
-                        new BigDecimal("4.8"), null, null)).toList());
+                call.<List<Long>>getArgument(0).stream().map(this::alternativeRestaurant).toList());
         service.setAlternativesByAdmin(id, List.of(), ids);
         var cards = service.getMyAlternatives(id).alternatives().restaurants();
         assertThat(cards).extracting("restaurantId").containsExactly(3L, 2L, 1L);
