@@ -74,7 +74,7 @@ class ReviewRewardReclaimTest {
 
     @BeforeEach
     void setUp() {
-        for (String table : new String[]{"review", "point_transaction", "point_account", "users"}) {
+        for (String table : new String[]{"review_keyword", "review_image", "review", "point_transaction", "point_account", "users"}) {
             jdbc.update("DELETE FROM " + table);
         }
         member = users.saveAndFlush(User.onboard("리뷰회원", "회원", LocalDate.of(1990, 1, 1),
